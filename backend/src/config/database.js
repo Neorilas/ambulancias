@@ -8,21 +8,35 @@
 const mysql  = require('mysql2/promise');
 const logger = require('../utils/logger.utils');
 
-// Railway inyecta MYSQLHOST/MYSQLUSER/etc.; también aceptamos DB_HOST/DB_USER/etc.
-const pool = mysql.createPool({
-  host:               process.env.DB_HOST     || process.env.MYSQLHOST     || 'localhost',
-  port:     parseInt(process.env.DB_PORT      || process.env.MYSQLPORT     || '3306'),
-  database:           process.env.DB_NAME     || process.env.MYSQLDATABASE || 'ambulancia_db',
-  user:               process.env.DB_USER     || process.env.MYSQLUSER     || 'root',
-  password:           process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
-  waitForConnections: true,
-  connectionLimit:    parseInt(process.env.DB_POOL_MAX || '10'),
-  queueLimit:         0,
-  enableKeepAlive:    true,
-  keepAliveInitialDelay: 0,
-  timezone:           '+00:00', // UTC en DB, conversión en app
-  charset:            'utf8mb4',
-});
+// Si hay URL de conexión (MYSQL_URL o DATABASE_URL), usarla directamente.
+// Si no, usar variables individuales (desarrollo local).
+const connectionConfig = (process.env.MYSQL_URL || process.env.DATABASE_URL)
+  ? {
+      uri:              process.env.MYSQL_URL || process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit:  parseInt(process.env.DB_POOL_MAX || '10'),
+      queueLimit:       0,
+      enableKeepAlive:  true,
+      keepAliveInitialDelay: 0,
+      timezone:         '+00:00',
+      charset:          'utf8mb4',
+    }
+  : {
+      host:             process.env.DB_HOST     || 'localhost',
+      port:   parseInt(process.env.DB_PORT      || '3306'),
+      database:         process.env.DB_NAME     || 'ambulancia_db',
+      user:             process.env.DB_USER     || 'root',
+      password:         process.env.DB_PASSWORD || '',
+      waitForConnections: true,
+      connectionLimit:  parseInt(process.env.DB_POOL_MAX || '10'),
+      queueLimit:       0,
+      enableKeepAlive:  true,
+      keepAliveInitialDelay: 0,
+      timezone:         '+00:00',
+      charset:          'utf8mb4',
+    };
+
+const pool = mysql.createPool(connectionConfig);
 
 /**
  * Verifica la conexión al arrancar el servidor
