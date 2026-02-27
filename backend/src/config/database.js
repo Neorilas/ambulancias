@@ -44,7 +44,13 @@ function buildPoolConfig() {
   };
 }
 
-const pool = mysql.createPool(buildPoolConfig());
+function buildPoolConfigWithLog() {
+  const cfg = buildPoolConfig();
+  logger.info(`DB config → host=${cfg.host} port=${cfg.port} db=${cfg.database} user=${cfg.user}`);
+  return cfg;
+}
+
+const pool = mysql.createPool(buildPoolConfigWithLog());
 
 /**
  * Verifica la conexión al arrancar el servidor
