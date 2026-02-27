@@ -1,0 +1,189 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    /* Soporte para área segura en iPhone con notch */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900 font-sans;
+    min-height: 100dvh; /* dynamic viewport height para móvil */
+    overscroll-behavior: none; /* evitar bounce en iOS */
+  }
+
+  /* Scrollbar personalizado (escritorio) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track { @apply bg-neutral-100; }
+  ::-webkit-scrollbar-thumb { @apply bg-neutral-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-neutral-400; }
+}
+
+@layer components {
+  /* Botones */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5
+           rounded-lg font-medium text-sm transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed active:scale-95;
+  }
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+  .btn-secondary {
+    @apply btn bg-neutral-100 text-neutral-700 hover:bg-neutral-200 focus:ring-neutral-400;
+  }
+  .btn-danger {
+    @apply btn bg-red-100 text-red-700 hover:bg-red-200 focus:ring-red-400;
+  }
+  .btn-ghost {
+    @apply btn text-neutral-600 hover:bg-neutral-100 focus:ring-neutral-300;
+  }
+  .btn-icon {
+    @apply btn p-2 rounded-full;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-3 py-2.5 rounded-lg border border-neutral-300
+           text-neutral-900 text-sm placeholder-neutral-400
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           transition-colors duration-150;
+  }
+  .input-error {
+    @apply border-red-400 focus:ring-red-400;
+  }
+  .label {
+    @apply block text-sm font-medium text-neutral-700 mb-1;
+  }
+  .field-error {
+    @apply mt-1 text-xs text-red-600;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-neutral-100 p-4;
+  }
+  .card-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  /* Badges de estado */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-green  { @apply badge bg-green-100 text-green-800; }
+  .badge-blue   { @apply badge bg-blue-100 text-blue-800; }
+  .badge-yellow { @apply badge bg-yellow-100 text-yellow-800; }
+  .badge-red    { @apply badge bg-red-100 text-red-800; }
+  .badge-gray   { @apply badge bg-neutral-100 text-neutral-700; }
+
+  /* Tablas responsivas */
+  .table-container {
+    @apply overflow-x-auto -mx-4 sm:mx-0;
+  }
+  .table {
+    @apply w-full text-sm text-left;
+  }
+  .table thead tr {
+    @apply bg-neutral-50 border-b border-neutral-200;
+  }
+  .table th {
+    @apply px-4 py-3 font-medium text-neutral-600 whitespace-nowrap;
+  }
+  .table tbody tr {
+    @apply border-b border-neutral-100 hover:bg-neutral-50 transition-colors;
+  }
+  .table td {
+    @apply px-4 py-3 text-neutral-700;
+  }
+
+  /* Spinner */
+  .spinner {
+    @apply animate-spin rounded-full border-2 border-neutral-200 border-t-primary-600;
+  }
+
+  /* Camera overlay */
+  .camera-guide {
+    @apply absolute inset-0 pointer-events-none;
+  }
+  .camera-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%);
+    width: 85%;
+    aspect-ratio: 4/3;
+    border: 3px solid rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  }
+  .camera-frame::before,
+  .camera-frame::after {
+    content: '';
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: #ef4444;
+    border-style: solid;
+  }
+  .camera-frame::before {
+    top: -3px; left: -3px;
+    border-width: 4px 0 0 4px;
+    border-radius: 4px 0 0 0;
+  }
+  .camera-frame::after {
+    bottom: -3px; right: -3px;
+    border-width: 0 4px 4px 0;
+    border-radius: 0 0 4px 0;
+  }
+}
+
+@layer utilities {
+  .safe-top    { padding-top:    env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .min-h-dvh   { min-height: 100dvh; }
+  .h-dvh       { height:     100dvh; }
+
+  /* Touch-friendly tap targets */
+  .touch-target {
+    min-height: 44px;
+    min-width:  44px;
+  }
+}
+
+/* Animaciones */
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-slide-up { animation: slideUp 0.25s ease-out; }
+.animate-fade-in  { animation: fadeIn  0.2s ease-out; }
+
+/* Splash screen durante carga inicial */
+#root:empty::before {
+  content: '';
+  display: block;
+  width: 100vw;
+  height: 100dvh;
+  background: #dc2626;
+}

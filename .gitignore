@@ -1,0 +1,38 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Entorno - NUNCA commitear
+.env
+backend/.env
+frontend/.env
+# frontend/.env.production se commitea (solo contiene VITE_ vars públicas, sin secretos)
+
+# Build
+frontend/dist/
+frontend/.vite/
+
+# Logs
+*.log
+backend/logs/
+
+# Uploads (archivos subidos por usuarios)
+backend/uploads/vehicles/
+backend/uploads/trabajos/
+!backend/uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude Code
+.claude/
+
+# Vite dev PWA
+frontend/dev-dist/
