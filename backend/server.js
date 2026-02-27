@@ -88,20 +88,35 @@ app.use(errorHandler);
 // ============================================================
 // Arranque del servidor
 // ============================================================
-async function startServer() {
+async function connectWithRetry(retriesLeft = 10, delayMs = 3000) {
   try {
-    // Verificar conexión a base de datos antes de abrir el puerto
     await testConnection();
     logger.info('Conexión a MySQL establecida correctamente');
+  } catch (err) {
+    logger.error(`Error conectando a MySQL (${retriesLeft} intentos restantes): ${err.message}`);
+    if (retriesLeft === 0) {
+      logger.error('No se pudo conectar a MySQL tras todos los intentos. Saliendo.');
+      process.exit(1);
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+    return connectWithRetry(retriesLeft - 1, delayMs);
+  }
+}
 
-    app.listen(PORT, () => {
+async function startServer() {
+  // Escuchar PRIMERO para que el health check de Railway responda
+  // mientras se establece la conexión a la BD.
+  await new Promise((resolve, reject) => {
+    app.listen(PORT, (err) => {
+      if (err) return reject(err);
       logger.info(`Servidor iniciado en puerto ${PORT} [${process.env.NODE_ENV}]`);
       logger.info(`API disponible en http://localhost:${PORT}${API}`);
+      resolve();
     });
-  } catch (err) {
-    logger.error('Error al iniciar el servidor:', err);
-    process.exit(1);
-  }
+  });
+
+  // Conectar a la BD con reintentos (no bloquea el health check)
+  await connectWithRetry();
 }
 
 // Manejo de errores no capturados
