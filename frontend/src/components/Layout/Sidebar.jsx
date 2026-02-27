@@ -70,7 +70,7 @@ export default function Sidebar({ isOpen, onClose }) {
         {/* Footer del sidebar */}
         <div className="p-4 border-t border-neutral-100">
           <p className="text-xs text-neutral-400 text-center">
-            Sistema Gestión Ambulancias<br />v1.0.0
+            VAPSS · V.A.P Servicios Sanitarios<br />v1.0.0
           </p>
         </div>
       </aside>

@@ -4,18 +4,31 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta principal - rojo ambulancia
+        // Paleta principal - verde VAPSS
         primary: {
-          50:  '#fef2f2',
-          100: '#fee2e2',
-          200: '#fecaca',
-          300: '#fca5a5',
-          400: '#f87171',
-          500: '#ef4444',
-          600: '#dc2626',  // principal
-          700: '#b91c1c',
-          800: '#991b1b',
-          900: '#7f1d1d',
+          50:  '#f0fdf4',
+          100: '#d8fde1',
+          200: '#aff5c0',
+          300: '#7de9a0',
+          400: '#55CD6C',  // verde corporativo VAPSS
+          500: '#2db85a',
+          600: '#1a9e44',  // principal (navbar, botones)
+          700: '#157a35',
+          800: '#105727',
+          900: '#0a3a1a',
+        },
+        // Azul corporativo VAPSS
+        vapss: {
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#3b82f6',
+          500: '#154773',  // azul VAPSS exact
+          600: '#1e3a5f',
+          700: '#162d4a',
+          800: '#0f1f33',
+          900: '#081220',
         },
         // Gris neutro para UI
         neutral: {

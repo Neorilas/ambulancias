@@ -35,8 +35,13 @@ export default function Navbar({ onMenuToggle }) {
 
         {/* Logo */}
         <Link to="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight">
-          <span className="text-xl">🚑</span>
-          <span className="hidden xs:inline">Ambulancias</span>
+          <img
+            src="https://vapss.net/wp-content/uploads/2024/12/cropped-cropped-vapss-banner-2.webp"
+            alt="VAPSS"
+            className="h-7 object-contain"
+            onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='inline'; }}
+          />
+          <span className="hidden">VAPSS</span>
         </Link>
 
         <div className="flex-1" />
