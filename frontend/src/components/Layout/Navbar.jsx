@@ -38,7 +38,7 @@ export default function Navbar({ onMenuToggle }) {
           <img
             src="https://vapss.net/wp-content/uploads/2024/12/cropped-cropped-vapss-banner-2.webp"
             alt="VAPSS"
-            className="h-7 object-contain"
+            className="h-7 object-contain brightness-0 invert"
             onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='inline'; }}
           />
           <span className="hidden">VAPSS</span>

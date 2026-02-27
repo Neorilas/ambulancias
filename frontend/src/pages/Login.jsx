@@ -59,7 +59,7 @@ export default function Login() {
         <img
           src="https://vapss.net/wp-content/uploads/2024/12/cropped-cropped-vapss-banner-2.webp"
           alt="VAPSS"
-          className="h-16 mx-auto mb-4 object-contain drop-shadow-lg"
+          className="h-16 mx-auto mb-4 object-contain brightness-0 invert drop-shadow-lg"
           onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
         />
         <h1 className="text-2xl font-bold text-white hidden">VAPSS</h1>
