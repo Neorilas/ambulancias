@@ -1,0 +1,71 @@
+services:
+
+  # ─────────────────────────────────────────
+  # BACKEND — Web Service (Node.js)
+  # ─────────────────────────────────────────
+  - type: web
+    name: vapss-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_VERSION
+        value: v1
+      # DB — pega el valor de MYSQL_PUBLIC_URL del servicio mysql-volume en Railway
+      - key: MYSQL_URL
+        sync: false
+      # JWT — pega tus valores actuales
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: JWT_ACCESS_EXPIRES
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES
+        value: 7d
+      # CORS — dominio del frontend (sin path)
+      - key: CORS_ORIGIN
+        value: https://vapss.net
+      # Uploads y límites
+      - key: UPLOADS_DIR
+        value: ./uploads
+      - key: MAX_FILE_SIZE_MB
+        value: "10"
+      - key: BCRYPT_ROUNDS
+        value: "12"
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────────────────────────────────
+  # FRONTEND — Static Site (React/Vite)
+  # ─────────────────────────────────────────
+  - type: web
+    name: vapss-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    plan: free
+    envVars:
+      - key: VITE_BASE_PATH
+        value: /app/
+      # Cambia por la URL real de vapss-backend en Render tras el primer deploy
+      - key: VITE_API_URL
+        value: https://vapss-backend.onrender.com
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      # SPA: todas las rutas apuntan al index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html
