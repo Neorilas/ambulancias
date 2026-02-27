@@ -289,27 +289,17 @@ WHERE t.deleted_at IS NULL
 -- Requiere que el event_scheduler esté activo en MySQL
 -- SET GLOBAL event_scheduler = ON;
 -- ============================================================
-DELIMITER //
 CREATE EVENT IF NOT EXISTS `ev_clean_login_attempts`
   ON SCHEDULE EVERY 1 DAY
   STARTS CURRENT_TIMESTAMP
-  DO
-  BEGIN
-    DELETE FROM login_attempts
-    WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
-  END //
-DELIMITER ;
+  DO DELETE FROM login_attempts
+     WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
 
 -- ============================================================
 -- EVENTO: limpieza de refresh_tokens expirados
 -- ============================================================
-DELIMITER //
 CREATE EVENT IF NOT EXISTS `ev_clean_expired_tokens`
   ON SCHEDULE EVERY 1 HOUR
   STARTS CURRENT_TIMESTAMP
-  DO
-  BEGIN
-    DELETE FROM refresh_tokens
-    WHERE expires_at < NOW() OR revoked = 1;
-  END //
-DELIMITER ;
+  DO DELETE FROM refresh_tokens
+     WHERE expires_at < NOW() OR revoked = 1;

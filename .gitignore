@@ -1,38 +1,85 @@
+# ============================================================
 # Node
+# ============================================================
 node_modules/
 npm-debug.log*
 yarn-error.log*
 
-# Entorno - NUNCA commitear
+# ============================================================
+# Entorno — NUNCA subir al repo
+# ============================================================
 .env
+.env.local
+.env.*.local
 backend/.env
 frontend/.env
-# frontend/.env.production se commitea (solo contiene VITE_ vars públicas, sin secretos)
+# frontend/.env.production se sí se commitea (solo VITE_ vars, sin secretos)
 
+# ============================================================
+# Documentos privados de despliegue/operaciones
+# ============================================================
+RAILWAY-DEPLOY.md
+DEPLOY-PRIVADO.md
+CREDENCIALES.md
+credenciales.md
+accesos.md
+accesos.txt
+passwords.txt
+secrets.txt
+
+# ============================================================
+# Certificados y claves privadas
+# ============================================================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+
+# ============================================================
 # Build
+# ============================================================
 frontend/dist/
 frontend/.vite/
 
+# ============================================================
 # Logs
+# ============================================================
 *.log
 backend/logs/
 
-# Uploads (archivos subidos por usuarios)
+# ============================================================
+# Uploads (archivos subidos por usuarios — datos reales)
+# ============================================================
 backend/uploads/vehicles/
 backend/uploads/trabajos/
 !backend/uploads/.gitkeep
 
+# ============================================================
 # OS
+# ============================================================
 .DS_Store
 Thumbs.db
+desktop.ini
 
+# ============================================================
 # IDE
+# ============================================================
 .vscode/
 .idea/
 *.swp
+*.swo
+*.suo
+.vs/
 
+# ============================================================
 # Claude Code
+# ============================================================
 .claude/
 
-# Vite dev PWA
+# ============================================================
+# Vite / PWA dev
+# ============================================================
 frontend/dev-dist/

@@ -31,12 +31,12 @@ const logger = winston.createLogger({
     logFormat
   ),
   transports: [
-    // Consola - solo en desarrollo
-    ...(process.env.NODE_ENV !== 'production' ? [
-      new winston.transports.Console({
-        format: combine(colorize(), timestamp({ format: 'HH:mm:ss' }), logFormat),
-      }),
-    ] : []),
+    // Consola - siempre activa (Railway/producción no tiene acceso a archivos)
+    new winston.transports.Console({
+      format: process.env.NODE_ENV === 'production'
+        ? combine(timestamp({ format: 'HH:mm:ss' }), logFormat)
+        : combine(colorize(), timestamp({ format: 'HH:mm:ss' }), logFormat),
+    }),
     // Archivo de errores
     new winston.transports.File({
       filename: path.join(LOG_DIR, 'error.log'),

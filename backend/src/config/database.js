@@ -8,12 +8,13 @@
 const mysql  = require('mysql2/promise');
 const logger = require('../utils/logger.utils');
 
+// Railway inyecta MYSQLHOST/MYSQLUSER/etc.; también aceptamos DB_HOST/DB_USER/etc.
 const pool = mysql.createPool({
-  host:               process.env.DB_HOST     || 'localhost',
-  port:     parseInt(process.env.DB_PORT      || '3306'),
-  database:           process.env.DB_NAME     || 'ambulancia_db',
-  user:               process.env.DB_USER     || 'root',
-  password:           process.env.DB_PASSWORD || '',
+  host:               process.env.DB_HOST     || process.env.MYSQLHOST     || 'localhost',
+  port:     parseInt(process.env.DB_PORT      || process.env.MYSQLPORT     || '3306'),
+  database:           process.env.DB_NAME     || process.env.MYSQLDATABASE || 'ambulancia_db',
+  user:               process.env.DB_USER     || process.env.MYSQLUSER     || 'root',
+  password:           process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
   waitForConnections: true,
   connectionLimit:    parseInt(process.env.DB_POOL_MAX || '10'),
   queueLimit:         0,
