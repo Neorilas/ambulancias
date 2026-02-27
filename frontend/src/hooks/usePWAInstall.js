@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 
 export function usePWAInstall() {
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [isInstalled,   setIsInstalled]   = useState(false);
-  const [isIOS,         setIsIOS]         = useState(false);
-  const [isMobile,      setIsMobile]      = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(
+    // Leer el prompt si ya fue capturado antes de que React montara
+    () => window.__pwaInstallPrompt || null
+  );
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [isIOS,       setIsIOS]       = useState(false);
+  const [isMobile,    setIsMobile]    = useState(false);
 
   useEffect(() => {
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    const ios    = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
     const mobile = ios || /android/i.test(navigator.userAgent);
     setIsIOS(ios);
     setIsMobile(mobile);
@@ -17,14 +20,27 @@ export function usePWAInstall() {
       window.navigator.standalone === true;
     setIsInstalled(standalone);
 
-    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
-    const onInstalled = () => { setIsInstalled(true); setInstallPrompt(null); };
+    // Si el prompt llegó tarde (después de que React montó)
+    const onPrompt = (e) => {
+      e.preventDefault();
+      window.__pwaInstallPrompt = e;
+      setInstallPrompt(e);
+    };
+
+    // Si el prompt ya estaba capturado pero aún no lo teníamos en state
+    const onPromptReady = () => {
+      if (window.__pwaInstallPrompt) setInstallPrompt(window.__pwaInstallPrompt);
+    };
+
+    const onInstalled = () => { setIsInstalled(true); setInstallPrompt(null); window.__pwaInstallPrompt = null; };
 
     window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
+    window.addEventListener('pwaPromptReady',      onPromptReady);
+    window.addEventListener('appinstalled',        onInstalled);
     return () => {
       window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
+      window.removeEventListener('pwaPromptReady',      onPromptReady);
+      window.removeEventListener('appinstalled',        onInstalled);
     };
   }, []);
 
@@ -32,13 +48,11 @@ export function usePWAInstall() {
     if (!installPrompt) return false;
     installPrompt.prompt();
     const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') setInstallPrompt(null);
+    if (outcome === 'accepted') { setInstallPrompt(null); window.__pwaInstallPrompt = null; }
     return outcome === 'accepted';
   };
 
-  // Mostrar botón si: no instalada Y (hay prompt nativo OR es iOS OR es móvil sin HTTPS)
-  const canInstall = !isInstalled && (installPrompt !== null || isIOS || isMobile);
-  // Si hay prompt nativo disponible, el botón funcionará directamente
+  const canInstall  = !isInstalled && (installPrompt !== null || isIOS || isMobile);
   const promptReady = installPrompt !== null;
 
   return { canInstall, install, isIOS, isMobile, promptReady };
