@@ -63,7 +63,7 @@ export default function Login() {
           onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
         />
         <h1 className="text-2xl font-bold text-white hidden">VAPSS</h1>
-        <p className="text-primary-200 text-sm mt-1">Sistema interno de operaciones</p>
+        <p className="text-primary-200 text-sm mt-1">Sistema interno de operaciones · v1.0</p>
       </div>
 
       {/* Card de login */}
