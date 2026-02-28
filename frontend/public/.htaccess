@@ -1,6 +1,23 @@
 Options -MultiViews
 RewriteEngine On
 RewriteBase /app/
+
+# SPA: redirige todo a index.html excepto archivos y carpetas existentes
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [QSA,L]
+
+# MIME types necesarios para PWA
+AddType application/manifest+json  .webmanifest
+AddType text/javascript            .js
+
+# Service Worker: sin caché y scope correcto
+<FilesMatch "sw\.js$">
+  Header set Cache-Control "no-cache, no-store, must-revalidate"
+  Header set Service-Worker-Allowed "/app/"
+</FilesMatch>
+
+# Assets con hash: caché larga
+<FilesMatch "\.(js|css|png|jpg|svg|woff2|ico)$">
+  Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
