@@ -103,13 +103,28 @@ async function main() {
 
   console.log('\n⏳ Conectando a la base de datos...');
 
-  const conn = await mysql.createConnection({
-    host:     process.env.DB_HOST     || 'localhost',
-    port:     process.env.DB_PORT     || 3306,
-    database: process.env.DB_NAME     || 'ambulancia_db',
-    user:     process.env.DB_USER     || 'root',
-    password: process.env.DB_PASSWORD || '',
-  });
+  const rawUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
+  let dbConfig;
+  if (rawUrl) {
+    const u = new URL(rawUrl);
+    dbConfig = {
+      host:     u.hostname,
+      port:     parseInt(u.port) || 3306,
+      user:     decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+      database: u.pathname.replace(/^\//, ''),
+    };
+  } else {
+    dbConfig = {
+      host:     process.env.DB_HOST     || 'localhost',
+      port:     parseInt(process.env.DB_PORT || '3306'),
+      database: process.env.DB_NAME     || 'ambulancia_db',
+      user:     process.env.DB_USER     || 'root',
+      password: process.env.DB_PASSWORD || '',
+    };
+  }
+
+  const conn = await mysql.createConnection(dbConfig);
 
   try {
     // Verificar que no existe ese username
