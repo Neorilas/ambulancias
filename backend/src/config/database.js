@@ -23,15 +23,22 @@ function buildPoolConfig() {
 
   const rawUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
   if (rawUrl) {
-    const u = new URL(rawUrl);
-    return {
-      ...base,
-      host:     u.hostname,
-      port:     parseInt(u.port) || 3306,
-      user:     decodeURIComponent(u.username),
-      password: decodeURIComponent(u.password),
-      database: u.pathname.replace(/^\//, ''),
-    };
+    try {
+      const u = new URL(rawUrl);
+      // Solo usar la URL si el hostname es un valor real (no una referencia sin resolver)
+      if (u.hostname && !u.hostname.includes('{{')) {
+        return {
+          ...base,
+          host:     u.hostname,
+          port:     parseInt(u.port) || 3306,
+          user:     decodeURIComponent(u.username),
+          password: decodeURIComponent(u.password),
+          database: u.pathname.replace(/^\//, ''),
+        };
+      }
+    } catch (_) {
+      // URL inválida (referencias sin resolver) → caer a variables individuales
+    }
   }
 
   return {
