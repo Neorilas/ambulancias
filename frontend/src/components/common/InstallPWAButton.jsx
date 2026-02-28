@@ -72,26 +72,34 @@ export default function InstallPWAButton({ variant = 'banner' }) {
   function renderModals() {
     return (
       <>
-        {/* Modal HTTP — solo en pruebas locales */}
+        {/* Modal cuando el navegador aún no ha ofrecido el prompt de instalación */}
         {showHTTPMsg && (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
                onClick={() => setShowHTTPMsg(false)}>
             <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-10 shadow-2xl"
                  onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 bg-neutral-300 rounded-full mx-auto mb-5" />
-              <h3 className="text-lg font-bold text-neutral-900 text-center mb-2">Instalación disponible en producción</h3>
+              <h3 className="text-lg font-bold text-neutral-900 text-center mb-2">Preparando instalación…</h3>
               <p className="text-sm text-neutral-600 text-center mb-4">
-                La instalación directa requiere conexión segura (HTTPS).<br />
-                Cuando la app esté en:
+                El navegador todavía no ha habilitado el instalador.<br/>
+                Prueba estos pasos:
               </p>
-              <div className="bg-primary-50 border border-primary-200 rounded-xl px-4 py-3 text-center mb-5">
-                <span className="text-primary-700 font-semibold text-sm">https://vapss.net/app</span>
-              </div>
-              <p className="text-sm text-neutral-500 text-center">
-                El botón instalará la app directamente con un solo toque.
-              </p>
+              <ol className="space-y-3 mb-5">
+                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
+                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">1</span>
+                  <p className="text-sm text-neutral-700">Recarga la página y espera unos segundos</p>
+                </li>
+                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
+                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">2</span>
+                  <p className="text-sm text-neutral-700">Cierra la pestaña, vuelve a abrir la app y pulsa el botón de nuevo</p>
+                </li>
+                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
+                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">3</span>
+                  <p className="text-sm text-neutral-700">En Chrome: menú ⋮ → <strong>Añadir a pantalla de inicio</strong></p>
+                </li>
+              </ol>
               <button onClick={() => setShowHTTPMsg(false)}
-                      className="mt-5 w-full bg-primary-600 text-white font-semibold rounded-xl py-3">
+                      className="w-full bg-primary-600 text-white font-semibold rounded-xl py-3">
                 Entendido
               </button>
             </div>
