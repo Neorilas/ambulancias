@@ -117,6 +117,23 @@ async function startServer() {
 
   // Conectar a la BD con reintentos (no bloquea el health check)
   await connectWithRetry();
+
+  // Cron: auto-activar trabajos programados cuya fecha_inicio ya pasó
+  const { query: dbQuery } = require('./src/config/database');
+  setInterval(async () => {
+    try {
+      const [result] = await dbQuery(
+        `UPDATE trabajos SET estado = 'activo'
+         WHERE estado = 'programado' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+      );
+      if (result.affectedRows > 0) {
+        logger.info(`Auto-activados ${result.affectedRows} trabajo(s) programados`);
+      }
+    } catch (err) {
+      logger.error('Error en cron auto-activar:', err.message);
+    }
+  }, 5 * 60 * 1000); // cada 5 minutos
+  logger.info('Cron auto-activación de trabajos iniciado (cada 5 min)');
 }
 
 // Manejo de errores no capturados

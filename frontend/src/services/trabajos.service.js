@@ -22,6 +22,9 @@ export const trabajosService = {
   delete(id) {
     return api.delete(`/trabajos/${id}`).then(r => r.data);
   },
+  activar(id) {
+    return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
+  },
   finalize(id, data) {
     return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data.data);
   },

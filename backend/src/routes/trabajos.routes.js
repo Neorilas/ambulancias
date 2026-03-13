@@ -73,6 +73,13 @@ router.delete('/:id',
   ctrl.deleteTrabajo
 );
 
+// POST /trabajos/:id/activar  - activar trabajo programado
+router.post('/:id/activar',
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.activarTrabajo
+);
+
 // POST /trabajos/:id/finalize  - finalizar trabajo con evidencias
 router.post('/:id/finalize',
   [

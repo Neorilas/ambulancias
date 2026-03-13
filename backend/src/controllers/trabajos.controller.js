@@ -536,7 +536,7 @@ async function misTrab(req, res, next) {
     const [countRows] = await query(
       `SELECT COUNT(*) AS total FROM trabajo_usuarios tu
        JOIN trabajos t ON tu.trabajo_id = t.id
-       WHERE tu.user_id = ? AND t.deleted_at IS NULL`,
+       WHERE tu.user_id = ? AND t.deleted_at IS NULL AND t.estado IN ('programado', 'activo')`,
       [req.user.id]
     );
 
@@ -551,8 +551,8 @@ async function misTrab(req, res, next) {
        LEFT JOIN trabajo_vehiculos tv ON t.id = tv.trabajo_id
        LEFT JOIN vehicles v ON tv.vehicle_id = v.id
        LEFT JOIN users resp ON tv.responsable_user_id = resp.id
-       WHERE tu.user_id = ? AND t.deleted_at IS NULL
-       ORDER BY t.fecha_inicio DESC
+       WHERE tu.user_id = ? AND t.deleted_at IS NULL AND t.estado IN ('programado', 'activo')
+       ORDER BY FIELD(t.estado, 'activo', 'programado'), t.fecha_inicio ASC
        LIMIT ? OFFSET ?`,
       [req.user.id, req.user.id, limit, offset]
     );
@@ -563,8 +563,55 @@ async function misTrab(req, res, next) {
   }
 }
 
+// ============================================================
+// POST /trabajos/:id/activar
+// Activación manual anticipada (owner/admin/gestor)
+// ============================================================
+async function activarTrabajo(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    const [rows] = await query(
+      `SELECT t.id, t.estado, t.fecha_inicio
+       FROM trabajos t
+       WHERE t.id = ? AND t.deleted_at IS NULL`,
+      [id]
+    );
+    if (!rows.length) return notFound(res, 'Trabajo');
+
+    const trabajo = rows[0];
+    if (trabajo.estado !== TRABAJO_ESTADOS.PROGRAMADO) {
+      return error(res, 'Solo se pueden activar trabajos programados', 400);
+    }
+
+    // Operacionales solo pueden activar si son responsables de algún vehículo
+    if (isOperacional(req.user)) {
+      const [resp] = await query(
+        'SELECT id FROM trabajo_vehiculos WHERE trabajo_id = ? AND responsable_user_id = ?',
+        [id, req.user.id]
+      );
+      if (!resp.length) return forbidden(res, 'Solo el responsable puede activar este trabajo');
+    }
+
+    // Permitir activar si faltan <= 24 horas para fecha_inicio
+    const horasRestantes = (new Date(trabajo.fecha_inicio) - new Date()) / (1000 * 60 * 60);
+    if (horasRestantes > 24 && isOperacional(req.user)) {
+      return error(res, 'Solo puedes activar el trabajo en las 24 horas previas al inicio', 400);
+    }
+
+    await query(
+      'UPDATE trabajos SET estado = ?, activado_por = ? WHERE id = ?',
+      [TRABAJO_ESTADOS.ACTIVO, req.user.id, id]
+    );
+
+    const t = await getTrabajoCompleto(id);
+    return success(res, t, 'Trabajo activado');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listTrabajos, listTrabajosCalendario, getTrabajo,
   createTrabajo, updateTrabajo, deleteTrabajo,
-  finalizeTrabajo, uploadEvidencia, misTrab,
+  finalizeTrabajo, uploadEvidencia, misTrab, activarTrabajo,
 };

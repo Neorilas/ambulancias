@@ -66,6 +66,8 @@ export default function MisTrabajos() {
               {trabajos.map(t => {
                 const activo    = isWorkActive(t);
                 const vencido   = isOverdue(t);
+                const esProgramado = t.estado === TRABAJO_ESTADOS.PROGRAMADO;
+                const puedeActivar = esProgramado && t.soy_responsable;
                 const puedeFinz = t.soy_responsable &&
                   ![TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(t.estado) &&
                   (activo || vencido);
@@ -97,31 +99,54 @@ export default function MisTrabajos() {
                         <p className="text-xs text-neutral-400 mt-1">
                           {formatDateTime(t.fecha_inicio)} → {formatDateTime(t.fecha_fin)}
                         </p>
+                        {esProgramado && (
+                          <span className="inline-block mt-1 text-xs text-yellow-600 font-medium">
+                            Programado
+                          </span>
+                        )}
                         {activo && (
                           <span className="inline-block mt-1 text-xs text-blue-600 font-medium">
-                            ● En curso ahora
+                            En curso ahora
                           </span>
                         )}
                         {vencido && t.estado === 'activo' && (
                           <span className="inline-block mt-1 text-xs text-red-600 font-medium">
-                            ⚠ Tiempo superado - pendiente de finalizar
+                            Tiempo superado - pendiente de finalizar
                           </span>
                         )}
                       </div>
 
-                      {puedeFinz && (
-                        <button
-                          onClick={async () => {
-                            try {
-                              const full = await trabajosService.get(t.id);
-                              setFinTrabajo(full);
-                            } catch { notify.error('Error al cargar el trabajo'); }
-                          }}
-                          className="btn-primary text-xs flex-shrink-0"
-                        >
-                          Finalizar
-                        </button>
-                      )}
+                      <div className="flex flex-col gap-2 flex-shrink-0">
+                        {puedeActivar && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await trabajosService.activar(t.id);
+                                notify.success('Trabajo activado');
+                                load();
+                              } catch (err) {
+                                notify.error(err.response?.data?.message || 'No se pudo activar');
+                              }
+                            }}
+                            className="btn-secondary text-xs"
+                          >
+                            Activar
+                          </button>
+                        )}
+                        {puedeFinz && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const full = await trabajosService.get(t.id);
+                                setFinTrabajo(full);
+                              } catch { notify.error('Error al cargar el trabajo'); }
+                            }}
+                            className="btn-primary text-xs"
+                          >
+                            Finalizar
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
