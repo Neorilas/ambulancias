@@ -77,10 +77,13 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   // Re-attach stream to video when returning from preview
   useEffect(() => {
     if (!preview && streamRef.current && videoRef.current) {
+      setCameraReady(false);
       videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().then(() => setCameraReady(true)).catch(() => {});
+      videoRef.current.play()
+        .then(() => setCameraReady(true))
+        .catch(() => startCamera(facingMode));
     }
-  }, [preview]);
+  }, [preview, startCamera, facingMode]);
 
   // ── Capturar foto ──────────────────────────────────────────
   const capture = useCallback(async () => {
