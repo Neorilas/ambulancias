@@ -74,16 +74,6 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     };
   }, [facingMode]);
 
-  // Re-attach stream to video when returning from preview
-  useEffect(() => {
-    if (!preview && streamRef.current && videoRef.current) {
-      setCameraReady(false);
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play()
-        .then(() => setCameraReady(true))
-        .catch(() => startCamera(facingMode));
-    }
-  }, [preview, startCamera, facingMode]);
 
   // ── Capturar foto ──────────────────────────────────────────
   const capture = useCallback(async () => {
@@ -124,17 +114,19 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
         onComplete(newCaptured);
       } else {
         setCurrentIndex(prev => prev + 1);
+        startCamera(facingMode); // Reinicia cámara para la siguiente foto
       }
     } finally {
       setCompressing(false);
     }
-  }, [preview, currentTipo, captured, currentIndex, onComplete]);
+  }, [preview, currentTipo, captured, currentIndex, onComplete, startCamera, facingMode]);
 
   // ── Repetir captura ───────────────────────────────────────
   const retake = useCallback(() => {
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
     setPreview(null);
-  }, [preview]);
+    startCamera(facingMode);
+  }, [preview, startCamera, facingMode]);
 
   // ── Toggle cámara frontal/trasera ─────────────────────────
   const toggleCamera = () => {
