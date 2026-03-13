@@ -11,28 +11,31 @@ cd "$REPO_DIR"
 echo "🚑 Ambulancias — Despliegue"
 echo "────────────────────────────────────────"
 
-# ── 1. Crear .env si no existe ──────────────────────────────────────────────
+# ── 1. Verificar .env ───────────────────────────────────────────────────────
 if [ ! -f .env ]; then
   echo ""
-  echo "⚠️  No existe .env — créalo antes de continuar:"
+  echo "⚠️  No existe .env — créalo con:"
   echo ""
-  echo "    nano .env"
+  echo "    nano /root/ambulancia/.env"
   echo ""
-  echo "Contenido mínimo necesario:"
+  echo "Contenido necesario:"
   cat << 'EOF'
-DB_HOST=mysql.tudominiohostalia.com
+# BD (Docker interno — no cambies DB_HOST)
+DB_HOST=mysql
 DB_PORT=3306
-DB_NAME=tuusuario_ambulancia
-DB_USER=tuusuario_ambulancia
-DB_PASSWORD=PASSWORD_MYSQL_HOSTALIA
+DB_NAME=ambulancia_db
+DB_USER=ambulancia_user
+DB_PASSWORD=CAMBIA_ESTO_POR_PASSWORD_SEGURO
+MYSQL_ROOT_PASSWORD=CAMBIA_ESTO_POR_ROOT_PASSWORD_SEGURO
 
-JWT_ACCESS_SECRET=$(openssl rand -hex 64)
-JWT_REFRESH_SECRET=$(openssl rand -hex 64)
+# JWT (genera con: openssl rand -hex 64)
+JWT_ACCESS_SECRET=PEGAR_AQUI_64_BYTES_HEX
+JWT_REFRESH_SECRET=PEGAR_AQUI_OTRO_64_BYTES_HEX
 
+# CORS — dominio del frontend
 CORS_ORIGIN=https://vapss.net
 EOF
   echo ""
-  echo "Ejecuta primero: cp .env.example .env && nano .env"
   exit 1
 fi
 
@@ -42,37 +45,53 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
   git pull --ff-only
 fi
 
-# ── 3. Verificar que la red proxy-net existe ─────────────────────────────────
+# ── 3. Verificar red proxy-net ───────────────────────────────────────────────
 if ! docker network ls --format '{{.Name}}' | grep -q '^proxy-net$'; then
-  echo "⚠️  Red proxy-net no existe. Creándola..."
+  echo "⚠️  Creando red proxy-net..."
   docker network create proxy-net
   echo "✅ Red proxy-net creada"
 fi
 
-# ── 4. Construir y levantar ──────────────────────────────────────────────────
-echo "🐳 Construyendo imagen Docker del backend..."
+# ── 4. Construir y levantar todo ─────────────────────────────────────────────
+echo "🐳 Construyendo imagen backend..."
 docker compose build backend
 
-echo "🚀 Levantando servicio..."
-docker compose up -d backend
+echo "🚀 Levantando MySQL y backend..."
+docker compose up -d
 
-# ── 5. Esperar health check ──────────────────────────────────────────────────
-echo "⏳ Esperando al backend (máx. 60s)..."
+# ── 5. Esperar a MySQL ───────────────────────────────────────────────────────
+echo "⏳ Esperando a MySQL (máx. 60s)..."
 for i in $(seq 1 20); do
-  if docker compose exec -T backend wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
-    echo "✅ Backend respondiendo"
+  if docker compose exec -T mysql mysqladmin ping -h localhost --silent 2>/dev/null; then
+    echo "✅ MySQL listo"
     break
   fi
   echo "   intento $i/20..."
   sleep 3
 done
 
-# ── 6. Resumen ───────────────────────────────────────────────────────────────
+# ── 6. Esperar al backend ────────────────────────────────────────────────────
+echo "⏳ Esperando al backend (máx. 60s)..."
+for i in $(seq 1 20); do
+  if docker compose exec -T backend wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
+    echo "✅ Backend listo"
+    break
+  fi
+  echo "   intento $i/20..."
+  sleep 3
+done
+
+# ── 7. Crear admin (solo si la BD acaba de inicializarse) ───────────────────
+echo ""
+echo "ℹ️  Si es la primera vez, crea el usuario admin:"
+echo "   docker compose exec backend node scripts/create-admin.js"
+
+# ── 8. Resumen ───────────────────────────────────────────────────────────────
 echo ""
 echo "✅ Deploy completado"
 echo "────────────────────────────────────────"
 echo "🔗 API:    https://api.vapss.net/api/v1"
 echo "❤️  Health: https://api.vapss.net/health"
 echo ""
-echo "Ver logs en tiempo real:"
-echo "  docker compose logs -f backend"
+echo "Logs en tiempo real:"
+echo "  docker compose logs -f"

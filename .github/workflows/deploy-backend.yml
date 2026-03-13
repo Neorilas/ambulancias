@@ -29,8 +29,8 @@ jobs:
             echo "🐳 Reconstruyendo imagen backend..."
             docker compose build backend
 
-            echo "🚀 Reiniciando contenedor..."
-            docker compose up -d backend
+            echo "🚀 Reiniciando backend (MySQL no se toca en deploys)..."
+            docker compose up -d --no-deps backend
 
             echo "⏳ Esperando health check..."
             for i in $(seq 1 20); do
