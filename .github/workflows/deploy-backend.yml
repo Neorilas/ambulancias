@@ -1,0 +1,48 @@
+name: Deploy Backend → Hetzner
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+            cd /root/ambulancia
+
+            echo "🔄 Actualizando código..."
+            git pull origin master
+
+            echo "🐳 Reconstruyendo imagen backend..."
+            docker compose build backend
+
+            echo "🚀 Reiniciando contenedor..."
+            docker compose up -d backend
+
+            echo "⏳ Esperando health check..."
+            for i in $(seq 1 20); do
+              if docker compose exec -T backend wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
+                echo "✅ Backend OK"
+                break
+              fi
+              echo "   intento $i/20..."
+              sleep 3
+            done
+
+            echo "🧹 Limpiando imágenes antiguas..."
+            docker image prune -f
+
+            echo "✅ Deploy completado"

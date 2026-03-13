@@ -1,29 +1,75 @@
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: ambulancia_mysql
+
+  # ── Backend API Ambulancias ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ambulancia-backend
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass123
-      MYSQL_DATABASE:      ambulancia_db
-      MYSQL_USER:          ambulancia_user
-      MYSQL_PASSWORD:      ambulancia_pass
-    ports:
-      - "3306:3306"
+      NODE_ENV: production
+      PORT: 3001
+      API_VERSION: v1
+
+      # ── Base de datos MySQL (Hostalia) ──────────────────────────────────────
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_MIN: 2
+      DB_POOL_MAX: 10
+
+      # ── JWT ─────────────────────────────────────────────────────────────────
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES: 15m
+      JWT_REFRESH_EXPIRES: 7d
+
+      # ── CORS ─────────────────────────────────────────────────────────────────
+      CORS_ORIGIN: ${CORS_ORIGIN}
+
+      # ── Uploads ─────────────────────────────────────────────────────────────
+      UPLOADS_DIR: ./uploads
+      MAX_FILE_SIZE_MB: 10
+      ALLOWED_IMAGE_TYPES: image/jpeg,image/png,image/webp
+
+      # ── Rate Limiting ────────────────────────────────────────────────────────
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      LOGIN_RATE_LIMIT_MAX: 5
+      LOGIN_RATE_LIMIT_WINDOW_MS: 900000
+      ACCOUNT_LOCKOUT_ATTEMPTS: 5
+      ACCOUNT_LOCKOUT_DURATION_MINUTES: 30
+
+      # ── Logging ──────────────────────────────────────────────────────────────
+      LOG_LEVEL: info
+      LOG_DIR: ./logs
+      BCRYPT_ROUNDS: 12
+
     volumes:
-      - ambulancia_mysql_data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
-    command: >
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --event-scheduler=ON
+      - uploads_data:/app/uploads   # Fotos de ambulancias (persistentes)
+      - logs_data:/app/logs
+
+    expose:
+      - "3001"
+
+    networks:
+      - proxy-net
+
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ambulancia_user", "-pambulancia_pass"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
 volumes:
-  ambulancia_mysql_data:
+  uploads_data:
+  logs_data:
+
+# Red compartida con el proyecto fundacion (donde vive Caddy)
+networks:
+  proxy-net:
+    external: true
