@@ -131,6 +131,9 @@ CREATE TABLE `vehicles` (
   `matricula`             VARCHAR(20)   NOT NULL,
   `alias`                 VARCHAR(100)  NOT NULL,
   `kilometros_actuales`   INT UNSIGNED  NOT NULL DEFAULT 0,
+  `fecha_matriculacion`   DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de primera matriculación (determina frecuencia ITV)',
+  `fecha_itv`             DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITV superada',
+  `fecha_its`             DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITS superada',
   `fecha_ultima_revision` DATE          NULL     DEFAULT NULL,
   `fecha_ultimo_servicio` DATE          NULL     DEFAULT NULL,
   `created_at`            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -222,7 +225,7 @@ CREATE TABLE `trabajo_usuarios` (
 CREATE TABLE `vehicle_images` (
   `id`           INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `vehicle_id`   INT UNSIGNED  NOT NULL,
-  `tipo_imagen`  ENUM('frontal','lateral_derecho','trasera','lateral_izquierdo','liquidos') NOT NULL,
+  `tipo_imagen`  ENUM('frontal','lateral_izquierdo','lateral_derecho','trasera','niveles_liquidos','cuentakilometros','danos') NOT NULL,
   `image_url`    VARCHAR(500)  NOT NULL,
   `trabajo_id`   INT UNSIGNED  NULL     DEFAULT NULL  COMMENT 'NULL = imagen general; FK = imagen de finalización de trabajo',
   `uploaded_by`  INT UNSIGNED  NULL     DEFAULT NULL,

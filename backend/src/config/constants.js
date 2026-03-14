@@ -32,8 +32,8 @@ module.exports = {
   },
 
   // ---- Tipos de imágenes de vehículo ----
-  IMAGEN_TIPOS: ['frontal', 'lateral_derecho', 'trasera', 'lateral_izquierdo', 'liquidos'],
-  IMAGEN_TIPOS_REQUERIDOS: ['frontal', 'lateral_derecho', 'trasera', 'lateral_izquierdo', 'liquidos'],
+  IMAGEN_TIPOS: ['frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera', 'niveles_liquidos', 'cuentakilometros', 'danos'],
+  IMAGEN_TIPOS_REQUERIDOS: ['frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera', 'niveles_liquidos', 'cuentakilometros', 'danos'],
 
   // ---- Configuración de uploads ----
   UPLOAD: {

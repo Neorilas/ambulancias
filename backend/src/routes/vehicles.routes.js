@@ -43,6 +43,9 @@ router.post('/',
     body('alias').trim().notEmpty().withMessage('Alias requerido')
       .isLength({ max: 100 }),
     body('kilometros_actuales').optional().isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
+    body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
+    body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
+    body('fecha_its').optional({ nullable: true }).isISO8601().withMessage('Fecha ITS inválida'),
     body('fecha_ultima_revision').optional({ nullable: true }).isISO8601().withMessage('Fecha inválida'),
     body('fecha_ultimo_servicio').optional({ nullable: true }).isISO8601().withMessage('Fecha inválida'),
   ],
@@ -56,6 +59,9 @@ router.put('/:id',
   [
     param('id').isInt({ min: 1 }),
     body('kilometros_actuales').optional().isInt({ min: 0 }),
+    body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
+    body('fecha_itv').optional({ nullable: true }).isISO8601(),
+    body('fecha_its').optional({ nullable: true }).isISO8601(),
     body('fecha_ultima_revision').optional({ nullable: true }).isISO8601(),
     body('fecha_ultimo_servicio').optional({ nullable: true }).isISO8601(),
   ],
@@ -72,16 +78,16 @@ router.delete('/:id',
 );
 
 // POST /vehicles/:id/images  - subir imagen (middleware dinámico para subdir)
+// IMPORTANTE: multer antes de express-validator para que req.body esté disponible
 router.post('/:id/images',
   uploadLimiter,
+  multerUpload.single('image'),
   [
     param('id').isInt({ min: 1 }),
     body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)
       .withMessage(`tipo_imagen debe ser uno de: ${IMAGEN_TIPOS.join(', ')}`),
   ],
   handleValidation,
-  multerUpload.single('image'),
-  // processAndSave necesita el id del vehículo → lo inyectamos como middleware inline
   async (req, res, next) => {
     const { processAndSave } = require('../middleware/upload.middleware');
     return processAndSave(`vehicles/${req.params.id}`)(req, res, next);

@@ -34,6 +34,7 @@ async function listVehicles(req, res, next) {
 
     const [rows] = await query(
       `SELECT v.id, v.matricula, v.alias, v.kilometros_actuales,
+              v.fecha_matriculacion, v.fecha_itv, v.fecha_its,
               v.fecha_ultima_revision, v.fecha_ultimo_servicio,
               v.created_at, v.updated_at
        FROM vehicles v
@@ -56,6 +57,7 @@ async function getVehicle(req, res, next) {
   try {
     const [rows] = await query(
       `SELECT id, matricula, alias, kilometros_actuales,
+              fecha_matriculacion, fecha_itv, fecha_its,
               fecha_ultima_revision, fecha_ultimo_servicio, created_at, updated_at
        FROM vehicles WHERE id = ? AND deleted_at IS NULL`,
       [req.params.id]
@@ -83,6 +85,7 @@ async function getVehicle(req, res, next) {
 async function createVehicle(req, res, next) {
   try {
     const { matricula, alias, kilometros_actuales = 0,
+            fecha_matriculacion, fecha_itv, fecha_its,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
 
     const [existing] = await query(
@@ -91,9 +94,13 @@ async function createVehicle(req, res, next) {
     if (existing.length) return error(res, 'Ya existe un vehículo con esa matrícula', 409);
 
     const [result] = await query(
-      `INSERT INTO vehicles (matricula, alias, kilometros_actuales, fecha_ultima_revision, fecha_ultimo_servicio)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO vehicles
+         (matricula, alias, kilometros_actuales,
+          fecha_matriculacion, fecha_itv, fecha_its,
+          fecha_ultima_revision, fecha_ultimo_servicio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [matricula.toUpperCase(), alias, kilometros_actuales,
+       fecha_matriculacion || null, fecha_itv || null, fecha_its || null,
        fecha_ultima_revision || null, fecha_ultimo_servicio || null]
     );
 
@@ -115,13 +122,18 @@ async function updateVehicle(req, res, next) {
     );
     if (!existing.length) return notFound(res, 'Vehículo');
 
-    const { alias, kilometros_actuales, fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
+    const { alias, kilometros_actuales,
+            fecha_matriculacion, fecha_itv, fecha_its,
+            fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
 
     const updates = [];
     const vals    = [];
 
     if (alias                  !== undefined) { updates.push('alias = ?');                  vals.push(alias); }
     if (kilometros_actuales    !== undefined) { updates.push('kilometros_actuales = ?');    vals.push(kilometros_actuales); }
+    if (fecha_matriculacion    !== undefined) { updates.push('fecha_matriculacion = ?');    vals.push(fecha_matriculacion || null); }
+    if (fecha_itv              !== undefined) { updates.push('fecha_itv = ?');              vals.push(fecha_itv || null); }
+    if (fecha_its              !== undefined) { updates.push('fecha_its = ?');              vals.push(fecha_its || null); }
     if (fecha_ultima_revision  !== undefined) { updates.push('fecha_ultima_revision = ?');  vals.push(fecha_ultima_revision || null); }
     if (fecha_ultimo_servicio  !== undefined) { updates.push('fecha_ultimo_servicio = ?');  vals.push(fecha_ultimo_servicio || null); }
 
