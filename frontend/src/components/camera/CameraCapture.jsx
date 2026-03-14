@@ -106,24 +106,24 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
       const newCaptured = [...captured, entry];
       setCaptured(newCaptured);
+      setPreview(null);
+      // NO reiniciamos cámara — sigue grabando debajo de la preview
 
       if (currentIndex + 1 >= IMAGEN_TIPOS.length) {
-        setPreview(null);
         onComplete(newCaptured);
       } else {
         setCurrentIndex(prev => prev + 1);
-        setPreview(null);
-        startCamera(facingMode); // video SIEMPRE en DOM → funciona en móvil
       }
     } finally {
       setCompressing(false);
     }
-  }, [preview, currentTipo, captured, currentIndex, onComplete, startCamera, facingMode]);
+  }, [preview, currentTipo, captured, currentIndex, onComplete]);
 
   // ── Repetir captura ───────────────────────────────────────
   const retake = useCallback(() => {
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
     setPreview(null);
+    // Cámara sigue activa debajo, no hace falta reiniciar
   }, [preview]);
 
   // ── Toggle cámara frontal/trasera ─────────────────────────
@@ -186,6 +186,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
             {/* Video feed — siempre en DOM */}
             <video
               ref={videoRef}
+              autoPlay
               playsInline
               muted
               className="w-full h-full object-cover"
