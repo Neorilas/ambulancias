@@ -40,8 +40,11 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: frontend/dist/
-          server-dir: ${{ secrets.FTP_REMOTE_DIR }}   # ej: /public_html/app/
-          dangerous-clean-slate: false                 # no borra archivos extra en destino
+          server-dir: ${{ secrets.FTP_REMOTE_DIR }}
+          protocol: ftps                               # TLS explícito (Hostalia lo requiere)
+          port: 21
+          dangerous-clean-slate: false
+          timeout: 60000                               # 60s timeout para conexiones lentas
           exclude: |
             **/.git*
             **/node_modules/**
