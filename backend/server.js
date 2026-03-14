@@ -23,6 +23,9 @@ const app  = express();
 const PORT = process.env.PORT || 3001;
 const API  = `/api/${process.env.API_VERSION || 'v1'}`;
 
+// Caddy actúa como proxy inverso — confiar en X-Forwarded-For
+app.set('trust proxy', 1);
+
 // ============================================================
 // Middlewares de seguridad y utilidad
 // ============================================================

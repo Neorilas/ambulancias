@@ -94,8 +94,11 @@ router.post('/:id/finalize',
 );
 
 // POST /trabajos/:id/evidencias  - subir evidencia fotográfica
+// IMPORTANTE: multer debe correr ANTES de express-validator para que req.body
+// esté disponible con los campos del multipart/form-data
 router.post('/:id/evidencias',
   uploadLimiter,
+  multerUpload.single('image'),
   [
     param('id').isInt({ min: 1 }),
     body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
@@ -103,7 +106,6 @@ router.post('/:id/evidencias',
       .withMessage(`tipo_imagen debe ser: ${IMAGEN_TIPOS_REQUERIDOS.join(', ')}`),
   ],
   handleValidation,
-  multerUpload.single('image'),
   async (req, res, next) => {
     const { processAndSave } = require('../middleware/upload.middleware');
     return processAndSave(`trabajos/${req.params.id}`)(req, res, next);
