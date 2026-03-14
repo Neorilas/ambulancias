@@ -19,14 +19,14 @@ export const TRABAJO_TIPOS = {
   OTRO:             'otro',
 };
 
-// Fotos requeridas en el flujo de finalización de trabajo
+// Fotos requeridas en el flujo de finalización — orden walk-around natural
 export const IMAGEN_TIPOS = [
-  { key: 'frontal',           label: 'Frontal',            instruccion: 'Colócate frente al vehículo a ~3m' },
-  { key: 'lateral_izquierdo', label: 'Lateral Izquierdo',  instruccion: 'Sitúate al lado izquierdo del vehículo' },
-  { key: 'lateral_derecho',   label: 'Lateral Derecho',    instruccion: 'Sitúate al lado derecho del vehículo' },
-  { key: 'trasera',           label: 'Trasera',            instruccion: 'Colócate detrás del vehículo a ~3m' },
-  { key: 'niveles_liquidos',  label: 'Niveles Líquidos',   instruccion: 'Abre el capó y fotografía niveles de aceite, refrigerante y demás líquidos' },
-  { key: 'cuentakilometros',  label: 'Cuentakilómetros',   instruccion: 'Fotografía el cuadro de instrumentos mostrando los kilómetros' },
+  { key: 'frontal',           label: 'Frontal',            instruccion: 'Colócate frente al vehículo a ~3m',                         landscape: false, multiple: false },
+  { key: 'lateral_izquierdo', label: 'Lateral Izquierdo',  instruccion: 'Lado izquierdo completo · gira el móvil horizontal',         landscape: true,  multiple: false },
+  { key: 'trasera',           label: 'Trasera',            instruccion: 'Colócate detrás del vehículo a ~3m',                         landscape: false, multiple: false },
+  { key: 'lateral_derecho',   label: 'Lateral Derecho',    instruccion: 'Lado derecho completo · gira el móvil horizontal',           landscape: true,  multiple: false },
+  { key: 'niveles_liquidos',  label: 'Niveles Líquidos',   instruccion: 'Fotografía aceite, refrigerante y demás líquidos del motor',  landscape: false, multiple: true  },
+  { key: 'cuentakilometros',  label: 'Cuentakilómetros',   instruccion: 'Fotografía el cuadro de instrumentos mostrando los km',       landscape: false, multiple: false },
 ];
 
 // Fotos opcionales disponibles en el detalle del trabajo (fuera del flujo de finalización)
