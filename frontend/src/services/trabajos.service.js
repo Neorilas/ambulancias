@@ -29,8 +29,8 @@ export const trabajosService = {
     return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data.data);
   },
   uploadEvidencia(id, formData) {
-    return api.post(`/trabajos/${id}/evidencias`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then(r => r.data.data);
+    // NO fijar Content-Type manualmente: axios detecta FormData y deja al
+    // browser poner el boundary correcto (multipart/form-data; boundary=...)
+    return api.post(`/trabajos/${id}/evidencias`, formData).then(r => r.data.data);
   },
 };

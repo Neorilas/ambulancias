@@ -73,12 +73,15 @@ export default function MisTrabajos() {
                   (activo || vencido);
 
                 return (
-                  <div key={t.id} className={`card border-l-4 ${
-                    activo    ? 'border-l-blue-500' :
-                    vencido   ? 'border-l-red-500' :
-                    t.estado === 'finalizado' ? 'border-l-green-500' :
-                    'border-l-neutral-200'
-                  }`}>
+                  <div key={t.id}
+                    className={`card border-l-4 cursor-pointer hover:shadow-md transition-shadow ${
+                      activo    ? 'border-l-blue-500' :
+                      vencido   ? 'border-l-red-500' :
+                      t.estado === 'finalizado' ? 'border-l-green-500' :
+                      'border-l-neutral-200'
+                    }`}
+                    onClick={() => navigate(`/trabajos/${t.id}`)}
+                  >
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -119,7 +122,8 @@ export default function MisTrabajos() {
                       <div className="flex flex-col gap-2 flex-shrink-0">
                         {puedeActivar && (
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               try {
                                 await trabajosService.activar(t.id);
                                 notify.success('Trabajo activado');
@@ -135,7 +139,8 @@ export default function MisTrabajos() {
                         )}
                         {puedeFinz && (
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               try {
                                 const full = await trabajosService.get(t.id);
                                 setFinTrabajo(full);

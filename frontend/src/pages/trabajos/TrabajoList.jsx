@@ -136,16 +136,15 @@ export default function TrabajoList() {
               ) : (
                 <div className="space-y-2">
                   {trabajos.map(t => (
-                    <div key={t.id} className="card hover:shadow-md transition-shadow">
+                    <div
+                      key={t.id}
+                      className="card hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => navigate(`/trabajos/${t.id}`)}
+                    >
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <Link
-                              to={`/trabajos/${t.id}`}
-                              className="font-semibold text-neutral-900 hover:text-primary-600 hover:underline"
-                            >
-                              {t.nombre}
-                            </Link>
+                            <span className="font-semibold text-neutral-900">{t.nombre}</span>
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
                           </div>
@@ -156,19 +155,14 @@ export default function TrabajoList() {
                             {t.num_vehiculos} vehículo(s) · {t.num_usuarios} persona(s)
                           </p>
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <Link to={`/trabajos/${t.id}`} className="btn-secondary text-xs px-2 py-1">
-                            Ver
-                          </Link>
-                          {canDeleteAny() && (
-                            <button
-                              onClick={() => setDeleteId(t.id)}
-                              className="btn-ghost text-xs px-2 py-1 text-red-600 hover:bg-red-50"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
+                        {canDeleteAny() && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteId(t.id); }}
+                            className="btn-ghost text-xs px-2 py-1 text-red-600 hover:bg-red-50 flex-shrink-0"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

@@ -28,12 +28,9 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   const [error,        setError]          = useState(null);
   const [facingMode,   setFacingMode]     = useState('environment'); // trasera por defecto
   const [compressing,  setCompressing]    = useState(false);
-  const [debugLog,     setDebugLog]      = useState([]);
   const currentTipo = IMAGEN_TIPOS[currentIndex];
 
   const log = useCallback((msg) => {
-    const ts = new Date().toLocaleTimeString('es', { hour12: false, fractionalSecondDigits: 1 });
-    setDebugLog(prev => [...prev.slice(-8), `${ts} ${msg}`]);
     console.log(`[CAM] ${msg}`);
   }, []);
 
@@ -169,15 +166,6 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
       {/* Canvas oculto para captura */}
       <canvas ref={canvasRef} className="hidden" />
-
-      {/* Debug log (temporal — quitar en producción) */}
-      {debugLog.length > 0 && (
-        <div className="absolute top-28 left-2 right-2 z-50 bg-black/80 rounded p-2 max-h-40 overflow-y-auto">
-          {debugLog.map((l, i) => (
-            <p key={i} className="text-green-400 text-[10px] font-mono leading-tight">{l}</p>
-          ))}
-        </div>
-      )}
 
       {/* ── Previsualización (encima, no reemplaza el video) ── */}
       {preview && (

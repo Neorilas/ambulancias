@@ -85,12 +85,13 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
               ...p,
               [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'ok' },
             }));
-          } catch {
+          } catch (uploadErr) {
             setUploadProgress(p => ({
               ...p,
               [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'error' },
             }));
-            throw new Error(`Error subiendo ${tipo.label} del vehículo ${veh.matricula}`);
+            const backendMsg = uploadErr?.response?.data?.message || uploadErr?.message || '';
+            throw new Error(`Error subiendo ${tipo.label} (${veh.matricula})${backendMsg ? ': ' + backendMsg : ''}`);
           }
         }
       }
