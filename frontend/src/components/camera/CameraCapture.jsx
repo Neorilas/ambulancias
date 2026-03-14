@@ -28,8 +28,6 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   const [error,        setError]          = useState(null);
   const [facingMode,   setFacingMode]     = useState('environment'); // trasera por defecto
   const [compressing,  setCompressing]    = useState(false);
-  const hadPreviewRef = useRef(false);
-
   const currentTipo = IMAGEN_TIPOS[currentIndex];
 
   // ── Iniciar cámara ──────────────────────────────────────────
@@ -75,16 +73,6 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     };
   }, [facingMode]);
 
-  // Reinicia cámara cuando se cierra la previsualización (video ya en DOM)
-  useEffect(() => {
-    if (preview) {
-      hadPreviewRef.current = true;
-    } else if (hadPreviewRef.current) {
-      hadPreviewRef.current = false;
-      startCamera(facingMode);
-    }
-  }, [preview, startCamera, facingMode]);
-
 
   // ── Capturar foto ──────────────────────────────────────────
   const capture = useCallback(async () => {
@@ -118,18 +106,19 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
       const newCaptured = [...captured, entry];
       setCaptured(newCaptured);
-      setPreview(null);
 
       if (currentIndex + 1 >= IMAGEN_TIPOS.length) {
-        // Todas las fotos capturadas
+        setPreview(null);
         onComplete(newCaptured);
       } else {
         setCurrentIndex(prev => prev + 1);
+        setPreview(null);
+        startCamera(facingMode); // video SIEMPRE en DOM → funciona en móvil
       }
     } finally {
       setCompressing(false);
     }
-  }, [preview, currentTipo, captured, currentIndex, onComplete]);
+  }, [preview, currentTipo, captured, currentIndex, onComplete, startCamera, facingMode]);
 
   // ── Repetir captura ───────────────────────────────────────
   const retake = useCallback(() => {
@@ -154,9 +143,9 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
       {/* Canvas oculto para captura */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* ── Previsualización ── */}
-      {preview ? (
-        <div className="flex-1 flex flex-col items-center justify-center bg-black">
+      {/* ── Previsualización (encima, no reemplaza el video) ── */}
+      {preview && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black">
           <img
             src={preview.previewUrl}
             alt="Previsualización"
@@ -182,91 +171,88 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
             </div>
           </div>
         </div>
-      ) : (
-        /* ── Visor de cámara ── */
-        <div className="flex-1 relative overflow-hidden">
-
-          {error ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-              <p className="text-4xl mb-4">📷</p>
-              <p className="text-white text-sm leading-relaxed">{error}</p>
-              <button onClick={onCancel} className="btn-secondary mt-6">Cancelar</button>
-            </div>
-          ) : (
-            <>
-              {/* Video feed */}
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-
-              {/* Marco guía */}
-              {cameraReady && (
-                <div className="camera-guide">
-                  <div className="camera-frame" />
-                  {/* Instrucción del tipo actual */}
-                  <div className="absolute bottom-32 left-0 right-0 text-center px-6">
-                    <p className="text-white text-sm bg-black/50 rounded-lg px-3 py-2 inline-block">
-                      {currentTipo.instruccion}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Controles superpuestos */}
-              <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-4">
-                <button onClick={onCancel} className="p-2 rounded-full bg-black/40 text-white">
-                  ✕
-                </button>
-                <div className="text-white text-center">
-                  <p className="font-bold">{currentTipo.label}</p>
-                  <p className="text-xs opacity-75">{currentIndex + 1} / {IMAGEN_TIPOS.length}</p>
-                </div>
-                <button onClick={toggleCamera} className="p-2 rounded-full bg-black/40 text-white">
-                  🔄
-                </button>
-              </div>
-
-              {/* Fotos ya capturadas (miniaturas) */}
-              <div className="absolute top-16 left-0 right-0 flex justify-center gap-2 px-4">
-                {IMAGEN_TIPOS.map((tipo, i) => {
-                  const done = captured.find(c => c.tipo === tipo.key);
-                  return (
-                    <div
-                      key={tipo.key}
-                      className={`w-8 h-8 rounded border-2 overflow-hidden
-                        ${i === currentIndex ? 'border-primary-500 ring-2 ring-primary-300' :
-                          done ? 'border-green-400' : 'border-white/30'}`}
-                    >
-                      {done ? (
-                        <img src={done.preview} alt={tipo.label} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className={`w-full h-full ${i === currentIndex ? 'bg-primary-500/30' : 'bg-white/10'}`} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Botón captura */}
-              <div className="absolute bottom-8 left-0 right-0 flex justify-center">
-                <button
-                  onClick={capture}
-                  disabled={!cameraReady}
-                  className="w-20 h-20 rounded-full bg-white border-4 border-primary-500
-                             flex items-center justify-center shadow-2xl
-                             active:scale-95 transition-transform disabled:opacity-50"
-                  aria-label="Capturar foto"
-                >
-                  <div className="w-14 h-14 rounded-full bg-primary-600" />
-                </button>
-              </div>
-            </>
-          )}
-        </div>
       )}
+
+      {/* ── Visor de cámara (SIEMPRE montado, nunca se desmonta) ── */}
+      <div className="flex-1 relative overflow-hidden">
+        {error ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+            <p className="text-4xl mb-4">📷</p>
+            <p className="text-white text-sm leading-relaxed">{error}</p>
+            <button onClick={onCancel} className="btn-secondary mt-6">Cancelar</button>
+          </div>
+        ) : (
+          <>
+            {/* Video feed — siempre en DOM */}
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+
+            {/* Marco guía */}
+            {cameraReady && !preview && (
+              <div className="camera-guide">
+                <div className="camera-frame" />
+                <div className="absolute bottom-32 left-0 right-0 text-center px-6">
+                  <p className="text-white text-sm bg-black/50 rounded-lg px-3 py-2 inline-block">
+                    {currentTipo.instruccion}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Controles superpuestos */}
+            {!preview && (
+              <>
+                <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-4">
+                  <button onClick={onCancel} className="p-2 rounded-full bg-black/40 text-white">✕</button>
+                  <div className="text-white text-center">
+                    <p className="font-bold">{currentTipo.label}</p>
+                    <p className="text-xs opacity-75">{currentIndex + 1} / {IMAGEN_TIPOS.length}</p>
+                  </div>
+                  <button onClick={toggleCamera} className="p-2 rounded-full bg-black/40 text-white">🔄</button>
+                </div>
+
+                {/* Miniaturas */}
+                <div className="absolute top-16 left-0 right-0 flex justify-center gap-2 px-4">
+                  {IMAGEN_TIPOS.map((tipo, i) => {
+                    const done = captured.find(c => c.tipo === tipo.key);
+                    return (
+                      <div
+                        key={tipo.key}
+                        className={`w-8 h-8 rounded border-2 overflow-hidden
+                          ${i === currentIndex ? 'border-primary-500 ring-2 ring-primary-300' :
+                            done ? 'border-green-400' : 'border-white/30'}`}
+                      >
+                        {done
+                          ? <img src={done.preview} alt={tipo.label} className="w-full h-full object-cover" />
+                          : <div className={`w-full h-full ${i === currentIndex ? 'bg-primary-500/30' : 'bg-white/10'}`} />
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Botón captura */}
+                <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+                  <button
+                    onClick={capture}
+                    disabled={!cameraReady}
+                    className="w-20 h-20 rounded-full bg-white border-4 border-primary-500
+                               flex items-center justify-center shadow-2xl
+                               active:scale-95 transition-transform disabled:opacity-50"
+                    aria-label="Capturar foto"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-primary-600" />
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
