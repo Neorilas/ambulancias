@@ -28,17 +28,27 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   const [error,        setError]          = useState(null);
   const [facingMode,   setFacingMode]     = useState('environment'); // trasera por defecto
   const [compressing,  setCompressing]    = useState(false);
+  const [debugLog,     setDebugLog]      = useState([]);
   const currentTipo = IMAGEN_TIPOS[currentIndex];
+
+  const log = useCallback((msg) => {
+    const ts = new Date().toLocaleTimeString('es', { hour12: false, fractionalSecondDigits: 1 });
+    setDebugLog(prev => [...prev.slice(-8), `${ts} ${msg}`]);
+    console.log(`[CAM] ${msg}`);
+  }, []);
 
   // ── Iniciar cámara ──────────────────────────────────────────
   const startCamera = useCallback(async (facing = 'environment') => {
+    log(`startCamera(${facing}) llamado`);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
+      log('tracks anteriores parados');
     }
     setError(null);
     setCameraReady(false);
 
     try {
+      log('pidiendo getUserMedia...');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode:  facing,
@@ -49,12 +59,18 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
         audio: false,
       });
       streamRef.current = stream;
+      const tracks = stream.getVideoTracks();
+      log(`stream OK: ${tracks.length} tracks, state=${tracks[0]?.readyState}`);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        log(`video.play() OK, paused=${videoRef.current.paused}`);
         setCameraReady(true);
+      } else {
+        log('ERROR: videoRef.current es null');
       }
     } catch (err) {
+      log(`ERROR: ${err.name}: ${err.message}`);
       console.error('Error cámara:', err);
       if (err.name === 'NotAllowedError') {
         setError('Permiso de cámara denegado. Por favor, permite el acceso a la cámara en la configuración del navegador.');
@@ -64,44 +80,25 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
         setError(`Error de cámara: ${err.message}`);
       }
     }
-  }, []);
+  }, [log]);
 
+  // ── Efecto único: controla cámara según preview + facingMode ──
   useEffect(() => {
+    if (preview) {
+      // Preview activa → parar cámara (ahorra batería, evita bug Android)
+      log('preview activa → parando cámara');
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+      setCameraReady(false);
+      return;
+    }
+    // Sin preview → arrancar cámara fresca
+    log(`useEffect: preview=null → arrancando cámara (facing=${facingMode})`);
     startCamera(facingMode);
     return () => {
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
-  }, [facingMode]);
-
-  // Reanudar video cuando se cierra la preview
-  // Android Chrome pausa videos ocultos tras overlays opacos
-  useEffect(() => {
-    if (preview || !videoRef.current) return;
-
-    const video = videoRef.current;
-
-    const resume = async () => {
-      try {
-        // Comprobar si los tracks siguen vivos
-        const alive = streamRef.current?.getVideoTracks().some(t => t.readyState === 'live');
-        if (!alive) {
-          // Tracks muertos → reiniciar cámara completa
-          await startCamera(facingMode);
-          return;
-        }
-        // Tracks vivos pero video pausado → reasignar y play
-        video.srcObject = streamRef.current;
-        await video.play();
-      } catch (e) {
-        console.warn('Resume falló, reiniciando cámara:', e);
-        await startCamera(facingMode);
-      }
-    };
-
-    // Pequeño delay para que el overlay se quite del DOM primero
-    const timer = setTimeout(resume, 100);
-    return () => clearTimeout(timer);
-  }, [preview, startCamera, facingMode]);
+  }, [preview, facingMode, startCamera, log]);
 
 
   // ── Capturar foto ──────────────────────────────────────────
@@ -172,6 +169,15 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
       {/* Canvas oculto para captura */}
       <canvas ref={canvasRef} className="hidden" />
+
+      {/* Debug log (temporal — quitar en producción) */}
+      {debugLog.length > 0 && (
+        <div className="absolute top-28 left-2 right-2 z-50 bg-black/80 rounded p-2 max-h-40 overflow-y-auto">
+          {debugLog.map((l, i) => (
+            <p key={i} className="text-green-400 text-[10px] font-mono leading-tight">{l}</p>
+          ))}
+        </div>
+      )}
 
       {/* ── Previsualización (encima, no reemplaza el video) ── */}
       {preview && (
