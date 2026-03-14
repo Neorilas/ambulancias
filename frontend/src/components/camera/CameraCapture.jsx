@@ -73,6 +73,36 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     };
   }, [facingMode]);
 
+  // Reanudar video cuando se cierra la preview
+  // Android Chrome pausa videos ocultos tras overlays opacos
+  useEffect(() => {
+    if (preview || !videoRef.current) return;
+
+    const video = videoRef.current;
+
+    const resume = async () => {
+      try {
+        // Comprobar si los tracks siguen vivos
+        const alive = streamRef.current?.getVideoTracks().some(t => t.readyState === 'live');
+        if (!alive) {
+          // Tracks muertos → reiniciar cámara completa
+          await startCamera(facingMode);
+          return;
+        }
+        // Tracks vivos pero video pausado → reasignar y play
+        video.srcObject = streamRef.current;
+        await video.play();
+      } catch (e) {
+        console.warn('Resume falló, reiniciando cámara:', e);
+        await startCamera(facingMode);
+      }
+    };
+
+    // Pequeño delay para que el overlay se quite del DOM primero
+    const timer = setTimeout(resume, 100);
+    return () => clearTimeout(timer);
+  }, [preview, startCamera, facingMode]);
+
 
   // ── Capturar foto ──────────────────────────────────────────
   const capture = useCallback(async () => {
