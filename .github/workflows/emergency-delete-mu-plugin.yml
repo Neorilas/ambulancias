@@ -1,0 +1,38 @@
+name: EMERGENCIA — Borrar lcp-fix.php de mu-plugins
+
+on:
+  workflow_dispatch:   # Solo se lanza manualmente desde GitHub Actions
+
+jobs:
+  delete-file:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Instalar lftp
+        run: sudo apt-get install -y lftp
+
+      - name: Borrar lcp-fix.php via FTPS
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          lftp -u "$FTP_USER","$FTP_PASS" ftps://$FTP_HOST <<'LFTP_CMDS'
+            set ftp:ssl-force true
+            set ssl:verify-certificate false
+            set ftp:ssl-protect-data true
+
+            # Intentar desde la raíz FTP — Hostalia suele tener public_html/
+            ls
+
+            # Intentar borrar desde public_html (ruta más común en cPanel/Hostalia)
+            -rm public_html/wp-content/mu-plugins/lcp-fix.php
+
+            # Si no existe public_html, intentar desde raíz directa
+            -rm wp-content/mu-plugins/lcp-fix.php
+
+            quit
+          LFTP_CMDS
+
+      - name: Confirmar
+        run: echo "✅ Comando ejecutado. Verifica que la web vuelve a cargar."
