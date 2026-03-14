@@ -26,14 +26,63 @@ jobs:
           pw   = os.environ['FTP_PASS']
 
           content = b'''<?php
-          /**
-           * Plugin Name: VAP LCP Fix
-           * Description: Mejoras LCP vapss.net
-           * Version: 1.3-safe
-           */
-          defined("ABSPATH") || exit;
-          // En mantenimiento - se restaurara pronto.
-          '''
+/**
+ * Plugin Name: VAP LCP Fix
+ * Description: Mejoras LCP, rendimiento y compatibilidad para vapss.net
+ * Version: 1.4
+ */
+defined(\'ABSPATH\') || exit;
+
+// FIX 1: Quitar defer de jQuery (Jetpack Boost lo defiere y rompe cf7-conditional-fields)
+add_filter(\'script_loader_tag\', function ($tag, $handle) {
+    $sync = [\'jquery-core\', \'jquery\', \'jquery-migrate\'];
+    if (in_array($handle, $sync, true)) {
+        $tag = str_replace(" defer=\'defer\'", \'\', $tag);
+        $tag = str_replace(\' defer="defer"\', \'\', $tag);
+        $tag = preg_replace(\'/\\sdefer(?=[> ])/\', \'\', $tag);
+    }
+    return $tag;
+}, 20, 2);
+
+// FIX 2: Preload imagen hero LCP
+add_action(\'wp_head\', function () {
+    if (!is_front_page()) return;
+    echo \'<link rel="preload" as="image" fetchpriority="high" href="https://vapss.net/wp-content/uploads/2024/12/AnyConv.com__portada2-1024x768-1.webp" imagesrcset="https://vapss.net/wp-content/uploads/2024/12/AnyConv.com__portada2-1024x768-1-300x225.webp 300w, https://vapss.net/wp-content/uploads/2024/12/AnyConv.com__portada2-1024x768-1-768x576.webp 768w, https://vapss.net/wp-content/uploads/2024/12/AnyConv.com__portada2-1024x768-1.webp 1024w" imagesizes="(max-width: 1024px) 100vw, 1024px">\' . "\\n";
+}, 1);
+
+// FIX 3: Restaurar fetchpriority que Jetpack Boost elimina
+add_action(\'template_redirect\', function () {
+    if (!is_front_page()) return;
+    ob_start(function ($html) {
+        return preg_replace_callback(\'/<img([^>]*AnyConv\\.com__portada2-1024x768-1\\.webp[^>]*)>/i\', function ($m) {
+            $tag = $m[0];
+            $tag = preg_replace(\'/\\s+loading=["\\\']lazy["\\\']/i\', \'\', $tag);
+            $tag = preg_replace(\'/\\s+data-od-removed-fetchpriority=["\\\'][^"\\\']*["\\\']/i\', \'\', $tag);
+            if (strpos($tag, \'fetchpriority\') === false) $tag = str_replace(\'<img\', \'<img fetchpriority="high"\', $tag);
+            return $tag;
+        }, $html);
+    });
+});
+
+// FIX 4: reCAPTCHA solo en /contacto/
+add_action(\'wp_enqueue_scripts\', function () {
+    if (is_page([\'contacto\',\'contact\',\'contactanos\'])) return;
+    foreach ([\'google-recaptcha\',\'wpcf7-recaptcha\',\'contact-form-7\'] as $h) { wp_dequeue_script($h); wp_deregister_script($h); }
+    foreach ([\'contact-form-7\'] as $h) { wp_dequeue_style($h); wp_deregister_style($h); }
+}, 99);
+
+// FIX 5: Preconnect
+add_action(\'wp_head\', function () {
+    echo \'<link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>\' . "\\n";
+    echo \'<link rel="preconnect" href="https://www.gstatic.com" crossorigin>\' . "\\n";
+    echo \'<link rel="dns-prefetch" href="https://www.googletagmanager.com">\' . "\\n";
+}, 2);
+
+// FIX 6: GA4 nativo
+add_action(\'wp_footer\', function () {
+    echo \'<script async src="https://www.googletagmanager.com/gtag/js?id=G-LSVSST12QL"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config","G-LSVSST12QL");</script>\' . "\\n";
+}, 99);
+'''
 
           ctx = ssl.create_default_context()
           ctx.check_hostname = False
@@ -46,7 +95,6 @@ jobs:
           ftp.prot_p()
           ftp.set_pasv(True)
 
-          # Navegar a mu-plugins (probar public_html primero)
           try:
               ftp.cwd('public_html/wp-content/mu-plugins')
               print("Ruta: public_html/wp-content/mu-plugins")
@@ -55,6 +103,6 @@ jobs:
               print("Ruta: wp-content/mu-plugins")
 
           ftp.storbinary('STOR lcp-fix.php', io.BytesIO(content))
-          print("✅ lcp-fix.php subido correctamente")
+          print("lcp-fix.php v1.4 subido correctamente")
           ftp.quit()
           PYEOF
