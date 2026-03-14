@@ -4,18 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta principal - verde VAPSS
+        // Paleta principal - verde corporativo VAPSS (#468847)
         primary: {
-          50:  '#f0fdf4',
-          100: '#d8fde1',
-          200: '#aff5c0',
-          300: '#7de9a0',
-          400: '#55CD6C',  // verde corporativo VAPSS
-          500: '#2db85a',
-          600: '#1a9e44',  // principal (navbar, botones)
-          700: '#157a35',
-          800: '#105727',
-          900: '#0a3a1a',
+          50:  '#f2f9f2',
+          100: '#ddf0de',
+          200: '#b9e0bb',
+          300: '#8cc990',
+          400: '#64af68',
+          500: '#468847',  // verde VAPSS exacto (web)
+          600: '#3a7040',  // principal (navbar, botones)
+          700: '#2e5832',
+          800: '#214023',
+          900: '#152815',
         },
         // Azul corporativo VAPSS
         vapss: {
@@ -24,7 +24,7 @@ export default {
           200: '#bfdbfe',
           300: '#93c5fd',
           400: '#3b82f6',
-          500: '#154773',  // azul VAPSS exact
+          500: '#154773',  // azul VAPSS exacto (links web)
           600: '#1e3a5f',
           700: '#162d4a',
           800: '#0f1f33',
