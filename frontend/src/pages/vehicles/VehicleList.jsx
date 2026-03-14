@@ -7,7 +7,46 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate } from '../../utils/dateUtils.js';
 import VehicleForm from './VehicleForm.jsx';
 
+function calcProximaITV(fechaMatriculacion, fechaUltimaITV) {
+  if (!fechaUltimaITV) return null;
+  const matricula = fechaMatriculacion ? new Date(fechaMatriculacion) : null;
+  const ultimaITV = new Date(fechaUltimaITV);
+  const hoy = new Date();
+  let meses = 12;
+  if (matricula) {
+    const edadAnios = (hoy - matricula) / (1000 * 60 * 60 * 24 * 365.25);
+    if (edadAnios >= 5) meses = 6;
+  }
+  const proxima = new Date(ultimaITV);
+  proxima.setMonth(proxima.getMonth() + meses);
+  return proxima;
+}
+
+function calcProximaITS(fechaUltimaITS) {
+  if (!fechaUltimaITS) return null;
+  const proxima = new Date(fechaUltimaITS);
+  proxima.setFullYear(proxima.getFullYear() + 1);
+  return proxima;
+}
+
+function RevisionPill({ label, proxima }) {
+  if (!proxima) return null;
+  const dias = Math.ceil((proxima - new Date()) / (1000 * 60 * 60 * 24));
+  if (dias > 30) return null;
+  const vencida = dias < 0;
+  return (
+    <span className={`text-xs border rounded-full px-2 py-0.5 font-medium ${
+      vencida ? 'bg-red-100 text-red-700 border-red-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+    }`}>
+      {vencida ? `⚠ ${label} vencida` : `⚠ ${label} en ${dias}d`}
+    </span>
+  );
+}
+
 function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
+  const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
+  const proximaITS = calcProximaITS(vehicle.fecha_its);
+
   return (
     <div className="card space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -23,26 +62,31 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
           <p className="font-medium">{vehicle.kilometros_actuales?.toLocaleString()} km</p>
         </div>
         <div>
-          <p className="text-neutral-500 text-xs">Última revisión</p>
-          <p className="font-medium">{formatDate(vehicle.fecha_ultima_revision) || '—'}</p>
+          <p className="text-neutral-500 text-xs">Última ITV</p>
+          <p className="font-medium">{formatDate(vehicle.fecha_itv) || '—'}</p>
         </div>
         <div>
-          <p className="text-neutral-500 text-xs">Último servicio</p>
-          <p className="font-medium">{formatDate(vehicle.fecha_ultimo_servicio) || '—'}</p>
+          <p className="text-neutral-500 text-xs">Última ITS</p>
+          <p className="font-medium">{formatDate(vehicle.fecha_its) || '—'}</p>
+        </div>
+        <div>
+          <p className="text-neutral-500 text-xs">Matriculación</p>
+          <p className="font-medium">{formatDate(vehicle.fecha_matriculacion) || '—'}</p>
         </div>
       </div>
+      {(proximaITV || proximaITS) && (
+        <div className="flex flex-wrap gap-1">
+          <RevisionPill label="ITV" proxima={proximaITV} />
+          <RevisionPill label="ITS" proxima={proximaITS} />
+        </div>
+      )}
       {(canEdit || canDelete) && (
         <div className="flex gap-2 pt-1 border-t border-neutral-100">
           {canEdit && (
-            <button onClick={() => onEdit(vehicle)} className="btn-secondary text-xs flex-1">
-              Editar
-            </button>
+            <button onClick={() => onEdit(vehicle)} className="btn-secondary text-xs flex-1">Editar</button>
           )}
           {canDelete && (
-            <button
-              onClick={() => onDelete(vehicle.id)}
-              className="btn-ghost text-xs text-red-600 hover:bg-red-50 flex-1"
-            >
+            <button onClick={() => onDelete(vehicle.id)} className="btn-ghost text-xs text-red-600 hover:bg-red-50 flex-1">
               Eliminar
             </button>
           )}
