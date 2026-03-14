@@ -7,20 +7,24 @@
 defined('ABSPATH') || exit;
 
 // ─────────────────────────────────────────────────────────────
-// FIX 1: Quitar defer de jQuery y jquery-migrate
-// Jetpack Boost añade defer a jQuery automáticamente, pero
-// sticky.min.js (GP Premium) y cf7-conditional-fields lo
-// necesitan síncrono. Sin esto el formulario de contacto se rompe.
+// FIX 1: Quitar defer de jQuery via output buffer
+// Jetpack Boost añade defer a jQuery DESPUÉS de script_loader_tag,
+// así que usamos ob_start en template_redirect para eliminarlo
+// del HTML final antes de enviarlo al navegador.
+// Sin esto, sticky.min.js y cf7-conditional-fields fallan con
+// "jQuery is not defined".
 // ─────────────────────────────────────────────────────────────
-add_filter('script_loader_tag', function ($tag, $handle) {
-    $sync_handles = ['jquery-core', 'jquery', 'jquery-migrate'];
-    if (in_array($handle, $sync_handles, true)) {
-        $tag = str_replace(" defer='defer'", '', $tag);
-        $tag = str_replace(' defer="defer"', '', $tag);
-        $tag = preg_replace('/\sdefer(?=[> ])/', '', $tag);
-    }
-    return $tag;
-}, 20, 2);
+add_action('template_redirect', function () {
+    ob_start(function ($html) {
+        // Quitar defer solo de los scripts de jQuery core y migrate
+        $html = preg_replace(
+            '/(<script[^>]*(?:jquery\.min\.js|jquery-migrate\.min\.js)[^>]*)\sdefer(=["\']defer["\'])?/i',
+            '$1',
+            $html
+        );
+        return $html;
+    });
+}, 1); // Prioridad 1 — antes que Jetpack Boost (que usa ~10)
 
 // ─────────────────────────────────────────────────────────────
 // FIX 2: Preload de la imagen hero (LCP)
