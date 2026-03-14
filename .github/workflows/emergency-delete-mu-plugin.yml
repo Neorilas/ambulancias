@@ -1,6 +1,10 @@
-name: EMERGENCIA — Restaurar lcp-fix.php en mu-plugins
+name: EMERGENCIA - Restaurar lcp-fix.php en mu-plugins
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/emergency-delete-mu-plugin.yml'
   workflow_dispatch:
 
 jobs:
@@ -8,20 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Crear versión segura del plugin (sin código, solo header)
+      - name: Crear version segura del plugin
         run: |
           mkdir -p upload
-          cat > upload/lcp-fix.php << 'EOF'
-<?php
-/**
- * Plugin Name: VAP LCP Fix
- * Description: Mejoras de rendimiento LCP para vapss.net
- * Version:     1.3-safe
- * Author:      VAP
- */
-defined('ABSPATH') || exit;
-// Plugin temporalmente desactivado para mantenimiento.
-EOF
+          printf '<?php\n/**\n * Plugin Name: VAP LCP Fix\n * Description: Mejoras LCP vapss.net\n * Version: 1.3-safe\n */\ndefined("ABSPATH") || exit;\n// En mantenimiento.\n' > upload/lcp-fix.php
+          cat upload/lcp-fix.php
 
       - name: Subir via FTP a mu-plugins
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
