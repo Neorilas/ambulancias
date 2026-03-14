@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -44,6 +45,7 @@ function RevisionPill({ label, proxima }) {
 }
 
 function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
+  const navigate = useNavigate();
   const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
   const proximaITS = calcProximaITS(vehicle.fecha_its);
 
@@ -80,18 +82,22 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
           <RevisionPill label="ITS" proxima={proximaITS} />
         </div>
       )}
-      {(canEdit || canDelete) && (
-        <div className="flex gap-2 pt-1 border-t border-neutral-100">
-          {canEdit && (
-            <button onClick={() => onEdit(vehicle)} className="btn-secondary text-xs flex-1">Editar</button>
-          )}
-          {canDelete && (
-            <button onClick={() => onDelete(vehicle.id)} className="btn-ghost text-xs text-red-600 hover:bg-red-50 flex-1">
-              Eliminar
-            </button>
-          )}
-        </div>
-      )}
+      <div className="flex gap-2 pt-1 border-t border-neutral-100">
+        <button
+          onClick={() => navigate(`/vehiculos/${vehicle.id}/historial`)}
+          className="btn-secondary text-xs flex-1"
+        >
+          📷 Historial
+        </button>
+        {canEdit && (
+          <button onClick={() => onEdit(vehicle)} className="btn-ghost text-xs flex-1">Editar</button>
+        )}
+        {canDelete && (
+          <button onClick={() => onDelete(vehicle.id)} className="btn-ghost text-xs text-red-600 hover:bg-red-50">
+            ✕
+          </button>
+        )}
+      </div>
     </div>
   );
 }

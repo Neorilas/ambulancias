@@ -243,7 +243,90 @@ async function getVehicleImages(req, res, next) {
   }
 }
 
+// ============================================================
+// GET /vehicles/:id/historial
+// Historial de trabajos con fotos, agrupado por trabajo.
+// Solo accesible por administrador o gestor.
+// ============================================================
+async function getVehicleHistorial(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+
+    // Verificar que el vehículo existe
+    const [vrow] = await query(
+      'SELECT id, matricula, alias FROM vehicles WHERE id = ? AND deleted_at IS NULL',
+      [vehicleId]
+    );
+    if (!vrow.length) return notFound(res, 'Vehículo');
+
+    // Fotos con todo el contexto del trabajo y el usuario que subió
+    const [rows] = await query(`
+      SELECT
+        vi.id,
+        vi.tipo_imagen,
+        vi.image_url,
+        vi.created_at            AS foto_fecha,
+        vi.trabajo_id,
+        t.referencia             AS trabajo_referencia,
+        t.fecha_inicio           AS trabajo_fecha_inicio,
+        t.fecha_fin              AS trabajo_fecha_fin,
+        t.estado                 AS trabajo_estado,
+        tv_km.kilometros_fin     AS trabajo_km_fin,
+        tv_km.kilometros_inicio  AS trabajo_km_inicio,
+        u.id                     AS uploader_id,
+        u.nombre                 AS uploader_nombre,
+        u.apellidos              AS uploader_apellidos,
+        u.username               AS uploader_username
+      FROM vehicle_images vi
+      LEFT JOIN trabajos t        ON vi.trabajo_id = t.id
+      LEFT JOIN trabajo_vehiculos tv_km
+                                  ON tv_km.trabajo_id = vi.trabajo_id
+                                 AND tv_km.vehicle_id = vi.vehicle_id
+      LEFT JOIN users u           ON vi.uploaded_by = u.id
+      WHERE vi.vehicle_id = ?
+      ORDER BY vi.trabajo_id DESC, vi.tipo_imagen ASC
+    `, [vehicleId]);
+
+    // Agrupar por trabajo
+    const trabajosMap = new Map();
+    for (const row of rows) {
+      const tid = row.trabajo_id ?? 'sin_trabajo';
+      if (!trabajosMap.has(tid)) {
+        trabajosMap.set(tid, {
+          trabajo_id:         row.trabajo_id,
+          referencia:         row.trabajo_referencia,
+          fecha_inicio:       row.trabajo_fecha_inicio,
+          fecha_fin:          row.trabajo_fecha_fin,
+          estado:             row.trabajo_estado,
+          km_inicio:          row.trabajo_km_inicio,
+          km_fin:             row.trabajo_km_fin,
+          fotos:              [],
+        });
+      }
+      trabajosMap.get(tid).fotos.push({
+        id:          row.id,
+        tipo_imagen: row.tipo_imagen,
+        image_url:   row.image_url,
+        fecha:       row.foto_fecha,
+        subido_por: {
+          id:       row.uploader_id,
+          nombre:   row.uploader_nombre,
+          apellidos: row.uploader_apellidos,
+          username: row.uploader_username,
+        },
+      });
+    }
+
+    return success(res, {
+      vehicle:  vrow[0],
+      trabajos: [...trabajosMap.values()],
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listVehicles, getVehicle, createVehicle, updateVehicle,
-  deleteVehicle, uploadImages, getVehicleImages,
+  deleteVehicle, uploadImages, getVehicleImages, getVehicleHistorial,
 };

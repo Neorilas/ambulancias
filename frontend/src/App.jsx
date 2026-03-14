@@ -8,6 +8,7 @@ import Login                    from './pages/Login.jsx';
 import Dashboard                from './pages/Dashboard.jsx';
 import UserList                 from './pages/users/UserList.jsx';
 import VehicleList              from './pages/vehicles/VehicleList.jsx';
+import VehicleHistory           from './pages/vehicles/VehicleHistory.jsx';
 import TrabajoList              from './pages/trabajos/TrabajoList.jsx';
 import TrabajoDetail            from './pages/trabajos/TrabajoDetail.jsx';
 import MisTrabajos              from './pages/MisTrabajos.jsx';
@@ -42,6 +43,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]}>
                     <VehicleList />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/vehiculos/:id/historial"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]}>
+                    <VehicleHistory />
                   </ProtectedRoute>
                 }
               />

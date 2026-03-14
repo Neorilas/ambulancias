@@ -19,9 +19,12 @@ export const vehiclesService = {
   getImages(id, params = {}) {
     return api.get(`/vehicles/${id}/images`, { params }).then(r => r.data.data);
   },
+  getHistory(id) {
+    return api.get(`/vehicles/${id}/historial`).then(r => r.data.data);
+  },
   uploadImage(id, formData) {
     return api.post(`/vehicles/${id}/images`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined },
     }).then(r => r.data.data);
   },
 };

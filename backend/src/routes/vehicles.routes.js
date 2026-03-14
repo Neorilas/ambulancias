@@ -34,6 +34,15 @@ router.get('/:id/images',
   ctrl.getVehicleImages
 );
 
+// GET /vehicles/:id/historial  (admin o gestor)
+// Historial completo de trabajos + fotos + responsables
+router.get('/:id/historial',
+  requireAdminOrGestor,
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.getVehicleHistorial
+);
+
 // POST /vehicles  (admin o gestor)
 router.post('/',
   requireAdminOrGestor,

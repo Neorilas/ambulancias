@@ -7,6 +7,7 @@ import { EstadoBadge, TipoBadge, RolBadge } from '../../components/common/Status
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDateTime, duration } from '../../utils/dateUtils.js';
 import { TRABAJO_ESTADOS } from '../../utils/constants.js';
+import { getImageUrl } from '../../utils/imageUtils.js';
 import Finalizacion from './Finalizacion.jsx';
 import TrabajoForm from './TrabajoForm.jsx';
 
@@ -154,9 +155,9 @@ export default function TrabajoDetail() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {trabajo.evidencias.map(img => (
               <div key={img.id} className="space-y-1">
-                <a href={img.image_url} target="_blank" rel="noopener noreferrer">
+                <a href={getImageUrl(img.image_url)} target="_blank" rel="noopener noreferrer">
                   <img
-                    src={img.image_url}
+                    src={getImageUrl(img.image_url)}
                     alt={img.tipo_imagen}
                     className="w-full aspect-video object-cover rounded-lg border hover:opacity-90 transition-opacity"
                   />
