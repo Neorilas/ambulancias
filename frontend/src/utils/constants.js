@@ -26,7 +26,7 @@ export const IMAGEN_TIPOS = [
   { key: 'trasera',           label: 'Trasera',            instruccion: 'Colócate detrás del vehículo a ~3m' },
   { key: 'niveles_liquidos',  label: 'Niveles Líquidos',   instruccion: 'Abre el capó y fotografía niveles de aceite, refrigerante y demás líquidos' },
   { key: 'cuentakilometros',  label: 'Cuentakilómetros',   instruccion: 'Fotografía el cuadro de instrumentos mostrando los kilómetros' },
-  { key: 'danos',             label: 'Posibles Daños',     instruccion: 'Fotografía cualquier daño visible en el vehículo. Si no hay daños, haz una foto general' },
+  { key: 'danos',             label: 'Posibles Daños',     instruccion: 'Fotografía cualquier daño visible en el vehículo. Si no hay daños, haz una foto general', opcional: true },
 ];
 
 export const ESTADO_COLORS = {

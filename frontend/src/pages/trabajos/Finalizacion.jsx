@@ -117,8 +117,10 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   };
 
   // ── Validaciones por paso ────────────────────────────────
+  // Solo los tipos no opcionales son obligatorios para continuar
+  const tiposRequeridos = IMAGEN_TIPOS.filter(t => !t.opcional);
   const canProceedFromFotos = vehiculos.every(v =>
-    IMAGEN_TIPOS.every(t => evidencias[v.vehicle_id]?.[t.key])
+    tiposRequeridos.every(t => evidencias[v.vehicle_id]?.[t.key])
   );
 
   const canProceedFromKm = vehiculos.every(v =>
@@ -202,7 +204,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                   return (
                     <div key={tipo.key} className="relative">
                       <div className={`aspect-square rounded-lg border-2 overflow-hidden
-                        ${file ? 'border-green-400' : 'border-dashed border-neutral-300'}`}>
+                        ${file ? 'border-green-400' : tipo.opcional ? 'border-dashed border-neutral-200' : 'border-dashed border-neutral-300'}`}>
                         {preview ? (
                           <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
                         ) : (
@@ -223,6 +225,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                       </div>
                       <p className="text-center text-xs text-neutral-500 mt-1 leading-tight">
                         {tipo.label}
+                        {tipo.opcional && <span className="block text-neutral-400 text-[10px]">Opcional</span>}
                       </p>
                     </div>
                   );
@@ -240,7 +243,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           </button>
           {!canProceedFromFotos && (
             <p className="text-xs text-center text-red-500">
-              Faltan fotografías por capturar
+              Faltan fotografías obligatorias por capturar
             </p>
           )}
         </div>
@@ -335,8 +338,11 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                   </p>
                   <div className="flex gap-1 mt-1 flex-wrap">
                     {IMAGEN_TIPOS.map(t => (
-                      <span key={t.key} className={`badge text-xs ${evidencias[veh.vehicle_id]?.[t.key] ? 'badge-green' : 'badge-red'}`}>
-                        {t.label.split(' ')[0]}
+                      <span key={t.key} className={`badge text-xs ${
+                        evidencias[veh.vehicle_id]?.[t.key] ? 'badge-green' :
+                        t.opcional ? 'badge-yellow' : 'badge-red'
+                      }`}>
+                        {t.label.split(' ')[0]}{t.opcional ? '*' : ''}
                       </span>
                     ))}
                   </div>

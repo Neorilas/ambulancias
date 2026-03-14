@@ -12,7 +12,7 @@ const { requireAdminOrGestor }     = require('../middleware/roles.middleware');
 const { handleValidation }         = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
-const { TRABAJO_TIPOS, IMAGEN_TIPOS_REQUERIDOS } = require('../config/constants');
+const { TRABAJO_TIPOS, IMAGEN_TIPOS, IMAGEN_TIPOS_REQUERIDOS } = require('../config/constants');
 
 const router = express.Router();
 router.use(authenticate);
@@ -102,8 +102,8 @@ router.post('/:id/evidencias',
   [
     param('id').isInt({ min: 1 }),
     body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
-    body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS_REQUERIDOS)
-      .withMessage(`tipo_imagen debe ser: ${IMAGEN_TIPOS_REQUERIDOS.join(', ')}`),
+    body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)
+      .withMessage(`tipo_imagen debe ser: ${IMAGEN_TIPOS.join(', ')}`),
   ],
   handleValidation,
   async (req, res, next) => {
