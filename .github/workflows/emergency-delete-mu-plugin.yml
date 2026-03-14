@@ -12,21 +12,49 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Crear version segura del plugin
+      - name: Subir lcp-fix.php via FTPS (Python ftplib)
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
         run: |
-          mkdir -p upload
-          printf '<?php\n/**\n * Plugin Name: VAP LCP Fix\n * Description: Mejoras LCP vapss.net\n * Version: 1.3-safe\n */\ndefined("ABSPATH") || exit;\n// En mantenimiento.\n' > upload/lcp-fix.php
-          cat upload/lcp-fix.php
+          python3 - <<'PYEOF'
+          import ftplib, ssl, os, io
 
-      - name: Subir via FTP a mu-plugins
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: upload/
-          server-dir: public_html/wp-content/mu-plugins/
-          protocol: ftps
-          port: 21
-          dangerous-clean-slate: false
-          timeout: 60000
+          host = os.environ['FTP_HOST']
+          user = os.environ['FTP_USER']
+          pw   = os.environ['FTP_PASS']
+
+          content = b'''<?php
+          /**
+           * Plugin Name: VAP LCP Fix
+           * Description: Mejoras LCP vapss.net
+           * Version: 1.3-safe
+           */
+          defined("ABSPATH") || exit;
+          // En mantenimiento - se restaurara pronto.
+          '''
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          ftp = ftplib.FTP_TLS(context=ctx)
+          ftp.connect(host, 21, timeout=30)
+          ftp.auth()
+          ftp.login(user, pw)
+          ftp.prot_p()
+          ftp.set_pasv(True)
+
+          # Navegar a mu-plugins (probar public_html primero)
+          try:
+              ftp.cwd('public_html/wp-content/mu-plugins')
+              print("Ruta: public_html/wp-content/mu-plugins")
+          except ftplib.error_perm:
+              ftp.cwd('wp-content/mu-plugins')
+              print("Ruta: wp-content/mu-plugins")
+
+          ftp.storbinary('STOR lcp-fix.php', io.BytesIO(content))
+          print("✅ lcp-fix.php subido correctamente")
+          ftp.quit()
+          PYEOF
