@@ -2,137 +2,132 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { compressImage, blobToFile } from '../../utils/imageCompress.js';
 import { IMAGEN_TIPOS } from '../../utils/constants.js';
 
-// ── Siluetas SVG — Mercedes Sprinter / furgoneta sanitaria ──────────────────
+// ── Siluetas SVG — furgoneta sanitaria (perfil limpio minimalista) ───────────
 const SILUETAS = {
 
+  // Vista frontal — boxy, alta, parabrisas grande
   frontal: (
-    <svg viewBox="0 0 300 240" fill="none" stroke="white" strokeWidth="2.2"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Carrocería principal — boxy, alta */}
-      <rect x="22" y="18" width="256" height="192" rx="5"/>
-      {/* Parabrisas grande — casi ancho total */}
-      <rect x="35" y="25" width="230" height="102" rx="3"/>
+    <svg viewBox="0 0 200 210" fill="none" stroke="white" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.8" className="w-full h-full">
+      {/* Carrocería */}
+      <rect x="14" y="16" width="172" height="162" rx="14"/>
+      {/* Parabrisas (zona superior, casi ancho total) */}
+      <rect x="26" y="24" width="148" height="92" rx="8"/>
       {/* Retrovisores */}
-      <rect x="2"   y="62" width="20" height="35" rx="3"/>
-      <rect x="278" y="62" width="20" height="35" rx="3"/>
-      {/* Faros delanteros (tiras rectangulares) */}
-      <rect x="24"  y="133" width="72" height="28" rx="4"/>
-      <rect x="204" y="133" width="72" height="28" rx="4"/>
-      {/* Zona central — rejilla / logo */}
-      <rect x="105" y="137" width="90" height="20" rx="3"/>
-      {/* Parachoques inferior */}
-      <rect x="18"  y="200" width="264" height="14" rx="4"/>
-      {/* Barra de balizas — techo */}
-      <rect x="70"  y="7"   width="160" height="13" rx="4"/>
-      {/* Arcos rueda (parciales, parte inferior) */}
-      <path d="M 2 234 Q 48 212 94 234"/>
-      <path d="M 206 234 Q 252 212 298 234"/>
-    </svg>
-  ),
-
-  lateral_izquierdo: (
-    <svg viewBox="0 0 520 200" fill="none" stroke="white" strokeWidth="2.2"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Perfil general Sprinter — morro corto, caja larga y alta */}
-      <path d="M 10 170 L 10 84 Q 14 38 50 22 L 170 16 L 512 16 L 516 20 L 516 170 Z"/>
-      {/* Parabrisas — casi vertical, característico de furgoneta */}
-      <path d="M 48 22 L 30 80 L 30 114 L 166 114 L 166 16" strokeWidth="1.8"/>
-      {/* Ventana del conductor */}
-      <rect x="36" y="27" width="124" height="74" rx="4"/>
-      {/* Espejo retrovisor izquierdo */}
-      <path d="M 31 44 L 6 50 L 6 74 L 31 74"/>
-      {/* Pilar B — separación cabina / módulo sanitario */}
-      <line x1="170" y1="16" x2="170" y2="170" strokeWidth="2.8"/>
-      {/* Puerta lateral corredera */}
-      <line x1="294" y1="16" x2="294" y2="170" strokeDasharray="7 4" strokeWidth="1.5"/>
-      {/* Contorno puertas traseras — desde lateral */}
-      <line x1="444" y1="16" x2="444" y2="170" strokeDasharray="7 4" strokeWidth="1.5"/>
-      {/* Ventana lateral (detrás del pilar B) */}
-      <rect x="180" y="26" width="74" height="60" rx="3"/>
-      {/* Faro delantero */}
-      <rect x="10"  y="92" width="18" height="40" rx="3"/>
-      {/* Piloto trasero */}
-      <rect x="506" y="72" width="10" height="52" rx="2"/>
-      {/* Cruz ambulancia — en caja sanitaria */}
-      <line x1="378" y1="55" x2="378" y2="94"/>
-      <line x1="359" y1="74" x2="397" y2="74"/>
-      {/* Ruedas */}
-      <circle cx="108" cy="177" r="25"/>
-      <circle cx="108" cy="177" r="11"/>
-      <circle cx="392" cy="177" r="25"/>
-      <circle cx="392" cy="177" r="11"/>
-      {/* Arcos de rueda */}
-      <path d="M 72 163 Q 108 143 144 163"/>
-      <path d="M 356 163 Q 392 143 428 163"/>
-    </svg>
-  ),
-
-  trasera: (
-    <svg viewBox="0 0 300 240" fill="none" stroke="white" strokeWidth="2.2"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Carrocería trasera */}
-      <rect x="20" y="18" width="260" height="186" rx="5"/>
-      {/* Barra de balizas */}
-      <rect x="65" y="7" width="170" height="13" rx="4"/>
-      {/* División central de las dos hojas de la puerta */}
-      <line x1="150" y1="18" x2="150" y2="204" strokeWidth="2.8"/>
-      {/* Pilotos traseros (tiras verticales) */}
-      <rect x="20"  y="22" width="38" height="74" rx="4"/>
-      <rect x="242" y="22" width="38" height="74" rx="4"/>
-      {/* Manillas centrales */}
-      <rect x="118" y="100" width="14" height="38" rx="3"/>
-      <rect x="168" y="100" width="14" height="38" rx="3"/>
-      {/* Matrícula */}
-      <rect x="103" y="178" width="94" height="22" rx="3"/>
+      <rect x="0"   y="54" width="12" height="24" rx="3"/>
+      <rect x="188" y="54" width="12" height="24" rx="3"/>
+      {/* Faros (rectángulos bajos en esquinas) */}
+      <rect x="16"  y="124" width="44" height="22" rx="6"/>
+      <rect x="140" y="124" width="44" height="22" rx="6"/>
+      {/* Rejilla central */}
+      <rect x="70"  y="128" width="60" height="14" rx="4"/>
       {/* Parachoques */}
-      <rect x="14"  y="200" width="272" height="16" rx="4"/>
+      <rect x="10"  y="156" width="180" height="16" rx="7"/>
+      {/* Balizas / barra techo */}
+      <rect x="52"  y="5"   width="96"  height="13" rx="5"/>
       {/* Arcos rueda */}
-      <path d="M 2 235 Q 46 214 90 235"/>
-      <path d="M 210 235 Q 254 214 298 235"/>
+      <path d="M 0 192 Q 28 175 56 192"/>
+      <path d="M 144 192 Q 172 175 200 192"/>
     </svg>
   ),
 
-  lateral_derecho: (
-    <svg viewBox="0 0 520 200" fill="none" stroke="white" strokeWidth="2.2"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Perfil espejado — lado derecho (pasajero en España) */}
-      <path d="M 510 170 L 510 84 Q 506 38 470 22 L 350 16 L 4 16 L 0 20 L 0 170 Z"/>
-      {/* Parabrisas espejado */}
-      <path d="M 472 22 L 490 80 L 490 114 L 354 114 L 354 16" strokeWidth="1.8"/>
-      {/* Ventana del conductor (lado derecho, espejado) */}
-      <rect x="360" y="27" width="124" height="74" rx="4"/>
-      {/* Espejo retrovisor derecho */}
-      <path d="M 489 44 L 514 50 L 514 74 L 489 74"/>
-      {/* Pilar B */}
-      <line x1="350" y1="16" x2="350" y2="170" strokeWidth="2.8"/>
-      {/* Puerta lateral corredera (espejada) */}
-      <line x1="226" y1="16" x2="226" y2="170" strokeDasharray="7 4" strokeWidth="1.5"/>
-      {/* Contorno puertas traseras */}
-      <line x1="76"  y1="16" x2="76"  y2="170" strokeDasharray="7 4" strokeWidth="1.5"/>
-      {/* Ventana lateral */}
-      <rect x="266" y="26" width="74" height="60" rx="3"/>
-      {/* Faro delantero (derecha, espejado) */}
-      <rect x="492" y="92" width="18" height="40" rx="3"/>
+  // Vista lateral izquierda — pendiente del parabrisas a la izquierda
+  lateral_izquierdo: (
+    <svg viewBox="0 0 220 110" fill="none" stroke="white" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.8" className="w-full h-full">
+      {/* Carrocería: pendiente del parabrisas en esquina delantera-superior */}
+      <path d="
+        M 16 84
+        L 16 54
+        Q 18 24 50 16
+        L 206 16
+        Q 216 16 216 26
+        L 216 84
+        Q 216 90 210 90
+        L 22  90
+        Q 16 90 16 84
+        Z
+      "/>
+      {/* Parabrisas interior */}
+      <path d="M 20 54 Q 22 24 52 18 L 106 18 L 106 54 Z" strokeWidth="2"/>
+      {/* Espejo retrovisor */}
+      <rect x="2" y="34" width="12" height="20" rx="3"/>
+      {/* Faro delantero */}
+      <rect x="14" y="62" width="6" height="16" rx="2"/>
       {/* Piloto trasero */}
-      <rect x="4"   y="72" width="10" height="52" rx="2"/>
-      {/* Cruz ambulancia */}
-      <line x1="142" y1="55" x2="142" y2="94"/>
-      <line x1="123" y1="74" x2="161" y2="74"/>
+      <rect x="212" y="50" width="6" height="20" rx="2"/>
       {/* Ruedas */}
-      <circle cx="412" cy="177" r="25"/>
-      <circle cx="412" cy="177" r="11"/>
-      <circle cx="128" cy="177" r="25"/>
-      <circle cx="128" cy="177" r="11"/>
-      {/* Arcos de rueda */}
-      <path d="M 376 163 Q 412 143 448 163"/>
-      <path d="M 92  163 Q 128 143 164 163"/>
+      <circle cx="62"  cy="95" r="18"/>
+      <circle cx="62"  cy="95" r="8"/>
+      <circle cx="168" cy="95" r="18"/>
+      <circle cx="168" cy="95" r="8"/>
     </svg>
   ),
 
+  // Vista trasera — dos hojas de puerta, sin ventanas (furgoneta carga/sanitaria)
+  trasera: (
+    <svg viewBox="0 0 200 210" fill="none" stroke="white" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.8" className="w-full h-full">
+      {/* Carrocería */}
+      <rect x="14" y="16" width="172" height="162" rx="14"/>
+      {/* Balizas */}
+      <rect x="48"  y="5"   width="104" height="13" rx="5"/>
+      {/* División central de puertas */}
+      <line x1="100" y1="16" x2="100" y2="178" strokeWidth="2.8"/>
+      {/* Pilotos traseros (tiras verticales en esquinas) */}
+      <rect x="16"  y="20" width="32" height="68" rx="6"/>
+      <rect x="152" y="20" width="32" height="68" rx="6"/>
+      {/* Manillas centrales */}
+      <rect x="76"  y="92" width="12" height="32" rx="3"/>
+      <rect x="112" y="92" width="12" height="32" rx="3"/>
+      {/* Matrícula */}
+      <rect x="66"  y="152" width="68" height="20" rx="3"/>
+      {/* Parachoques */}
+      <rect x="10"  y="158" width="180" height="16" rx="7"/>
+      {/* Arcos rueda */}
+      <path d="M 0 194 Q 28 177 56 194"/>
+      <path d="M 144 194 Q 172 177 200 194"/>
+    </svg>
+  ),
+
+  // Vista lateral derecha — pendiente del parabrisas a la derecha (espejado)
+  lateral_derecho: (
+    <svg viewBox="0 0 220 110" fill="none" stroke="white" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.8" className="w-full h-full">
+      {/* Carrocería espejada: pendiente en esquina delantera-superior derecha */}
+      <path d="
+        M 204 84
+        L 204 54
+        Q 202 24 170 16
+        L 14  16
+        Q 4  16 4  26
+        L 4  84
+        Q 4  90 10 90
+        L 198 90
+        Q 204 90 204 84
+        Z
+      "/>
+      {/* Parabrisas interior (derecha) */}
+      <path d="M 200 54 Q 198 24 168 18 L 114 18 L 114 54 Z" strokeWidth="2"/>
+      {/* Espejo retrovisor (derecho) */}
+      <rect x="206" y="34" width="12" height="20" rx="3"/>
+      {/* Faro delantero */}
+      <rect x="200" y="62" width="6" height="16" rx="2"/>
+      {/* Piloto trasero */}
+      <rect x="2" y="50" width="6" height="20" rx="2"/>
+      {/* Ruedas */}
+      <circle cx="158" cy="95" r="18"/>
+      <circle cx="158" cy="95" r="8"/>
+      <circle cx="52"  cy="95" r="18"/>
+      <circle cx="52"  cy="95" r="8"/>
+    </svg>
+  ),
+
+  // Cuentakilómetros — cuadro de instrumentos
   cuentakilometros: (
-    <svg viewBox="0 0 280 180" fill="none" stroke="white" strokeWidth="2.2"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Marco cuadro de instrumentos */}
+    <svg viewBox="0 0 280 180" fill="none" stroke="white" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.8" className="w-full h-full">
+      {/* Marco */}
       <rect x="12" y="18" width="256" height="148" rx="10"/>
       {/* Velocímetro */}
       <circle cx="98" cy="92" r="62"/>
@@ -145,11 +140,9 @@ const SILUETAS = {
           x2={98 + 47 * Math.cos(a)} y2={92 + 47 * Math.sin(a)}
           strokeWidth="2"/>;
       })}
-      {/* Aguja */}
       <line x1="98" y1="92" x2="142" y2="54" strokeWidth="2.5"/>
-      {/* Display digital km */}
       <rect x="60" y="115" width="76" height="20" rx="4"/>
-      {/* Cuentarrevoluciones */}
+      {/* RPM */}
       <circle cx="196" cy="92" r="46"/>
       <circle cx="196" cy="92" r="4" fill="white" opacity="0.7"/>
       <path d="M 157 130 A 46 46 0 1 1 235 130" strokeWidth="1.8"/>
@@ -302,10 +295,34 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     return () => window.removeEventListener('keydown', h);
   }, [capture, preview]);
 
-  // ── Clase del contenedor de silueta según orientación ────────
-  const siluetaContainerClass = currentTipo.landscape
-    ? 'w-[94%] drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]'
-    : 'w-[68%] max-w-xs drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]';
+  // ── Estilo del contenedor de silueta (ancho/alto según tipo y orientación) ──
+  // Para evitar que SVGs de proporción retrato desborden en modo landscape,
+  // limitamos por altura cuando el móvil está apaisado y el tipo es retrato.
+  const SILUETA_RATIO = {
+    frontal:           '200/210',
+    lateral_izquierdo: '220/110',
+    trasera:           '200/210',
+    lateral_derecho:   '220/110',
+    niveles_liquidos:  '4/3',
+    cuentakilometros:  '280/180',
+  };
+  const siluetaStyle = (() => {
+    if (currentTipo.landscape) {
+      // Silueta lateral — siempre por anchura
+      return { width: '94%' };
+    }
+    if (isLandscape) {
+      // Silueta retrato en móvil apaisado — limitar por altura + ratio exacto
+      return {
+        height: '55dvh',
+        width: 'auto',
+        aspectRatio: SILUETA_RATIO[currentTipo.key] ?? '4/3',
+      };
+    }
+    // Caso normal: móvil en vertical, silueta retrato
+    return { width: 'min(68%, 240px)' };
+  })();
+  const siluetaClass = 'drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]';
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
@@ -412,7 +429,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
             {cameraReady && !preview && (
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 {SILUETAS[currentTipo.key] && (
-                  <div className={siluetaContainerClass}>
+                  <div className={siluetaClass} style={siluetaStyle}>
                     {SILUETAS[currentTipo.key]}
                   </div>
                 )}
