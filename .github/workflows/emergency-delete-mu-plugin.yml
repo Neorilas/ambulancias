@@ -40,15 +40,8 @@ jobs:
           ftp.prot_p()
           ftp.set_pasv(True)
 
-          # Listar raiz FTP para diagnostico
-          print("Raiz FTP:", ftp.nlst())
-
-          try:
-              ftp.cwd('wp-content/mu-plugins')
-              print("Ruta: wp-content/mu-plugins")
-          except ftplib.error_perm:
-              ftp.cwd('public_html/wp-content/mu-plugins')
-              print("Ruta: public_html/wp-content/mu-plugins")
+          ftp.cwd('vapss.net/wp-content/mu-plugins')
+          print("Ruta: vapss.net/wp-content/mu-plugins")
 
           with open('.github/files/lcp-fix.php', 'rb') as f:
               ftp.storbinary('STOR lcp-fix.php', f)
