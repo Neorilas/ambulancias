@@ -7,24 +7,19 @@
 defined('ABSPATH') || exit;
 
 // ─────────────────────────────────────────────────────────────
-// FIX 1: Quitar defer de jQuery via output buffer
-// Jetpack Boost añade defer a jQuery DESPUÉS de script_loader_tag,
-// así que usamos ob_start en template_redirect para eliminarlo
-// del HTML final antes de enviarlo al navegador.
-// Sin esto, sticky.min.js y cf7-conditional-fields fallan con
-// "jQuery is not defined".
+// FIX 1: Defer generate-sticky y wpcf7cf-scripts
+// Jetpack Boost defiere jQuery pero no estos scripts.
+// Como jQuery aparece antes en el HTML, si los deferimos también
+// ejecutarán en orden: jQuery → sticky → cf7-conditional-fields.
+// Esto resuelve "jQuery is not defined" sin tocar Jetpack Boost.
 // ─────────────────────────────────────────────────────────────
-add_action('template_redirect', function () {
-    ob_start(function ($html) {
-        // Quitar defer solo de los scripts de jQuery core y migrate
-        $html = preg_replace(
-            '/(<script[^>]*(?:jquery\.min\.js|jquery-migrate\.min\.js)[^>]*)\sdefer(=["\']defer["\'])?/i',
-            '$1',
-            $html
-        );
-        return $html;
-    });
-}, 1); // Prioridad 1 — antes que Jetpack Boost (que usa ~10)
+add_filter('script_loader_tag', function ($tag, $handle) {
+    $to_defer = ['generate-sticky', 'wpcf7cf-scripts'];
+    if (in_array($handle, $to_defer, true) && strpos($tag, 'defer') === false) {
+        $tag = str_replace(' src=', ' defer src=', $tag);
+    }
+    return $tag;
+}, 20, 2);
 
 // ─────────────────────────────────────────────────────────────
 // FIX 2: Preload de la imagen hero (LCP)
