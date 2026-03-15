@@ -11,6 +11,7 @@ const { success, created, error, notFound, forbidden, paginated, validationError
   require('../utils/response.utils');
 const { ROLES, PAGINATION }           = require('../config/constants');
 const { isAdmin }                     = require('../middleware/roles.middleware');
+const { logAudit }                    = require('./admin.controller');
 
 // ============================================================
 // GET /users
@@ -158,10 +159,19 @@ async function createUser(req, res, next) {
       [userId]
     );
 
-    return created(res, {
+    const result_user = {
       ...newUser[0],
       roles: newUser[0].roles ? newUser[0].roles.split(',') : [],
-    }, 'Usuario creado correctamente');
+    };
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_user',
+      entityType: 'user', entityId: userId,
+      details:  { username, roles: result_user.roles },
+      ip: req.ip,
+    });
+    return created(res, result_user, 'Usuario creado correctamente');
 
   } catch (err) {
     next(err);
@@ -262,10 +272,19 @@ async function updateUser(req, res, next) {
       [targetId]
     );
 
-    return success(res, {
+    const result_updated = {
       ...updated[0],
       roles: updated[0].roles ? updated[0].roles.split(',') : [],
-    }, 'Usuario actualizado');
+    };
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'update_user',
+      entityType: 'user', entityId: targetId,
+      details:  { roles: result_updated.roles, fields_changed: Object.keys(req.body) },
+      ip: req.ip,
+    });
+    return success(res, result_updated, 'Usuario actualizado');
 
   } catch (err) {
     next(err);
@@ -302,6 +321,13 @@ async function deleteUser(req, res, next) {
       );
     });
 
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'delete_user',
+      entityType: 'user', entityId: targetId,
+      ip: req.ip,
+    });
     return success(res, null, 'Usuario eliminado (soft delete)');
   } catch (err) {
     next(err);

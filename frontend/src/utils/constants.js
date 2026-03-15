@@ -7,6 +7,15 @@ export const ROLES = {
   MEDICO:        'medico',
 };
 
+export const PERMISSIONS = {
+  MANAGE_VEHICLES:    'manage_vehicles',
+  MANAGE_USERS:       'manage_users',
+  MANAGE_TRABAJOS:    'manage_trabajos',
+  VIEW_ALL_TRABAJOS:  'view_all_trabajos',
+  MANAGE_INCIDENCIAS: 'manage_incidencias',
+  ACCESS_ADMIN:       'access_admin',
+};
+
 export const TRABAJO_ESTADOS = {
   PROGRAMADO:            'programado',
   ACTIVO:                'activo',

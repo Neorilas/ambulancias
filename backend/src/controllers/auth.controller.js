@@ -22,6 +22,23 @@ const logger                          = require('../utils/logger.utils');
 // Helpers internos
 // ============================================================
 
+/** Carga los permisos de un usuario desde role_permissions */
+async function getUserPermissions(userId) {
+  try {
+    const [rows] = await query(
+      `SELECT DISTINCT p.nombre
+       FROM user_roles ur
+       JOIN role_permissions rp ON ur.role_id = rp.role_id
+       JOIN permissions p ON rp.permission_id = p.id
+       WHERE ur.user_id = ?`,
+      [userId]
+    );
+    return rows.map(r => r.nombre);
+  } catch {
+    return []; // si la tabla no existe aún (pre-migración), no romper
+  }
+}
+
 async function recordLoginAttempt(username, ip, userAgent, success) {
   await query(
     'INSERT INTO login_attempts (username, ip_address, success, user_agent) VALUES (?, ?, ?, ?)',
@@ -96,10 +113,11 @@ async function login(req, res, next) {
     // Login correcto → limpiar intentos fallidos recientes
     await recordLoginAttempt(username, ip, userAgent, true);
 
-    const roles = user.roles ? user.roles.split(',') : [];
+    const roles       = user.roles ? user.roles.split(',') : [];
+    const permissions = await getUserPermissions(user.id);
 
     // Generar tokens
-    const accessToken = generateAccessToken({ id: user.id, username: user.username, roles });
+    const accessToken = generateAccessToken({ id: user.id, username: user.username, roles, permissions });
     const { token: refreshToken, tokenHash } = generateRefreshToken();
     const expiresAt = refreshTokenExpiresAt();
 
@@ -175,7 +193,8 @@ async function refresh(req, res, next) {
     if (new Date(rt.expires_at) < new Date())    return unauthorized(res, 'Refresh token expirado');
     if (!rt.activo || rt.deleted_at)             return unauthorized(res, 'Cuenta inactiva');
 
-    const roles = rt.roles ? rt.roles.split(',') : [];
+    const roles       = rt.roles ? rt.roles.split(',') : [];
+    const permissions = await getUserPermissions(rt.user_id);
 
     // Rotar refresh token (invalidar el viejo, emitir uno nuevo)
     const { token: newRefreshToken, tokenHash: newTokenHash } = generateRefreshToken();
@@ -192,7 +211,7 @@ async function refresh(req, res, next) {
       );
     });
 
-    const accessToken = generateAccessToken({ id: rt.user_id, username: rt.username, roles });
+    const accessToken = generateAccessToken({ id: rt.user_id, username: rt.username, roles, permissions });
 
     return success(res, {
       accessToken,

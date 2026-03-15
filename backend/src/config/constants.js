@@ -59,4 +59,14 @@ module.exports = {
 
   // ---- Prefijo identificador trabajos ----
   TRABAJO_ID_PREFIX: 'TRB',
+
+  // ---- Permisos granulares (deben coincidir con los nombres en BD tabla permissions) ----
+  PERMISSIONS: {
+    MANAGE_VEHICLES:    'manage_vehicles',
+    MANAGE_USERS:       'manage_users',
+    MANAGE_TRABAJOS:    'manage_trabajos',
+    VIEW_ALL_TRABAJOS:  'view_all_trabajos',
+    MANAGE_INCIDENCIAS: 'manage_incidencias',
+    ACCESS_ADMIN:       'access_admin',
+  },
 };

@@ -12,6 +12,7 @@ const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX, IMAGEN_TIPOS_REQUERIDOS 
   require('../config/constants');
 const { isAdmin, isOperacional }      = require('../middleware/roles.middleware');
 const logger                          = require('../utils/logger.utils');
+const { logAudit }                    = require('./admin.controller');
 
 // ============================================================
 // Helpers
@@ -253,6 +254,14 @@ async function createTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(trabajoId);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_trabajo',
+      entityType: 'trabajo', entityId: trabajoId,
+      details:  { identificador: t.identificador, nombre: t.nombre, tipo: t.tipo },
+      ip: req.ip,
+    });
     return created(res, t, 'Trabajo creado');
   } catch (err) {
     next(err);
@@ -315,6 +324,14 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'update_trabajo',
+      entityType: 'trabajo', entityId: id,
+      details:  { nombre: t.nombre, estado: t.estado },
+      ip: req.ip,
+    });
     return success(res, t, 'Trabajo actualizado');
   } catch (err) {
     next(err);
@@ -337,6 +354,13 @@ async function deleteTrabajo(req, res, next) {
     }
 
     await query('UPDATE trabajos SET deleted_at = NOW() WHERE id = ?', [id]);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'delete_trabajo',
+      entityType: 'trabajo', entityId: id,
+      ip: req.ip,
+    });
     return success(res, null, 'Trabajo eliminado');
   } catch (err) {
     next(err);
@@ -431,6 +455,14 @@ async function finalizeTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'finalize_trabajo',
+      entityType: 'trabajo', entityId: id,
+      details:  { estado: t.estado, anticipado: isAnticipado },
+      ip: req.ip,
+    });
     return success(res, t, 'Trabajo finalizado correctamente');
   } catch (err) {
     next(err);
@@ -604,6 +636,14 @@ async function activarTrabajo(req, res, next) {
     );
 
     const t = await getTrabajoCompleto(id);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'activate_trabajo',
+      entityType: 'trabajo', entityId: id,
+      details:  { nombre: t.nombre },
+      ip: req.ip,
+    });
     return success(res, t, 'Trabajo activado');
   } catch (err) {
     next(err);

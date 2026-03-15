@@ -16,6 +16,7 @@ const { success, created, error, notFound, forbidden, paginated } = require('../
 const { PAGINATION, IMAGEN_TIPOS } = require('../config/constants');
 const { isAdmin, isOperacional }   = require('../middleware/roles.middleware');
 const { deleteFile }               = require('../middleware/upload.middleware');
+const { logAudit }                 = require('./admin.controller');
 
 // ── Helper: ¿puede un operacional acceder a este vehículo? ────
 async function canOperacionalAccess(userId, vehicleId) {
@@ -148,6 +149,14 @@ async function createVehicle(req, res, next) {
     );
 
     const [newVehicle] = await query('SELECT * FROM vehicles WHERE id = ?', [result.insertId]);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_vehicle',
+      entityType: 'vehicle', entityId: result.insertId,
+      details:  { matricula: matricula.toUpperCase(), alias },
+      ip: req.ip,
+    });
     return created(res, newVehicle[0], 'Vehículo creado');
   } catch (err) {
     next(err);
@@ -185,6 +194,14 @@ async function updateVehicle(req, res, next) {
     await query(`UPDATE vehicles SET ${updates.join(', ')} WHERE id = ?`, [...vals, id]);
 
     const [updated] = await query('SELECT * FROM vehicles WHERE id = ?', [id]);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'update_vehicle',
+      entityType: 'vehicle', entityId: id,
+      details:  req.body,
+      ip: req.ip,
+    });
     return success(res, updated[0], 'Vehículo actualizado');
   } catch (err) {
     next(err);
@@ -213,6 +230,13 @@ async function deleteVehicle(req, res, next) {
     }
 
     await query('UPDATE vehicles SET deleted_at = NOW() WHERE id = ?', [id]);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'delete_vehicle',
+      entityType: 'vehicle', entityId: id,
+      ip: req.ip,
+    });
     return success(res, null, 'Vehículo eliminado');
   } catch (err) {
     next(err);
@@ -467,6 +491,14 @@ async function createIncidencia(req, res, next) {
     const [created_row] = await query(
       'SELECT * FROM vehicle_incidencias WHERE id = ?', [result.insertId]
     );
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_incidencia',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  { tipo, gravedad, descripcion: descripcion.trim() },
+      ip: req.ip,
+    });
     return created(res, created_row[0], 'Incidencia registrada');
   } catch (err) {
     next(err);
@@ -510,6 +542,14 @@ async function updateIncidencia(req, res, next) {
     );
 
     const [updated] = await query('SELECT * FROM vehicle_incidencias WHERE id = ?', [incId]);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'update_incidencia',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  { incidencia_id: incId, estado, gravedad },
+      ip: req.ip,
+    });
     return success(res, updated[0], 'Incidencia actualizada');
   } catch (err) {
     next(err);
@@ -579,6 +619,14 @@ async function createRevision(req, res, next) {
       'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',
       [result.insertId]
     );
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_revision',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  { tipo, fecha_revision, resultado },
+      ip: req.ip,
+    });
     return created(res, newRow[0], 'Revisión registrada');
   } catch (err) {
     next(err);

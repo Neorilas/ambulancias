@@ -18,13 +18,20 @@ const ACTION_ICON = {
   login:               '🔐',
   logout:              '🚪',
   create_trabajo:      '➕',
-  delete_trabajo:      '🗑',
+  update_trabajo:      '✏️',
+  delete_trabajo:      '🗑️',
   finalize_trabajo:    '✅',
+  activate_trabajo:    '▶️',
   create_vehicle:      '🚐',
-  delete_vehicle:      '🚐',
+  update_vehicle:      '✏️',
+  delete_vehicle:      '🗑️',
   create_incidencia:   '⚠️',
   update_incidencia:   '⚠️',
   create_revision:     '🔧',
+  create_user:         '👤',
+  update_user:         '✏️',
+  delete_user:         '🗑️',
+  access_denied:       '🚫',
 };
 
 function actionIcon(action) {
