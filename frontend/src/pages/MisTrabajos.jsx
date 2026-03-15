@@ -220,11 +220,12 @@ function TrabajoCard({ trabajo, onFinalizar }) {
   const navigate = useNavigate();
   const { notify } = useNotification();
 
-  const activo       = isWorkActive(trabajo);
-  const vencido      = isOverdue(trabajo);
-  const esProgramado = trabajo.estado === TRABAJO_ESTADOS.PROGRAMADO;
-  const puedeActivar = esProgramado && trabajo.soy_responsable;
-  const puedeFinz    = trabajo.soy_responsable &&
+  const activo          = isWorkActive(trabajo);
+  const vencido         = isOverdue(trabajo);
+  const esProgramado    = trabajo.estado === TRABAJO_ESTADOS.PROGRAMADO;
+  const esResponsable   = !!trabajo.soy_responsable;
+  const puedeActivar    = esProgramado && esResponsable;
+  const puedeFinz       = esResponsable &&
     ![TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado) &&
     (activo || vencido);
 
@@ -240,7 +241,7 @@ function TrabajoCard({ trabajo, onFinalizar }) {
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-neutral-900">{trabajo.nombre}</h3>
             <EstadoBadge estado={trabajo.estado} />
-            {trabajo.soy_responsable && (
+            {esResponsable && (
               <span className="badge bg-purple-100 text-purple-700 text-xs">Responsable</span>
             )}
           </div>
@@ -305,7 +306,7 @@ function QuickModal({ trabajo, onClose, onFinalizar }) {
   const { notify } = useNotification();
   const activo    = isWorkActive(trabajo);
   const vencido   = isOverdue(trabajo);
-  const puedeFinz = trabajo.soy_responsable &&
+  const puedeFinz = !!trabajo.soy_responsable &&
     ![TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado) &&
     (activo || vencido);
 
