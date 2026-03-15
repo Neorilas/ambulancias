@@ -1,15 +1,37 @@
 /**
  * controllers/vehicles.controller.js
- * CRUD de vehículos + gestión de imágenes
+ * CRUD de vehículos + imágenes + incidencias + revisiones
+ *
+ * Control de acceso para operacionales:
+ *   - Solo pueden ver/acceder a vehículos que tengan asignados en un trabajo
+ *     con estado = 'activo' EN ESTE MOMENTO.
+ *   - No pueden ver el estado de un vehículo aunque lo hayan usado antes
+ *     o lo vayan a usar en el futuro.
  */
 
 'use strict';
 
 const { query, transaction }  = require('../config/database');
-const { success, created, error, notFound, paginated } = require('../utils/response.utils');
+const { success, created, error, notFound, forbidden, paginated } = require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS } = require('../config/constants');
-const { isAdmin }             = require('../middleware/roles.middleware');
-const { deleteFile }          = require('../middleware/upload.middleware');
+const { isAdmin, isOperacional }   = require('../middleware/roles.middleware');
+const { deleteFile }               = require('../middleware/upload.middleware');
+
+// ── Helper: ¿puede un operacional acceder a este vehículo? ────
+async function canOperacionalAccess(userId, vehicleId) {
+  const [rows] = await query(
+    `SELECT tv.id
+     FROM trabajo_vehiculos tv
+     JOIN trabajos t         ON tv.trabajo_id = t.id
+     JOIN trabajo_usuarios tu ON t.id = tu.trabajo_id
+     WHERE tv.vehicle_id = ?
+       AND tu.user_id    = ?
+       AND t.estado      = 'activo'
+       AND t.deleted_at  IS NULL`,
+    [vehicleId, userId]
+  );
+  return rows.length > 0;
+}
 
 // ============================================================
 // GET /vehicles
@@ -23,6 +45,21 @@ async function listVehicles(req, res, next) {
 
     let where  = 'WHERE v.deleted_at IS NULL';
     const params = [];
+
+    // Operacionales: solo ven vehículos asignados en trabajo ACTIVO ahora mismo
+    if (isOperacional(req.user)) {
+      where += `
+        AND EXISTS (
+          SELECT 1 FROM trabajo_vehiculos tv
+          JOIN trabajos t         ON tv.trabajo_id = t.id
+          JOIN trabajo_usuarios tu ON t.id = tu.trabajo_id
+          WHERE tv.vehicle_id = v.id
+            AND tu.user_id    = ?
+            AND t.estado      = 'activo'
+            AND t.deleted_at  IS NULL
+        )`;
+      params.push(req.user.id);
+    }
 
     if (search) {
       where += ' AND (v.matricula LIKE ? OR v.alias LIKE ?)';
@@ -55,22 +92,28 @@ async function listVehicles(req, res, next) {
 // ============================================================
 async function getVehicle(req, res, next) {
   try {
+    const vehicleId = parseInt(req.params.id);
+
+    if (isOperacional(req.user)) {
+      const ok = await canOperacionalAccess(req.user.id, vehicleId);
+      if (!ok) return forbidden(res, 'No tienes acceso a este vehículo');
+    }
+
     const [rows] = await query(
       `SELECT id, matricula, alias, kilometros_actuales,
               fecha_matriculacion, fecha_itv, fecha_its,
               fecha_ultima_revision, fecha_ultimo_servicio, created_at, updated_at
        FROM vehicles WHERE id = ? AND deleted_at IS NULL`,
-      [req.params.id]
+      [vehicleId]
     );
     if (!rows.length) return notFound(res, 'Vehículo');
 
-    // Traer imágenes del vehículo (últimas por tipo)
     const [images] = await query(
       `SELECT id, tipo_imagen, image_url, trabajo_id, created_at
        FROM vehicle_images
        WHERE vehicle_id = ?
        ORDER BY created_at DESC`,
-      [req.params.id]
+      [vehicleId]
     );
 
     return success(res, { ...rows[0], images });
@@ -159,7 +202,6 @@ async function deleteVehicle(req, res, next) {
     );
     if (!existing.length) return notFound(res, 'Vehículo');
 
-    // Verificar que no esté asignado a trabajo activo
     const [activeJobs] = await query(
       `SELECT t.id FROM trabajo_vehiculos tv
        JOIN trabajos t ON tv.trabajo_id = t.id
@@ -172,6 +214,37 @@ async function deleteVehicle(req, res, next) {
 
     await query('UPDATE vehicles SET deleted_at = NOW() WHERE id = ?', [id]);
     return success(res, null, 'Vehículo eliminado');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// GET /vehicles/:id/images
+// ============================================================
+async function getVehicleImages(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+
+    if (isOperacional(req.user)) {
+      const ok = await canOperacionalAccess(req.user.id, vehicleId);
+      if (!ok) return forbidden(res, 'No tienes acceso a este vehículo');
+    }
+
+    const trabajoId = req.query.trabajo_id ? parseInt(req.query.trabajo_id) : undefined;
+
+    let sql    = 'SELECT * FROM vehicle_images WHERE vehicle_id = ?';
+    const vals = [vehicleId];
+
+    if (trabajoId !== undefined) {
+      sql += ' AND trabajo_id = ?';
+      vals.push(trabajoId);
+    }
+
+    sql += ' ORDER BY created_at DESC';
+
+    const [rows] = await query(sql, vals);
+    return success(res, rows);
   } catch (err) {
     next(err);
   }
@@ -219,88 +292,65 @@ async function uploadImages(req, res, next) {
 }
 
 // ============================================================
-// GET /vehicles/:id/images
-// ============================================================
-async function getVehicleImages(req, res, next) {
-  try {
-    const vehicleId = parseInt(req.params.id);
-    const trabajoId = req.query.trabajo_id ? parseInt(req.query.trabajo_id) : undefined;
-
-    let sql    = 'SELECT * FROM vehicle_images WHERE vehicle_id = ?';
-    const vals = [vehicleId];
-
-    if (trabajoId !== undefined) {
-      sql += ' AND trabajo_id = ?';
-      vals.push(trabajoId);
-    }
-
-    sql += ' ORDER BY created_at DESC';
-
-    const [rows] = await query(sql, vals);
-    return success(res, rows);
-  } catch (err) {
-    next(err);
-  }
-}
-
-// ============================================================
-// GET /vehicles/:id/historial
-// Historial de trabajos con fotos, agrupado por trabajo.
-// Solo accesible por administrador o gestor.
+// GET /vehicles/:id/historial  (admin o gestor)
 // ============================================================
 async function getVehicleHistorial(req, res, next) {
   try {
     const vehicleId = parseInt(req.params.id);
 
-    // Verificar que el vehículo existe
     const [vrow] = await query(
-      'SELECT id, matricula, alias FROM vehicles WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, matricula, alias, kilometros_actuales FROM vehicles WHERE id = ? AND deleted_at IS NULL',
       [vehicleId]
     );
     if (!vrow.length) return notFound(res, 'Vehículo');
 
-    // Fotos con todo el contexto del trabajo y el usuario que subió
     const [rows] = await query(`
       SELECT
         vi.id,
         vi.tipo_imagen,
         vi.image_url,
-        vi.created_at            AS foto_fecha,
+        vi.created_at               AS foto_fecha,
         vi.trabajo_id,
-        t.referencia             AS trabajo_referencia,
-        t.fecha_inicio           AS trabajo_fecha_inicio,
-        t.fecha_fin              AS trabajo_fecha_fin,
-        t.estado                 AS trabajo_estado,
-        tv_km.kilometros_fin     AS trabajo_km_fin,
-        tv_km.kilometros_inicio  AS trabajo_km_inicio,
-        u.id                     AS uploader_id,
-        u.nombre                 AS uploader_nombre,
-        u.apellidos              AS uploader_apellidos,
-        u.username               AS uploader_username
+        t.identificador             AS trabajo_referencia,
+        t.nombre                    AS trabajo_nombre,
+        t.fecha_inicio              AS trabajo_fecha_inicio,
+        t.fecha_fin                 AS trabajo_fecha_fin,
+        t.estado                    AS trabajo_estado,
+        tv_km.kilometros_fin        AS trabajo_km_fin,
+        tv_km.kilometros_inicio     AS trabajo_km_inicio,
+        tv_km.responsable_user_id,
+        CONCAT(resp.nombre,' ',resp.apellidos) AS responsable_nombre,
+        u.id                        AS uploader_id,
+        u.nombre                    AS uploader_nombre,
+        u.apellidos                 AS uploader_apellidos,
+        u.username                  AS uploader_username
       FROM vehicle_images vi
-      LEFT JOIN trabajos t        ON vi.trabajo_id = t.id
+      LEFT JOIN trabajos t           ON vi.trabajo_id = t.id
       LEFT JOIN trabajo_vehiculos tv_km
-                                  ON tv_km.trabajo_id = vi.trabajo_id
-                                 AND tv_km.vehicle_id = vi.vehicle_id
-      LEFT JOIN users u           ON vi.uploaded_by = u.id
+                                     ON tv_km.trabajo_id = vi.trabajo_id
+                                    AND tv_km.vehicle_id  = vi.vehicle_id
+      LEFT JOIN users resp           ON tv_km.responsable_user_id = resp.id
+      LEFT JOIN users u              ON vi.uploaded_by = u.id
       WHERE vi.vehicle_id = ?
       ORDER BY vi.trabajo_id DESC, vi.tipo_imagen ASC
     `, [vehicleId]);
 
-    // Agrupar por trabajo
     const trabajosMap = new Map();
     for (const row of rows) {
       const tid = row.trabajo_id ?? 'sin_trabajo';
       if (!trabajosMap.has(tid)) {
         trabajosMap.set(tid, {
-          trabajo_id:         row.trabajo_id,
-          referencia:         row.trabajo_referencia,
-          fecha_inicio:       row.trabajo_fecha_inicio,
-          fecha_fin:          row.trabajo_fecha_fin,
-          estado:             row.trabajo_estado,
-          km_inicio:          row.trabajo_km_inicio,
-          km_fin:             row.trabajo_km_fin,
-          fotos:              [],
+          trabajo_id:          row.trabajo_id,
+          referencia:          row.trabajo_referencia,
+          nombre:              row.trabajo_nombre,
+          fecha_inicio:        row.trabajo_fecha_inicio,
+          fecha_fin:           row.trabajo_fecha_fin,
+          estado:              row.trabajo_estado,
+          km_inicio:           row.trabajo_km_inicio,
+          km_fin:              row.trabajo_km_fin,
+          responsable_nombre:  row.responsable_nombre,
+          responsable_user_id: row.responsable_user_id,
+          fotos:               [],
         });
       }
       trabajosMap.get(tid).fotos.push({
@@ -309,10 +359,10 @@ async function getVehicleHistorial(req, res, next) {
         image_url:   row.image_url,
         fecha:       row.foto_fecha,
         subido_por: {
-          id:       row.uploader_id,
-          nombre:   row.uploader_nombre,
+          id:        row.uploader_id,
+          nombre:    row.uploader_nombre,
           apellidos: row.uploader_apellidos,
-          username: row.uploader_username,
+          username:  row.uploader_username,
         },
       });
     }
@@ -326,7 +376,279 @@ async function getVehicleHistorial(req, res, next) {
   }
 }
 
+// ============================================================
+// GET /vehicles/:id/incidencias  (admin o gestor)
+// ============================================================
+async function listIncidencias(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+
+    const [vrow] = await query(
+      'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
+    );
+    if (!vrow.length) return notFound(res, 'Vehículo');
+
+    const [rows] = await query(`
+      SELECT
+        vi.id, vi.tipo, vi.gravedad, vi.descripcion, vi.estado,
+        vi.created_at, vi.resuelto_at,
+        vi.trabajo_id,
+        t.identificador  AS trabajo_referencia,
+        t.nombre         AS trabajo_nombre,
+        rep.id           AS reporter_id,
+        rep.nombre       AS reporter_nombre,
+        rep.apellidos    AS reporter_apellidos,
+        res.id           AS resolutor_id,
+        res.nombre       AS resolutor_nombre,
+        res.apellidos    AS resolutor_apellidos,
+        -- responsable del vehículo en ese trabajo
+        CONCAT(resp.nombre,' ',resp.apellidos) AS responsable_nombre,
+        tv.responsable_user_id
+      FROM vehicle_incidencias vi
+      LEFT JOIN trabajos t          ON vi.trabajo_id = t.id
+      LEFT JOIN trabajo_vehiculos tv ON vi.trabajo_id = tv.trabajo_id
+                                    AND tv.vehicle_id = vi.vehicle_id
+      LEFT JOIN users resp          ON tv.responsable_user_id = resp.id
+      LEFT JOIN users rep           ON vi.reported_by  = rep.id
+      LEFT JOIN users res           ON vi.resuelto_by  = res.id
+      WHERE vi.vehicle_id = ?
+      ORDER BY
+        FIELD(vi.estado,'pendiente','en_revision','resuelto'),
+        FIELD(vi.gravedad,'grave','moderado','leve'),
+        vi.created_at DESC
+    `, [vehicleId]);
+
+    return success(res, rows.map(r => ({
+      id:          r.id,
+      tipo:        r.tipo,
+      gravedad:    r.gravedad,
+      descripcion: r.descripcion,
+      estado:      r.estado,
+      created_at:  r.created_at,
+      resuelto_at: r.resuelto_at,
+      trabajo: r.trabajo_id ? {
+        id:         r.trabajo_id,
+        referencia: r.trabajo_referencia,
+        nombre:     r.trabajo_nombre,
+        responsable_nombre:  r.responsable_nombre,
+        responsable_user_id: r.responsable_user_id,
+      } : null,
+      reportado_por: { id: r.reporter_id, nombre: r.reporter_nombre, apellidos: r.reporter_apellidos },
+      resuelto_por:  r.resolutor_id ? { id: r.resolutor_id, nombre: r.resolutor_nombre, apellidos: r.resolutor_apellidos } : null,
+    })));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// POST /vehicles/:id/incidencias  (admin o gestor)
+// ============================================================
+async function createIncidencia(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+    const { tipo, gravedad, descripcion, trabajo_id } = req.body;
+
+    if (!descripcion?.trim()) return error(res, 'Descripción requerida', 400);
+
+    const [vrow] = await query(
+      'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
+    );
+    if (!vrow.length) return notFound(res, 'Vehículo');
+
+    const [result] = await query(
+      `INSERT INTO vehicle_incidencias
+         (vehicle_id, trabajo_id, reported_by, tipo, gravedad, descripcion)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [vehicleId, trabajo_id || null, req.user.id,
+       tipo || 'dano_exterior', gravedad || 'leve', descripcion.trim()]
+    );
+
+    const [created_row] = await query(
+      'SELECT * FROM vehicle_incidencias WHERE id = ?', [result.insertId]
+    );
+    return created(res, created_row[0], 'Incidencia registrada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// PATCH /vehicles/:vehicleId/incidencias/:incId  (admin o gestor)
+// ============================================================
+async function updateIncidencia(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.vehicleId);
+    const incId     = parseInt(req.params.incId);
+    const { estado, descripcion, gravedad } = req.body;
+
+    const [existing] = await query(
+      'SELECT id, estado FROM vehicle_incidencias WHERE id = ? AND vehicle_id = ?',
+      [incId, vehicleId]
+    );
+    if (!existing.length) return notFound(res, 'Incidencia');
+
+    const updates = [];
+    const vals    = [];
+
+    if (descripcion !== undefined) { updates.push('descripcion = ?'); vals.push(descripcion.trim()); }
+    if (gravedad    !== undefined) { updates.push('gravedad = ?');    vals.push(gravedad); }
+    if (estado      !== undefined) {
+      updates.push('estado = ?');
+      vals.push(estado);
+      if (estado === 'resuelto' && existing[0].estado !== 'resuelto') {
+        updates.push('resuelto_by = ?', 'resuelto_at = NOW()');
+        vals.push(req.user.id);
+      }
+    }
+
+    if (!updates.length) return error(res, 'Sin campos para actualizar', 400);
+
+    await query(
+      `UPDATE vehicle_incidencias SET ${updates.join(', ')} WHERE id = ?`,
+      [...vals, incId]
+    );
+
+    const [updated] = await query('SELECT * FROM vehicle_incidencias WHERE id = ?', [incId]);
+    return success(res, updated[0], 'Incidencia actualizada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// GET /vehicles/:id/revisiones  (admin o gestor)
+// ============================================================
+async function listRevisiones(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+
+    const [vrow] = await query(
+      'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
+    );
+    if (!vrow.length) return notFound(res, 'Vehículo');
+
+    const [rows] = await query(`
+      SELECT vr.*, u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos
+      FROM vehicle_revisiones vr
+      JOIN users u ON vr.created_by = u.id
+      WHERE vr.vehicle_id = ?
+      ORDER BY vr.fecha_revision DESC
+    `, [vehicleId]);
+
+    return success(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// POST /vehicles/:id/revisiones  (admin o gestor)
+// ============================================================
+async function createRevision(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.id);
+    const { tipo, fecha_revision, fecha_proxima, resultado, descripcion, coste, realizado_por } = req.body;
+
+    if (!tipo || !fecha_revision) return error(res, 'tipo y fecha_revision son obligatorios', 400);
+
+    const [vrow] = await query(
+      'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
+    );
+    if (!vrow.length) return notFound(res, 'Vehículo');
+
+    const [result] = await query(
+      `INSERT INTO vehicle_revisiones
+         (vehicle_id, tipo, fecha_revision, fecha_proxima, resultado, descripcion, coste, realizado_por, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [vehicleId, tipo, fecha_revision, fecha_proxima || null,
+       resultado || 'realizado', descripcion || null,
+       coste || null, realizado_por || null, req.user.id]
+    );
+
+    // Si es ITV o ITS, actualizar la fecha en el vehículo
+    if (tipo === 'itv') {
+      await query('UPDATE vehicles SET fecha_itv = ? WHERE id = ?', [fecha_revision, vehicleId]);
+    } else if (tipo === 'its') {
+      await query('UPDATE vehicles SET fecha_its = ? WHERE id = ?', [fecha_revision, vehicleId]);
+    } else if (['mantenimiento','revision_preventiva','reparacion'].includes(tipo)) {
+      await query('UPDATE vehicles SET fecha_ultima_revision = ? WHERE id = ?', [fecha_revision, vehicleId]);
+    }
+
+    const [newRow] = await query(
+      'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',
+      [result.insertId]
+    );
+    return created(res, newRow[0], 'Revisión registrada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// PUT /vehicles/:vehicleId/revisiones/:revId  (admin o gestor)
+// ============================================================
+async function updateRevision(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.vehicleId);
+    const revId     = parseInt(req.params.revId);
+
+    const [existing] = await query(
+      'SELECT id FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
+      [revId, vehicleId]
+    );
+    if (!existing.length) return notFound(res, 'Revisión');
+
+    const { tipo, fecha_revision, fecha_proxima, resultado, descripcion, coste, realizado_por } = req.body;
+    const updates = [];
+    const vals    = [];
+
+    if (tipo           !== undefined) { updates.push('tipo = ?');            vals.push(tipo); }
+    if (fecha_revision !== undefined) { updates.push('fecha_revision = ?');  vals.push(fecha_revision); }
+    if (fecha_proxima  !== undefined) { updates.push('fecha_proxima = ?');   vals.push(fecha_proxima || null); }
+    if (resultado      !== undefined) { updates.push('resultado = ?');       vals.push(resultado); }
+    if (descripcion    !== undefined) { updates.push('descripcion = ?');     vals.push(descripcion || null); }
+    if (coste          !== undefined) { updates.push('coste = ?');           vals.push(coste || null); }
+    if (realizado_por  !== undefined) { updates.push('realizado_por = ?');   vals.push(realizado_por || null); }
+
+    if (!updates.length) return error(res, 'Sin campos para actualizar', 400);
+
+    await query(`UPDATE vehicle_revisiones SET ${updates.join(', ')} WHERE id = ?`, [...vals, revId]);
+
+    const [updated] = await query(
+      'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',
+      [revId]
+    );
+    return success(res, updated[0], 'Revisión actualizada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// DELETE /vehicles/:vehicleId/revisiones/:revId  (solo admin)
+// ============================================================
+async function deleteRevision(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.vehicleId);
+    const revId     = parseInt(req.params.revId);
+
+    const [existing] = await query(
+      'SELECT id FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
+      [revId, vehicleId]
+    );
+    if (!existing.length) return notFound(res, 'Revisión');
+
+    await query('DELETE FROM vehicle_revisiones WHERE id = ?', [revId]);
+    return success(res, null, 'Revisión eliminada');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listVehicles, getVehicle, createVehicle, updateVehicle,
   deleteVehicle, uploadImages, getVehicleImages, getVehicleHistorial,
+  listIncidencias, createIncidencia, updateIncidencia,
+  listRevisiones,  createRevision,   updateRevision,  deleteRevision,
 };

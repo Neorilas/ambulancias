@@ -104,4 +104,98 @@ router.post('/:id/images',
   ctrl.uploadImages
 );
 
+// ── Incidencias ───────────────────────────────────────────────
+
+// GET  /vehicles/:id/incidencias        (admin o gestor)
+router.get('/:id/incidencias',
+  requireAdminOrGestor,
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.listIncidencias
+);
+
+// POST /vehicles/:id/incidencias        (admin o gestor)
+router.post('/:id/incidencias',
+  requireAdminOrGestor,
+  [
+    param('id').isInt({ min: 1 }),
+    body('descripcion').trim().notEmpty().withMessage('Descripción requerida'),
+    body('tipo').optional().isIn(['dano_exterior','dano_interior','mecanico','fluido','electrico','otro']),
+    body('gravedad').optional().isIn(['leve','moderado','grave']),
+    body('trabajo_id').optional({ nullable: true }).isInt({ min: 1 }),
+  ],
+  handleValidation,
+  ctrl.createIncidencia
+);
+
+// PATCH /vehicles/:vehicleId/incidencias/:incId  (admin o gestor)
+router.patch('/:vehicleId/incidencias/:incId',
+  requireAdminOrGestor,
+  [
+    param('vehicleId').isInt({ min: 1 }),
+    param('incId').isInt({ min: 1 }),
+    body('estado').optional().isIn(['pendiente','en_revision','resuelto']),
+    body('gravedad').optional().isIn(['leve','moderado','grave']),
+    body('descripcion').optional().trim(),
+  ],
+  handleValidation,
+  ctrl.updateIncidencia
+);
+
+// ── Revisiones / mantenimiento ────────────────────────────────
+
+// GET  /vehicles/:id/revisiones         (admin o gestor)
+router.get('/:id/revisiones',
+  requireAdminOrGestor,
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.listRevisiones
+);
+
+// POST /vehicles/:id/revisiones         (admin o gestor)
+router.post('/:id/revisiones',
+  requireAdminOrGestor,
+  [
+    param('id').isInt({ min: 1 }),
+    body('tipo').notEmpty().isIn(['itv','its','mantenimiento','revision_preventiva','reparacion','otro'])
+      .withMessage('Tipo de revisión inválido'),
+    body('fecha_revision').notEmpty().isISO8601().withMessage('Fecha de revisión requerida'),
+    body('fecha_proxima').optional({ nullable: true }).isISO8601(),
+    body('resultado').optional().isIn(['aprobado','rechazado','condicionado','realizado']),
+    body('descripcion').optional().trim(),
+    body('coste').optional({ nullable: true }).isFloat({ min: 0 }),
+    body('realizado_por').optional().trim().isLength({ max: 200 }),
+  ],
+  handleValidation,
+  ctrl.createRevision
+);
+
+// PUT  /vehicles/:vehicleId/revisiones/:revId  (admin o gestor)
+router.put('/:vehicleId/revisiones/:revId',
+  requireAdminOrGestor,
+  [
+    param('vehicleId').isInt({ min: 1 }),
+    param('revId').isInt({ min: 1 }),
+    body('tipo').optional().isIn(['itv','its','mantenimiento','revision_preventiva','reparacion','otro']),
+    body('fecha_revision').optional().isISO8601(),
+    body('fecha_proxima').optional({ nullable: true }).isISO8601(),
+    body('resultado').optional().isIn(['aprobado','rechazado','condicionado','realizado']),
+    body('coste').optional({ nullable: true }).isFloat({ min: 0 }),
+    body('realizado_por').optional().trim().isLength({ max: 200 }),
+  ],
+  handleValidation,
+  ctrl.updateRevision
+);
+
+// DELETE /vehicles/:vehicleId/revisiones/:revId  (solo admin)
+router.delete('/:vehicleId/revisiones/:revId',
+  requireAdmin,
+  [
+    param('vehicleId').isInt({ min: 1 }),
+    param('revId').isInt({ min: 1 }),
+  ],
+  handleValidation,
+  ctrl.deleteRevision
+);
+
 module.exports = router;

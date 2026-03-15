@@ -27,4 +27,29 @@ export const vehiclesService = {
       headers: { 'Content-Type': undefined },
     }).then(r => r.data.data);
   },
+
+  // ── Incidencias ─────────────────────────────────────────────
+  listIncidencias(id) {
+    return api.get(`/vehicles/${id}/incidencias`).then(r => r.data.data);
+  },
+  createIncidencia(id, data) {
+    return api.post(`/vehicles/${id}/incidencias`, data).then(r => r.data.data);
+  },
+  updateIncidencia(vehicleId, incId, data) {
+    return api.patch(`/vehicles/${vehicleId}/incidencias/${incId}`, data).then(r => r.data.data);
+  },
+
+  // ── Revisiones / mantenimiento ───────────────────────────────
+  listRevisiones(id) {
+    return api.get(`/vehicles/${id}/revisiones`).then(r => r.data.data);
+  },
+  createRevision(id, data) {
+    return api.post(`/vehicles/${id}/revisiones`, data).then(r => r.data.data);
+  },
+  updateRevision(vehicleId, revId, data) {
+    return api.put(`/vehicles/${vehicleId}/revisiones/${revId}`, data).then(r => r.data.data);
+  },
+  deleteRevision(vehicleId, revId) {
+    return api.delete(`/vehicles/${vehicleId}/revisiones/${revId}`).then(r => r.data);
+  },
 };
