@@ -229,7 +229,12 @@ async function deleteVehicle(req, res, next) {
       return error(res, 'No se puede eliminar: el vehículo tiene trabajos activos asignados', 400);
     }
 
-    await query('UPDATE vehicles SET deleted_at = NOW() WHERE id = ?', [id]);
+    // Al hacer soft-delete, liberar la matrícula añadiendo sufijo __del_ID
+    // para que el UNIQUE KEY de MySQL no bloquee futuras matrículas iguales.
+    await query(
+      "UPDATE vehicles SET deleted_at = NOW(), matricula = CONCAT(matricula, '__del_', id) WHERE id = ?",
+      [id]
+    );
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,

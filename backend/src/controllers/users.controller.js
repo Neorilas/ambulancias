@@ -309,9 +309,10 @@ async function deleteUser(req, res, next) {
     if (!existing.length) return notFound(res, 'Usuario');
 
     await transaction(async (conn) => {
-      // Soft delete
+      // Soft delete — sufijamos username y dni para liberar los UNIQUE KEYs de MySQL
+      // y permitir que se cree un nuevo usuario con los mismos datos si fuera necesario.
       await conn.execute(
-        'UPDATE users SET deleted_at = NOW(), activo = 0 WHERE id = ?',
+        "UPDATE users SET deleted_at = NOW(), activo = 0, username = CONCAT(username,'__del_',id), dni = CONCAT(dni,'__del_',id) WHERE id = ?",
         [targetId]
       );
       // Revocar tokens activos
