@@ -35,6 +35,11 @@ function requireRole(...allowedRoles) {
 }
 
 /**
+ * Verifica que el usuario es superadmin
+ */
+const requireSuperAdmin = requireRole(ROLES.SUPERADMIN);
+
+/**
  * Verifica que el usuario es administrador
  */
 const requireAdmin = requireRole(ROLES.ADMINISTRADOR);
@@ -65,6 +70,11 @@ function hasRole(user, role) {
 }
 
 /**
+ * Helper: comprobar si un usuario es superadmin
+ */
+const isSuperAdmin = (user) => hasRole(user, ROLES.SUPERADMIN);
+
+/**
  * Helper: comprobar si un usuario es administrador
  */
 const isAdmin = (user) => hasRole(user, ROLES.ADMINISTRADOR);
@@ -79,10 +89,12 @@ const isOperacional = (user) =>
 
 module.exports = {
   requireRole,
+  requireSuperAdmin,
   requireAdmin,
   requireAdminOrGestor,
   requireAnyRole,
   hasRole,
+  isSuperAdmin,
   isAdmin,
   isOperacional,
 };

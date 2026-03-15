@@ -50,9 +50,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Helpers de roles
-  const hasRole = useCallback((role) => user?.roles?.includes(role) || false, [user]);
-  const isAdmin  = useCallback(() => hasRole(ROLES.ADMINISTRADOR), [hasRole]);
-  const isGestor = useCallback(() => hasRole(ROLES.GESTOR), [hasRole]);
+  const hasRole      = useCallback((role) => user?.roles?.includes(role) || false, [user]);
+  const isSuperAdmin = useCallback(() => hasRole(ROLES.SUPERADMIN), [hasRole]);
+  const isAdmin      = useCallback(() => hasRole(ROLES.ADMINISTRADOR), [hasRole]);
+  const isGestor     = useCallback(() => hasRole(ROLES.GESTOR), [hasRole]);
   const isOperacional = useCallback(() =>
     hasRole(ROLES.TECNICO) || hasRole(ROLES.ENFERMERO) || hasRole(ROLES.MEDICO),
     [hasRole]
@@ -65,7 +66,7 @@ export function AuthProvider({ children }) {
   const value = {
     user, loading,
     login, logout, updateStoredUser,
-    hasRole, isAdmin, isGestor, isOperacional,
+    hasRole, isSuperAdmin, isAdmin, isGestor, isOperacional,
     canManageUsers, canManageVehicles, canManageTrabajos, canDeleteAny,
     isAuthenticated: !!user,
   };

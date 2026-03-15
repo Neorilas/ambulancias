@@ -171,9 +171,13 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   const [error,        setError]        = useState(null);
   const [facingMode,   setFacingMode]   = useState('environment');
   const [compressing,  setCompressing]  = useState(false);
-  const [isLandscape,  setIsLandscape]  = useState(
-    () => window.matchMedia('(orientation: landscape)').matches
-  );
+  const [isLandscape,  setIsLandscape]  = useState(() => {
+    // screen.orientation.type es el método más fiable — refleja la orientación
+    // FÍSICA del dispositivo incluso cuando el viewport está bloqueado por el manifest.
+    if (screen.orientation?.type) return screen.orientation.type.startsWith('landscape');
+    if (typeof window.orientation !== 'undefined') return Math.abs(window.orientation) === 90;
+    return window.matchMedia('(orientation: landscape)').matches;
+  });
 
   const currentTipo = IMAGEN_TIPOS[currentIndex];
   // Cuántas fotos de este tipo ya están guardadas (solo relevante para multiple=true)
@@ -181,13 +185,35 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
   const log = useCallback((msg) => console.log(`[CAM] ${msg}`), []);
 
-  // ── Detección orientación ────────────────────────────────────
+  // ── Detección orientación física ──────────────────────────────
+  // Usa screen.orientation (más fiable) con fallback a window.orientation y matchMedia.
   useEffect(() => {
-    const mq = window.matchMedia('(orientation: landscape)');
-    const handler = (e) => setIsLandscape(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    const update = () => {
+      if (screen.orientation?.type) {
+        setIsLandscape(screen.orientation.type.startsWith('landscape'));
+      } else if (typeof window.orientation !== 'undefined') {
+        setIsLandscape(Math.abs(window.orientation) === 90);
+      }
+    };
+    if (screen.orientation) {
+      screen.orientation.addEventListener('change', update);
+      return () => screen.orientation.removeEventListener('change', update);
+    } else {
+      window.addEventListener('orientationchange', update);
+      return () => window.removeEventListener('orientationchange', update);
+    }
   }, []);
+
+  // ── Bloqueo programático de orientación por tipo de foto ─────
+  // En dispositivos con soporte (Android PWA): fuerza la orientación correcta.
+  // En iOS / navegadores sin soporte: falla silenciosamente; la detección
+  // por screen.orientation garantiza que la silueta se actualice de todos modos.
+  useEffect(() => {
+    if (!screen.orientation?.lock) return;
+    const target = currentTipo.landscape ? 'landscape' : 'portrait';
+    screen.orientation.lock(target).catch(() => {}); // falla silenciosamente en iOS
+    return () => { screen.orientation.unlock?.(); };
+  }, [currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Iniciar cámara ───────────────────────────────────────────
   const startCamera = useCallback(async (facing = 'environment') => {

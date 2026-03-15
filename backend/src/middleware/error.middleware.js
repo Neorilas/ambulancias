@@ -63,6 +63,22 @@ function errorHandler(err, req, res, _next) {
   logger.error(`[${req.method} ${req.originalUrl}] ${err.message}`, err.stack);
 
   const status = err.status || err.statusCode || 500;
+
+  // Loguear 5xx en BD para que el superadmin pueda verlos
+  if (status >= 500) {
+    const { logError } = require('../controllers/admin.controller');
+    logError({
+      method:       req.method,
+      url:          req.originalUrl,
+      statusCode:   status,
+      errorMessage: err.message,
+      stackTrace:   err.stack,
+      userId:       req.user?.id || null,
+      userInfo:     req.user ? `${req.user.username} (${req.user.nombre})` : null,
+      ip:           req.ip || req.socket?.remoteAddress,
+    });
+  }
+
   res.status(status).json({
     success: false,
     message: process.env.NODE_ENV === 'production'

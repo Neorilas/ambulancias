@@ -9,6 +9,7 @@ module.exports = {
 
   // ---- Roles del sistema (deben coincidir con los nombres en BD) ----
   ROLES: {
+    SUPERADMIN:    'superadmin',
     ADMINISTRADOR: 'administrador',
     GESTOR:        'gestor',
     TECNICO:       'tecnico',

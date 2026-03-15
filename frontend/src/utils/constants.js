@@ -1,4 +1,5 @@
 export const ROLES = {
+  SUPERADMIN:    'superadmin',
   ADMINISTRADOR: 'administrador',
   GESTOR:        'gestor',
   TECNICO:       'tecnico',

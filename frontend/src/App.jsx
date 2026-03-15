@@ -12,6 +12,7 @@ import VehicleHistory           from './pages/vehicles/VehicleHistory.jsx';
 import TrabajoList              from './pages/trabajos/TrabajoList.jsx';
 import TrabajoDetail            from './pages/trabajos/TrabajoDetail.jsx';
 import MisTrabajos              from './pages/MisTrabajos.jsx';
+import AdminPanel               from './pages/AdminPanel.jsx';
 import { ROLES }                from './utils/constants.js';
 
 export default function App() {
@@ -61,6 +62,16 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]}>
                     <UserList />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Panel superadmin */}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.SUPERADMIN]}>
+                    <AdminPanel />
                   </ProtectedRoute>
                 }
               />

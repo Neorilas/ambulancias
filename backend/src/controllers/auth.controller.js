@@ -111,6 +111,17 @@ async function login(req, res, next) {
 
     logger.info(`Login exitoso: ${username} desde ${ip}`);
 
+    // Registrar en auditoría
+    const { logAudit } = require('./admin.controller');
+    logAudit({
+      userId:   user.id,
+      userInfo: `${user.username} (${user.nombre} ${user.apellidos})`,
+      action:   'login',
+      details:  { roles },
+      ip,
+      userAgent,
+    });
+
     return success(res, {
       accessToken,
       refreshToken,

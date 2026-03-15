@@ -138,12 +138,23 @@ export default function TrabajoList() {
                   {trabajos.map(t => (
                     <div
                       key={t.id}
-                      className="card hover:shadow-md transition-shadow cursor-pointer"
+                      className={`card hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
+                        t.estado === 'activo'     ? 'border-l-green-500' :
+                        t.estado === 'programado' ? 'border-l-yellow-400' :
+                        t.estado === 'finalizado' ? 'border-l-neutral-300' :
+                        'border-l-red-300'
+                      }`}
                       onClick={() => navigate(`/trabajos/${t.id}`)}
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {t.estado === 'activo' && (
+                              <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                              </span>
+                            )}
                             <span className="font-semibold text-neutral-900">{t.nombre}</span>
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
