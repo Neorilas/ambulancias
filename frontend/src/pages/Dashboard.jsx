@@ -101,8 +101,9 @@ function WeekStrip({ trabajos }) {
 
 // Tarjeta de trabajo activo (vista técnico)
 function ActiveJobCard({ trabajo, onFinalizar }) {
-  const { notify } = useNotification();
-  const navigate   = useNavigate();
+  const { notify }   = useNotification();
+  const navigate     = useNavigate();
+  const [loading, setLoading] = React.useState(false);
 
   const horas = diferenciaHoras(trabajo.fecha_fin);
   const enTiempo = horas > 0;
@@ -142,8 +143,22 @@ function ActiveJobCard({ trabajo, onFinalizar }) {
           Ver detalles
         </button>
         {trabajo.soy_responsable && (
-          <button onClick={() => onFinalizar(trabajo)} className="btn-primary text-xs flex-1">
-            Finalizar trabajo
+          <button
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const full = await trabajosService.get(trabajo.id);
+                onFinalizar(full);
+              } catch {
+                notify.error('Error al cargar el trabajo');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            className="btn-primary text-xs flex-1"
+          >
+            {loading ? '...' : 'Finalizar trabajo'}
           </button>
         )}
       </div>
