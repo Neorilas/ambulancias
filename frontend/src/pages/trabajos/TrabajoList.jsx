@@ -51,6 +51,7 @@ export default function TrabajoList() {
       setDeleteId(null);
       load();
     } catch (err) {
+      setDeleteId(null); // cerrar dialog para que el toast sea visible
       notify.error(err.response?.data?.message || 'Error al eliminar trabajo');
     } finally {
       setDeleting(false);

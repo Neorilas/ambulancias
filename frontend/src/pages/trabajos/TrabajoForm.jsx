@@ -89,6 +89,13 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     return Object.keys(e).length === 0;
   };
 
+  // Convierte "yyyy-MM-ddTHH:mm" (hora local del browser) a UTC ISO sin segundos.
+  // Necesario porque mysql2 almacena en UTC y el campo datetime-local no lleva timezone.
+  const toUtcIso = (localStr) => {
+    if (!localStr) return localStr;
+    return new Date(localStr).toISOString().slice(0, 16);
+  };
+
   const handleSubmit = async (ev) => {
     ev.preventDefault();
     if (!validate()) return;
@@ -97,8 +104,8 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
       const payload = {
         nombre:       form.nombre,
         tipo:         form.tipo,
-        fecha_inicio: form.fecha_inicio,
-        fecha_fin:    form.fecha_fin,
+        fecha_inicio: toUtcIso(form.fecha_inicio),
+        fecha_fin:    toUtcIso(form.fecha_fin),
         vehiculos:    form.vehiculos.map(v => ({
           vehicle_id:          parseInt(v.vehicle_id),
           responsable_user_id: parseInt(v.responsable_user_id),

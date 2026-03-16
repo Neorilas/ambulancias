@@ -1,27 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS } from '../../utils/constants.js';
-import { compressImage, blobToFile } from '../../utils/imageCompress.js';
 
 /**
  * Flujo de finalización de trabajo:
- * 1. Seleccionar vehículo (si hay varios)
- * 2. Capturar 5 fotos en orden forzado
- * 3. Introducir km finales
- * 4. Si fecha_fin futura: introducir motivo
- * 5. Confirmar y enviar
+ * 1. Capturar/subir fotos en orden forzado (una por slot, cámara o galería)
+ * 2. Introducir km finales
+ * 3. Si fecha_fin futura: introducir motivo
+ * 4. Confirmar y enviar
  */
 export default function Finalizacion({ trabajo, onDone, onCancel }) {
   const { notify }  = useNotification();
-  const navigate    = useNavigate();
 
   const vehiculos   = trabajo?.vehiculos || [];
   const isAnticipado = new Date() < new Date(trabajo?.fecha_fin);
 
-  const [step,            setStep]            = useState('fotos');  // 'fotos' | 'km' | 'motivo' | 'confirm'
+  const [step,            setStep]            = useState('fotos');
   const [currentVehIdx,   setCurrentVehIdx]   = useState(0);
   const [currentImgIdx,   setCurrentImgIdx]   = useState(0);
   const [showCamera,      setShowCamera]      = useState(false);
@@ -41,16 +38,12 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
   const [motivo,          setMotivo]          = useState('');
   const [uploading,       setUploading]       = useState(false);
-  const [uploadProgress,  setUploadProgress]  = useState({}); // { vehicle_id: { tipo: 'ok'|'error' } }
+  const [uploadProgress,  setUploadProgress]  = useState({});
+
+  // Refs para file inputs por vehículo+tipo
+  const fileInputRefs = useRef({});
 
   const currentVeh = vehiculos[currentVehIdx];
-
-  // ── Fotos de un vehículo ──────────────────────────────────
-  const vehEvidencias = currentVeh ? (evidencias[currentVeh.vehicle_id] || {}) : {};
-  const tiposFaltantes = IMAGEN_TIPOS.filter(t => !vehEvidencias[t.key]);
-  const todosCompletos = vehiculos.every(v =>
-    IMAGEN_TIPOS.every(t => evidencias[v.vehicle_id]?.[t.key])
-  );
 
   const handleCameraComplete = (captures) => {
     setShowCamera(false);
@@ -62,6 +55,19 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
       });
       return next;
     });
+  };
+
+  const handleFileChange = (vehicleId, tipoKey, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setEvidencias(prev => {
+      const next = { ...prev };
+      if (!next[vehicleId]) next[vehicleId] = {};
+      next[vehicleId][tipoKey] = file;
+      return next;
+    });
+    // reset input so same file can be re-selected
+    e.target.value = '';
   };
 
   // ── Subir todas las evidencias + finalizar ────────────────
@@ -117,11 +123,11 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   };
 
   // ── Validaciones por paso ────────────────────────────────
-  const canProceedFromFotos = vehiculos.every(v =>
+  const canProceedFromFotos = vehiculos.length > 0 && vehiculos.every(v =>
     IMAGEN_TIPOS.every(t => evidencias[v.vehicle_id]?.[t.key])
   );
 
-  const canProceedFromKm = vehiculos.every(v =>
+  const canProceedFromKm = vehiculos.length > 0 && vehiculos.every(v =>
     kmFinales[v.vehicle_id] && parseInt(kmFinales[v.vehicle_id]) >= 0
   );
 
@@ -132,6 +138,26 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         onCancel={() => setShowCamera(false)}
         initialIndex={currentImgIdx}
       />
+    );
+  }
+
+  // ── Sin vehículos: error ──────────────────────────────────
+  if (vehiculos.length === 0) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+          <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
+        </div>
+        <div className="card bg-red-50 border border-red-200 space-y-2">
+          <p className="text-red-700 font-medium">⚠ Sin vehículos asignados</p>
+          <p className="text-red-600 text-sm">
+            Este trabajo no tiene vehículos asignados o los datos están incompletos.
+            Contacta con el administrador para revisarlo.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
     );
   }
 
@@ -154,10 +180,10 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         {['Fotos', 'Kilómetros', isAnticipado ? 'Motivo' : null, 'Confirmar']
           .filter(Boolean)
           .map((s, i, arr) => {
-            const stepKey = ['fotos', 'km', isAnticipado ? 'motivo' : 'confirm', 'confirm'];
-            const idx = ['fotos', 'km', isAnticipado ? 'motivo' : 'confirm', 'confirm'].indexOf(step);
-            const isActive = stepKey[i] === step;
-            const isDone   = i < idx;
+            const stepKeys = ['fotos', 'km', isAnticipado ? 'motivo' : 'confirm', 'confirm'];
+            const currentIdx = stepKeys.indexOf(step);
+            const isActive = stepKeys[i] === step;
+            const isDone   = i < currentIdx;
             return (
               <React.Fragment key={s}>
                 <div className={`flex items-center gap-1.5 text-xs font-medium
@@ -186,48 +212,78 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                 </div>
                 <button
                   onClick={() => { setCurrentVehIdx(vi); setCurrentImgIdx(0); setShowCamera(true); }}
-                  className="btn-primary text-sm"
+                  className="btn-secondary text-sm"
                 >
-                  📷 Fotografiar
+                  📷 Cámara
                 </button>
               </div>
 
-              {/* Estado de las fotos */}
-              <div className="grid grid-cols-5 gap-2">
+              <p className="text-xs text-neutral-400">
+                Toca una foto para subirla desde galería, o usa <strong>Cámara</strong> para el flujo guiado.
+              </p>
+
+              {/* Grid de fotos — cada slot es un file input clickable */}
+              <div className="grid grid-cols-3 gap-2">
                 {IMAGEN_TIPOS.map(tipo => {
                   const file    = evidencias[veh.vehicle_id]?.[tipo.key];
                   const preview = file ? URL.createObjectURL(file) : null;
                   const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
+                  const refKey  = `${veh.vehicle_id}_${tipo.key}`;
 
                   return (
-                    <div key={tipo.key} className="relative">
-                      <div className={`aspect-square rounded-lg border-2 overflow-hidden
-                        ${file ? 'border-green-400' : 'border-dashed border-neutral-300'}`}>
-                        {preview ? (
-                          <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-neutral-50 flex items-center justify-center">
-                            <span className="text-neutral-300 text-2xl">📷</span>
-                          </div>
-                        )}
-                        {prog === 'ok' && (
-                          <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                            <span className="text-green-600 text-xl">✓</span>
-                          </div>
-                        )}
-                        {prog === 'error' && (
-                          <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                            <span className="text-red-600 text-xl">✕</span>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-center text-xs text-neutral-500 mt-1 leading-tight">
-                        {tipo.label}
-                      </p>
+                    <div key={tipo.key}>
+                      {/* Hidden file input */}
+                      <input
+                        ref={el => { fileInputRefs.current[refKey] = el; }}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={e => handleFileChange(veh.vehicle_id, tipo.key, e)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRefs.current[refKey]?.click()}
+                        className="w-full text-left"
+                      >
+                        <div className={`aspect-square rounded-lg border-2 overflow-hidden relative
+                          ${file ? 'border-green-400' : 'border-dashed border-neutral-300 hover:border-primary-400'}`}>
+                          {preview ? (
+                            <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1">
+                              <span className="text-neutral-300 text-xl">📷</span>
+                              <span className="text-neutral-300 text-[10px]">Tocar</span>
+                            </div>
+                          )}
+                          {prog === 'ok' && (
+                            <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
+                              <span className="text-green-600 text-xl">✓</span>
+                            </div>
+                          )}
+                          {prog === 'error' && (
+                            <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
+                              <span className="text-red-600 text-xl">✕</span>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-center text-xs text-neutral-500 mt-1 leading-tight">
+                          {tipo.label}
+                          {file && <span className="text-green-600"> ✓</span>}
+                        </p>
+                      </button>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Progreso de fotos para este vehículo */}
+              {(() => {
+                const done = IMAGEN_TIPOS.filter(t => evidencias[veh.vehicle_id]?.[t.key]).length;
+                return done > 0 && done < IMAGEN_TIPOS.length ? (
+                  <p className="text-xs text-amber-600">{done}/{IMAGEN_TIPOS.length} fotos</p>
+                ) : null;
+              })()}
             </div>
           ))}
 
@@ -240,7 +296,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           </button>
           {!canProceedFromFotos && (
             <p className="text-xs text-center text-red-500">
-              Faltan fotografías por capturar
+              Faltan fotografías por capturar ({IMAGEN_TIPOS.length} por vehículo)
             </p>
           )}
         </div>
@@ -328,7 +384,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
             <div className="divide-y divide-neutral-100">
               {vehiculos.map(veh => (
                 <div key={veh.vehicle_id} className="py-3">
-                  <p className="font-medium text-sm">{veh.vehiculo_alias} ({veh.matricula})</p>
+                  <p className="font-medium text-sm">{veh.vehiculo_alias || veh.matricula} ({veh.matricula})</p>
                   <p className="text-xs text-neutral-500">
                     Km inicio: {veh.kilometros_inicio || '—'} →
                     Km fin: {kmFinales[veh.vehicle_id]}

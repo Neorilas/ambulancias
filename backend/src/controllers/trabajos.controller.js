@@ -51,11 +51,11 @@ async function getTrabajoCompleto(id) {
   const [vehicles] = await query(
     `SELECT tv.id AS asignacion_id, tv.vehicle_id, tv.responsable_user_id,
             tv.kilometros_inicio, tv.kilometros_fin,
-            v.matricula, v.alias,
+            v.matricula, v.alias AS vehiculo_alias,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
      FROM trabajo_vehiculos tv
      JOIN vehicles v ON tv.vehicle_id = v.id
-     JOIN users u ON tv.responsable_user_id = u.id
+     LEFT JOIN users u ON tv.responsable_user_id = u.id
      WHERE tv.trabajo_id = ?`,
     [id]
   );
