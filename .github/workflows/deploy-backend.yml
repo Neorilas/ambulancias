@@ -24,6 +24,7 @@ jobs:
             cd /root/ambulancia
 
             echo "🔄 Actualizando código..."
+            git stash || true
             git pull origin master
 
             echo "🐳 Reconstruyendo imagen backend..."
