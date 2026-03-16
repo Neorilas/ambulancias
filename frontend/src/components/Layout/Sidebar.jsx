@@ -53,12 +53,20 @@ export default function Sidebar({ isOpen, onClose }) {
           {/* Mis Trabajos - todos los roles */}
           <NavItem to="/mis-trabajos" icon="📋" label="Mis Trabajos" onClick={closeOnMobile} />
 
+          {/* Mis Asignaciones - todos los roles */}
+          <NavItem to="/mis-asignaciones" icon="🔑" label="Mis Asignaciones" onClick={closeOnMobile} />
+
           {/* Trabajos - todos */}
           <NavItem to="/trabajos" icon="🚑" label="Trabajos" onClick={closeOnMobile} />
 
+          {/* Asignaciones libres - admin/gestor */}
+          {canManageTrabajos() && (
+            <NavItem to="/asignaciones" icon="🚐" label="Asignaciones" onClick={closeOnMobile} />
+          )}
+
           {/* Vehículos - admin/gestor */}
           {canManageVehicles() && (
-            <NavItem to="/vehiculos" icon="🚐" label="Vehículos" onClick={closeOnMobile} />
+            <NavItem to="/vehiculos" icon="🚗" label="Vehículos" onClick={closeOnMobile} />
           )}
 
           {/* Usuarios - admin/gestor */}

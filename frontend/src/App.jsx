@@ -13,7 +13,9 @@ import TrabajoList              from './pages/trabajos/TrabajoList.jsx';
 import TrabajoDetail            from './pages/trabajos/TrabajoDetail.jsx';
 import MisTrabajos              from './pages/MisTrabajos.jsx';
 import AdminPanel               from './pages/AdminPanel.jsx';
-import { ROLES }                from './utils/constants.js';
+import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
+import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
+import { ROLES, PERMISSIONS }   from './utils/constants.js';
 
 export default function App() {
   return (
@@ -65,6 +67,19 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+
+              {/* Asignaciones libres - admin/gestor */}
+              <Route
+                path="/asignaciones"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]}>
+                    <AsignacionList />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Mis Asignaciones - todos los autenticados */}
+              <Route path="/mis-asignaciones" element={<MisAsignaciones />} />
 
               {/* Panel superadmin */}
               <Route

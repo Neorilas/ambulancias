@@ -63,3 +63,17 @@ export const TIPO_LABELS = {
   cobertura_evento: 'Cobertura Evento',
   otro:             'Otro',
 };
+
+export const ASIGNACION_ESTADO_COLORS = {
+  programada: 'badge-yellow',
+  activa:     'badge-blue',
+  finalizada: 'badge-green',
+  cancelada:  'badge-gray',
+};
+
+export const ASIGNACION_ESTADO_LABELS = {
+  programada: 'Programada',
+  activa:     'Activa',
+  finalizada: 'Finalizada',
+  cancelada:  'Cancelada',
+};
