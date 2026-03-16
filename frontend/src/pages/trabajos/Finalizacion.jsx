@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS } from '../../utils/constants.js';
 
@@ -12,9 +13,15 @@ import { IMAGEN_TIPOS } from '../../utils/constants.js';
  * Paso 3: Confirmar y enviar
  */
 export default function Finalizacion({ trabajo, onDone, onCancel }) {
-  const { notify }  = useNotification();
+  const { notify }           = useNotification();
+  const { user, canManageTrabajos } = useAuth();
 
-  const vehiculos    = trabajo?.vehiculos || [];
+  // Operacionales solo ven y documentan su propio vehículo (el que son responsables).
+  // Admins/gestores ven todos los vehículos del trabajo.
+  const todosVehiculos = trabajo?.vehiculos || [];
+  const vehiculos = canManageTrabajos()
+    ? todosVehiculos
+    : todosVehiculos.filter(v => v.responsable_user_id === user?.id);
   const isAnticipado = new Date() < new Date(trabajo?.fecha_fin);
 
   const [step,           setStep]          = useState('fotos');
