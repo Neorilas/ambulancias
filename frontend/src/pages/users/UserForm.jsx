@@ -182,7 +182,7 @@ export default function UserForm({ user, onSaved, onClose }) {
             value={form.password} onChange={set('password')} />
           {errors.password && <p className="field-error">{errors.password}</p>}
           <p className="text-xs text-neutral-400 mt-1">
-            Mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial
+            Mínimo 8 caracteres
           </p>
         </div>
 

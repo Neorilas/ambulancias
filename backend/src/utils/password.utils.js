@@ -32,20 +32,12 @@ async function comparePassword(plainPassword, hash) {
 /**
  * Valida que la contraseña cumpla los requisitos mínimos:
  * - Mínimo 8 caracteres
- * - Al menos 1 mayúscula
- * - Al menos 1 minúscula
- * - Al menos 1 número
- * - Al menos 1 carácter especial
  * @param {string} password
  * @returns {{ valid: boolean, errors: string[] }}
  */
 function validatePasswordStrength(password) {
   const errors = [];
   if (!password || password.length < 8)   errors.push('Mínimo 8 caracteres');
-  if (!/[A-Z]/.test(password))            errors.push('Debe incluir al menos una mayúscula');
-  if (!/[a-z]/.test(password))            errors.push('Debe incluir al menos una minúscula');
-  if (!/[0-9]/.test(password))            errors.push('Debe incluir al menos un número');
-  if (!/[^A-Za-z0-9]/.test(password))     errors.push('Debe incluir al menos un carácter especial');
   return { valid: errors.length === 0, errors };
 }
 
