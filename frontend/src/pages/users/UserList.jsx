@@ -89,7 +89,8 @@ export default function UserList() {
       {/* Tabla */}
       {loading ? <PageLoading /> : (
         <>
-          <div className="table-container card p-0 overflow-hidden">
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="table">
               <thead>
                 <tr>
@@ -141,6 +142,7 @@ export default function UserList() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Paginación */}
