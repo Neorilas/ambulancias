@@ -16,6 +16,32 @@ import PhotoSilhouette from './PhotoSilhouette.jsx';
  *   onCancel()
  *   initialIndex           → índice de IMAGEN_TIPOS por el que empezar (default 0)
  */
+
+/**
+ * Icono interior del botón de captura.
+ * Cambia entre retrato y apaisado según la orientación actual del dispositivo,
+ * pero el botón en sí siempre permanece en la misma posición.
+ */
+function OrientationIcon({ isLandscape }) {
+  return isLandscape ? (
+    /* Móvil apaisado */
+    <svg width="42" height="30" viewBox="0 0 42 30" fill="none" className="text-primary-600">
+      <rect x="1.5" y="4.5" width="39" height="21" rx="4" stroke="currentColor" strokeWidth="2.5"/>
+      <circle cx="21" cy="15" r="5.5" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="21" cy="15" r="2.5" fill="currentColor"/>
+      <rect x="35.5" y="11" width="3" height="5" rx="1.5" fill="currentColor"/>
+    </svg>
+  ) : (
+    /* Móvil en vertical */
+    <svg width="28" height="42" viewBox="0 0 28 42" fill="none" className="text-primary-600">
+      <rect x="4.5" y="1.5" width="19" height="39" rx="4" stroke="currentColor" strokeWidth="2.5"/>
+      <circle cx="14" cy="21" r="5.5" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="14" cy="21" r="2.5" fill="currentColor"/>
+      <rect x="11" y="35.5" width="6" height="3" rx="1.5" fill="currentColor"/>
+    </svg>
+  );
+}
+
 export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [captured,     setCaptured]     = useState([]);   // { tipo, label, preview, file }[]
@@ -81,7 +107,13 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
       {/* ── Previsualización ─────────────────────────────────── */}
       {preview && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black">
+        <div
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black"
+          style={{
+            paddingTop:    'env(safe-area-inset-top)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}
+        >
           <img
             src={preview.previewUrl}
             alt="Previsualización"
@@ -142,19 +174,6 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
               className="w-full h-full object-cover"
             />
 
-            {/* Aviso: girar el móvil para laterales */}
-            {cameraReady && !preview && currentTipo.landscape && !isLandscape && (
-              <div className="absolute top-20 left-0 right-0 flex justify-center z-10 px-4">
-                <div className="flex items-center gap-2 bg-amber-500/90 text-black
-                                text-sm font-semibold px-4 py-2 rounded-full shadow-lg">
-                  <span style={{ display: 'inline-block', transform: 'rotate(90deg)', fontSize: '1.1rem' }}>
-                    📱
-                  </span>
-                  Gira el móvil para esta foto
-                </div>
-              </div>
-            )}
-
             {/* Silueta guía de encuadre */}
             {cameraReady && !preview && (
               <PhotoSilhouette
@@ -168,46 +187,81 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
             {/* Controles superpuestos */}
             {!preview && (
               <>
-                {/* Barra superior */}
-                <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-4">
-                  <button onClick={onCancel} className="p-2 rounded-full bg-black/40 text-white">✕</button>
+                {/*
+                  ── Cabecera: barra superior + miniaturas ──────────────
+                  paddingTop respeta el notch / Dynamic Island de iPhone.
+                  Todo el contenido se coloca bajo el hardware de cámara.
+                */}
+                <div
+                  className="absolute top-0 left-0 right-0 z-10"
+                  style={{ paddingTop: 'env(safe-area-inset-top)' }}
+                >
+                  {/* Barra superior */}
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                    <button onClick={onCancel} className="p-2 rounded-full bg-black/40 text-white">✕</button>
 
-                  <div className="text-white text-center">
-                    <p className="font-bold">{currentTipo.label}</p>
-                    <p className="text-xs opacity-75">{currentIndex + 1} / {IMAGEN_TIPOS.length}</p>
-                    {currentTipo.multiple && addedCount > 0 && (
-                      <p className="text-xs text-green-400 mt-0.5">
-                        {addedCount} foto{addedCount !== 1 ? 's' : ''} guardada{addedCount !== 1 ? 's' : ''}
-                      </p>
-                    )}
+                    <div className="text-white text-center">
+                      <p className="font-bold">{currentTipo.label}</p>
+                      <p className="text-xs opacity-75">{currentIndex + 1} / {IMAGEN_TIPOS.length}</p>
+                      {currentTipo.multiple && addedCount > 0 && (
+                        <p className="text-xs text-green-400 mt-0.5">
+                          {addedCount} foto{addedCount !== 1 ? 's' : ''} guardada{addedCount !== 1 ? 's' : ''}
+                        </p>
+                      )}
+                    </div>
+
+                    <button onClick={toggleCamera} className="p-2 rounded-full bg-black/40 text-white">🔄</button>
                   </div>
 
-                  <button onClick={toggleCamera} className="p-2 rounded-full bg-black/40 text-white">🔄</button>
+                  {/* Miniaturas de progreso */}
+                  <div className="flex justify-center gap-2 px-4 pb-2">
+                    {IMAGEN_TIPOS.map((tipo, i) => {
+                      const done = captured.find(c => c.tipo === tipo.key);
+                      return (
+                        <div
+                          key={tipo.key}
+                          className={`w-8 h-8 rounded border-2 overflow-hidden
+                            ${i === currentIndex
+                              ? 'border-primary-500 ring-2 ring-primary-300'
+                              : done ? 'border-green-400' : 'border-white/30'}`}
+                        >
+                          {done
+                            ? <img src={done.preview} alt={tipo.label} className="w-full h-full object-cover"/>
+                            : <div className={`w-full h-full ${i === currentIndex ? 'bg-primary-500/30' : 'bg-white/10'}`}/>
+                          }
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* Miniaturas de progreso */}
-                <div className="absolute top-16 left-0 right-0 flex justify-center gap-2 px-4">
-                  {IMAGEN_TIPOS.map((tipo, i) => {
-                    const done = captured.find(c => c.tipo === tipo.key);
-                    return (
-                      <div
-                        key={tipo.key}
-                        className={`w-8 h-8 rounded border-2 overflow-hidden
-                          ${i === currentIndex
-                            ? 'border-primary-500 ring-2 ring-primary-300'
-                            : done ? 'border-green-400' : 'border-white/30'}`}
-                      >
-                        {done
-                          ? <img src={done.preview} alt={tipo.label} className="w-full h-full object-cover"/>
-                          : <div className={`w-full h-full ${i === currentIndex ? 'bg-primary-500/30' : 'bg-white/10'}`}/>
-                        }
-                      </div>
-                    );
-                  })}
-                </div>
+                {/* Aviso: girar el móvil para laterales (debajo del header) */}
+                {cameraReady && !preview && currentTipo.landscape && !isLandscape && (
+                  <div
+                    className="absolute left-0 right-0 flex justify-center z-10 px-4"
+                    style={{ top: 'calc(env(safe-area-inset-top) + 7rem)' }}
+                  >
+                    <div className="flex items-center gap-2 bg-amber-500/90 text-black
+                                    text-sm font-semibold px-4 py-2 rounded-full shadow-lg">
+                      <span style={{ display: 'inline-block', transform: 'rotate(90deg)', fontSize: '1.1rem' }}>
+                        📱
+                      </span>
+                      Gira el móvil para esta foto
+                    </div>
+                  </div>
+                )}
 
-                {/* Botón de captura */}
-                <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+                {/*
+                  ── Botón de captura ───────────────────────────────────
+                  Siempre centrado en la misma posición inferior.
+                  paddingBottom respeta la barra home de iPhone.
+                  El icono interior cambia según la orientación actual
+                  del dispositivo, pero el botón nunca se mueve.
+                */}
+                <div
+                  className="absolute bottom-0 left-0 right-0 flex justify-center"
+                  style={{ paddingBottom: 'max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem))' }}
+                >
                   <button
                     onClick={capture}
                     disabled={!cameraReady}
@@ -216,7 +270,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
                                active:scale-95 transition-transform disabled:opacity-50"
                     aria-label="Capturar foto"
                   >
-                    <div className="w-14 h-14 rounded-full bg-primary-600"/>
+                    <OrientationIcon isLandscape={isLandscape} />
                   </button>
                 </div>
               </>
