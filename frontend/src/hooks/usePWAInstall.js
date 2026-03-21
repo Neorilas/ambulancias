@@ -52,8 +52,8 @@ export function usePWAInstall() {
     return outcome === 'accepted';
   };
 
-  const canInstall  = !isInstalled && (installPrompt !== null || isIOS || isMobile);
   const promptReady = installPrompt !== null;
+  const canInstall  = !isInstalled && (promptReady || isIOS);
 
   return { canInstall, install, isIOS, isMobile, promptReady };
 }

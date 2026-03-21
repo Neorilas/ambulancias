@@ -534,8 +534,9 @@ async function updateIncidencia(req, res, next) {
       updates.push('estado = ?');
       vals.push(estado);
       if (estado === 'resuelto' && existing[0].estado !== 'resuelto') {
-        updates.push('resuelto_by = ?', 'resuelto_at = NOW()');
+        updates.push('resuelto_by = ?');
         vals.push(req.user.id);
+        updates.push('resuelto_at = NOW()');
       }
     }
 

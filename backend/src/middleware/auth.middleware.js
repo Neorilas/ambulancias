@@ -58,6 +58,16 @@ async function authenticate(req, res, next) {
       return unauthorized(res, 'Cuenta inactiva o eliminada');
     }
 
+    // Cargar permisos del usuario desde role_permissions
+    const [permRows] = await query(
+      `SELECT DISTINCT p.nombre
+       FROM role_permissions rp
+       JOIN permissions p ON rp.permission_id = p.id
+       JOIN user_roles ur ON rp.role_id = ur.role_id
+       WHERE ur.user_id = ?`,
+      [user.id]
+    );
+
     // Adjuntar datos del usuario al request
     req.user = {
       id:       user.id,
@@ -65,6 +75,7 @@ async function authenticate(req, res, next) {
       nombre:   user.nombre,
       apellidos: user.apellidos,
       roles:    user.roles ? user.roles.split(',') : [],
+      permissions: permRows.map(r => r.nombre),
     };
 
     next();

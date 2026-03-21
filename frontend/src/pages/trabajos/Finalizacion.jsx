@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -48,6 +48,26 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
   const fileInputRefs = useRef({});
   const currentVeh    = vehiculos[currentVehIdx];
+
+  // Mapa estable de ObjectURLs para previews — se revocan al cambiar o desmontar
+  const previews = useMemo(() => {
+    const map = {};
+    for (const [vehId, tipos] of Object.entries(evidencias)) {
+      map[vehId] = {};
+      for (const [tipo, file] of Object.entries(tipos)) {
+        if (file) map[vehId][tipo] = URL.createObjectURL(file);
+      }
+    }
+    return map;
+  }, [evidencias]);
+
+  useEffect(() => {
+    return () => {
+      for (const tipos of Object.values(previews)) {
+        for (const url of Object.values(tipos)) URL.revokeObjectURL(url);
+      }
+    };
+  }, [previews]);
 
   /* ── Cámara guiada ─────────────────────────────────────── */
   const handleCameraComplete = (captures) => {
@@ -169,7 +189,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
   /* ── Indicador de pasos ───────────────────────────────── */
   const steps = ['Fotos y km', isAnticipado ? 'Motivo' : null, 'Confirmar'].filter(Boolean);
-  const stepKeys = ['fotos', isAnticipado ? 'motivo' : 'confirm', 'confirm'];
+  const stepKeys = ['fotos', isAnticipado ? 'motivo' : null, 'confirm'].filter(Boolean);
   const currentStepIdx = stepKeys.indexOf(step);
 
   return (
@@ -238,7 +258,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                 <div className="grid grid-cols-3 gap-2">
                   {IMAGEN_TIPOS.map(tipo => {
                     const file    = evidencias[veh.vehicle_id]?.[tipo.key];
-                    const preview = file ? URL.createObjectURL(file) : null;
+                    const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
                     const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
                     const refKey  = `${veh.vehicle_id}_${tipo.key}`;
 

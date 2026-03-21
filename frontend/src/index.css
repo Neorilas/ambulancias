@@ -24,6 +24,13 @@
     overscroll-behavior: none; /* evitar bounce en iOS */
   }
 
+  /* Prevenir auto-zoom en iOS Safari al hacer focus en inputs */
+  @supports (-webkit-touch-callout: none) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+  }
+
   /* Scrollbar personalizado (escritorio) */
   ::-webkit-scrollbar {
     width: 6px;
@@ -64,6 +71,7 @@
            text-neutral-900 text-sm placeholder-neutral-400
            focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
            transition-colors duration-150;
+    font-size: 16px; /* Evita auto-zoom en iOS Safari al hacer focus */
   }
   .input-error {
     @apply border-red-400 focus:ring-red-400;

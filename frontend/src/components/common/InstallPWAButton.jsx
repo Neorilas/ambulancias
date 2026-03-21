@@ -6,20 +6,16 @@ import { usePWAInstall } from '../../hooks/usePWAInstall.js';
  * variant="float"   → botón flotante cuando el usuario ya está dentro de la app
  */
 export default function InstallPWAButton({ variant = 'banner' }) {
-  const { canInstall, install, isIOS, promptReady } = usePWAInstall();
-  const [showModal,   setShowModal]   = useState(false);
-  const [showHTTPMsg, setShowHTTPMsg] = useState(false);
+  const { canInstall, install, isIOS } = usePWAInstall();
+  const [showModal, setShowModal] = useState(false);
 
   if (!canInstall) return null;
 
   const handleClick = () => {
     if (isIOS) {
       setShowModal(true);
-    } else if (promptReady) {
-      install();
     } else {
-      // Android / Desktop sobre HTTP local — no hay prompt disponible
-      setShowHTTPMsg(true);
+      install();
     }
   };
 
@@ -38,7 +34,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
           <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <span>Instalar app</span>
+          <span>{isIOS ? 'Cómo instalar' : 'Instalar app'}</span>
         </button>
         {renderModals()}
       </>
@@ -59,7 +55,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
           <svg className="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          {isIOS ? 'Instalar app en iPhone / iPad' : 'Instalar app en este dispositivo'}
+          {isIOS ? 'Cómo instalar en iPhone / iPad' : 'Instalar app en este dispositivo'}
         </button>
         <p className="text-center text-primary-200 text-xs mt-2">
           {isIOS ? 'Solo desde Safari · Sin App Store' : 'Acceso directo · Sin App Store'}
@@ -72,40 +68,6 @@ export default function InstallPWAButton({ variant = 'banner' }) {
   function renderModals() {
     return (
       <>
-        {/* Modal cuando el navegador aún no ha ofrecido el prompt de instalación */}
-        {showHTTPMsg && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-               onClick={() => setShowHTTPMsg(false)}>
-            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-10 shadow-2xl"
-                 onClick={e => e.stopPropagation()}>
-              <div className="w-10 h-1 bg-neutral-300 rounded-full mx-auto mb-5" />
-              <h3 className="text-lg font-bold text-neutral-900 text-center mb-2">Preparando instalación…</h3>
-              <p className="text-sm text-neutral-600 text-center mb-4">
-                El navegador todavía no ha habilitado el instalador.<br/>
-                Prueba estos pasos:
-              </p>
-              <ol className="space-y-3 mb-5">
-                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
-                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">1</span>
-                  <p className="text-sm text-neutral-700">Recarga la página y espera unos segundos</p>
-                </li>
-                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
-                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">2</span>
-                  <p className="text-sm text-neutral-700">Cierra la pestaña, vuelve a abrir la app y pulsa el botón de nuevo</p>
-                </li>
-                <li className="flex items-start gap-3 p-3 bg-neutral-50 rounded-xl">
-                  <span className="w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center font-bold shrink-0 text-xs">3</span>
-                  <p className="text-sm text-neutral-700">En Chrome: menú ⋮ → <strong>Añadir a pantalla de inicio</strong></p>
-                </li>
-              </ol>
-              <button onClick={() => setShowHTTPMsg(false)}
-                      className="w-full bg-primary-600 text-white font-semibold rounded-xl py-3">
-                Entendido
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Modal instrucciones iOS */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
