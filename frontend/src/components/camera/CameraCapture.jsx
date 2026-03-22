@@ -253,14 +253,23 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
                 {/*
                   ── Botón de captura ───────────────────────────────────
-                  Siempre centrado en la misma posición inferior.
-                  paddingBottom respeta la barra home de iPhone.
-                  El icono interior cambia según la orientación actual
-                  del dispositivo, pero el botón nunca se mueve.
+                  Vertical   → centrado en la parte inferior (safe-area-inset-bottom).
+                  Apaisado   → pegado a la derecha, donde está la "botonera"
+                               física del teléfono (safe-area-inset-right).
+                  El icono interior indica la orientación actual pero el
+                  botón siempre está en la misma zona táctil del dispositivo.
                 */}
                 <div
-                  className="absolute bottom-0 left-0 right-0 flex justify-center"
-                  style={{ paddingBottom: 'max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem))' }}
+                  className={
+                    isLandscape
+                      ? 'absolute right-0 top-0 bottom-0 flex flex-col justify-center'
+                      : 'absolute bottom-0 left-0 right-0 flex justify-center'
+                  }
+                  style={
+                    isLandscape
+                      ? { paddingRight: 'max(1.5rem, calc(env(safe-area-inset-right) + 1rem))' }
+                      : { paddingBottom: 'max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem))' }
+                  }
                 >
                   <button
                     onClick={capture}
