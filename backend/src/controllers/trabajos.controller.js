@@ -403,8 +403,15 @@ async function finalizeTrabajo(req, res, next) {
       return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
     }
 
-    // Verificar evidencias: 5 fotos por cada vehículo asignado
-    const vehicleIds = [...new Set(existing.map(r => r.vehicle_id).filter(Boolean))];
+    // Determinar qué vehículos debe documentar este usuario:
+    // - Operacional → solo los vehículos donde es responsable
+    // - Admin/gestor → todos los vehículos del trabajo
+    const allVehicleIds = [...new Set(existing.map(r => r.vehicle_id).filter(Boolean))];
+    const vehicleIds = isOperacional(req.user)
+      ? [...new Set(existing.filter(r => r.responsable_user_id === req.user.id).map(r => r.vehicle_id).filter(Boolean))]
+      : allVehicleIds;
+
+    // Verificar evidencias: 6 fotos requeridas por cada vehículo
     for (const vehicleId of vehicleIds) {
       const [imgs] = await query(
         `SELECT tipo_imagen FROM vehicle_images
@@ -428,23 +435,28 @@ async function finalizeTrabajo(req, res, next) {
       }
     }
 
-    await transaction(async (conn) => {
-      const nuevoEstado = isAnticipado
-        ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
-        : TRABAJO_ESTADOS.FINALIZADO;
-
-      await conn.execute(
-        `UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?`,
-        [nuevoEstado, motivo_finalizacion_anticipada || null, id]
+    // Comprobar si TODOS los vehículos del trabajo tienen evidencia completa
+    // (incluidos los de otros responsables)
+    let todosCompletos = true;
+    for (const vid of allVehicleIds) {
+      const [imgs] = await query(
+        `SELECT tipo_imagen FROM vehicle_images WHERE vehicle_id = ? AND trabajo_id = ?`,
+        [vid, id]
       );
+      const subidos = imgs.map(i => i.tipo_imagen);
+      if (IMAGEN_TIPOS_REQUERIDOS.some(t => !subidos.includes(t))) {
+        todosCompletos = false;
+        break;
+      }
+    }
 
-      // Actualizar km finales de vehículos
+    await transaction(async (conn) => {
+      // Actualizar km finales solo de los vehículos documentados por este usuario
       for (const vkm of vehiculos_km) {
         await conn.execute(
           `UPDATE trabajo_vehiculos SET kilometros_fin = ? WHERE trabajo_id = ? AND vehicle_id = ?`,
           [vkm.kilometros_fin, id, vkm.vehicle_id]
         );
-        // Actualizar km actuales del vehículo
         await conn.execute(
           `UPDATE vehicles SET kilometros_actuales = ?,
                                fecha_ultimo_servicio = CURDATE()
@@ -452,18 +464,32 @@ async function finalizeTrabajo(req, res, next) {
           [vkm.kilometros_fin, vkm.vehicle_id, vkm.kilometros_fin]
         );
       }
+
+      // Solo cambiar estado si TODOS los vehículos están completos
+      if (todosCompletos) {
+        const nuevoEstado = isAnticipado
+          ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
+          : TRABAJO_ESTADOS.FINALIZADO;
+        await conn.execute(
+          `UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?`,
+          [nuevoEstado, motivo_finalizacion_anticipada || null, id]
+        );
+      }
     });
 
     const t = await getTrabajoCompleto(id);
+    const mensaje = todosCompletos
+      ? 'Trabajo finalizado correctamente'
+      : 'Tu parte se ha registrado. Faltan evidencias de otros vehículos para cerrar el trabajo.';
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
-      action:   'finalize_trabajo',
+      action:   todosCompletos ? 'finalize_trabajo' : 'partial_finalize_trabajo',
       entityType: 'trabajo', entityId: id,
-      details:  { estado: t.estado, anticipado: isAnticipado },
+      details:  { estado: t.estado, anticipado: isAnticipado, todosCompletos },
       ip: req.ip,
     });
-    return success(res, t, 'Trabajo finalizado correctamente');
+    return success(res, t, mensaje);
   } catch (err) {
     next(err);
   }
