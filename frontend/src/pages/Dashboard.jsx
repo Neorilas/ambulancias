@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { trabajosService } from '../services/trabajos.service.js';
@@ -203,7 +203,8 @@ function DashboardOperacional({ user }) {
   const [loading,        setLoading]        = useState(true);
   const [finTrabajo,     setFinTrabajo]     = useState(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
+    setLoading(true);
     Promise.all([
       trabajosService.misTrab({ limit: 20 }),
       trabajosService.listCalendario({
@@ -217,7 +218,9 @@ function DashboardOperacional({ user }) {
       })
       .catch(() => notify.error('Error al cargar datos'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [notify]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   if (loading) return <PageLoading />;
 
@@ -239,7 +242,7 @@ function DashboardOperacional({ user }) {
       <React.Suspense fallback={<PageLoading />}>
         <Finalizacion
           trabajo={finTrabajo}
-          onDone={() => { setFinTrabajo(null); setLoading(true); }}
+          onDone={() => { setFinTrabajo(null); loadData(); }}
           onCancel={() => setFinTrabajo(null)}
         />
       </React.Suspense>
