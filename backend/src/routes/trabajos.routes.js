@@ -12,7 +12,7 @@ const { requireAdminOrGestor }     = require('../middleware/roles.middleware');
 const { handleValidation }         = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
-const { TRABAJO_TIPOS, IMAGEN_TIPOS, IMAGEN_TIPOS_REQUERIDOS } = require('../config/constants');
+const { TRABAJO_TIPOS, IMAGEN_TIPOS } = require('../config/constants');
 
 const router = express.Router();
 router.use(authenticate);
@@ -107,7 +107,6 @@ router.post('/:id/evidencias',
   ],
   handleValidation,
   async (req, res, next) => {
-    const { processAndSave } = require('../middleware/upload.middleware');
     return processAndSave(`trabajos/${req.params.id}`)(req, res, next);
   },
   ctrl.uploadEvidencia

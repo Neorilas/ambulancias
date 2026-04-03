@@ -34,7 +34,7 @@ router.post('/refresh',
 );
 
 // POST /auth/logout
-router.post('/logout', ctrl.logout);
+router.post('/logout', authenticate, ctrl.logout);
 
 // GET /auth/me  (requiere autenticación)
 router.get('/me', authenticate, ctrl.me);

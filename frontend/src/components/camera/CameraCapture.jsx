@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { compressImage, blobToFile } from '../../utils/imageCompress.js';
 import { IMAGEN_TIPOS } from '../../utils/constants.js';
 import { useCameraStream } from './useCameraStream.js';
@@ -51,6 +51,9 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
   const currentTipo = IMAGEN_TIPOS[currentIndex];
   const addedCount  = captured.filter(c => c.tipo === currentTipo.key).length;
 
+  const capturedRef = useRef(captured);
+  capturedRef.current = captured;
+
   const { videoRef, canvasRef, cameraReady, error, isLandscape, toggleCamera, captureBlob } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
@@ -93,6 +96,13 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
     setPreview(null);
   }, [preview]);
+
+  // ── Cleanup ObjectURLs al desmontar ──────────────────────────
+  useEffect(() => {
+    return () => {
+      capturedRef.current.forEach(c => { if (c.preview) URL.revokeObjectURL(c.preview); });
+    };
+  }, []);
 
   // ── Teclado: espacio → capturar ──────────────────────────────
   useEffect(() => {

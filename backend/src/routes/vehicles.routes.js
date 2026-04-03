@@ -10,7 +10,7 @@ const ctrl    = require('../controllers/vehicles.controller');
 const { authenticate }          = require('../middleware/auth.middleware');
 const { requireAdminOrGestor, requireAdmin } = require('../middleware/roles.middleware');
 const { handleValidation }      = require('../middleware/validate.middleware');
-const { multerUpload }          = require('../middleware/upload.middleware');
+const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
 const { IMAGEN_TIPOS }          = require('../config/constants');
 
@@ -98,7 +98,6 @@ router.post('/:id/images',
   ],
   handleValidation,
   async (req, res, next) => {
-    const { processAndSave } = require('../middleware/upload.middleware');
     return processAndSave(`vehicles/${req.params.id}`)(req, res, next);
   },
   ctrl.uploadImages
