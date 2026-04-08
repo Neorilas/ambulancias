@@ -19,12 +19,13 @@ export default function ToastContainer() {
   const { toasts, removeToast } = useNotification();
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full">
+    <div className="fixed top-4 left-4 right-4 z-50 flex flex-col items-center gap-2 pointer-events-none">
       {toasts.map(toast => (
         <div
           key={toast.id}
           className={`${colors[toast.type]} text-white px-4 py-3 rounded-lg shadow-lg
-                      flex items-start gap-3 pointer-events-auto animate-slide-up`}
+                      flex items-start gap-3 pointer-events-auto animate-slide-up
+                      w-full max-w-sm`}
         >
           <span className="text-lg font-bold mt-0.5 flex-shrink-0">{icons[toast.type]}</span>
           <span className="flex-1 text-sm leading-relaxed">{toast.message}</span>
