@@ -216,9 +216,9 @@ function DashboardOperacional({ user }) {
         setTrabajos(mistResp.data || []);
         setCalendarioSem(Array.isArray(cal) ? cal : []);
       })
-      .catch(() => notify.error('Error al cargar datos'))
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [notify]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
