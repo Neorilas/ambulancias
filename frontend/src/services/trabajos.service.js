@@ -26,7 +26,7 @@ export const trabajosService = {
     return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
   },
   finalize(id, data) {
-    return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data.data);
+    return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data);
   },
   uploadEvidencia(id, formData) {
     // Eliminar el Content-Type por defecto (application/json) para que el

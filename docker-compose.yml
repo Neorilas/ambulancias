@@ -6,6 +6,7 @@ services:
     container_name: ambulancia-mysql
     restart: unless-stopped
     environment:
+      TZ: Europe/Madrid
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
@@ -38,6 +39,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      TZ: Europe/Madrid
       NODE_ENV: production
       PORT: 3001
       API_VERSION: v1

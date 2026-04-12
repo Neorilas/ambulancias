@@ -435,23 +435,12 @@ async function finalizeTrabajo(req, res, next) {
       }
     }
 
-    // Comprobar si TODOS los vehículos del trabajo tienen evidencia completa
-    // (incluidos los de otros responsables)
-    let todosCompletos = true;
-    for (const vid of allVehicleIds) {
-      const [imgs] = await query(
-        `SELECT tipo_imagen FROM vehicle_images WHERE vehicle_id = ? AND trabajo_id = ?`,
-        [vid, id]
-      );
-      const subidos = imgs.map(i => i.tipo_imagen);
-      if (IMAGEN_TIPOS_REQUERIDOS.some(t => !subidos.includes(t))) {
-        todosCompletos = false;
-        break;
-      }
-    }
+    const nuevoEstado = isAnticipado
+      ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
+      : TRABAJO_ESTADOS.FINALIZADO;
 
     await transaction(async (conn) => {
-      // Actualizar km finales solo de los vehículos documentados por este usuario
+      // Actualizar km finales de los vehículos documentados por este usuario
       for (const vkm of vehiculos_km) {
         await conn.execute(
           `UPDATE trabajo_vehiculos SET kilometros_fin = ? WHERE trabajo_id = ? AND vehicle_id = ?`,
@@ -465,31 +454,23 @@ async function finalizeTrabajo(req, res, next) {
         );
       }
 
-      // Solo cambiar estado si TODOS los vehículos están completos
-      if (todosCompletos) {
-        const nuevoEstado = isAnticipado
-          ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
-          : TRABAJO_ESTADOS.FINALIZADO;
-        await conn.execute(
-          `UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?`,
-          [nuevoEstado, motivo_finalizacion_anticipada || null, id]
-        );
-      }
+      // Cambiar estado a finalizado
+      await conn.execute(
+        `UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?`,
+        [nuevoEstado, motivo_finalizacion_anticipada || null, id]
+      );
     });
 
     const t = await getTrabajoCompleto(id);
-    const mensaje = todosCompletos
-      ? 'Trabajo finalizado correctamente'
-      : 'Tu parte se ha registrado. Faltan evidencias de otros vehículos para cerrar el trabajo.';
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
-      action:   todosCompletos ? 'finalize_trabajo' : 'partial_finalize_trabajo',
+      action:   'finalize_trabajo',
       entityType: 'trabajo', entityId: id,
-      details:  { estado: t.estado, anticipado: isAnticipado, todosCompletos },
+      details:  { estado: nuevoEstado, anticipado: isAnticipado },
       ip: req.ip,
     });
-    return success(res, t, mensaje);
+    return success(res, t, 'Trabajo finalizado correctamente');
   } catch (err) {
     next(err);
   }

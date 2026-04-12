@@ -20,6 +20,15 @@ export function formatDateTimeShort(date) {
 }
 
 /**
+ * Convierte "yyyy-MM-ddTHH:mm" (hora local del browser) a UTC ISO sin segundos.
+ * Necesario porque mysql2 almacena en UTC y el campo datetime-local no lleva timezone.
+ */
+export function toUtcIso(localStr) {
+  if (!localStr) return localStr;
+  return new Date(localStr).toISOString().slice(0, 16);
+}
+
+/**
  * Devuelve fecha en formato ISO para inputs type="datetime-local"
  */
 export function toInputDatetime(date) {

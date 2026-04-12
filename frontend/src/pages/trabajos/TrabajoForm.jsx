@@ -4,7 +4,7 @@ import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDatetime } from '../../utils/dateUtils.js';
+import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
 
 export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const isEdit = !!trabajo;
@@ -87,13 +87,6 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     }
     setErrors(e);
     return Object.keys(e).length === 0;
-  };
-
-  // Convierte "yyyy-MM-ddTHH:mm" (hora local del browser) a UTC ISO sin segundos.
-  // Necesario porque mysql2 almacena en UTC y el campo datetime-local no lleva timezone.
-  const toUtcIso = (localStr) => {
-    if (!localStr) return localStr;
-    return new Date(localStr).toISOString().slice(0, 16);
   };
 
   const handleSubmit = async (ev) => {

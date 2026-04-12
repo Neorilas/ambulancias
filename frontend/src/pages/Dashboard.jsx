@@ -2,12 +2,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { trabajosService } from '../services/trabajos.service.js';
+import { asignacionesService } from '../services/asignaciones.service.js';
 import { vehiclesService } from '../services/vehicles.service.js';
 import { usersService } from '../services/users.service.js';
 import { EstadoBadge } from '../components/common/StatusBadge.jsx';
 import { formatDate, formatDateTime } from '../utils/dateUtils.js';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import { useNotification } from '../context/NotificationContext.jsx';
+import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../utils/constants.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -195,25 +197,96 @@ function NextJobCard({ trabajo }) {
   );
 }
 
+// Tarjeta de asignación activa (vista técnico)
+function ActiveAsignacionCard({ asignacion, onFinalizar }) {
+  const { notify }   = useNotification();
+  const [loading, setLoading] = React.useState(false);
+
+  const horas = diferenciaHoras(asignacion.fecha_fin);
+  const enTiempo = horas > 0;
+
+  return (
+    <div className="card border-l-4 border-l-emerald-500 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs text-emerald-600 font-medium uppercase tracking-wide">🚐 Vehículo asignado</p>
+          <h3 className="font-semibold text-neutral-900 mt-0.5">{asignacion.matricula}</h3>
+          {asignacion.vehiculo_alias && (
+            <p className="text-xs text-neutral-500">{asignacion.vehiculo_alias}</p>
+          )}
+        </div>
+        <span className={ASIGNACION_ESTADO_COLORS[asignacion.estado]}>
+          {ASIGNACION_ESTADO_LABELS[asignacion.estado]}
+        </span>
+      </div>
+
+      <div className="text-xs text-neutral-500 space-y-0.5">
+        <p>Inicio: {formatDateTime(asignacion.fecha_inicio)}</p>
+        <p className={enTiempo ? 'text-neutral-500' : 'text-red-600 font-medium'}>
+          Fin previsto: {formatDateTime(asignacion.fecha_fin)}
+          {!enTiempo && ' · Tiempo superado'}
+        </p>
+        {asignacion.km_inicio != null && (
+          <p>Km inicio: {asignacion.km_inicio.toLocaleString()} km</p>
+        )}
+      </div>
+
+      {asignacion.notas && (
+        <p className="text-xs text-neutral-500 italic border-t border-neutral-100 pt-2">{asignacion.notas}</p>
+      )}
+
+      <div className="flex gap-2 pt-1 border-t border-neutral-100">
+        {asignacion.estado === 'activa' && (
+          <button
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const full = await asignacionesService.get(asignacion.id);
+                onFinalizar(full);
+              } catch {
+                notify.error('Error al cargar la asignación');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            className="btn-primary text-xs flex-1"
+          >
+            {loading ? '...' : 'Finalizar asignación'}
+          </button>
+        )}
+        {asignacion.estado === 'programada' && (
+          <span className="text-xs text-yellow-600 font-medium py-1">Pendiente de activar</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Vista Operacional ─────────────────────────────────────────────────────────
 function DashboardOperacional({ user }) {
   const { notify }       = useNotification();
   const [trabajos,       setTrabajos]       = useState([]);
+  const [asignaciones,   setAsignaciones]   = useState([]);
   const [calendarioSem,  setCalendarioSem]  = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [finTrabajo,     setFinTrabajo]     = useState(null);
+  const [finAsignacion,  setFinAsignacion]  = useState(null);
 
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([
       trabajosService.misTrab({ limit: 20 }),
+      asignacionesService.list({ limit: 50 }),
       trabajosService.listCalendario({
         desde: new Date().toISOString().slice(0, 10),
         hasta: (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })(),
       }).catch(() => []),
     ])
-      .then(([mistResp, cal]) => {
+      .then(([mistResp, asigResp, cal]) => {
         setTrabajos(mistResp.data || []);
+        const activas = (asigResp.data || []).filter(a => a.estado !== 'finalizada' && a.estado !== 'cancelada');
+        setAsignaciones(activas);
         setCalendarioSem(Array.isArray(cal) ? cal : []);
       })
       .catch(() => {})
@@ -235,7 +308,7 @@ function DashboardOperacional({ user }) {
   const hora    = new Date().getHours();
   const saludo  = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
 
-  // Si está en flujo de finalización
+  // Si está en flujo de finalización de trabajo
   if (finTrabajo) {
     const Finalizacion = React.lazy(() => import('./trabajos/Finalizacion.jsx'));
     return (
@@ -245,6 +318,25 @@ function DashboardOperacional({ user }) {
           onDone={() => { setFinTrabajo(null); loadData(); }}
           onCancel={() => setFinTrabajo(null)}
         />
+      </React.Suspense>
+    );
+  }
+
+  // Si está en flujo de finalización de asignación
+  if (finAsignacion) {
+    const FinalizacionAsignacion = React.lazy(() => import('./asignaciones/FinalizacionAsignacion.jsx'));
+    return (
+      <React.Suspense fallback={<PageLoading />}>
+        <div className="max-w-lg mx-auto animate-fade-in">
+          <button onClick={() => setFinAsignacion(null)} className="btn-ghost text-sm mb-4 flex items-center gap-1">
+            ← Volver al inicio
+          </button>
+          <FinalizacionAsignacion
+            asignacion={finAsignacion}
+            onDone={() => { setFinAsignacion(null); loadData(); }}
+            onCancel={() => setFinAsignacion(null)}
+          />
+        </div>
       </React.Suspense>
     );
   }
@@ -261,17 +353,38 @@ function DashboardOperacional({ user }) {
         </p>
       </div>
 
-      {/* Trabajo activo */}
-      {activos.length > 0 ? (
-        <div className="space-y-3">
-          {activos.map(t => (
-            <ActiveJobCard key={t.id} trabajo={t} onFinalizar={setFinTrabajo} />
-          ))}
+      {/* Asignaciones activas */}
+      {asignaciones.length > 0 && (
+        <div>
+          <p className="text-xs text-neutral-400 uppercase tracking-wide font-medium mb-2">
+            Mis vehículos asignados
+          </p>
+          <div className="space-y-3">
+            {asignaciones.map(a => (
+              <ActiveAsignacionCard key={a.id} asignacion={a} onFinalizar={setFinAsignacion} />
+            ))}
+          </div>
         </div>
-      ) : (
+      )}
+
+      {/* Trabajo activo */}
+      {activos.length > 0 && (
+        <div>
+          <p className="text-xs text-neutral-400 uppercase tracking-wide font-medium mb-2">
+            Trabajos en curso
+          </p>
+          <div className="space-y-3">
+            {activos.map(t => (
+              <ActiveJobCard key={t.id} trabajo={t} onFinalizar={setFinTrabajo} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {asignaciones.length === 0 && activos.length === 0 && (
         <div className="card text-center py-8 text-neutral-400">
           <p className="text-3xl mb-2">😴</p>
-          <p className="text-sm font-medium">Sin trabajos activos ahora mismo</p>
+          <p className="text-sm font-medium">Sin asignaciones ni trabajos activos</p>
         </div>
       )}
 
@@ -286,18 +399,31 @@ function DashboardOperacional({ user }) {
       {/* Tira semanal */}
       {semItems.length > 0 && <WeekStrip trabajos={semItems} />}
 
-      {/* Acceso rápido */}
-      <Link
-        to="/mis-trabajos"
-        className="card flex items-center gap-3 py-4 hover:shadow-md transition-shadow"
-      >
-        <span className="text-2xl">📋</span>
-        <div>
-          <p className="font-medium text-neutral-800 text-sm">Ver todos mis trabajos</p>
-          <p className="text-xs text-neutral-400">{trabajos.length} trabajo{trabajos.length !== 1 ? 's' : ''} asignado{trabajos.length !== 1 ? 's' : ''}</p>
-        </div>
-        <span className="ml-auto text-neutral-300">›</span>
-      </Link>
+      {/* Accesos rápidos */}
+      <div className="space-y-2">
+        <Link
+          to="/mis-asignaciones"
+          className="card flex items-center gap-3 py-4 hover:shadow-md transition-shadow"
+        >
+          <span className="text-2xl">🚐</span>
+          <div>
+            <p className="font-medium text-neutral-800 text-sm">Mis asignaciones</p>
+            <p className="text-xs text-neutral-400">{asignaciones.length} asignación{asignaciones.length !== 1 ? 'es' : ''} activa{asignaciones.length !== 1 ? 's' : ''}</p>
+          </div>
+          <span className="ml-auto text-neutral-300">›</span>
+        </Link>
+        <Link
+          to="/mis-trabajos"
+          className="card flex items-center gap-3 py-4 hover:shadow-md transition-shadow"
+        >
+          <span className="text-2xl">📋</span>
+          <div>
+            <p className="font-medium text-neutral-800 text-sm">Mis trabajos</p>
+            <p className="text-xs text-neutral-400">{trabajos.length} trabajo{trabajos.length !== 1 ? 's' : ''} asignado{trabajos.length !== 1 ? 's' : ''}</p>
+          </div>
+          <span className="ml-auto text-neutral-300">›</span>
+        </Link>
+      </div>
     </div>
   );
 }

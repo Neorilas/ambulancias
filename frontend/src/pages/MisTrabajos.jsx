@@ -416,7 +416,6 @@ export default function MisTrabajos() {
           setFinTrabajo(null);
           setAllTrabajos([]);
           loadLista();
-          notify.success('Trabajo finalizado correctamente');
         }}
         onCancel={() => setFinTrabajo(null)}
       />

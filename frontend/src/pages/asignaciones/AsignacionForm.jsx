@@ -4,7 +4,7 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDatetime } from '../../utils/dateUtils.js';
+import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
 
 // ── Combobox buscador de usuario ─────────────────────────────────────────────
 function UserCombobox({ users, value, onChange, error }) {
@@ -174,8 +174,8 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
       const payload = {
         vehicle_id:   parseInt(form.vehicle_id),
         user_id:      parseInt(form.user_id),
-        fecha_inicio: form.fecha_inicio,
-        fecha_fin:    form.fecha_fin,
+        fecha_inicio: toUtcIso(form.fecha_inicio),
+        fecha_fin:    toUtcIso(form.fecha_fin),
         km_inicio:    form.km_inicio !== '' ? parseInt(form.km_inicio) : null,
         notas:        form.notas || null,
       };

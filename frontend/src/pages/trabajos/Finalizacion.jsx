@@ -133,12 +133,12 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         kilometros_fin: parseInt(kmFinales[v.vehicle_id]),
       }));
 
-      await trabajosService.finalize(trabajo.id, {
+      const result = await trabajosService.finalize(trabajo.id, {
         vehiculos_km,
         motivo_finalizacion_anticipada: isAnticipado ? motivo : undefined,
       });
 
-      notify.success('¡Trabajo finalizado correctamente!');
+      notify.success(result.message || '¡Trabajo finalizado correctamente!');
       onDone?.();
     } catch (err) {
       // Priorizar mensaje del backend sobre mensaje genérico de Axios
