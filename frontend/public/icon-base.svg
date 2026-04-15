@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="100%" stop-color="#C62828"/>
+    </linearGradient>
+    <clipPath id="roundRect">
+      <rect width="512" height="512" rx="96" ry="96"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- Content clipped to rounded rect -->
+  <g clip-path="url(#roundRect)">
+
+    <!-- Subtle grid pattern for depth -->
+    <line x1="0" y1="200" x2="512" y2="200" stroke="white" stroke-width="0.5" opacity="0.06"/>
+    <line x1="0" y1="256" x2="512" y2="256" stroke="white" stroke-width="0.5" opacity="0.06"/>
+    <line x1="0" y1="312" x2="512" y2="312" stroke="white" stroke-width="0.5" opacity="0.06"/>
+
+    <!-- ECG Heartbeat line (main) — bolder, centered -->
+    <polyline
+      points="
+        -10,270
+        80,270
+        110,270
+        135,220
+        160,330
+        185,160
+        210,320
+        235,240
+        260,270
+        360,270
+        512,270
+      "
+      stroke="white"
+      stroke-width="14"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+    />
+
+    <!-- Shadow line for depth -->
+    <polyline
+      points="
+        -10,278
+        80,278
+        110,278
+        135,228
+        160,338
+        185,168
+        210,328
+        235,248
+        260,278
+        360,278
+        512,278
+      "
+      stroke="white"
+      stroke-width="6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+      opacity="0.15"
+    />
+
+    <!-- Medical cross (top-right, subtle) -->
+    <g transform="translate(340, 110)" opacity="0.9">
+      <rect x="0" y="18" width="60" height="20" rx="5" fill="white"/>
+      <rect x="20" y="0" width="20" height="56" rx="5" fill="white"/>
+    </g>
+
+    <!-- V.A.P. text (bottom center) -->
+    <text
+      x="256"
+      y="420"
+      text-anchor="middle"
+      font-family="system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
+      font-weight="900"
+      font-size="72"
+      fill="white"
+      letter-spacing="4"
+      opacity="0.95"
+    >V.A.P.</text>
+
+  </g>
+</svg>

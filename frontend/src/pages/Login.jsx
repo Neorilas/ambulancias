@@ -57,12 +57,10 @@ export default function Login() {
       {/* Logo / Hero */}
       <div className="text-center mb-8">
         <img
-          src="https://vapss.net/wp-content/uploads/2024/12/cropped-cropped-vapss-banner-2.webp"
-          alt="VAPSS"
-          className="h-16 mx-auto mb-4 object-contain drop-shadow-lg"
-          onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
+          src="/logo-vapss.svg"
+          alt="V.A.P. Servicios Sanitarios"
+          className="h-20 mx-auto mb-4 object-contain brightness-0 invert drop-shadow-lg"
         />
-        <h1 className="text-2xl font-bold text-white hidden">VAPSS</h1>
         <p className="text-primary-200 text-sm mt-1">Sistema interno de operaciones · v1.0</p>
       </div>
 
