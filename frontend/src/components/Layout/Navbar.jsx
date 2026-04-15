@@ -36,7 +36,7 @@ export default function Navbar({ onMenuToggle }) {
         {/* Logo */}
         <Link to="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight">
           <img
-            src="/logo-vapss-compact.svg"
+            src={`${import.meta.env.BASE_URL}logo-vapss-compact.svg`}
             alt="V.A.P. Servicios Sanitarios"
             className="h-7 object-contain brightness-0 invert"
           />

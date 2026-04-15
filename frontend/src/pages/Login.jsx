@@ -57,7 +57,7 @@ export default function Login() {
       {/* Logo / Hero */}
       <div className="text-center mb-8">
         <img
-          src="/logo-vapss.svg"
+          src={`${import.meta.env.BASE_URL}logo-vapss.svg`}
           alt="V.A.P. Servicios Sanitarios"
           className="h-20 mx-auto mb-4 object-contain brightness-0 invert drop-shadow-lg"
         />
