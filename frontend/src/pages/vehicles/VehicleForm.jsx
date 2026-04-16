@@ -33,17 +33,21 @@ function calcProximaITS(fechaUltimaITS) {
   return proxima;
 }
 
-function RevisionBadge({ label, proxima }) {
+/**
+ * Umbral de aviso genérico (por defecto 30 días). La tarjeta de
+ * transporte usa 60 días (2 meses) según requisito funcional.
+ */
+function RevisionBadge({ label, proxima, umbralAviso = 30 }) {
   if (!proxima) return null;
   const hoy = new Date();
   const diasRestantes = Math.ceil((proxima - hoy) / (1000 * 60 * 60 * 24));
-  const vencida   = diasRestantes < 0;
-  const proxima30 = diasRestantes >= 0 && diasRestantes <= 30;
+  const vencida  = diasRestantes < 0;
+  const proximo  = diasRestantes >= 0 && diasRestantes <= umbralAviso;
 
   let cls = 'text-green-700 bg-green-50 border-green-200';
   let icono = '✓';
-  if (vencida)   { cls = 'text-red-700 bg-red-50 border-red-200';         icono = '✕'; }
-  if (proxima30) { cls = 'text-yellow-700 bg-yellow-50 border-yellow-200'; icono = '⚠'; }
+  if (vencida) { cls = 'text-red-700 bg-red-50 border-red-200';         icono = '✕'; }
+  if (proximo) { cls = 'text-yellow-700 bg-yellow-50 border-yellow-200'; icono = '⚠'; }
 
   return (
     <div className={`text-xs border rounded px-2 py-1 ${cls}`}>
@@ -66,9 +70,10 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     alias:                 vehicle?.alias                 || '',
     kilometros_actuales:   vehicle?.kilometros_actuales   ?? '',
     fecha_matriculacion:   toInputDate(vehicle?.fecha_matriculacion),
-    fecha_itv:             toInputDate(vehicle?.fecha_itv),
-    fecha_its:             toInputDate(vehicle?.fecha_its),
-    fecha_ultima_revision: toInputDate(vehicle?.fecha_ultima_revision),
+    fecha_itv:                toInputDate(vehicle?.fecha_itv),
+    fecha_its:                toInputDate(vehicle?.fecha_its),
+    fecha_tarjeta_transporte: toInputDate(vehicle?.fecha_tarjeta_transporte),
+    fecha_ultima_revision:    toInputDate(vehicle?.fecha_ultima_revision),
     fecha_ultimo_servicio: toInputDate(vehicle?.fecha_ultimo_servicio),
   });
 
@@ -91,13 +96,14 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     setSaving(true);
     try {
       const payload = {
-        alias:                 form.alias,
-        kilometros_actuales:   form.kilometros_actuales !== '' ? parseInt(form.kilometros_actuales) : 0,
-        fecha_matriculacion:   form.fecha_matriculacion   || null,
-        fecha_itv:             form.fecha_itv             || null,
-        fecha_its:             form.fecha_its             || null,
-        fecha_ultima_revision: form.fecha_ultima_revision || null,
-        fecha_ultimo_servicio: form.fecha_ultimo_servicio || null,
+        alias:                    form.alias,
+        kilometros_actuales:      form.kilometros_actuales !== '' ? parseInt(form.kilometros_actuales) : 0,
+        fecha_matriculacion:      form.fecha_matriculacion      || null,
+        fecha_itv:                form.fecha_itv                || null,
+        fecha_its:                form.fecha_its                || null,
+        fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
+        fecha_ultima_revision:    form.fecha_ultima_revision    || null,
+        fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
       };
       if (!isEdit) payload.matricula = form.matricula.toUpperCase();
 
@@ -115,6 +121,10 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
 
   const proximaITV = calcProximaITV(form.fecha_matriculacion, form.fecha_itv);
   const proximaITS = calcProximaITS(form.fecha_its);
+  // Tarjeta de transporte: vence exactamente en la fecha indicada
+  const proximaTarjeta = form.fecha_tarjeta_transporte
+    ? new Date(form.fecha_tarjeta_transporte)
+    : null;
 
   return (
     <Modal
@@ -223,6 +233,34 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
             <div className="space-y-1.5">
               <RevisionBadge label="Próxima ITV" proxima={proximaITV} />
               <RevisionBadge label="Próxima ITS" proxima={proximaITS} />
+            </div>
+          )}
+        </div>
+
+        {/* Tarjeta de transporte */}
+        <div className="border border-neutral-200 rounded-lg p-3 space-y-3">
+          <h4 className="text-sm font-semibold text-neutral-700">Tarjeta de transporte</h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Fecha de caducidad</label>
+              <input
+                type="date"
+                className="input"
+                value={form.fecha_tarjeta_transporte}
+                onChange={set('fecha_tarjeta_transporte')}
+              />
+              <p className="text-xs text-neutral-400 mt-1">⏱ Vigencia 2 años · aviso 2 meses antes</p>
+            </div>
+          </div>
+
+          {proximaTarjeta && (
+            <div className="space-y-1.5">
+              <RevisionBadge
+                label="Tarjeta transporte"
+                proxima={proximaTarjeta}
+                umbralAviso={60}
+              />
             </div>
           )}
         </div>

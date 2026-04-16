@@ -20,6 +20,13 @@ router.use(authenticate);
 // GET /vehicles
 router.get('/', ctrl.listVehicles);
 
+// GET /vehicles/tarjeta-transporte/proximas  (admin o gestor)
+// Debe ir ANTES de /:id para no colisionar con la ruta con parámetro
+router.get('/tarjeta-transporte/proximas',
+  requireAdminOrGestor,
+  ctrl.listTarjetaTransporteProximas
+);
+
 // GET /vehicles/:id
 router.get('/:id',
   [param('id').isInt({ min: 1 })],
@@ -55,6 +62,7 @@ router.post('/',
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
     body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
     body('fecha_its').optional({ nullable: true }).isISO8601().withMessage('Fecha ITS inválida'),
+    body('fecha_tarjeta_transporte').optional({ nullable: true }).isISO8601().withMessage('Fecha tarjeta de transporte inválida'),
     body('fecha_ultima_revision').optional({ nullable: true }).isISO8601().withMessage('Fecha inválida'),
     body('fecha_ultimo_servicio').optional({ nullable: true }).isISO8601().withMessage('Fecha inválida'),
   ],
@@ -71,6 +79,7 @@ router.put('/:id',
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
     body('fecha_itv').optional({ nullable: true }).isISO8601(),
     body('fecha_its').optional({ nullable: true }).isISO8601(),
+    body('fecha_tarjeta_transporte').optional({ nullable: true }).isISO8601(),
     body('fecha_ultima_revision').optional({ nullable: true }).isISO8601(),
     body('fecha_ultimo_servicio').optional({ nullable: true }).isISO8601(),
   ],

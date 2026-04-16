@@ -30,10 +30,10 @@ function calcProximaITS(fechaUltimaITS) {
   return proxima;
 }
 
-function RevisionPill({ label, proxima }) {
+function RevisionPill({ label, proxima, umbralAviso = 30 }) {
   if (!proxima) return null;
   const dias = Math.ceil((proxima - new Date()) / (1000 * 60 * 60 * 24));
-  if (dias > 30) return null;
+  if (dias > umbralAviso) return null;
   const vencida = dias < 0;
   return (
     <span className={`text-xs border rounded-full px-2 py-0.5 font-medium ${
@@ -48,6 +48,9 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
   const navigate = useNavigate();
   const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
   const proximaITS = calcProximaITS(vehicle.fecha_its);
+  const proximaTarjeta = vehicle.fecha_tarjeta_transporte
+    ? new Date(vehicle.fecha_tarjeta_transporte)
+    : null;
 
   return (
     <div className="card space-y-3">
@@ -72,14 +75,15 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
           <p className="font-medium">{formatDate(vehicle.fecha_its) || '—'}</p>
         </div>
         <div>
-          <p className="text-neutral-500 text-xs">Matriculación</p>
-          <p className="font-medium">{formatDate(vehicle.fecha_matriculacion) || '—'}</p>
+          <p className="text-neutral-500 text-xs">Tarjeta transporte</p>
+          <p className="font-medium">{formatDate(vehicle.fecha_tarjeta_transporte) || '—'}</p>
         </div>
       </div>
-      {(proximaITV || proximaITS) && (
+      {(proximaITV || proximaITS || proximaTarjeta) && (
         <div className="flex flex-wrap gap-1">
           <RevisionPill label="ITV" proxima={proximaITV} />
           <RevisionPill label="ITS" proxima={proximaITS} />
+          <RevisionPill label="Tarjeta transporte" proxima={proximaTarjeta} umbralAviso={60} />
         </div>
       )}
       <div className="flex gap-2 pt-1 border-t border-neutral-100">

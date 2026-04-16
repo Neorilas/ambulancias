@@ -132,9 +132,10 @@ CREATE TABLE `vehicles` (
   `alias`                 VARCHAR(100)  NOT NULL,
   `kilometros_actuales`   INT UNSIGNED  NOT NULL DEFAULT 0,
   `fecha_matriculacion`   DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de primera matriculación (determina frecuencia ITV)',
-  `fecha_itv`             DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITV superada',
-  `fecha_its`             DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITS superada',
-  `fecha_ultima_revision` DATE          NULL     DEFAULT NULL,
+  `fecha_itv`                DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITV superada',
+  `fecha_its`                DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITS superada',
+  `fecha_tarjeta_transporte` DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de caducidad de la tarjeta de transporte (vigencia 2 años)',
+  `fecha_ultima_revision`    DATE          NULL     DEFAULT NULL,
   `fecha_ultimo_servicio` DATE          NULL     DEFAULT NULL,
   `created_at`            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -142,8 +143,9 @@ CREATE TABLE `vehicles` (
 
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_matricula` (`matricula`),
-  INDEX `idx_veh_deleted_at` (`deleted_at`),
-  INDEX `idx_veh_alias`      (`alias`)
+  INDEX `idx_veh_deleted_at`          (`deleted_at`),
+  INDEX `idx_veh_alias`               (`alias`),
+  INDEX `idx_veh_tarjeta_transporte`  (`fecha_tarjeta_transporte`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Flota de vehículos de la empresa';
 

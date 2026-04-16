@@ -52,4 +52,10 @@ export const vehiclesService = {
   deleteRevision(vehicleId, revId) {
     return api.delete(`/vehicles/${vehicleId}/revisiones/${revId}`).then(r => r.data);
   },
+
+  // ── Tarjeta de transporte: próximas caducidades ──────────────
+  listTarjetaTransporteProximas(dias = 60) {
+    return api.get('/vehicles/tarjeta-transporte/proximas', { params: { dias } })
+      .then(r => r.data.data);
+  },
 };

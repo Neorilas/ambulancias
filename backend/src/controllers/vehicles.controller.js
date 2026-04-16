@@ -73,6 +73,7 @@ async function listVehicles(req, res, next) {
     const [rows] = await query(
       `SELECT v.id, v.matricula, v.alias, v.kilometros_actuales,
               v.fecha_matriculacion, v.fecha_itv, v.fecha_its,
+              v.fecha_tarjeta_transporte,
               v.fecha_ultima_revision, v.fecha_ultimo_servicio,
               v.created_at, v.updated_at
        FROM vehicles v
@@ -103,6 +104,7 @@ async function getVehicle(req, res, next) {
     const [rows] = await query(
       `SELECT id, matricula, alias, kilometros_actuales,
               fecha_matriculacion, fecha_itv, fecha_its,
+              fecha_tarjeta_transporte,
               fecha_ultima_revision, fecha_ultimo_servicio, created_at, updated_at
        FROM vehicles WHERE id = ? AND deleted_at IS NULL`,
       [vehicleId]
@@ -130,6 +132,7 @@ async function createVehicle(req, res, next) {
   try {
     const { matricula, alias, kilometros_actuales = 0,
             fecha_matriculacion, fecha_itv, fecha_its,
+            fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
 
     const [existing] = await query(
@@ -141,10 +144,12 @@ async function createVehicle(req, res, next) {
       `INSERT INTO vehicles
          (matricula, alias, kilometros_actuales,
           fecha_matriculacion, fecha_itv, fecha_its,
+          fecha_tarjeta_transporte,
           fecha_ultima_revision, fecha_ultimo_servicio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [matricula.toUpperCase(), alias, kilometros_actuales,
        fecha_matriculacion || null, fecha_itv || null, fecha_its || null,
+       fecha_tarjeta_transporte || null,
        fecha_ultima_revision || null, fecha_ultimo_servicio || null]
     );
 
@@ -176,18 +181,20 @@ async function updateVehicle(req, res, next) {
 
     const { alias, kilometros_actuales,
             fecha_matriculacion, fecha_itv, fecha_its,
+            fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
 
     const updates = [];
     const vals    = [];
 
-    if (alias                  !== undefined) { updates.push('alias = ?');                  vals.push(alias); }
-    if (kilometros_actuales    !== undefined) { updates.push('kilometros_actuales = ?');    vals.push(kilometros_actuales); }
-    if (fecha_matriculacion    !== undefined) { updates.push('fecha_matriculacion = ?');    vals.push(fecha_matriculacion || null); }
-    if (fecha_itv              !== undefined) { updates.push('fecha_itv = ?');              vals.push(fecha_itv || null); }
-    if (fecha_its              !== undefined) { updates.push('fecha_its = ?');              vals.push(fecha_its || null); }
-    if (fecha_ultima_revision  !== undefined) { updates.push('fecha_ultima_revision = ?');  vals.push(fecha_ultima_revision || null); }
-    if (fecha_ultimo_servicio  !== undefined) { updates.push('fecha_ultimo_servicio = ?');  vals.push(fecha_ultimo_servicio || null); }
+    if (alias                    !== undefined) { updates.push('alias = ?');                    vals.push(alias); }
+    if (kilometros_actuales      !== undefined) { updates.push('kilometros_actuales = ?');      vals.push(kilometros_actuales); }
+    if (fecha_matriculacion      !== undefined) { updates.push('fecha_matriculacion = ?');      vals.push(fecha_matriculacion || null); }
+    if (fecha_itv                !== undefined) { updates.push('fecha_itv = ?');                vals.push(fecha_itv || null); }
+    if (fecha_its                !== undefined) { updates.push('fecha_its = ?');                vals.push(fecha_its || null); }
+    if (fecha_tarjeta_transporte !== undefined) { updates.push('fecha_tarjeta_transporte = ?'); vals.push(fecha_tarjeta_transporte || null); }
+    if (fecha_ultima_revision    !== undefined) { updates.push('fecha_ultima_revision = ?');    vals.push(fecha_ultima_revision || null); }
+    if (fecha_ultimo_servicio    !== undefined) { updates.push('fecha_ultimo_servicio = ?');    vals.push(fecha_ultimo_servicio || null); }
 
     if (!updates.length) return error(res, 'No hay campos para actualizar', 400);
 
@@ -700,9 +707,36 @@ async function deleteRevision(req, res, next) {
   }
 }
 
+// ============================================================
+// GET /vehicles/tarjeta-transporte/proximas  (admin o gestor)
+// Devuelve vehículos con tarjeta de transporte vencida o que
+// caduca en los próximos N días (por defecto 60 ≈ 2 meses).
+// ============================================================
+async function listTarjetaTransporteProximas(req, res, next) {
+  try {
+    const dias = Math.min(Math.max(parseInt(req.query.dias) || 60, 1), 365);
+
+    const [rows] = await query(
+      `SELECT id, matricula, alias, fecha_tarjeta_transporte,
+              DATEDIFF(fecha_tarjeta_transporte, CURDATE()) AS dias_restantes
+       FROM vehicles
+       WHERE deleted_at IS NULL
+         AND fecha_tarjeta_transporte IS NOT NULL
+         AND fecha_tarjeta_transporte <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+       ORDER BY fecha_tarjeta_transporte ASC`,
+      [dias]
+    );
+
+    return success(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listVehicles, getVehicle, createVehicle, updateVehicle,
   deleteVehicle, uploadImages, getVehicleImages, getVehicleHistorial,
   listIncidencias, createIncidencia, updateIncidencia,
   listRevisiones,  createRevision,   updateRevision,  deleteRevision,
+  listTarjetaTransporteProximas,
 };
