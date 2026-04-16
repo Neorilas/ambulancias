@@ -4,18 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta principal - azul eléctrico corporativo (#0000FF)
+        // Paleta principal - azul corporativo suave
         primary: {
-          50:  '#eff2ff',
-          100: '#dce1ff',
-          200: '#b8c3ff',
-          300: '#849aff',
-          400: '#4d67ff',
-          500: '#1a3aff',
-          600: '#0000ff',  // azul puro principal (navbar, botones)
-          700: '#0000cc',
-          800: '#000099',
-          900: '#000066',
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',  // principal (navbar, botones) — azul equilibrado
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
         },
         // Gris neutro para UI
         neutral: {

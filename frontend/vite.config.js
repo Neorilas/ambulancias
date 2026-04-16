@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
           name:             'VAPSS · Gestión Operaciones',
           short_name:       'VAPSS',
           description:      'Sistema interno de operaciones · V.A.P Servicios Sanitarios',
-          theme_color:      '#0000ff',
+          theme_color:      '#2563eb',
           background_color: '#ffffff',
           display:          'standalone',
           orientation:      'any',
