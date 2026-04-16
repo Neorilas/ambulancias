@@ -8,7 +8,8 @@ const express = require('express');
 const { body, param } = require('express-validator');
 const ctrl    = require('../controllers/vehicles.controller');
 const { authenticate }          = require('../middleware/auth.middleware');
-const { requireAdminOrGestor, requireAdmin } = require('../middleware/roles.middleware');
+const { requireAdminOrGestor, requireAdmin, requireRole } = require('../middleware/roles.middleware');
+const { ROLES } = require('../config/constants');
 const { handleValidation }      = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
@@ -25,6 +26,13 @@ router.get('/', ctrl.listVehicles);
 router.get('/tarjeta-transporte/proximas',
   requireAdminOrGestor,
   ctrl.listTarjetaTransporteProximas
+);
+
+// GET /vehicles/alertas  (admin o superadmin)
+// Debe ir ANTES de /:id para no colisionar
+router.get('/alertas',
+  requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN),
+  ctrl.listAlertasVehiculos
 );
 
 // GET /vehicles/:id

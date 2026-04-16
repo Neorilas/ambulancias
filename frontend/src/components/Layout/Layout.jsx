@@ -4,6 +4,7 @@ import Navbar  from './Navbar.jsx';
 import Sidebar from './Sidebar.jsx';
 import ToastContainer from '../common/Toast.jsx';
 import InstallPWAButton from '../common/InstallPWAButton.jsx';
+import VehicleExpirationAlerts from '../common/VehicleExpirationAlerts.jsx';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -25,6 +26,9 @@ export default function Layout() {
 
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* Alertas flotantes de caducidad de documentos (solo admin) */}
+      <VehicleExpirationAlerts />
 
       {/* Botón flotante instalar PWA (solo si no está instalada) */}
       <InstallPWAButton variant="float" />

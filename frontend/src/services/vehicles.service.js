@@ -58,4 +58,10 @@ export const vehiclesService = {
     return api.get('/vehicles/tarjeta-transporte/proximas', { params: { dias } })
       .then(r => r.data.data);
   },
+
+  // ── Alertas de caducidad (ITV + ITS + Tarjeta) — solo admin ──
+  listAlertas(dias = 60) {
+    return api.get('/vehicles/alertas', { params: { dias } })
+      .then(r => r.data.data);
+  },
 };

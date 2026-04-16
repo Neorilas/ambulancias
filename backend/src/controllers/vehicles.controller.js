@@ -708,6 +708,114 @@ async function deleteRevision(req, res, next) {
 }
 
 // ============================================================
+// GET /vehicles/alertas  (solo admin)
+// Devuelve alertas pre-calculadas de caducidad de documentos
+// de TODOS los vehículos (ITV, ITS, tarjeta de transporte).
+//
+// La frecuencia de ITV depende de la antigüedad del vehículo:
+//   - < 5 años  → anual
+//   - ≥ 5 años  → semestral
+// ITS: anual (12 meses desde la última)
+// Tarjeta de transporte: la fecha almacenada ES la caducidad.
+//
+// Solo se devuelven entradas con `dias_restantes <= umbralMax`
+// (default 60) o que ya estén vencidas.
+// ============================================================
+async function listAlertasVehiculos(req, res, next) {
+  try {
+    const umbralMax = Math.min(Math.max(parseInt(req.query.dias) || 60, 1), 365);
+
+    const [vehicles] = await query(
+      `SELECT id, matricula, alias, fecha_matriculacion,
+              fecha_itv, fecha_its, fecha_tarjeta_transporte
+       FROM vehicles
+       WHERE deleted_at IS NULL
+         AND (fecha_itv IS NOT NULL
+           OR fecha_its IS NOT NULL
+           OR fecha_tarjeta_transporte IS NOT NULL)`
+    );
+
+    const MS_DAY = 1000 * 60 * 60 * 24;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    const diffDias = (fechaStr) => {
+      if (!fechaStr) return null;
+      const d = new Date(fechaStr);
+      d.setHours(0, 0, 0, 0);
+      return Math.round((d - hoy) / MS_DAY);
+    };
+
+    const alertas = [];
+
+    for (const v of vehicles) {
+      // ── ITV: calcular próxima caducidad ─────────────────────
+      if (v.fecha_itv) {
+        let mesesIntervalo = 12;
+        if (v.fecha_matriculacion) {
+          const edadAnios =
+            (hoy - new Date(v.fecha_matriculacion)) / (MS_DAY * 365.25);
+          if (edadAnios >= 5) mesesIntervalo = 6;
+        }
+        const proxima = new Date(v.fecha_itv);
+        proxima.setMonth(proxima.getMonth() + mesesIntervalo);
+        const dias = diffDias(proxima);
+        if (dias !== null && dias <= umbralMax) {
+          alertas.push({
+            vehicle_id: v.id,
+            matricula:  v.matricula,
+            alias:      v.alias,
+            tipo:       'itv',
+            fecha_caducidad: proxima.toISOString().slice(0, 10),
+            dias_restantes:  dias,
+          });
+        }
+      }
+
+      // ── ITS: siempre anual ──────────────────────────────────
+      if (v.fecha_its) {
+        const proxima = new Date(v.fecha_its);
+        proxima.setFullYear(proxima.getFullYear() + 1);
+        const dias = diffDias(proxima);
+        if (dias !== null && dias <= umbralMax) {
+          alertas.push({
+            vehicle_id: v.id,
+            matricula:  v.matricula,
+            alias:      v.alias,
+            tipo:       'its',
+            fecha_caducidad: proxima.toISOString().slice(0, 10),
+            dias_restantes:  dias,
+          });
+        }
+      }
+
+      // ── Tarjeta de transporte ───────────────────────────────
+      if (v.fecha_tarjeta_transporte) {
+        const dias = diffDias(v.fecha_tarjeta_transporte);
+        if (dias !== null && dias <= umbralMax) {
+          const fecha = new Date(v.fecha_tarjeta_transporte);
+          alertas.push({
+            vehicle_id: v.id,
+            matricula:  v.matricula,
+            alias:      v.alias,
+            tipo:       'tarjeta_transporte',
+            fecha_caducidad: fecha.toISOString().slice(0, 10),
+            dias_restantes:  dias,
+          });
+        }
+      }
+    }
+
+    // Orden: primero vencidas (dias negativos), luego por días ascendente
+    alertas.sort((a, b) => a.dias_restantes - b.dias_restantes);
+
+    return success(res, alertas);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // GET /vehicles/tarjeta-transporte/proximas  (admin o gestor)
 // Devuelve vehículos con tarjeta de transporte vencida o que
 // caduca en los próximos N días (por defecto 60 ≈ 2 meses).
@@ -739,4 +847,5 @@ module.exports = {
   listIncidencias, createIncidencia, updateIncidencia,
   listRevisiones,  createRevision,   updateRevision,  deleteRevision,
   listTarjetaTransporteProximas,
+  listAlertasVehiculos,
 };
