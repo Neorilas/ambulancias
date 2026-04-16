@@ -23,7 +23,7 @@ function NavItem({ to, icon, label, end = false, onClick }) {
 }
 
 export default function Sidebar({ isOpen, onClose }) {
-  const { canManageUsers, canManageVehicles, canManageTrabajos, isOperacional, isSuperAdmin } = useAuth();
+  const { canManageUsers, canManageVehicles, canManageTrabajos, isOperacional, isAdmin, isSuperAdmin } = useAuth();
 
   const closeOnMobile = () => {
     if (window.innerWidth < 1024) onClose?.();
@@ -72,6 +72,11 @@ export default function Sidebar({ isOpen, onClose }) {
           {/* Usuarios - admin/gestor */}
           {canManageUsers() && (
             <NavItem to="/usuarios" icon="👥" label="Usuarios" onClick={closeOnMobile} />
+          )}
+
+          {/* Alertas de caducidad - admin o superadmin */}
+          {(isAdmin() || isSuperAdmin()) && (
+            <NavItem to="/alertas" icon="🔔" label="Alertas" onClick={closeOnMobile} />
           )}
 
           {/* Panel superadmin - solo superadmin */}

@@ -13,6 +13,7 @@ import TrabajoList              from './pages/trabajos/TrabajoList.jsx';
 import TrabajoDetail            from './pages/trabajos/TrabajoDetail.jsx';
 import MisTrabajos              from './pages/MisTrabajos.jsx';
 import AdminPanel               from './pages/AdminPanel.jsx';
+import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
@@ -80,6 +81,16 @@ export default function App() {
 
               {/* Mis Asignaciones - todos los autenticados */}
               <Route path="/mis-asignaciones" element={<MisAsignaciones />} />
+
+              {/* Alertas de caducidad - admin o superadmin */}
+              <Route
+                path="/alertas"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]}>
+                    <AlertsPage />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Panel superadmin */}
               <Route
