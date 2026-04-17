@@ -8,7 +8,8 @@
 const { query, transaction }          = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
-const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX, IMAGEN_TIPOS_REQUERIDOS } =
+const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX,
+        IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_MOMENTOS } =
   require('../config/constants');
 const { isAdmin, isOperacional }      = require('../middleware/roles.middleware');
 const logger                          = require('../utils/logger.utils');
@@ -75,18 +76,42 @@ async function getTrabajoCompleto(id) {
 
   // Imágenes de evidencia
   const [images] = await query(
-    `SELECT vi.id, vi.vehicle_id, vi.tipo_imagen, vi.image_url, vi.created_at,
+    `SELECT vi.id, vi.vehicle_id, vi.tipo_imagen, vi.momento, vi.image_url, vi.created_at,
             v.matricula
      FROM vehicle_images vi
      JOIN vehicles v ON vi.vehicle_id = v.id
      WHERE vi.trabajo_id = ?
-     ORDER BY vi.created_at ASC`,
+     ORDER BY FIELD(vi.momento,'inicio','fin','general'), vi.created_at ASC`,
     [id]
   );
 
+  // Progreso por vehículo: qué tipos están cubiertos en inicio y en fin
+  const progresoPorVehiculo = {};
+  for (const v of vehicles) {
+    const fotosVeh  = images.filter(i => i.vehicle_id === v.vehicle_id);
+    const inicioOk  = IMAGEN_TIPOS_INICIO.filter(t =>
+      fotosVeh.some(i => i.momento === 'inicio' && i.tipo_imagen === t));
+    const finOk     = IMAGEN_TIPOS_FIN.filter(t =>
+      fotosVeh.some(i => i.momento === 'fin' && i.tipo_imagen === t));
+    progresoPorVehiculo[v.vehicle_id] = {
+      inicio: {
+        completado: inicioOk.length,
+        total:      IMAGEN_TIPOS_INICIO.length,
+        faltantes:  IMAGEN_TIPOS_INICIO.filter(t => !inicioOk.includes(t)),
+        completo:   inicioOk.length === IMAGEN_TIPOS_INICIO.length,
+      },
+      fin: {
+        completado: finOk.length,
+        total:      IMAGEN_TIPOS_FIN.length,
+        faltantes:  IMAGEN_TIPOS_FIN.filter(t => !finOk.includes(t)),
+        completo:   finOk.length === IMAGEN_TIPOS_FIN.length,
+      },
+    };
+  }
+
   return {
     ...t,
-    vehiculos: vehicles,
+    vehiculos: vehicles.map(v => ({ ...v, progreso_fotos: progresoPorVehiculo[v.vehicle_id] })),
     usuarios:  usuarios.map(u => ({ ...u, roles: u.roles ? u.roles.split(',') : [] })),
     evidencias: images,
   };
@@ -411,18 +436,28 @@ async function finalizeTrabajo(req, res, next) {
       ? [...new Set(existing.filter(r => r.responsable_user_id === req.user.id).map(r => r.vehicle_id).filter(Boolean))]
       : allVehicleIds;
 
-    // Verificar evidencias: 6 fotos requeridas por cada vehículo
+    // Verificar evidencias: fotos de INICIO + FIN por cada vehículo
     for (const vehicleId of vehicleIds) {
       const [imgs] = await query(
-        `SELECT tipo_imagen FROM vehicle_images
+        `SELECT tipo_imagen, momento FROM vehicle_images
          WHERE vehicle_id = ? AND trabajo_id = ?`,
         [vehicleId, id]
       );
-      const tiposSubidos = imgs.map(i => i.tipo_imagen);
-      const faltantes = IMAGEN_TIPOS_REQUERIDOS.filter(t => !tiposSubidos.includes(t));
-      if (faltantes.length > 0) {
+      const inicioSubidos = imgs.filter(i => i.momento === 'inicio').map(i => i.tipo_imagen);
+      const finSubidos    = imgs.filter(i => i.momento === 'fin').map(i => i.tipo_imagen);
+
+      const faltInicio = IMAGEN_TIPOS_INICIO.filter(t => !inicioSubidos.includes(t));
+      if (faltInicio.length > 0) {
         return error(res,
-          `Faltan evidencias del vehículo ${vehicleId}: ${faltantes.join(', ')}`, 400
+          `No se pueden finalizar: faltan las fotos de INICIO del vehículo ${vehicleId} (${faltInicio.join(', ')}). Sube primero las fotos de inicio.`,
+          400
+        );
+      }
+
+      const faltFin = IMAGEN_TIPOS_FIN.filter(t => !finSubidos.includes(t));
+      if (faltFin.length > 0) {
+        return error(res,
+          `Faltan fotos de FIN del vehículo ${vehicleId}: ${faltFin.join(', ')}`, 400
         );
       }
     }
@@ -485,12 +520,21 @@ async function uploadEvidencia(req, res, next) {
     const trabajoId = parseInt(req.params.id);
     const vehicleId = parseInt(req.body.vehicle_id);
     const tipoImagen = req.body.tipo_imagen;
+    const momento    = req.body.momento || 'fin'; // 'inicio' | 'fin'
 
     if (!vehicleId || isNaN(vehicleId)) {
       return error(res, 'vehicle_id requerido', 400);
     }
-    if (!IMAGEN_TIPOS_REQUERIDOS.includes(tipoImagen)) {
-      return error(res, `tipo_imagen debe ser uno de: ${IMAGEN_TIPOS_REQUERIDOS.join(', ')}`, 400);
+    if (!['inicio', 'fin'].includes(momento)) {
+      return error(res, 'momento debe ser "inicio" o "fin"', 400);
+    }
+
+    const listaValida = momento === 'inicio' ? IMAGEN_TIPOS_INICIO : IMAGEN_TIPOS_FIN;
+    if (!listaValida.includes(tipoImagen)) {
+      return error(res,
+        `tipo_imagen "${tipoImagen}" no es válido para momento="${momento}". Válidos: ${listaValida.join(', ')}`,
+        400
+      );
     }
 
     const [trow] = await query(
@@ -511,10 +555,11 @@ async function uploadEvidencia(req, res, next) {
 
     if (!req.processedFile) return error(res, 'No se recibió ninguna imagen', 400);
 
-    // Si ya existe una imagen de ese tipo para este trabajo+vehículo, sobreescribir
+    // Si ya existe una imagen de ese tipo+momento para este trabajo+vehículo, sobreescribir
     const [existing] = await query(
-      'SELECT id, image_url FROM vehicle_images WHERE vehicle_id = ? AND trabajo_id = ? AND tipo_imagen = ?',
-      [vehicleId, trabajoId, tipoImagen]
+      `SELECT id, image_url FROM vehicle_images
+       WHERE vehicle_id = ? AND trabajo_id = ? AND tipo_imagen = ? AND momento = ?`,
+      [vehicleId, trabajoId, tipoImagen, momento]
     );
 
     let imageId;
@@ -530,30 +575,32 @@ async function uploadEvidencia(req, res, next) {
       imageId = existing[0].id;
     } else {
       const [result] = await query(
-        `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, image_url, trabajo_id, uploaded_by)
-         VALUES (?, ?, ?, ?, ?)`,
-        [vehicleId, tipoImagen, req.processedFile.url, trabajoId, req.user.id]
+        `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, momento, image_url, trabajo_id, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [vehicleId, tipoImagen, momento, req.processedFile.url, trabajoId, req.user.id]
       );
       imageId = result.insertId;
     }
 
-    // Calcular progreso: cuántas fotos faltan para este vehículo en este trabajo
+    // Calcular progreso del momento actual
     const [progress] = await query(
-      'SELECT tipo_imagen FROM vehicle_images WHERE vehicle_id = ? AND trabajo_id = ?',
-      [vehicleId, trabajoId]
+      `SELECT tipo_imagen FROM vehicle_images
+       WHERE vehicle_id = ? AND trabajo_id = ? AND momento = ?`,
+      [vehicleId, trabajoId, momento]
     );
     const tiposSubidos = progress.map(p => p.tipo_imagen);
-    const faltantes    = IMAGEN_TIPOS_REQUERIDOS.filter(t => !tiposSubidos.includes(t));
+    const faltantes    = listaValida.filter(t => !tiposSubidos.includes(t));
 
     return created(res, {
       id:          imageId,
       image_url:   req.processedFile.url,
       tipo_imagen: tipoImagen,
+      momento,
       vehicle_id:  vehicleId,
       trabajo_id:  trabajoId,
       progreso: {
         completado: tiposSubidos.length,
-        total:      IMAGEN_TIPOS_REQUERIDOS.length,
+        total:      listaValida.length,
         faltantes,
         completo:   faltantes.length === 0,
       },

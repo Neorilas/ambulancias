@@ -33,8 +33,29 @@ module.exports = {
   },
 
   // ---- Tipos de imágenes de vehículo ----
-  IMAGEN_TIPOS: ['frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera', 'niveles_liquidos', 'cuentakilometros', 'danos'],
-  IMAGEN_TIPOS_REQUERIDOS: ['frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera', 'niveles_liquidos', 'cuentakilometros'],
+  // ENUM completo de la columna `vehicle_images.tipo_imagen` (incluye 'niveles_liquidos' histórico)
+  IMAGEN_TIPOS: [
+    'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',
+    'niveles_liquidos', 'nivel_aceite', 'nivel_liquidos_general',
+    'cuentakilometros', 'danos',
+  ],
+  // Momentos posibles
+  IMAGEN_MOMENTOS: ['inicio', 'fin', 'general'],
+  // Fotos obligatorias al ASIGNARSE el vehículo (momento = 'inicio')
+  IMAGEN_TIPOS_INICIO: [
+    'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
+    'nivel_aceite', 'nivel_liquidos_general',
+  ],
+  // Fotos obligatorias al FINALIZAR (momento = 'fin')
+  IMAGEN_TIPOS_FIN: [
+    'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
+    'cuentakilometros',
+  ],
+  // DEPRECATED: mantenido por compatibilidad con tests/código legado
+  IMAGEN_TIPOS_REQUERIDOS: [
+    'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',
+    'cuentakilometros',
+  ],
 
   // ---- Configuración de uploads ----
   UPLOAD: {

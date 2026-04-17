@@ -94,6 +94,8 @@ router.post('/:id/evidencias',
     param('id').isInt({ min: 1 }),
     body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)
       .withMessage(`tipo_imagen debe ser: ${IMAGEN_TIPOS.join(', ')}`),
+    body('momento').optional().isIn(['inicio', 'fin'])
+      .withMessage('momento debe ser "inicio" o "fin"'),
   ],
   handleValidation,
   async (req, res, next) => {

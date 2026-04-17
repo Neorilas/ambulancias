@@ -227,9 +227,11 @@ CREATE TABLE `trabajo_usuarios` (
 CREATE TABLE `vehicle_images` (
   `id`           INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `vehicle_id`   INT UNSIGNED  NOT NULL,
-  `tipo_imagen`  ENUM('frontal','lateral_izquierdo','lateral_derecho','trasera','niveles_liquidos','cuentakilometros','danos') NOT NULL,
+  `tipo_imagen`  ENUM('frontal','lateral_izquierdo','lateral_derecho','trasera','niveles_liquidos','nivel_aceite','nivel_liquidos_general','cuentakilometros','danos') NOT NULL,
+  `momento`      ENUM('inicio','fin','general') NOT NULL DEFAULT 'general'
+                   COMMENT 'inicio = al asignarse; fin = al finalizar; general = daños u otra',
   `image_url`    VARCHAR(500)  NOT NULL,
-  `trabajo_id`   INT UNSIGNED  NULL     DEFAULT NULL  COMMENT 'NULL = imagen general; FK = imagen de finalización de trabajo',
+  `trabajo_id`   INT UNSIGNED  NULL     DEFAULT NULL  COMMENT 'NULL = imagen general; FK = imagen de un trabajo',
   `uploaded_by`  INT UNSIGNED  NULL     DEFAULT NULL,
   `created_at`   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -237,6 +239,7 @@ CREATE TABLE `vehicle_images` (
   INDEX `idx_vi_vehicle`   (`vehicle_id`),
   INDEX `idx_vi_trabajo`   (`trabajo_id`),
   INDEX `idx_vi_tipo`      (`tipo_imagen`),
+  INDEX `idx_vi_momento`   (`momento`),
   CONSTRAINT `fk_vi_vehicle` FOREIGN KEY (`vehicle_id`)
     REFERENCES `vehicles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_vi_trabajo` FOREIGN KEY (`trabajo_id`)

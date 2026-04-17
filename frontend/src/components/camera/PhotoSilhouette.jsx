@@ -78,15 +78,47 @@ const SILUETAS = {
       <rect x="38" y="12" width="24" height="10" rx="3"/>
     </svg>
   ),
+
+  // Nivel de aceite — varilla con gota
+  nivel_aceite: (
+    <svg viewBox="0 0 100 140" fill="none" stroke="white" strokeWidth="3"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
+      {/* Asa en la parte superior */}
+      <circle cx="50" cy="18" r="10"/>
+      <line x1="50" y1="28" x2="50" y2="100"/>
+      {/* Marcas MIN/MAX */}
+      <line x1="42" y1="88" x2="58" y2="88" strokeWidth="2.5"/>
+      <line x1="42" y1="96" x2="58" y2="96" strokeWidth="2.5"/>
+      {/* Gota de aceite */}
+      <path d="M50 108 C 42 118, 42 128, 50 130 C 58 128, 58 118, 50 108 Z" fill="white" opacity="0.35"/>
+    </svg>
+  ),
+
+  // Líquidos general — dos depósitos
+  nivel_liquidos_general: (
+    <svg viewBox="0 0 140 120" fill="none" stroke="white" strokeWidth="3"
+         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
+      {/* Depósito izquierdo */}
+      <rect x="15" y="25" width="45" height="70" rx="5"/>
+      <line x1="15" y1="65" x2="60" y2="65" strokeWidth="2" strokeDasharray="6 3"/>
+      <rect x="25" y="17" width="25" height="9" rx="3"/>
+      {/* Depósito derecho */}
+      <rect x="80" y="35" width="45" height="60" rx="5"/>
+      <line x1="80" y1="70" x2="125" y2="70" strokeWidth="2" strokeDasharray="6 3"/>
+      <rect x="90" y="27" width="25" height="9" rx="3"/>
+    </svg>
+  ),
 };
 
 const SILUETA_RATIO = {
-  frontal:           '100/110',
-  lateral_izquierdo: '220/100',
-  trasera:           '100/110',
-  lateral_derecho:   '220/100',
-  niveles_liquidos:  '100/120',
-  cuentakilometros:  '120/120',
+  frontal:                 '100/110',
+  lateral_izquierdo:       '220/100',
+  trasera:                 '100/110',
+  lateral_derecho:         '220/100',
+  niveles_liquidos:        '100/120',
+  nivel_aceite:            '100/140',
+  nivel_liquidos_general:  '140/120',
+  cuentakilometros:        '120/120',
 };
 
 /**

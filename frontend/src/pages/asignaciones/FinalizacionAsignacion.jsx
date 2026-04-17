@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { IMAGEN_TIPOS } from '../../utils/constants.js';
+import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { formatDateTime } from '../../utils/dateUtils.js';
 
 /**
@@ -25,6 +25,28 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
 
   const fileInputRefs = useRef({});
 
+  // ── Bloqueo: inicio incompleto ────────────────────────────
+  const inicioIncompleto = asignacion?.progreso?.inicio && !asignacion.progreso.inicio.completo;
+  if (inicioIncompleto) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-neutral-900">Finalizar asignación</h2>
+        <div className="card bg-amber-50 border border-amber-200 space-y-2">
+          <p className="text-amber-800 font-medium">⚠ Faltan las fotos de inicio</p>
+          <p className="text-amber-700 text-sm">
+            No puedes finalizar esta asignación hasta que no hayas subido las
+            fotos de inicio del vehículo ({asignacion.progreso.inicio.completado}/
+            {asignacion.progreso.inicio.total} subidas).
+          </p>
+          <p className="text-amber-600 text-xs">
+            Cierra esta ventana y pulsa <strong>"Fotos de inicio"</strong> en el detalle.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
+    );
+  }
+
   const handleFileChange = (tipoKey, e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -32,7 +54,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   };
 
   const canProceedFotos = () =>
-    IMAGEN_TIPOS.every(t => fotos[t.key]) && kmFin !== '';
+    IMAGEN_TIPOS_FIN.every(t => fotos[t.key]) && kmFin !== '';
 
   // ── Paso fotos ──────────────────────────────────────────────
   if (step === 'fotos') {
@@ -53,7 +75,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
 
         {/* Grid de fotos */}
         <div className="grid grid-cols-2 gap-3">
-          {IMAGEN_TIPOS.map(tipo => {
+          {IMAGEN_TIPOS_FIN.map(tipo => {
             const file = fotos[tipo.key];
             const preview = file ? URL.createObjectURL(file) : null;
             return (
@@ -169,13 +191,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     setUploading(true);
     try {
       // 1. Subir todas las fotos
-      for (const tipo of IMAGEN_TIPOS) {
+      for (const tipo of IMAGEN_TIPOS_FIN) {
         const file = fotos[tipo.key];
         if (!file) continue;
         setUploadProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
         const fd = new FormData();
         fd.append('image', file);
         fd.append('tipo_imagen', tipo.key);
+        fd.append('momento',     'fin');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
         setUploadProgress(p => ({ ...p, [tipo.key]: '✓' }));
       }
@@ -210,7 +233,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Fotos</span>
-          <span className="font-medium text-green-600">{IMAGEN_TIPOS.length}/{IMAGEN_TIPOS.length} ✓</span>
+          <span className="font-medium text-green-600">{IMAGEN_TIPOS_FIN.length}/{IMAGEN_TIPOS_FIN.length} ✓</span>
         </div>
         {motivo && (
           <div>

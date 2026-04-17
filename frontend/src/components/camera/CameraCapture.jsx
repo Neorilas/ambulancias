@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { compressImage, blobToFile } from '../../utils/imageCompress.js';
-import { IMAGEN_TIPOS } from '../../utils/constants.js';
+import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { useCameraStream } from './useCameraStream.js';
 import PhotoSilhouette from './PhotoSilhouette.jsx';
 
 /**
  * CameraCapture
  *
- * Orquesta el flujo de captura de fotos por pasos (IMAGEN_TIPOS).
+ * Orquesta el flujo de captura de fotos por pasos.
  * La lógica de stream, orientación y captura está en useCameraStream.
  * El encuadre visual está en PhotoSilhouette.
  *
  * Props:
+ *   tipos                  → lista de tipos a capturar (default IMAGEN_TIPOS_FIN)
  *   onComplete(entries[])  → { tipo, label, preview, file } por cada foto
  *   onCancel()
- *   initialIndex           → índice de IMAGEN_TIPOS por el que empezar (default 0)
+ *   initialIndex           → índice por el que empezar (default 0)
  */
 
 /**
@@ -42,13 +43,13 @@ function OrientationIcon({ isLandscape }) {
   );
 }
 
-export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }) {
+export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, onCancel, initialIndex = 0 }) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [captured,     setCaptured]     = useState([]);   // { tipo, label, preview, file }[]
   const [preview,      setPreview]      = useState(null); // { blob, previewUrl }
   const [compressing,  setCompressing]  = useState(false);
 
-  const currentTipo = IMAGEN_TIPOS[currentIndex];
+  const currentTipo = tipos[currentIndex];
   const addedCount  = captured.filter(c => c.tipo === currentTipo.key).length;
 
   const capturedRef = useRef(captured);
@@ -80,7 +81,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
       setPreview(null);
 
       if (andAdvance) {
-        if (currentIndex + 1 >= IMAGEN_TIPOS.length) {
+        if (currentIndex + 1 >= tipos.length) {
           onComplete(newCaptured);
         } else {
           setCurrentIndex(prev => prev + 1);
@@ -89,7 +90,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
     } finally {
       setCompressing(false);
     }
-  }, [preview, currentTipo, captured, addedCount, currentIndex, onComplete]);
+  }, [preview, currentTipo, captured, addedCount, currentIndex, onComplete, tipos]);
 
   // ── Repetir ──────────────────────────────────────────────────
   const retake = useCallback(() => {
@@ -212,7 +213,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
                     <div className="text-white text-center">
                       <p className="font-bold">{currentTipo.label}</p>
-                      <p className="text-xs opacity-75">{currentIndex + 1} / {IMAGEN_TIPOS.length}</p>
+                      <p className="text-xs opacity-75">{currentIndex + 1} / {tipos.length}</p>
                       {currentTipo.multiple && addedCount > 0 && (
                         <p className="text-xs text-green-400 mt-0.5">
                           {addedCount} foto{addedCount !== 1 ? 's' : ''} guardada{addedCount !== 1 ? 's' : ''}
@@ -225,7 +226,7 @@ export default function CameraCapture({ onComplete, onCancel, initialIndex = 0 }
 
                   {/* Miniaturas de progreso */}
                   <div className="flex justify-center gap-2 px-4 pb-2">
-                    {IMAGEN_TIPOS.map((tipo, i) => {
+                    {tipos.map((tipo, i) => {
                       const done = captured.find(c => c.tipo === tipo.key);
                       return (
                         <div

@@ -8,29 +8,36 @@
 const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
-const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_REQUERIDOS, PERMISSIONS } =
+const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, PERMISSIONS } =
   require('../config/constants');
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 
 // ============================================================
-// Helper: progreso de evidencias de una asignación
+// Helper: progreso de evidencias (inicio y fin) de una asignación
 // ============================================================
 async function getProgreso(asignacionId) {
   const [rows] = await query(
-    `SELECT tipo_imagen FROM vehicle_images
-     WHERE asignacion_id = ? AND tipo_imagen IN (?)`,
-    [asignacionId, IMAGEN_TIPOS_REQUERIDOS]
+    `SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id = ?`,
+    [asignacionId]
   );
-  const subidas   = rows.map(r => r.tipo_imagen);
-  const faltantes = IMAGEN_TIPOS_REQUERIDOS.filter(t => !subidas.includes(t));
-  return {
-    completado: subidas.length,
-    total:      IMAGEN_TIPOS_REQUERIDOS.length,
-    faltantes,
-    completo:   faltantes.length === 0,
+  const inicioSubidos = rows.filter(r => r.momento === 'inicio').map(r => r.tipo_imagen);
+  const finSubidos    = rows.filter(r => r.momento === 'fin').map(r => r.tipo_imagen);
+
+  const inicio = {
+    completado: inicioSubidos.length,
+    total:      IMAGEN_TIPOS_INICIO.length,
+    faltantes:  IMAGEN_TIPOS_INICIO.filter(t => !inicioSubidos.includes(t)),
+    completo:   IMAGEN_TIPOS_INICIO.every(t => inicioSubidos.includes(t)),
   };
+  const fin = {
+    completado: finSubidos.length,
+    total:      IMAGEN_TIPOS_FIN.length,
+    faltantes:  IMAGEN_TIPOS_FIN.filter(t => !finSubidos.includes(t)),
+    completo:   IMAGEN_TIPOS_FIN.every(t => finSubidos.includes(t)),
+  };
+  return { inicio, fin };
 }
 
 // Helper: obtener asignación completa con relaciones
@@ -54,10 +61,10 @@ async function getAsignacionCompleta(id) {
 
   // Evidencias subidas
   const [evidencias] = await query(
-    `SELECT id, tipo_imagen, image_url, created_at AS uploaded_at
+    `SELECT id, tipo_imagen, momento, image_url, created_at AS uploaded_at
      FROM vehicle_images
      WHERE asignacion_id = ?
-     ORDER BY created_at ASC`,
+     ORDER BY FIELD(momento,'inicio','fin','general'), created_at ASC`,
     [id]
   );
 
@@ -321,12 +328,19 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, 'km_fin no puede ser menor que km_inicio', 400);
     }
 
-    // Validar que todas las evidencias requeridas están subidas
+    // Validar que todas las evidencias (inicio y fin) están subidas
     const progreso = await getProgreso(asig.id);
-    if (!progreso.completo) {
+    if (!progreso.inicio.completo) {
       return error(
         res,
-        `Faltan evidencias fotográficas: ${progreso.faltantes.join(', ')}`,
+        `No se puede finalizar: faltan fotos de INICIO (${progreso.inicio.faltantes.join(', ')}). Sube primero las fotos de inicio.`,
+        400
+      );
+    }
+    if (!progreso.fin.completo) {
+      return error(
+        res,
+        `Faltan fotos de FIN: ${progreso.fin.faltantes.join(', ')}`,
         400
       );
     }
@@ -372,12 +386,25 @@ async function uploadEvidencia(req, res, next) {
     }
 
     const { tipo_imagen } = req.body;
+    const momento = req.body.momento || 'fin';
     const imageUrl = req.processedFile.url;
 
-    // Si ya existe una foto del mismo tipo para esta asignación, reemplazarla
+    if (!['inicio', 'fin'].includes(momento)) {
+      return error(res, 'momento debe ser "inicio" o "fin"', 400);
+    }
+    const listaValida = momento === 'inicio' ? IMAGEN_TIPOS_INICIO : IMAGEN_TIPOS_FIN;
+    if (!listaValida.includes(tipo_imagen)) {
+      return error(res,
+        `tipo_imagen "${tipo_imagen}" no es válido para momento="${momento}". Válidos: ${listaValida.join(', ')}`,
+        400
+      );
+    }
+
+    // Si ya existe una foto del mismo tipo+momento para esta asignación, reemplazarla
     const [existing] = await query(
-      'SELECT id, image_url FROM vehicle_images WHERE asignacion_id = ? AND tipo_imagen = ?',
-      [asig.id, tipo_imagen]
+      `SELECT id, image_url FROM vehicle_images
+       WHERE asignacion_id = ? AND tipo_imagen = ? AND momento = ?`,
+      [asig.id, tipo_imagen, momento]
     );
 
     let imageId;
@@ -391,9 +418,9 @@ async function uploadEvidencia(req, res, next) {
       imageId = existing[0].id;
     } else {
       const [result] = await query(
-        `INSERT INTO vehicle_images (vehicle_id, asignacion_id, tipo_imagen, image_url, uploaded_by)
-         VALUES (?, ?, ?, ?, ?)`,
-        [asig.vehicle_id, asig.id, tipo_imagen, imageUrl, req.user.id]
+        `INSERT INTO vehicle_images (vehicle_id, asignacion_id, tipo_imagen, momento, image_url, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [asig.vehicle_id, asig.id, tipo_imagen, momento, imageUrl, req.user.id]
       );
       imageId = result.insertId;
     }
@@ -404,6 +431,7 @@ async function uploadEvidencia(req, res, next) {
       id:          imageId,
       image_url:   imageUrl,
       tipo_imagen,
+      momento,
       asignacion_id: asig.id,
       progreso,
     }, 'Evidencia subida correctamente');

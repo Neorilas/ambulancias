@@ -9,16 +9,16 @@ import { formatDateTime, duration } from '../../utils/dateUtils.js';
 import { TRABAJO_ESTADOS } from '../../utils/constants.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import Finalizacion from './Finalizacion.jsx';
+import InicioTrabajo from './InicioTrabajo.jsx';
 import TrabajoForm from './TrabajoForm.jsx';
+import { IMAGEN_TIPO_LABELS } from '../../utils/constants.js';
 
-const TIPO_LABELS = {
-  frontal:           'Frontal',
-  lateral_izquierdo: 'Lateral Izq.',
-  lateral_derecho:   'Lateral Der.',
-  trasera:           'Trasera',
-  niveles_liquidos:  'Niveles',
-  cuentakilometros:  'Cuentakm.',
-  danos:             'Daños',
+const TIPO_LABELS = IMAGEN_TIPO_LABELS;
+const MOMENTO_LABEL = { inicio: 'Inicio', fin: 'Fin', general: '' };
+const MOMENTO_BADGE = {
+  inicio:  'bg-blue-100 text-blue-700',
+  fin:     'bg-green-100 text-green-700',
+  general: 'bg-neutral-100 text-neutral-600',
 };
 
 // ── Lightbox modal ────────────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ export default function TrabajoDetail() {
   const [trabajo,    setTrabajo]    = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [showFin,    setShowFin]    = useState(false);
+  const [showInicio, setShowInicio] = useState(false);
   const [showEdit,   setShowEdit]   = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
 
@@ -155,12 +156,29 @@ export default function TrabajoDetail() {
   const soyResponsable = trabajo.vehiculos?.some(v => v.responsable_user_id === user?.id);
   const allEvidencias  = trabajo.evidencias || [];
 
+  // Vehículos del usuario actual que aún no tienen inicio completo
+  const vehiculosDelUser = canManageTrabajos()
+    ? (trabajo.vehiculos || [])
+    : (trabajo.vehiculos || []).filter(v => v.responsable_user_id === user?.id);
+  const vehSinInicio = vehiculosDelUser.filter(v => !v.progreso_fotos?.inicio?.completo);
+  const faltaInicio  = !finalizado && vehSinInicio.length > 0 && vehiculosDelUser.length > 0;
+
   if (showFin) {
     return (
       <Finalizacion
         trabajo={trabajo}
         onDone={() => { setShowFin(false); load(); }}
         onCancel={() => setShowFin(false)}
+      />
+    );
+  }
+
+  if (showInicio) {
+    return (
+      <InicioTrabajo
+        trabajo={trabajo}
+        onDone={() => { setShowInicio(false); load(); }}
+        onCancel={() => setShowInicio(false)}
       />
     );
   }
@@ -182,7 +200,12 @@ export default function TrabajoDetail() {
           {canManageTrabajos() && !finalizado && (
             <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
           )}
-          {!finalizado && (soyResponsable || canManageTrabajos()) && (
+          {!finalizado && (soyResponsable || canManageTrabajos()) && faltaInicio && (
+            <button onClick={() => setShowInicio(true)} className="btn-primary text-sm">
+              📸 Fotos de inicio
+            </button>
+          )}
+          {!finalizado && (soyResponsable || canManageTrabajos()) && !faltaInicio && (
             <button onClick={() => setShowFin(true)} className="btn-primary text-sm">
               Finalizar
             </button>
@@ -209,6 +232,38 @@ export default function TrabajoDetail() {
           <p className="font-medium">{trabajo.creado_por_nombre} {trabajo.creado_por_apellidos}</p>
         </div>
       </div>
+
+      {/* Aviso persistente: faltan fotos de inicio */}
+      {faltaInicio && (
+        <div className="card bg-amber-50 border-amber-300 border-2 space-y-2">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚠</span>
+            <div className="flex-1">
+              <p className="font-semibold text-amber-900">Faltan las fotos de inicio</p>
+              <p className="text-sm text-amber-800 mt-0.5">
+                Antes de poder finalizar, tienes que documentar el estado del
+                vehículo al recibirlo: 4 fotos del contorno, nivel de aceite y
+                líquidos.
+              </p>
+              <ul className="text-xs text-amber-700 mt-2 space-y-0.5">
+                {vehSinInicio.map(v => (
+                  <li key={v.vehicle_id}>
+                    · <strong>{v.vehiculo_alias || v.matricula}</strong>{' — '}
+                    {v.progreso_fotos?.inicio?.completado || 0}/
+                    {v.progreso_fotos?.inicio?.total || 6} subidas
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <button
+              onClick={() => setShowInicio(true)}
+              className="btn-primary text-sm whitespace-nowrap"
+            >
+              📸 Subir ahora
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Motivo finalización anticipada */}
       {trabajo.motivo_finalizacion_anticipada && (
@@ -279,6 +334,12 @@ export default function TrabajoDetail() {
                     className="w-full aspect-video object-cover group-hover:scale-105 transition-transform duration-200"
                     loading="lazy"
                   />
+                  {/* Badge momento */}
+                  {img.momento && img.momento !== 'general' && (
+                    <span className={`absolute top-1 left-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${MOMENTO_BADGE[img.momento]}`}>
+                      {MOMENTO_LABEL[img.momento]}
+                    </span>
+                  )}
                   {/* Overlay lupa */}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                     <span className="text-white text-2xl opacity-0 group-hover:opacity-100 transition-opacity drop-shadow">🔍</span>

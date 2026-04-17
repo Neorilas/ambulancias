@@ -4,7 +4,7 @@ import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
-import { IMAGEN_TIPOS } from '../../utils/constants.js';
+import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 
 /**
  * Flujo de finalización de trabajo:
@@ -101,7 +101,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
     try {
       // 1. Subir fotos
       for (const veh of vehiculos) {
-        for (const tipo of IMAGEN_TIPOS) {
+        for (const tipo of IMAGEN_TIPOS_FIN) {
           const file = evidencias[veh.vehicle_id]?.[tipo.key];
           if (!file) continue;
 
@@ -109,6 +109,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           fd.append('image',       file);
           fd.append('vehicle_id',  veh.vehicle_id);
           fd.append('tipo_imagen', tipo.key);
+          fd.append('momento',     'fin');
 
           try {
             await trabajosService.uploadEvidencia(trabajo.id, fd);
@@ -150,10 +151,10 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
   /* ── Validaciones ─────────────────────────────────────── */
   const fotosPorVeh = (vid) =>
-    IMAGEN_TIPOS.filter(t => evidencias[vid]?.[t.key]).length;
+    IMAGEN_TIPOS_FIN.filter(t => evidencias[vid]?.[t.key]).length;
 
   const canProceedFromFotos = vehiculos.length > 0 && vehiculos.every(v =>
-    IMAGEN_TIPOS.every(t => evidencias[v.vehicle_id]?.[t.key]) &&
+    IMAGEN_TIPOS_FIN.every(t => evidencias[v.vehicle_id]?.[t.key]) &&
     kmFinales[v.vehicle_id] && parseInt(kmFinales[v.vehicle_id]) >= 0
   );
 
@@ -161,6 +162,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   if (showCamera && currentVeh) {
     return (
       <CameraCapture
+        tipos={IMAGEN_TIPOS_FIN}
         onComplete={handleCameraComplete}
         onCancel={() => setShowCamera(false)}
         initialIndex={0}
@@ -180,6 +182,38 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           <p className="text-red-700 font-medium">⚠ Sin vehículos asignados</p>
           <p className="text-red-600 text-sm">
             Este trabajo no tiene vehículos asignados. Contacta con el administrador.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
+    );
+  }
+
+  /* ── Bloqueo: falta inicio de algún vehículo ──────────── */
+  const vehiculosSinInicio = vehiculos.filter(v => !v.progreso_fotos?.inicio?.completo);
+  if (vehiculosSinInicio.length > 0) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+          <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
+        </div>
+        <div className="card bg-amber-50 border border-amber-200 space-y-2">
+          <p className="text-amber-800 font-medium">⚠ Faltan las fotos de inicio</p>
+          <p className="text-amber-700 text-sm">
+            Antes de finalizar tienes que subir las fotos de inicio de:
+          </p>
+          <ul className="text-amber-700 text-sm list-disc pl-5">
+            {vehiculosSinInicio.map(v => (
+              <li key={v.vehicle_id}>
+                <strong>{v.vehiculo_alias || v.matricula}</strong> ({v.matricula})
+                {' — '}
+                {v.progreso_fotos?.inicio?.completado || 0}/{v.progreso_fotos?.inicio?.total || IMAGEN_TIPOS_FIN.length} subidas
+              </li>
+            ))}
+          </ul>
+          <p className="text-amber-600 text-xs">
+            Vuelve al detalle del trabajo y pulsa <strong>"Fotos de inicio"</strong> para completarlas.
           </p>
         </div>
         <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
@@ -232,7 +266,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         <div className="space-y-4">
           {vehiculos.map((veh, vi) => {
             const done = fotosPorVeh(veh.vehicle_id);
-            const total = IMAGEN_TIPOS.length;
+            const total = IMAGEN_TIPOS_FIN.length;
             return (
               <div key={veh.vehicle_id} className="card space-y-4">
                 {/* Cabecera vehículo */}
@@ -256,7 +290,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
                 {/* Grid de fotos */}
                 <div className="grid grid-cols-3 gap-2">
-                  {IMAGEN_TIPOS.map(tipo => {
+                  {IMAGEN_TIPOS_FIN.map(tipo => {
                     const file    = evidencias[veh.vehicle_id]?.[tipo.key];
                     const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
                     const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
@@ -354,7 +388,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           </button>
           {!canProceedFromFotos && (
             <p className="text-xs text-center text-red-500">
-              Completa las {IMAGEN_TIPOS.length} fotos y los kilómetros de cada vehículo
+              Completa las {IMAGEN_TIPOS_FIN.length} fotos y los kilómetros de cada vehículo
             </p>
           )}
         </div>
@@ -405,7 +439,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                     <strong>{parseInt(kmFinales[veh.vehicle_id]).toLocaleString()} km</strong>
                   </p>
                   <div className="flex gap-1 mt-1.5 flex-wrap">
-                    {IMAGEN_TIPOS.map(t => (
+                    {IMAGEN_TIPOS_FIN.map(t => (
                       <span key={t.key} className={`badge text-[10px] ${
                         evidencias[veh.vehicle_id]?.[t.key] ? 'badge-green' : 'badge-red'
                       }`}>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ROLES, PERMISSIONS, TRABAJO_ESTADOS, TRABAJO_TIPOS,
-  IMAGEN_TIPOS, ESTADO_COLORS, ESTADO_LABELS,
+  IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, ESTADO_COLORS, ESTADO_LABELS,
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
 } from '../../../utils/constants';
 
@@ -22,9 +22,20 @@ describe('constants', () => {
     expect(TRABAJO_ESTADOS.FINALIZADO).toBe('finalizado');
   });
 
-  it('exports IMAGEN_TIPOS as array', () => {
-    expect(Array.isArray(IMAGEN_TIPOS)).toBe(true);
-    expect(IMAGEN_TIPOS.length).toBeGreaterThan(0);
+  it('exports IMAGEN_TIPOS_INICIO with the 6 required start-photos', () => {
+    expect(Array.isArray(IMAGEN_TIPOS_INICIO)).toBe(true);
+    expect(IMAGEN_TIPOS_INICIO.map(t => t.key)).toEqual([
+      'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
+      'nivel_aceite', 'nivel_liquidos_general',
+    ]);
+  });
+
+  it('exports IMAGEN_TIPOS_FIN with walk-around + cuentakilómetros', () => {
+    expect(Array.isArray(IMAGEN_TIPOS_FIN)).toBe(true);
+    expect(IMAGEN_TIPOS_FIN.map(t => t.key)).toEqual([
+      'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
+      'cuentakilometros',
+    ]);
   });
 
   it('has matching ESTADO_COLORS and ESTADO_LABELS keys', () => {
