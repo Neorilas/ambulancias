@@ -14,6 +14,7 @@ const vehiclesRoutes = require('./vehicles.routes');
 const trabajosRoutes     = require('./trabajos.routes');
 const asignacionesRoutes = require('./asignaciones.routes');
 const adminRoutes        = require('./admin.routes');
+const featuresRoutes     = require('./features.routes');
 
 const router = express.Router();
 
@@ -27,6 +28,7 @@ router.use('/vehicles',  vehiclesRoutes);
 router.use('/trabajos',     trabajosRoutes);
 router.use('/asignaciones', asignacionesRoutes);
 router.use('/admin',        adminRoutes);
+router.use('/features',     featuresRoutes);
 
 // Ruta raíz de la API - info básica
 router.get('/', (_req, res) => {

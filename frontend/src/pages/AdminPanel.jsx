@@ -8,7 +8,9 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { adminService } from '../services/admin.service.js';
+import { featuresService } from '../services/features.service.js';
 import { useNotification } from '../context/NotificationContext.jsx';
+import { useFeatures } from '../context/FeaturesContext.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import { formatDateTime } from '../utils/dateUtils.js';
 
@@ -263,8 +265,93 @@ function TabErrores() {
   );
 }
 
+// ── Tab Funcionalidades ──────────────────────────────────────────────────────
+function TabFuncionalidades() {
+  const { notify } = useNotification();
+  const { reload: reloadFeatures } = useFeatures();
+  const [features, setFeatures] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await featuresService.listAll();
+      setFeatures(data);
+    } catch { notify.error('Error al cargar funcionalidades'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleToggle = async (key, currentEnabled) => {
+    setToggling(key);
+    try {
+      await featuresService.toggle(key, !currentEnabled);
+      setFeatures(prev => prev.map(f =>
+        f.feature_key === key ? { ...f, enabled: f.enabled ? 0 : 1 } : f
+      ));
+      reloadFeatures();
+      notify.success(`${key} ${!currentEnabled ? 'activado' : 'desactivado'}`);
+    } catch { notify.error('Error al cambiar funcionalidad'); }
+    finally { setToggling(null); }
+  };
+
+  if (loading) return <PageLoading />;
+
+  const categories = [...new Set(features.map(f => f.category))];
+
+  return (
+    <div className="space-y-4">
+      <div className="card bg-amber-50 border-amber-200 py-3 px-4">
+        <p className="text-sm text-amber-800">
+          Activa o desactiva secciones de la app. Los cambios son inmediatos para todos los usuarios.
+          El panel Superadmin siempre es visible para ti.
+        </p>
+      </div>
+
+      {categories.map(cat => (
+        <div key={cat}>
+          <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2 px-1">
+            {cat === 'menu' ? 'Opciones de menú' : cat}
+          </h3>
+          <div className="space-y-1">
+            {features.filter(f => f.category === cat).map(f => (
+              <div
+                key={f.feature_key}
+                className="card py-3 flex items-center justify-between gap-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-neutral-800">{f.label}</p>
+                  {f.description && (
+                    <p className="text-xs text-neutral-400 truncate">{f.description}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleToggle(f.feature_key, f.enabled)}
+                  disabled={toggling === f.feature_key}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    f.enabled ? 'bg-primary-600' : 'bg-neutral-300'
+                  } ${toggling === f.feature_key ? 'opacity-50' : ''}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      f.enabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 const TABS = [
+  { key: 'features',  label: '⚙️ Funcionalidades' },
   { key: 'stats',     label: '📊 Resumen' },
   { key: 'auditoria', label: '🕵️ Auditoría' },
   { key: 'errores',   label: '🔴 Errores' },
@@ -272,7 +359,7 @@ const TABS = [
 
 export default function AdminPanel() {
   const { notify } = useNotification();
-  const [tab,    setTab]    = useState('stats');
+  const [tab,    setTab]    = useState('features');
   const [stats,  setStats]  = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -354,6 +441,7 @@ export default function AdminPanel() {
         ) : null
       )}
 
+      {tab === 'features'  && <TabFuncionalidades />}
       {tab === 'auditoria' && <TabAuditoria />}
       {tab === 'errores'   && <TabErrores />}
     </div>

@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
-import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
+import AsignacionDetalle from './AsignacionDetalle.jsx';
 
 export default function MisAsignaciones() {
   const { notify } = useNotification();
@@ -13,7 +13,7 @@ export default function MisAsignaciones() {
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [loading,      setLoading]      = useState(true);
-  const [finalizando,  setFinalizando]  = useState(null); // asignacion object
+  const [detalleId,    setDetalleId]    = useState(null); // asignación abierta en el panel de detalle
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,25 +41,11 @@ export default function MisAsignaciones() {
     }
   };
 
-  const handleFinalizarDone = () => {
-    setFinalizando(null);
+  // Al cerrar el detalle, recargar: si se finalizó, desaparece de la lista
+  const handleCloseDetalle = () => {
+    setDetalleId(null);
     load();
   };
-
-  if (finalizando) {
-    return (
-      <div className="max-w-lg mx-auto animate-fade-in">
-        <button onClick={() => setFinalizando(null)} className="btn-ghost text-sm mb-4 flex items-center gap-1">
-          ← Volver a mis asignaciones
-        </button>
-        <FinalizacionAsignacion
-          asignacion={finalizando}
-          onDone={handleFinalizarDone}
-          onCancel={() => setFinalizando(null)}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -79,7 +65,6 @@ export default function MisAsignaciones() {
           {asignaciones.map(a => {
             const isActiva     = a.estado === 'activa';
             const isProgramada = a.estado === 'programada';
-            const isAnticipada = new Date() < new Date(a.fecha_fin);
 
             return (
               <div key={a.id} className={`card border-l-4 ${isActiva ? 'border-l-blue-500' : 'border-l-yellow-400'}`}>
@@ -129,28 +114,23 @@ export default function MisAsignaciones() {
                         Activar
                       </button>
                     )}
-                    {isActiva && (
-                      <button
-                        onClick={async () => {
-                          // Cargar detalle completo antes de finalizar
-                          try {
-                            const full = await asignacionesService.get(a.id);
-                            setFinalizando(full);
-                          } catch {
-                            notify.error('Error al cargar la asignación');
-                          }
-                        }}
-                        className="btn-primary text-sm"
-                      >
-                        Finalizar
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setDetalleId(a.id)}
+                      className="btn-primary text-sm"
+                    >
+                      {isActiva ? 'Subir fotos / Finalizar' : 'Abrir'}
+                    </button>
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Panel de detalle: gestiona fotos de inicio + finalización */}
+      {detalleId && (
+        <AsignacionDetalle id={detalleId} onClose={handleCloseDetalle} />
       )}
     </div>
   );

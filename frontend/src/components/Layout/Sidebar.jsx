@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 
 function NavItem({ to, icon, label, end = false, onClick }) {
   return (
@@ -24,6 +25,7 @@ function NavItem({ to, icon, label, end = false, onClick }) {
 
 export default function Sidebar({ isOpen, onClose }) {
   const { canManageUsers, canManageVehicles, canManageTrabajos, isOperacional, isAdmin, isSuperAdmin } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
 
   const closeOnMobile = () => {
     if (window.innerWidth < 1024) onClose?.();
@@ -47,39 +49,38 @@ export default function Sidebar({ isOpen, onClose }) {
                     lg:translate-x-0 lg:static lg:z-auto lg:pt-0`}
       >
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {/* Dashboard */}
-          <NavItem to="/dashboard" icon="📊" label="Dashboard" end onClick={closeOnMobile} />
+          {isFeatureEnabled('menu_dashboard') && (
+            <NavItem to="/dashboard" icon="📊" label="Dashboard" end onClick={closeOnMobile} />
+          )}
 
-          {/* Mis Trabajos - todos los roles */}
-          <NavItem to="/mis-trabajos" icon="📋" label="Mis Trabajos" onClick={closeOnMobile} />
+          {isFeatureEnabled('menu_mis_trabajos') && (
+            <NavItem to="/mis-trabajos" icon="📋" label="Mis Trabajos" onClick={closeOnMobile} />
+          )}
 
-          {/* Mis Asignaciones - todos los roles */}
-          <NavItem to="/mis-asignaciones" icon="🔑" label="Mis Asignaciones" onClick={closeOnMobile} />
+          {isFeatureEnabled('menu_mis_asignaciones') && (
+            <NavItem to="/mis-asignaciones" icon="🔑" label="Mis Asignaciones" onClick={closeOnMobile} />
+          )}
 
-          {/* Trabajos - todos */}
-          <NavItem to="/trabajos" icon="🚑" label="Trabajos" onClick={closeOnMobile} />
+          {isFeatureEnabled('menu_trabajos') && (
+            <NavItem to="/trabajos" icon="🚑" label="Trabajos" onClick={closeOnMobile} />
+          )}
 
-          {/* Asignaciones libres - admin/gestor */}
-          {canManageTrabajos() && (
+          {isFeatureEnabled('menu_asignaciones') && canManageTrabajos() && (
             <NavItem to="/asignaciones" icon="🚐" label="Asignaciones" onClick={closeOnMobile} />
           )}
 
-          {/* Vehículos - admin/gestor */}
-          {canManageVehicles() && (
+          {isFeatureEnabled('menu_vehiculos') && canManageVehicles() && (
             <NavItem to="/vehiculos" icon="🚗" label="Vehículos" onClick={closeOnMobile} />
           )}
 
-          {/* Usuarios - admin/gestor */}
-          {canManageUsers() && (
+          {isFeatureEnabled('menu_usuarios') && canManageUsers() && (
             <NavItem to="/usuarios" icon="👥" label="Usuarios" onClick={closeOnMobile} />
           )}
 
-          {/* Alertas de caducidad - admin o superadmin */}
-          {(isAdmin() || isSuperAdmin()) && (
+          {isFeatureEnabled('menu_alertas') && (isAdmin() || isSuperAdmin()) && (
             <NavItem to="/alertas" icon="🔔" label="Alertas" onClick={closeOnMobile} />
           )}
 
-          {/* Panel superadmin - solo superadmin */}
           {isSuperAdmin() && (
             <NavItem to="/admin" icon="🛡️" label="Superadmin" onClick={closeOnMobile} />
           )}

@@ -121,6 +121,54 @@ async function startServer() {
   // Conectar a la BD con reintentos (no bloquea el health check)
   await connectWithRetry();
 
+  // Auto-ejecutar migraciones pendientes (idempotentes)
+  try {
+    const { query: dbRun } = require('./src/config/database');
+    await dbRun(`CREATE TABLE IF NOT EXISTS app_features (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      feature_key   VARCHAR(60) NOT NULL UNIQUE,
+      label         VARCHAR(100) NOT NULL,
+      description   VARCHAR(255) DEFAULT NULL,
+      category      VARCHAR(40) NOT NULL DEFAULT 'menu',
+      enabled       TINYINT(1) NOT NULL DEFAULT 0,
+      display_order INT NOT NULL DEFAULT 0,
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await dbRun(`INSERT IGNORE INTO app_features (feature_key, label, description, category, enabled, display_order) VALUES
+      ('menu_dashboard',        'Dashboard',         'Panel principal con resumen',                          'menu', 0, 10),
+      ('menu_mis_trabajos',     'Mis Trabajos',      'Lista de trabajos asignados al usuario',               'menu', 0, 20),
+      ('menu_trabajos',         'Trabajos',          'Lista general de todos los trabajos',                  'menu', 0, 30),
+      ('menu_mis_asignaciones', 'Mis Asignaciones',  'Asignaciones libres del usuario',                      'menu', 1, 40),
+      ('menu_asignaciones',     'Asignaciones',      'Gestión de asignaciones libres (admin/gestor)',        'menu', 1, 50),
+      ('menu_vehiculos',        'Vehículos',         'Gestión de vehículos/ambulancias (admin/gestor)',      'menu', 1, 60),
+      ('menu_usuarios',         'Usuarios',          'Gestión de usuarios del sistema (admin/gestor)',       'menu', 1, 70),
+      ('menu_alertas',          'Alertas',           'Alertas de caducidad ITV/ITS/Tarjeta (admin)',         'menu', 1, 80)`);
+    logger.info('Migration v9 (app_features) ejecutada correctamente');
+
+    // Migration v10 — Línea base "solo vehículos" sobre BD existentes.
+    // El INSERT IGNORE de arriba NO actualiza filas ya creadas, así que aplicamos
+    // la nueva configuración de flags UNA SOLA VEZ (marcada en schema_migrations),
+    // sin pisar los toggles que el superadmin haga después desde el panel.
+    await dbRun(`CREATE TABLE IF NOT EXISTS schema_migrations (
+      name       VARCHAR(100) PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    const [v10Rows] = await dbRun(
+      `SELECT name FROM schema_migrations WHERE name = 'v10_baseline_vehiculos'`
+    );
+    if (!v10Rows.length) {
+      await dbRun(`UPDATE app_features SET enabled = 0
+                   WHERE feature_key IN ('menu_dashboard','menu_mis_trabajos','menu_trabajos')`);
+      await dbRun(`UPDATE app_features SET enabled = 1
+                   WHERE feature_key IN ('menu_mis_asignaciones','menu_asignaciones','menu_vehiculos','menu_usuarios','menu_alertas')`);
+      await dbRun(`INSERT INTO schema_migrations (name) VALUES ('v10_baseline_vehiculos')`);
+      logger.info('Migration v10 (baseline solo-vehículos) aplicada por primera vez');
+    }
+  } catch (err) {
+    logger.warn('Migration v9/v10 skip:', err.message);
+  }
+
   // Cron: auto-activar trabajos programados cuya fecha_inicio ya pasó
   const { query: dbQuery } = require('./src/config/database');
   setInterval(async () => {
