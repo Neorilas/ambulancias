@@ -3,14 +3,13 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
+import { getImageUrl } from '../../utils/imageUtils.js';
 import {
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
   IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN,
 } from '../../utils/constants.js';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
-
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
 
 export default function AsignacionDetalle({ id, onClose }) {
   const { notify } = useNotification();
@@ -167,10 +166,10 @@ export default function AsignacionDetalle({ id, onClose }) {
                       {ev ? (
                         <>
                           <img
-                            src={`${API_BASE}${ev.image_url}`}
+                            src={getImageUrl(ev.image_url)}
                             alt={tipo.label}
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setLightbox(`${API_BASE}${ev.image_url}`)}
+                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
                           />
                           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
                             {tipo.label}
@@ -209,10 +208,10 @@ export default function AsignacionDetalle({ id, onClose }) {
                       {ev ? (
                         <>
                           <img
-                            src={`${API_BASE}${ev.image_url}`}
+                            src={getImageUrl(ev.image_url)}
                             alt={tipo.label}
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setLightbox(`${API_BASE}${ev.image_url}`)}
+                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
                           />
                           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
                             {tipo.label}

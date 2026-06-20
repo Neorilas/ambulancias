@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { formatDateTime } from '../../utils/dateUtils.js';
 
@@ -22,8 +23,19 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [motivo,   setMotivo]  = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
+  const [showCamera, setShowCamera] = useState(false);
 
   const fileInputRefs = useRef({});
+
+  // Captura desde cámara guiada → vuelca los Files en el mapa de fotos
+  const handleCameraComplete = (captures) => {
+    setShowCamera(false);
+    setFotos(prev => {
+      const next = { ...prev };
+      captures.forEach(c => { next[c.tipo] = c.file; });
+      return next;
+    });
+  };
 
   // ── Bloqueo: inicio incompleto ────────────────────────────
   const inicioIncompleto = asignacion?.progreso?.inicio && !asignacion.progreso.inicio.completo;
@@ -56,6 +68,18 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const canProceedFotos = () =>
     IMAGEN_TIPOS_FIN.every(t => fotos[t.key]) && kmFin !== '';
 
+  // ── Cámara guiada ───────────────────────────────────────────
+  if (showCamera) {
+    return (
+      <CameraCapture
+        tipos={IMAGEN_TIPOS_FIN}
+        onComplete={handleCameraComplete}
+        onCancel={() => setShowCamera(false)}
+        initialIndex={0}
+      />
+    );
+  }
+
   // ── Paso fotos ──────────────────────────────────────────────
   if (step === 'fotos') {
     return (
@@ -71,6 +95,16 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
               <span className="ml-2 text-amber-600 font-medium">⚠ Finalización anticipada</span>
             )}
           </p>
+        </div>
+
+        {/* Cámara guiada */}
+        <div className="flex items-center justify-between">
+          <button onClick={() => setShowCamera(true)} className="btn-secondary text-sm">
+            📷 Cámara guiada
+          </button>
+          <span className="text-xs text-neutral-500">
+            {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length}/{IMAGEN_TIPOS_FIN.length} fotos
+          </span>
         </div>
 
         {/* Grid de fotos */}
