@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -27,6 +27,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   const [step,           setStep]          = useState('fotos');
   const [currentVehIdx,  setCurrentVehIdx] = useState(0);
   const [showCamera,     setShowCamera]    = useState(false);
+  const [cameraIndex,    setCameraIndex]   = useState(0);
 
   // Mapa: vehicle_id → { [tipo_imagen]: File }
   const [evidencias, setEvidencias] = useState(() => {
@@ -46,8 +47,13 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   const [uploading,      setUploading]     = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
 
-  const fileInputRefs = useRef({});
-  const currentVeh    = vehiculos[currentVehIdx];
+  const currentVeh = vehiculos[currentVehIdx];
+
+  const openCamera = (vi, index = 0) => {
+    setCurrentVehIdx(vi);
+    setCameraIndex(index);
+    setShowCamera(true);
+  };
 
   // Mapa estable de ObjectURLs para previews — se revocan al cambiar o desmontar
   const previews = useMemo(() => {
@@ -80,19 +86,6 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
       });
       return next;
     });
-  };
-
-  /* ── Selección de archivo (galería / cámara nativa) ──── */
-  const handleFileChange = (vehicleId, tipoKey, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setEvidencias(prev => {
-      const next = { ...prev };
-      if (!next[vehicleId]) next[vehicleId] = {};
-      next[vehicleId][tipoKey] = file;
-      return next;
-    });
-    e.target.value = '';
   };
 
   /* ── Subir evidencias + finalizar ─────────────────────── */
@@ -165,7 +158,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         tipos={IMAGEN_TIPOS_FIN}
         onComplete={handleCameraComplete}
         onCancel={() => setShowCamera(false)}
-        initialIndex={0}
+        initialIndex={cameraIndex}
       />
     );
   }
@@ -276,7 +269,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                     <p className="text-xs text-neutral-500">{veh.matricula}</p>
                   </div>
                   <button
-                    onClick={() => { setCurrentVehIdx(vi); setShowCamera(true); }}
+                    onClick={() => openCamera(vi, 0)}
                     className="btn-secondary text-sm"
                   >
                     📷 Cámara guiada
@@ -284,31 +277,22 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                 </div>
 
                 <p className="text-xs text-neutral-500">
-                  Toca cada foto para seleccionar desde <strong>galería o cámara</strong>,
+                  Toca cada foto para hacerla con la <strong>cámara</strong>,
                   o usa <strong>Cámara guiada</strong> para el recorrido completo.
                 </p>
 
                 {/* Grid de fotos */}
                 <div className="grid grid-cols-3 gap-2">
-                  {IMAGEN_TIPOS_FIN.map(tipo => {
+                  {IMAGEN_TIPOS_FIN.map((tipo, ti) => {
                     const file    = evidencias[veh.vehicle_id]?.[tipo.key];
                     const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
                     const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
-                    const refKey  = `${veh.vehicle_id}_${tipo.key}`;
 
                     return (
                       <div key={tipo.key}>
-                        {/* Input sin capture — permite galería Y cámara nativa */}
-                        <input
-                          ref={el => { fileInputRefs.current[refKey] = el; }}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={e => handleFileChange(veh.vehicle_id, tipo.key, e)}
-                        />
                         <button
                           type="button"
-                          onClick={() => fileInputRefs.current[refKey]?.click()}
+                          onClick={() => openCamera(vi, ti)}
                           className="w-full text-left"
                         >
                           <div className={`aspect-square rounded-lg border-2 overflow-hidden relative

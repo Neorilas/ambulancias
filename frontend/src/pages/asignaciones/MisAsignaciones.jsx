@@ -68,26 +68,26 @@ export default function MisAsignaciones() {
 
             return (
               <div key={a.id} className={`card border-l-4 ${isActiva ? 'border-l-blue-500' : 'border-l-yellow-400'}`}>
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg font-bold text-neutral-900">{a.matricula}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                      <span className="text-lg font-bold text-neutral-900 break-all">{a.matricula}</span>
                       {a.vehiculo_alias && (
-                        <span className="text-sm text-neutral-500">· {a.vehiculo_alias}</span>
+                        <span className="text-sm text-neutral-500 truncate">· {a.vehiculo_alias}</span>
                       )}
                       <span className={ASIGNACION_ESTADO_COLORS[a.estado]}>
                         {ASIGNACION_ESTADO_LABELS[a.estado]}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-neutral-600 mt-2">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-neutral-600 mt-2">
                       <div>
                         <span className="text-neutral-400 text-xs block">Inicio</span>
-                        {formatDateTime(a.fecha_inicio)}
+                        <span className="whitespace-nowrap">{formatDateTime(a.fecha_inicio)}</span>
                       </div>
                       <div>
                         <span className="text-neutral-400 text-xs block">Fin previsto</span>
-                        {formatDateTime(a.fecha_fin)}
+                        <span className="whitespace-nowrap">{formatDateTime(a.fecha_fin)}</span>
                       </div>
                       {a.km_inicio != null && (
                         <div>
@@ -104,19 +104,19 @@ export default function MisAsignaciones() {
                     )}
                   </div>
 
-                  {/* Acciones */}
-                  <div className="flex flex-col gap-2 shrink-0">
+                  {/* Acciones: fila full-width en móvil, columna lateral en sm+ */}
+                  <div className="flex flex-row sm:flex-col gap-2 sm:shrink-0">
                     {isProgramada && (
                       <button
                         onClick={() => handleActivar(a.id)}
-                        className="btn-secondary text-sm"
+                        className="btn-secondary text-sm flex-1 sm:flex-none"
                       >
                         Activar
                       </button>
                     )}
                     <button
                       onClick={() => setDetalleId(a.id)}
-                      className="btn-primary text-sm"
+                      className="btn-primary text-sm flex-1 sm:flex-none"
                     >
                       {isActiva ? 'Subir fotos / Finalizar' : 'Abrir'}
                     </button>

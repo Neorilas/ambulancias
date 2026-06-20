@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -36,6 +36,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
 
   const [currentVehIdx, setCurrentVehIdx] = useState(0);
   const [showCamera,    setShowCamera]    = useState(false);
+  const [cameraIndex,   setCameraIndex]   = useState(0);
   const [uploading,     setUploading]     = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
 
@@ -46,8 +47,13 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
     return map;
   });
 
-  const fileInputRefs = useRef({});
-  const currentVeh    = vehiculos[currentVehIdx];
+  const currentVeh = vehiculos[currentVehIdx];
+
+  const openCamera = (vi, index = 0) => {
+    setCurrentVehIdx(vi);
+    setCameraIndex(index);
+    setShowCamera(true);
+  };
 
   // Previews con cleanup
   const previews = useMemo(() => {
@@ -79,18 +85,6 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
       });
       return next;
     });
-  };
-
-  const handleFileChange = (vehicleId, tipoKey, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setEvidencias(prev => {
-      const next = { ...prev };
-      if (!next[vehicleId]) next[vehicleId] = {};
-      next[vehicleId][tipoKey] = file;
-      return next;
-    });
-    e.target.value = '';
   };
 
   const fotosPorVeh = (vid) =>
@@ -145,7 +139,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
         tipos={IMAGEN_TIPOS_INICIO}
         onComplete={handleCameraComplete}
         onCancel={() => setShowCamera(false)}
-        initialIndex={0}
+        initialIndex={cameraIndex}
       />
     );
   }
@@ -199,7 +193,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
                 <p className="text-xs text-neutral-500">{veh.matricula}</p>
               </div>
               <button
-                onClick={() => { setCurrentVehIdx(vi); setShowCamera(true); }}
+                onClick={() => openCamera(vi, 0)}
                 className="btn-secondary text-sm"
               >
                 📷 Cámara guiada
@@ -207,29 +201,21 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
             </div>
 
             <p className="text-xs text-neutral-500">
-              Toca cada foto para seleccionar desde <strong>galería o cámara</strong>,
+              Toca cada foto para hacerla con la <strong>cámara</strong>,
               o usa <strong>Cámara guiada</strong> para el recorrido completo.
             </p>
 
             <div className="grid grid-cols-3 gap-2">
-              {IMAGEN_TIPOS_INICIO.map(tipo => {
+              {IMAGEN_TIPOS_INICIO.map((tipo, ti) => {
                 const file    = evidencias[veh.vehicle_id]?.[tipo.key];
                 const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
                 const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
-                const refKey  = `${veh.vehicle_id}_${tipo.key}`;
 
                 return (
                   <div key={tipo.key}>
-                    <input
-                      ref={el => { fileInputRefs.current[refKey] = el; }}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={e => handleFileChange(veh.vehicle_id, tipo.key, e)}
-                    />
                     <button
                       type="button"
-                      onClick={() => fileInputRefs.current[refKey]?.click()}
+                      onClick={() => openCamera(vi, ti)}
                       className="w-full text-left"
                     >
                       <div className={`aspect-square rounded-lg border-2 overflow-hidden relative

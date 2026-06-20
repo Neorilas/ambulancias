@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -24,8 +24,12 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [showCamera, setShowCamera] = useState(false);
+  const [cameraIndex, setCameraIndex] = useState(0);
 
-  const fileInputRefs = useRef({});
+  const openCamera = (index = 0) => {
+    setCameraIndex(index);
+    setShowCamera(true);
+  };
 
   // Captura desde cámara guiada → vuelca los Files en el mapa de fotos
   const handleCameraComplete = (captures) => {
@@ -59,12 +63,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     );
   }
 
-  const handleFileChange = (tipoKey, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFotos(prev => ({ ...prev, [tipoKey]: file }));
-  };
-
   const canProceedFotos = () =>
     IMAGEN_TIPOS_FIN.every(t => fotos[t.key]) && kmFin !== '';
 
@@ -75,7 +73,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         tipos={IMAGEN_TIPOS_FIN}
         onComplete={handleCameraComplete}
         onCancel={() => setShowCamera(false)}
-        initialIndex={0}
+        initialIndex={cameraIndex}
       />
     );
   }
@@ -99,7 +97,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
 
         {/* Cámara guiada */}
         <div className="flex items-center justify-between">
-          <button onClick={() => setShowCamera(true)} className="btn-secondary text-sm">
+          <button onClick={() => openCamera(0)} className="btn-secondary text-sm">
             📷 Cámara guiada
           </button>
           <span className="text-xs text-neutral-500">
@@ -109,7 +107,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
 
         {/* Grid de fotos */}
         <div className="grid grid-cols-2 gap-3">
-          {IMAGEN_TIPOS_FIN.map(tipo => {
+          {IMAGEN_TIPOS_FIN.map((tipo, index) => {
             const file = fotos[tipo.key];
             const preview = file ? URL.createObjectURL(file) : null;
             return (
@@ -118,7 +116,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
                 <div
                   className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
                     ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
-                  onClick={() => fileInputRefs.current[tipo.key]?.click()}
+                  onClick={() => openCamera(index)}
                 >
                   {preview ? (
                     <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
@@ -138,13 +136,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
                       </svg>
                     </div>
                   )}
-                  <input
-                    ref={el => { fileInputRefs.current[tipo.key] = el; }}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={e => handleFileChange(tipo.key, e)}
-                  />
                 </div>
                 {uploadProgress[tipo.key] && (
                   <p className="text-xs text-primary-600">{uploadProgress[tipo.key]}</p>
