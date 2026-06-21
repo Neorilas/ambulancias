@@ -55,6 +55,12 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const capturedRef = useRef(captured);
   capturedRef.current = captured;
 
+  // Refs siempre actualizadas para usar dentro del handler de "atrás" nativo
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+
   const { videoRef, canvasRef, cameraReady, error, isLandscape, toggleCamera, captureBlob } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
@@ -97,6 +103,36 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
     setPreview(null);
   }, [preview]);
+
+  const retakeRef = useRef(retake);
+  retakeRef.current = retake;
+
+  // ── Botón "atrás" nativo del teléfono ────────────────────────
+  // Sin esto, pulsar "atrás" mientras la cámara está abierta saca de la
+  // aplicación. Empujamos una entrada en el historial al montar y, cuando
+  // el usuario pulsa "atrás" (popstate), cerramos la cámara o volvemos del
+  // preview al visor en lugar de abandonar la app.
+  useEffect(() => {
+    window.history.pushState({ cameraCapture: true }, '');
+    let cancelled = false;
+    const onPop = () => {
+      if (previewRef.current) {
+        // En previsualización → volver al visor, no salir
+        retakeRef.current();
+        window.history.pushState({ cameraCapture: true }, '');
+      } else {
+        cancelled = true;
+        onCancelRef.current();
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      // Si la cámara se cierra por botón (no por "atrás"), retiramos la
+      // entrada extra que añadimos para no dejar un "atrás" muerto.
+      if (!cancelled) window.history.back();
+    };
+  }, []);
 
   // ── Cleanup ObjectURLs al desmontar ──────────────────────────
   useEffect(() => {
