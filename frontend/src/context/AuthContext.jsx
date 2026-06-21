@@ -68,12 +68,18 @@ export function AuthProvider({ children }) {
   const canManageTrabajos = useCallback(() => hasPermission(PERMISSIONS.MANAGE_TRABAJOS), [hasPermission]);
   const canDeleteAny      = useCallback(() => isAdmin() || isSuperAdmin(),                [isAdmin, isSuperAdmin]);
 
+  // Solo admin, superadmin y gestor acceden a algo más que "Mis Asignaciones".
+  // El resto de roles (técnico/enfermero/médico) y los usuarios sin rol quedan
+  // acotados exclusivamente a su lista de vehículos asignados.
+  const canAccessGestion  = useCallback(() => isAdmin() || isSuperAdmin() || isGestor(), [isAdmin, isSuperAdmin, isGestor]);
+
   const value = {
     user, loading,
     login, logout, updateStoredUser,
     hasRole, hasPermission,
     isSuperAdmin, isAdmin, isGestor, isOperacional,
     canManageUsers, canManageVehicles, canManageTrabajos, canDeleteAny,
+    canAccessGestion,
     isAuthenticated: !!user,
   };
 

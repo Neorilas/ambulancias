@@ -43,7 +43,7 @@ export default function App() {
               <Route
                 path="/dashboard"
                 element={
-                  <ProtectedRoute requiredFeature="menu_dashboard">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_dashboard">
                     <Dashboard />
                   </ProtectedRoute>
                 }
@@ -51,7 +51,7 @@ export default function App() {
               <Route
                 path="/mis-trabajos"
                 element={
-                  <ProtectedRoute requiredFeature="menu_mis_trabajos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_mis_trabajos">
                     <MisTrabajos />
                   </ProtectedRoute>
                 }
@@ -59,7 +59,7 @@ export default function App() {
               <Route
                 path="/trabajos"
                 element={
-                  <ProtectedRoute requiredFeature="menu_trabajos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_trabajos">
                     <TrabajoList />
                   </ProtectedRoute>
                 }
@@ -67,7 +67,7 @@ export default function App() {
               <Route
                 path="/trabajos/:id"
                 element={
-                  <ProtectedRoute requiredFeature="menu_trabajos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_trabajos">
                     <TrabajoDetail />
                   </ProtectedRoute>
                 }
@@ -76,7 +76,7 @@ export default function App() {
               <Route
                 path="/vehiculos"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]} requiredFeature="menu_vehiculos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_vehiculos">
                     <VehicleList />
                   </ProtectedRoute>
                 }
@@ -84,7 +84,7 @@ export default function App() {
               <Route
                 path="/vehiculos/:id/historial"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]} requiredFeature="menu_vehiculos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_vehiculos">
                     <VehicleHistory />
                   </ProtectedRoute>
                 }
@@ -93,7 +93,7 @@ export default function App() {
               <Route
                 path="/usuarios"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]} requiredFeature="menu_usuarios">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_usuarios">
                     <UserList />
                   </ProtectedRoute>
                 }
@@ -102,7 +102,7 @@ export default function App() {
               <Route
                 path="/asignaciones"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.GESTOR]} requiredFeature="menu_asignaciones">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_asignaciones">
                     <AsignacionList />
                   </ProtectedRoute>
                 }

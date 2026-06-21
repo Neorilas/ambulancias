@@ -24,12 +24,16 @@ function NavItem({ to, icon, label, end = false, onClick }) {
 }
 
 export default function Sidebar({ isOpen, onClose }) {
-  const { canManageUsers, canManageVehicles, canManageTrabajos, isOperacional, isAdmin, isSuperAdmin } = useAuth();
+  const { canManageUsers, canManageVehicles, canManageTrabajos, isAdmin, isSuperAdmin, canAccessGestion } = useAuth();
   const { isFeatureEnabled } = useFeatures();
 
   const closeOnMobile = () => {
     if (window.innerWidth < 1024) onClose?.();
   };
+
+  // Usuarios sin acceso de gestión (todo lo que no sea admin/superadmin/gestor)
+  // solo pueden ver su lista de vehículos asignados.
+  const privileged = canAccessGestion();
 
   return (
     <>
@@ -49,40 +53,47 @@ export default function Sidebar({ isOpen, onClose }) {
                     lg:translate-x-0 lg:static lg:z-auto lg:pt-0`}
       >
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {isFeatureEnabled('menu_dashboard') && (
-            <NavItem to="/dashboard" icon="📊" label="Dashboard" end onClick={closeOnMobile} />
-          )}
-
-          {isFeatureEnabled('menu_mis_trabajos') && (
-            <NavItem to="/mis-trabajos" icon="📋" label="Mis Trabajos" onClick={closeOnMobile} />
-          )}
-
-          {isFeatureEnabled('menu_mis_asignaciones') && (
+          {!privileged ? (
+            /* Roles operativos / sin rol: única opción permitida */
             <NavItem to="/mis-asignaciones" icon="🔑" label="Mis Asignaciones" onClick={closeOnMobile} />
-          )}
+          ) : (
+            <>
+              {isFeatureEnabled('menu_dashboard') && (
+                <NavItem to="/dashboard" icon="📊" label="Dashboard" end onClick={closeOnMobile} />
+              )}
 
-          {isFeatureEnabled('menu_trabajos') && (
-            <NavItem to="/trabajos" icon="🚑" label="Trabajos" onClick={closeOnMobile} />
-          )}
+              {isFeatureEnabled('menu_mis_trabajos') && (
+                <NavItem to="/mis-trabajos" icon="📋" label="Mis Trabajos" onClick={closeOnMobile} />
+              )}
 
-          {isFeatureEnabled('menu_asignaciones') && canManageTrabajos() && (
-            <NavItem to="/asignaciones" icon="🚐" label="Asignaciones" onClick={closeOnMobile} />
-          )}
+              {isFeatureEnabled('menu_mis_asignaciones') && (
+                <NavItem to="/mis-asignaciones" icon="🔑" label="Mis Asignaciones" onClick={closeOnMobile} />
+              )}
 
-          {isFeatureEnabled('menu_vehiculos') && canManageVehicles() && (
-            <NavItem to="/vehiculos" icon="🚗" label="Vehículos" onClick={closeOnMobile} />
-          )}
+              {isFeatureEnabled('menu_trabajos') && (
+                <NavItem to="/trabajos" icon="🚑" label="Trabajos" onClick={closeOnMobile} />
+              )}
 
-          {isFeatureEnabled('menu_usuarios') && canManageUsers() && (
-            <NavItem to="/usuarios" icon="👥" label="Usuarios" onClick={closeOnMobile} />
-          )}
+              {isFeatureEnabled('menu_asignaciones') && canManageTrabajos() && (
+                <NavItem to="/asignaciones" icon="🚐" label="Asignaciones" onClick={closeOnMobile} />
+              )}
 
-          {isFeatureEnabled('menu_alertas') && (isAdmin() || isSuperAdmin()) && (
-            <NavItem to="/alertas" icon="🔔" label="Alertas" onClick={closeOnMobile} />
-          )}
+              {isFeatureEnabled('menu_vehiculos') && canManageVehicles() && (
+                <NavItem to="/vehiculos" icon="🚗" label="Vehículos" onClick={closeOnMobile} />
+              )}
 
-          {isSuperAdmin() && (
-            <NavItem to="/admin" icon="🛡️" label="Superadmin" onClick={closeOnMobile} />
+              {isFeatureEnabled('menu_usuarios') && canManageUsers() && (
+                <NavItem to="/usuarios" icon="👥" label="Usuarios" onClick={closeOnMobile} />
+              )}
+
+              {isFeatureEnabled('menu_alertas') && (isAdmin() || isSuperAdmin()) && (
+                <NavItem to="/alertas" icon="🔔" label="Alertas" onClick={closeOnMobile} />
+              )}
+
+              {isSuperAdmin() && (
+                <NavItem to="/admin" icon="🛡️" label="Superadmin" onClick={closeOnMobile} />
+              )}
+            </>
           )}
         </nav>
 
