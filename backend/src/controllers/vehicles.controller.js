@@ -347,6 +347,8 @@ async function getVehicleHistorial(req, res, next) {
         vi.image_url,
         vi.created_at               AS foto_fecha,
         vi.trabajo_id,
+        vi.asignacion_id,
+        -- Datos del trabajo (si la foto pertenece a un trabajo)
         t.identificador             AS trabajo_referencia,
         t.nombre                    AS trabajo_nombre,
         t.fecha_inicio              AS trabajo_fecha_inicio,
@@ -354,8 +356,16 @@ async function getVehicleHistorial(req, res, next) {
         t.estado                    AS trabajo_estado,
         tv_km.kilometros_fin        AS trabajo_km_fin,
         tv_km.kilometros_inicio     AS trabajo_km_inicio,
-        tv_km.responsable_user_id,
-        CONCAT(resp.nombre,' ',resp.apellidos) AS responsable_nombre,
+        tv_km.responsable_user_id   AS trabajo_responsable_id,
+        CONCAT(resp.nombre,' ',resp.apellidos) AS trabajo_responsable_nombre,
+        -- Datos de la asignación libre (si la foto pertenece a una asignación)
+        al.fecha_inicio             AS asig_fecha_inicio,
+        al.fecha_fin                AS asig_fecha_fin,
+        al.estado                   AS asig_estado,
+        al.km_inicio                AS asig_km_inicio,
+        al.km_fin                   AS asig_km_fin,
+        al.user_id                  AS asig_responsable_id,
+        CONCAT(au.nombre,' ',au.apellidos) AS asig_responsable_nombre,
         u.id                        AS uploader_id,
         u.nombre                    AS uploader_nombre,
         u.apellidos                 AS uploader_apellidos,
@@ -366,17 +376,23 @@ async function getVehicleHistorial(req, res, next) {
                                      ON tv_km.trabajo_id = vi.trabajo_id
                                     AND tv_km.vehicle_id  = vi.vehicle_id
       LEFT JOIN users resp           ON tv_km.responsable_user_id = resp.id
+      LEFT JOIN asignaciones_libres al ON vi.asignacion_id = al.id
+      LEFT JOIN users au             ON al.user_id = au.id
       LEFT JOIN users u              ON vi.uploaded_by = u.id
       WHERE vi.vehicle_id = ?
-      ORDER BY vi.trabajo_id DESC, vi.tipo_imagen ASC
+      ORDER BY vi.tipo_imagen ASC
     `, [vehicleId]);
 
-    const trabajosMap = new Map();
+    const gruposMap = new Map();
     for (const row of rows) {
-      const tid = row.trabajo_id ?? 'sin_trabajo';
-      if (!trabajosMap.has(tid)) {
-        trabajosMap.set(tid, {
+      // Clave de grupo: cada trabajo y cada asignación forman su propio grupo.
+      let key, grupo;
+      if (row.trabajo_id) {
+        key = `t${row.trabajo_id}`;
+        grupo = {
+          tipo:                'trabajo',
           trabajo_id:          row.trabajo_id,
+          asignacion_id:       null,
           referencia:          row.trabajo_referencia,
           nombre:              row.trabajo_nombre,
           fecha_inicio:        row.trabajo_fecha_inicio,
@@ -384,12 +400,48 @@ async function getVehicleHistorial(req, res, next) {
           estado:              row.trabajo_estado,
           km_inicio:           row.trabajo_km_inicio,
           km_fin:              row.trabajo_km_fin,
-          responsable_nombre:  row.responsable_nombre,
-          responsable_user_id: row.responsable_user_id,
-          fotos:               [],
-        });
+          responsable_nombre:  row.trabajo_responsable_nombre,
+          responsable_user_id: row.trabajo_responsable_id,
+        };
+      } else if (row.asignacion_id) {
+        key = `a${row.asignacion_id}`;
+        grupo = {
+          tipo:                'asignacion',
+          trabajo_id:          null,
+          asignacion_id:       row.asignacion_id,
+          referencia:          null,
+          nombre:              null,
+          fecha_inicio:        row.asig_fecha_inicio,
+          fecha_fin:           row.asig_fecha_fin,
+          estado:              row.asig_estado,
+          km_inicio:           row.asig_km_inicio,
+          km_fin:              row.asig_km_fin,
+          responsable_nombre:  row.asig_responsable_nombre,
+          responsable_user_id: row.asig_responsable_id,
+        };
+      } else {
+        key = 'sin_asignar';
+        grupo = {
+          tipo:                'sin_asignar',
+          trabajo_id:          null,
+          asignacion_id:       null,
+          referencia:          null,
+          nombre:              null,
+          fecha_inicio:        null,
+          fecha_fin:           null,
+          estado:              null,
+          km_inicio:           null,
+          km_fin:              null,
+          responsable_nombre:  null,
+          responsable_user_id: null,
+        };
       }
-      trabajosMap.get(tid).fotos.push({
+
+      if (!gruposMap.has(key)) {
+        gruposMap.set(key, { ...grupo, _sortFecha: null, fotos: [] });
+      }
+      const g = gruposMap.get(key);
+      g.fotos.push({
         id:          row.id,
         tipo_imagen: row.tipo_imagen,
         image_url:   row.image_url,
@@ -401,11 +453,24 @@ async function getVehicleHistorial(req, res, next) {
           username:  row.uploader_username,
         },
       });
+      // Para ordenar grupos por la actividad más reciente (foto más nueva).
+      if (row.foto_fecha && (!g._sortFecha || row.foto_fecha > g._sortFecha)) {
+        g._sortFecha = row.foto_fecha;
+      }
     }
+
+    // Grupos ordenados por la foto más reciente: lo recién finalizado va arriba.
+    const trabajos = [...gruposMap.values()]
+      .sort((a, b) => {
+        const fa = a._sortFecha ? new Date(a._sortFecha).getTime() : 0;
+        const fb = b._sortFecha ? new Date(b._sortFecha).getTime() : 0;
+        return fb - fa;
+      })
+      .map(({ _sortFecha, ...g }) => g);
 
     return success(res, {
       vehicle:  vrow[0],
-      trabajos: [...trabajosMap.values()],
+      trabajos,
     });
   } catch (err) {
     next(err);

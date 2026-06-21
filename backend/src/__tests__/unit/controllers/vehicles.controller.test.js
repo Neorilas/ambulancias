@@ -312,18 +312,18 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[
         {
           id: 10, tipo_imagen: 'frontal', image_url: '/img1.jpg', foto_fecha: new Date(),
-          trabajo_id: 99, trabajo_referencia: 'TRB-2026-0001', trabajo_nombre: 'Test',
+          trabajo_id: 99, asignacion_id: null, trabajo_referencia: 'TRB-2026-0001', trabajo_nombre: 'Test',
           trabajo_fecha_inicio: new Date(), trabajo_fecha_fin: new Date(),
           trabajo_estado: 'finalizado', trabajo_km_fin: 55000, trabajo_km_inicio: 50000,
-          responsable_user_id: 2, responsable_nombre: 'Tec User',
+          trabajo_responsable_id: 2, trabajo_responsable_nombre: 'Tec User',
           uploader_id: 2, uploader_nombre: 'Tec', uploader_apellidos: 'User', uploader_username: 'tec',
         },
         {
           id: 11, tipo_imagen: 'trasera', image_url: '/img2.jpg', foto_fecha: new Date(),
-          trabajo_id: 99, trabajo_referencia: 'TRB-2026-0001', trabajo_nombre: 'Test',
+          trabajo_id: 99, asignacion_id: null, trabajo_referencia: 'TRB-2026-0001', trabajo_nombre: 'Test',
           trabajo_fecha_inicio: new Date(), trabajo_fecha_fin: new Date(),
           trabajo_estado: 'finalizado', trabajo_km_fin: 55000, trabajo_km_inicio: 50000,
-          responsable_user_id: 2, responsable_nombre: 'Tec User',
+          trabajo_responsable_id: 2, trabajo_responsable_nombre: 'Tec User',
           uploader_id: 2, uploader_nombre: 'Tec', uploader_apellidos: 'User', uploader_username: 'tec',
         },
       ]]);
@@ -333,7 +333,45 @@ describe('vehicles.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       // Should have one trabajo entry with two fotos
       expect(res._json.data.trabajos).toHaveLength(1);
+      expect(res._json.data.trabajos[0].tipo).toBe('trabajo');
       expect(res._json.data.trabajos[0].fotos).toHaveLength(2);
+    });
+
+    it('groups asignación photos and sorts most-recent activity first', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234', alias: 'AMB-1', kilometros_actuales: 50000 }]]);
+      const older  = new Date('2026-06-01T10:00:00Z');
+      const newer  = new Date('2026-06-20T10:00:00Z');
+      query.mockResolvedValueOnce([[
+        // Trabajo antiguo
+        {
+          id: 10, tipo_imagen: 'frontal', image_url: '/t.jpg', foto_fecha: older,
+          trabajo_id: 99, asignacion_id: null, trabajo_referencia: 'TRB-1',
+          trabajo_estado: 'finalizado', trabajo_km_fin: 51000, trabajo_km_inicio: 50000,
+          trabajo_responsable_id: 2, trabajo_responsable_nombre: 'Tec User',
+          uploader_id: 2, uploader_nombre: 'Tec', uploader_apellidos: 'User', uploader_username: 'tec',
+        },
+        // Asignación libre recién finalizada (foto más nueva → debe ir arriba)
+        {
+          id: 20, tipo_imagen: 'cuentakilometros', image_url: '/a.jpg', foto_fecha: newer,
+          trabajo_id: null, asignacion_id: 7,
+          asig_fecha_inicio: older, asig_fecha_fin: newer, asig_estado: 'finalizada',
+          asig_km_inicio: 60000, asig_km_fin: 60500,
+          asig_responsable_id: 3, asig_responsable_nombre: 'Jose Lopez',
+          uploader_id: 3, uploader_nombre: 'Jose', uploader_apellidos: 'Lopez', uploader_username: 'jlopez',
+        },
+      ]]);
+
+      const res = mockRes();
+      await getVehicleHistorial(mockReq({ params: { id: '1' } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const grupos = res._json.data.trabajos;
+      expect(grupos).toHaveLength(2);
+      // El más reciente (asignación) va primero
+      expect(grupos[0].tipo).toBe('asignacion');
+      expect(grupos[0].asignacion_id).toBe(7);
+      expect(grupos[0].responsable_nombre).toBe('Jose Lopez');
+      expect(grupos[0].estado).toBe('finalizada');
+      expect(grupos[1].tipo).toBe('trabajo');
     });
   });
 

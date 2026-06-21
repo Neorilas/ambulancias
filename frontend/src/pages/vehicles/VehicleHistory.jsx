@@ -14,18 +14,20 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate, formatDateTime } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
-import { ESTADO_LABELS, ESTADO_COLORS } from '../../utils/constants.js';
+import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
 const TIPO_FOTO_LABELS = {
-  frontal:           'Frontal',
-  lateral_izquierdo: 'Lateral Izq.',
-  lateral_derecho:   'Lateral Der.',
-  trasera:           'Trasera',
-  niveles_liquidos:  'Niveles',
-  cuentakilometros:  'Cuentakm.',
-  danos:             'Daños',
+  frontal:                'Frontal',
+  lateral_izquierdo:      'Lateral Izq.',
+  lateral_derecho:        'Lateral Der.',
+  trasera:                'Trasera',
+  nivel_aceite:           'Aceite',
+  nivel_liquidos_general: 'Líquidos',
+  niveles_liquidos:       'Niveles',
+  cuentakilometros:       'Cuentakm.',
+  danos:                  'Daños',
 };
 
 const GRAVEDAD_BADGE = {
@@ -123,6 +125,16 @@ function TrabajoCard({ trabajo }) {
 
   const kmDiff = trabajo.km_fin && trabajo.km_inicio ? trabajo.km_fin - trabajo.km_inicio : null;
 
+  const esAsignacion = trabajo.tipo === 'asignacion';
+  const titulo = esAsignacion
+    ? (trabajo.referencia || `Asignación #${trabajo.asignacion_id}`)
+    : (trabajo.referencia || (trabajo.trabajo_id ? `Trabajo #${trabajo.trabajo_id}` : 'Fotos sueltas'));
+  const estadoLabel  = esAsignacion ? ASIGNACION_ESTADO_LABELS : ESTADO_LABELS;
+  const estadoColor  = esAsignacion ? ASIGNACION_ESTADO_COLORS : ESTADO_COLORS;
+  // Las asignaciones libres no tienen página de detalle propia (se ven en un modal
+  // desde el listado), así que solo enlazamos los trabajos.
+  const detalleHref  = !esAsignacion && trabajo.trabajo_id ? `/trabajos/${trabajo.trabajo_id}` : null;
+
   return (
     <div className="card overflow-hidden">
       <button className="w-full flex items-center justify-between gap-2 text-left" onClick={() => setOpen(o => !o)}>
@@ -131,11 +143,11 @@ function TrabajoCard({ trabajo }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-neutral-900 text-sm">
-                {trabajo.referencia || `Trabajo #${trabajo.trabajo_id}`}
+                {titulo}
               </span>
               {trabajo.estado && (
-                <span className={`badge text-xs ${ESTADO_COLORS[trabajo.estado] || 'badge-yellow'}`}>
-                  {ESTADO_LABELS[trabajo.estado] || trabajo.estado}
+                <span className={`badge text-xs ${estadoColor[trabajo.estado] || 'badge-yellow'}`}>
+                  {estadoLabel[trabajo.estado] || trabajo.estado}
                 </span>
               )}
               {trabajo.responsable_nombre && (
@@ -169,8 +181,8 @@ function TrabajoCard({ trabajo }) {
 
       {open && (
         <div className="mt-4 space-y-4 border-t pt-4">
-          {trabajo.trabajo_id && (
-            <Link to={`/trabajos/${trabajo.trabajo_id}`} className="text-xs text-primary-600 hover:underline">
+          {detalleHref && (
+            <Link to={detalleHref} className="text-xs text-primary-600 hover:underline">
               Ver trabajo →
             </Link>
           )}
