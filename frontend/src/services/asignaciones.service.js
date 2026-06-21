@@ -27,4 +27,7 @@ export const asignacionesService = {
       headers: { 'Content-Type': undefined },
     }).then(r => r.data.data);
   },
+  crearIncidencia(id, data) {
+    return api.post(`/asignaciones/${id}/incidencias`, data).then(r => r.data.data);
+  },
 };

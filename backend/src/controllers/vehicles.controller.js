@@ -493,7 +493,7 @@ async function listIncidencias(req, res, next) {
       SELECT
         vi.id, vi.tipo, vi.gravedad, vi.descripcion, vi.estado,
         vi.created_at, vi.resuelto_at,
-        vi.trabajo_id,
+        vi.trabajo_id, vi.asignacion_id,
         t.identificador  AS trabajo_referencia,
         t.nombre         AS trabajo_nombre,
         rep.id           AS reporter_id,
@@ -502,14 +502,19 @@ async function listIncidencias(req, res, next) {
         res.id           AS resolutor_id,
         res.nombre       AS resolutor_nombre,
         res.apellidos    AS resolutor_apellidos,
-        -- responsable del vehículo en ese trabajo
-        CONCAT(resp.nombre,' ',resp.apellidos) AS responsable_nombre,
-        tv.responsable_user_id
+        -- responsable directo de la incidencia (técnico de la asignación)
+        rsp.id           AS responsable_id,
+        rsp.nombre       AS responsable_nombre,
+        rsp.apellidos    AS responsable_apellidos,
+        -- responsable del vehículo en ese trabajo (fallback histórico)
+        CONCAT(tresp.nombre,' ',tresp.apellidos) AS trabajo_responsable_nombre,
+        tv.responsable_user_id AS trabajo_responsable_id
       FROM vehicle_incidencias vi
       LEFT JOIN trabajos t          ON vi.trabajo_id = t.id
       LEFT JOIN trabajo_vehiculos tv ON vi.trabajo_id = tv.trabajo_id
                                     AND tv.vehicle_id = vi.vehicle_id
-      LEFT JOIN users resp          ON tv.responsable_user_id = resp.id
+      LEFT JOIN users tresp         ON tv.responsable_user_id = tresp.id
+      LEFT JOIN users rsp           ON vi.responsable_user_id = rsp.id
       LEFT JOIN users rep           ON vi.reported_by  = rep.id
       LEFT JOIN users res           ON vi.resuelto_by  = res.id
       WHERE vi.vehicle_id = ?
@@ -527,13 +532,21 @@ async function listIncidencias(req, res, next) {
       estado:      r.estado,
       created_at:  r.created_at,
       resuelto_at: r.resuelto_at,
+      asignacion_id: r.asignacion_id,
       trabajo: r.trabajo_id ? {
         id:         r.trabajo_id,
         referencia: r.trabajo_referencia,
         nombre:     r.trabajo_nombre,
-        responsable_nombre:  r.responsable_nombre,
-        responsable_user_id: r.responsable_user_id,
+        responsable_nombre:  r.trabajo_responsable_nombre,
+        responsable_user_id: r.trabajo_responsable_id,
       } : null,
+      // Técnico responsable al que queda asignada la incidencia: el directo
+      // (asignación) o, en su defecto, el responsable del vehículo en el trabajo.
+      responsable: r.responsable_id
+        ? { id: r.responsable_id, nombre: r.responsable_nombre, apellidos: r.responsable_apellidos }
+        : (r.trabajo_responsable_id
+            ? { id: r.trabajo_responsable_id, nombre: r.trabajo_responsable_nombre, apellidos: '' }
+            : null),
       reportado_por: { id: r.reporter_id, nombre: r.reporter_nombre, apellidos: r.reporter_apellidos },
       resuelto_por:  r.resolutor_id ? { id: r.resolutor_id, nombre: r.resolutor_nombre, apellidos: r.resolutor_apellidos } : null,
     })));

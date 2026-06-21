@@ -11,6 +11,15 @@ import {
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 
+const TIPO_INC_OPTS = [
+  ['dano_exterior', 'Daño exterior'],
+  ['dano_interior', 'Daño interior'],
+  ['mecanico',      'Mecánico'],
+  ['fluido',        'Fluido'],
+  ['electrico',     'Eléctrico'],
+  ['otro',          'Otro'],
+];
+
 export default function AsignacionDetalle({ id, onClose }) {
   const { notify } = useNotification();
   const { user, canManageTrabajos } = useAuth();
@@ -19,6 +28,9 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [lightbox, setLightbox] = useState(null);
   const [showInicio, setShowInicio] = useState(false);
   const [showFin,    setShowFin]    = useState(false);
+  const [showIncForm, setShowIncForm] = useState(false);
+  const [incForm, setIncForm] = useState({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '' });
+  const [savingInc, setSavingInc] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -29,6 +41,26 @@ export default function AsignacionDetalle({ id, onClose }) {
   };
 
   useEffect(() => { load(); }, [id]);
+
+  const handleCrearIncidencia = async (e) => {
+    e.preventDefault();
+    if (!incForm.descripcion.trim()) return;
+    setSavingInc(true);
+    try {
+      await asignacionesService.crearIncidencia(id, {
+        tipo:        incForm.tipo,
+        gravedad:    incForm.gravedad,
+        descripcion: incForm.descripcion.trim(),
+      });
+      notify.success(`Incidencia asignada a ${asig.responsable_nombre}`);
+      setShowIncForm(false);
+      setIncForm({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '' });
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al registrar la incidencia');
+    } finally {
+      setSavingInc(false);
+    }
+  };
 
   // Evidencias indexadas por (momento, tipo)
   const evInicio = {};
@@ -144,6 +176,63 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
                   ✓ Finalizar asignación
                 </button>
+              </div>
+            )}
+
+            {/* Registrar incidencia (admin/gestor) */}
+            {canManageTrabajos() && (
+              <div className="card border-amber-200 bg-amber-50/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-neutral-900 text-sm">⚠ Incidencia detectada</h3>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      Se asignará a <strong className="text-neutral-700">{asig.responsable_nombre}</strong>,
+                      responsable de esta asignación.
+                    </p>
+                  </div>
+                  {!showIncForm && (
+                    <button onClick={() => setShowIncForm(true)} className="btn-secondary text-xs whitespace-nowrap">
+                      + Registrar
+                    </button>
+                  )}
+                </div>
+
+                {showIncForm && (
+                  <form onSubmit={handleCrearIncidencia} className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
+                        <select className="input text-sm" value={incForm.tipo}
+                          onChange={e => setIncForm(f => ({ ...f, tipo: e.target.value }))}>
+                          {TIPO_INC_OPTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-neutral-500 block mb-1">Gravedad</label>
+                        <select className="input text-sm" value={incForm.gravedad}
+                          onChange={e => setIncForm(f => ({ ...f, gravedad: e.target.value }))}>
+                          <option value="leve">Leve</option>
+                          <option value="moderado">Moderado</option>
+                          <option value="grave">Grave</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-neutral-500 block mb-1">Descripción *</label>
+                      <textarea className="input text-sm" rows={3} required
+                        placeholder="Describe el daño o incidencia detectada…"
+                        value={incForm.descripcion}
+                        onChange={e => setIncForm(f => ({ ...f, descripcion: e.target.value }))} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setShowIncForm(false)}
+                        className="btn-secondary text-sm flex-1">Cancelar</button>
+                      <button type="submit" disabled={savingInc} className="btn-primary text-sm flex-1">
+                        {savingInc ? 'Guardando…' : 'Registrar incidencia'}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             )}
 

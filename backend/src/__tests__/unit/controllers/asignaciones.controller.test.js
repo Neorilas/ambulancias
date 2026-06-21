@@ -15,6 +15,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 const {
   listAsignaciones, getAsignacion, createAsignacion, updateAsignacion,
   deleteAsignacion, activarAsignacion, finalizarAsignacion, uploadEvidencia,
+  crearIncidenciaDesdeAsignacion,
 } = require('../../../controllers/asignaciones.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 const { IMAGEN_TIPOS_REQUERIDOS } = require('../../../config/constants');
@@ -486,6 +487,40 @@ describe('asignaciones.controller', () => {
       await uploadEvidencia(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(deleteFile).toHaveBeenCalledWith('/uploads/old.jpg');
+    });
+  });
+
+  // ── crearIncidenciaDesdeAsignacion ─────────────────────
+  describe('crearIncidenciaDesdeAsignacion', () => {
+    it('vincula la incidencia al técnico responsable de esa asignación', async () => {
+      mockAsignacionCompleta({ id: 7, vehicle_id: 3, user_id: 9, matricula: '9864JSF' });
+      query.mockResolvedValueOnce([{ insertId: 55 }]);          // INSERT
+      query.mockResolvedValueOnce([[{ id: 55, descripcion: 'Rayón' }]]); // SELECT created
+
+      const req = mockReq({
+        params: { id: '7' },
+        body: { tipo: 'dano_exterior', gravedad: 'leve', descripcion: 'Rayón' },
+        user: { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      // El INSERT recibe asignacion_id=7 y responsable_user_id=9 (user_id de la asignación)
+      const insertCall = query.mock.calls.find(c => /INSERT INTO vehicle_incidencias/.test(c[0]));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toEqual([3, 7, 1, 9, 'dano_exterior', 'leve', 'Rayón']);
+    });
+
+    it('devuelve 404 si la asignación no existe', async () => {
+      query.mockResolvedValueOnce([[]]); // getAsignacionCompleta → vacío
+      const req = mockReq({
+        params: { id: '99' }, body: { descripcion: 'X' },
+        user: { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
     });
   });
 });

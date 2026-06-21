@@ -345,16 +345,23 @@ function TabIncidencias({ vehicleId }) {
 
               <p className="text-sm text-neutral-700">{inc.descripcion}</p>
 
-              {/* Responsable y trabajo */}
+              {/* Responsable y origen */}
               <div className="text-xs text-neutral-500 space-y-0.5">
                 {inc.trabajo && (
                   <p>
                     🚑 <Link to={`/trabajos/${inc.trabajo.id}`} className="text-primary-600 hover:underline">
                       {inc.trabajo.referencia || `Trabajo #${inc.trabajo.id}`}
                     </Link>
-                    {inc.trabajo.responsable_nombre && (
-                      <> · Responsable: <strong className="text-neutral-700">{inc.trabajo.responsable_nombre}</strong></>
-                    )}
+                  </p>
+                )}
+                {inc.asignacion_id && (
+                  <p>🔑 Detectada en la asignación #{inc.asignacion_id}</p>
+                )}
+                {inc.responsable && (
+                  <p>
+                    Responsable: <strong className="text-neutral-700">
+                      {inc.responsable.nombre} {inc.responsable.apellidos}
+                    </strong>
                   </p>
                 )}
                 <p>Reportado por: {inc.reportado_por?.nombre} {inc.reportado_por?.apellidos}</p>

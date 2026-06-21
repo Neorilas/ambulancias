@@ -472,6 +472,64 @@ async function uploadEvidencia(req, res, next) {
   }
 }
 
+// ============================================================
+// POST /asignaciones/:id/incidencias
+// Registra una incidencia detectada al revisar la asignación.
+// Queda vinculada al vehículo, a ESTA asignación y al técnico
+// responsable de la misma (no al responsable actual del vehículo).
+// ============================================================
+async function crearIncidenciaDesdeAsignacion(req, res, next) {
+  try {
+    const asig = await getAsignacionCompleta(req.params.id);
+    if (!asig) return notFound(res, 'Asignación');
+
+    const { tipo, gravedad, descripcion } = req.body;
+    if (!descripcion || !descripcion.trim()) {
+      return error(res, 'Descripción requerida', 400);
+    }
+
+    const [result] = await query(
+      `INSERT INTO vehicle_incidencias
+         (vehicle_id, trabajo_id, asignacion_id, reported_by, responsable_user_id,
+          tipo, gravedad, descripcion)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
+      [
+        asig.vehicle_id,
+        asig.id,
+        req.user.id,
+        asig.user_id, // técnico responsable EN esta asignación
+        tipo     || 'dano_exterior',
+        gravedad || 'leve',
+        descripcion.trim(),
+      ]
+    );
+
+    const [created_row] = await query(
+      'SELECT * FROM vehicle_incidencias WHERE id = ?', [result.insertId]
+    );
+
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_incidencia',
+      entityType: 'vehicle', entityId: asig.vehicle_id,
+      details:  {
+        asignacion_id: asig.id,
+        vehiculo:      asig.matricula,
+        responsable:   asig.responsable_username,
+        tipo:          tipo || 'dano_exterior',
+        gravedad:      gravedad || 'leve',
+        descripcion:   descripcion.trim(),
+      },
+      ip: req.ip,
+    });
+
+    return created(res, created_row[0], 'Incidencia registrada y asignada al responsable');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listAsignaciones,
   getAsignacion,
@@ -481,4 +539,5 @@ module.exports = {
   activarAsignacion,
   finalizarAsignacion,
   uploadEvidencia,
+  crearIncidenciaDesdeAsignacion,
 };

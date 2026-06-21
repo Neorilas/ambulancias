@@ -165,26 +165,58 @@ async function startServer() {
       await dbRun(`INSERT INTO schema_migrations (name) VALUES ('v10_baseline_vehiculos')`);
       logger.info('Migration v10 (baseline solo-vehículos) aplicada por primera vez');
     }
+
+    // Migration v11 — Incidencias vinculadas a asignación + técnico responsable.
+    const ensureColumn = async (table, column, alterSql) => {
+      const [rows] = await dbRun(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+        [table, column]
+      );
+      if (rows[0].c === 0) await dbRun(alterSql);
+    };
+    await ensureColumn('vehicle_incidencias', 'asignacion_id',
+      `ALTER TABLE vehicle_incidencias
+         ADD COLUMN asignacion_id INT UNSIGNED NULL DEFAULT NULL AFTER trabajo_id,
+         ADD INDEX idx_vinc_asignacion (asignacion_id),
+         ADD CONSTRAINT fk_vinc_asignacion FOREIGN KEY (asignacion_id)
+           REFERENCES asignaciones_libres(id) ON DELETE SET NULL`);
+    await ensureColumn('vehicle_incidencias', 'responsable_user_id',
+      `ALTER TABLE vehicle_incidencias
+         ADD COLUMN responsable_user_id INT UNSIGNED NULL DEFAULT NULL AFTER reported_by,
+         ADD INDEX idx_vinc_responsable (responsable_user_id),
+         ADD CONSTRAINT fk_vinc_responsable FOREIGN KEY (responsable_user_id)
+           REFERENCES users(id) ON DELETE SET NULL`);
+    logger.info('Migration v11 (incidencias asignación/responsable) verificada');
   } catch (err) {
-    logger.warn('Migration v9/v10 skip:', err.message);
+    logger.warn('Migration v9/v10/v11 skip:', err.message);
   }
 
-  // Cron: auto-activar trabajos programados cuya fecha_inicio ya pasó
+  // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
   const { query: dbQuery } = require('./src/config/database');
-  setInterval(async () => {
+  const autoActivar = async () => {
     try {
-      const [result] = await dbQuery(
+      const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
          WHERE estado = 'programado' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
       );
-      if (result.affectedRows > 0) {
-        logger.info(`Auto-activados ${result.affectedRows} trabajo(s) programados`);
+      if (trab.affectedRows > 0) {
+        logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) programados`);
+      }
+      const [asig] = await dbQuery(
+        `UPDATE asignaciones_libres SET estado = 'activa'
+         WHERE estado = 'programada' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+      );
+      if (asig.affectedRows > 0) {
+        logger.info(`Auto-activadas ${asig.affectedRows} asignación(es) programadas`);
       }
     } catch (err) {
       logger.error('Error en cron auto-activar:', err.message);
     }
-  }, 5 * 60 * 1000); // cada 5 minutos
-  logger.info('Cron auto-activación de trabajos iniciado (cada 5 min)');
+  };
+  autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
+  setInterval(autoActivar, 60 * 1000); // y luego cada minuto
+  logger.info('Cron auto-activación de trabajos y asignaciones iniciado (cada 1 min)');
 }
 
 // Manejo de errores no capturados

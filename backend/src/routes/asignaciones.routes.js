@@ -86,6 +86,19 @@ router.post('/:id/finalizar',
   ctrl.finalizarAsignacion
 );
 
+// POST /asignaciones/:id/incidencias  (admin/gestor: registrar incidencia al revisar)
+router.post('/:id/incidencias',
+  requirePermission(PERMISSIONS.MANAGE_INCIDENCIAS),
+  [
+    param('id').isInt({ min: 1 }),
+    body('descripcion').trim().notEmpty().withMessage('Descripción requerida'),
+    body('tipo').optional().isIn(['dano_exterior','dano_interior','mecanico','fluido','electrico','otro']),
+    body('gravedad').optional().isIn(['leve','moderado','grave']),
+  ],
+  handleValidation,
+  ctrl.crearIncidenciaDesdeAsignacion
+);
+
 // POST /asignaciones/:id/evidencias  (multer → processAndSave → controller)
 router.post('/:id/evidencias',
   uploadLimiter,
