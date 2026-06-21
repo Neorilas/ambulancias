@@ -13,6 +13,7 @@ const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, PERMISS
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
+const { logAudit }               = require('./admin.controller');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -177,6 +178,14 @@ async function createAsignacion(req, res, next) {
     );
 
     const asig = await getAsignacionCompleta(result.insertId);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'create_asignacion',
+      entityType: 'asignacion', entityId: asig.id,
+      details:  { vehiculo: asig.matricula, responsable: asig.responsable_username },
+      ip: req.ip,
+    });
     return created(res, asig, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
@@ -258,6 +267,13 @@ async function deleteAsignacion(req, res, next) {
       [rows[0].id]
     );
 
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'delete_asignacion',
+      entityType: 'asignacion', entityId: rows[0].id,
+      ip: req.ip,
+    });
     return success(res, null, 'Asignación eliminada');
   } catch (err) {
     next(err);
@@ -287,6 +303,14 @@ async function activarAsignacion(req, res, next) {
       ['activa', asig.id]
     );
 
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'activate_asignacion',
+      entityType: 'asignacion', entityId: asig.id,
+      details:  { vehiculo: asig.matricula },
+      ip: req.ip,
+    });
     const updated = await getAsignacionCompleta(asig.id);
     return success(res, updated, 'Asignación activada');
   } catch (err) {
@@ -356,6 +380,14 @@ async function finalizarAsignacion(req, res, next) {
       [km_fin || null, motivo_fin || null, req.user.id, asig.id]
     );
 
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'finalize_asignacion',
+      entityType: 'asignacion', entityId: asig.id,
+      details:  { vehiculo: asig.matricula, km_fin: km_fin || null, anticipada: esAnticipada, motivo_fin: motivo_fin || null },
+      ip: req.ip,
+    });
     const updated = await getAsignacionCompleta(asig.id);
     return success(res, updated, 'Asignación finalizada correctamente');
   } catch (err) {

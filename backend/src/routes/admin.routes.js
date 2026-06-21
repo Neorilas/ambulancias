@@ -22,11 +22,16 @@ router.use(requireSuperAdmin);
 // GET /admin/stats
 router.get('/stats', ctrl.getAdminStats);
 
+// GET /admin/audit/users  — usuarios con actividad (para el filtro)
+router.get('/audit/users', ctrl.listAuditUsers);
+
 // GET /admin/audit?page=&action=&user_id=&desde=&hasta=
 router.get('/audit',
   [
     queryParam('page').optional().isInt({ min: 1 }),
     queryParam('limit').optional().isInt({ min: 1, max: 200 }),
+    queryParam('user_id').optional().isInt({ min: 1 }),
+    queryParam('action').optional().isString(),
     queryParam('desde').optional().isISO8601(),
     queryParam('hasta').optional().isISO8601(),
   ],

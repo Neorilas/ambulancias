@@ -114,6 +114,26 @@ async function listErrorLogs(req, res, next) {
 }
 
 // ============================================================
+// GET /admin/audit/users  — usuarios con actividad auditada
+// Para poblar el filtro "por usuario" del historial.
+// ============================================================
+async function listAuditUsers(req, res, next) {
+  try {
+    const [rows] = await query(
+      `SELECT user_id,
+              SUBSTRING_INDEX(MAX(CONCAT(created_at, '||', user_info)), '||', -1) AS user_info,
+              COUNT(*)        AS total,
+              MAX(created_at) AS last_action
+       FROM audit_logs
+       WHERE user_id IS NOT NULL
+       GROUP BY user_id
+       ORDER BY last_action DESC`
+    );
+    return success(res, rows);
+  } catch (err) { next(err); }
+}
+
+// ============================================================
 // GET /admin/stats  — resumen rápido para el panel
 // ============================================================
 async function getAdminStats(req, res, next) {
@@ -132,7 +152,7 @@ async function getAdminStats(req, res, next) {
        GROUP BY action ORDER BY total DESC LIMIT 5`
     );
     const [topUsers] = await query(
-      `SELECT user_info, COUNT(*) AS total
+      `SELECT user_id, user_info, COUNT(*) AS total
        FROM audit_logs WHERE user_id IS NOT NULL
        GROUP BY user_id, user_info ORDER BY total DESC LIMIT 5`
     );
@@ -148,4 +168,4 @@ async function getAdminStats(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { logAudit, logError, listAuditLogs, listErrorLogs, getAdminStats };
+module.exports = { logAudit, logError, listAuditLogs, listAuditUsers, listErrorLogs, getAdminStats };

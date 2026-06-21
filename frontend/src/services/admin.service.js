@@ -7,6 +7,9 @@ export const adminService = {
   listAudit(params = {}) {
     return api.get('/admin/audit', { params }).then(r => r.data);
   },
+  listAuditUsers() {
+    return api.get('/admin/audit/users').then(r => r.data.data);
+  },
   listErrors(params = {}) {
     return api.get('/admin/errors', { params }).then(r => r.data);
   },

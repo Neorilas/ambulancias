@@ -19,11 +19,17 @@ import { formatDateTime } from '../utils/dateUtils.js';
 const ACTION_ICON = {
   login:               '🔐',
   logout:              '🚪',
+  access_denied:       '🚫',
+  toggle_feature:      '⚙️',
   create_trabajo:      '➕',
   update_trabajo:      '✏️',
   delete_trabajo:      '🗑️',
   finalize_trabajo:    '✅',
   activate_trabajo:    '▶️',
+  create_asignacion:   '🔑',
+  activate_asignacion: '▶️',
+  finalize_asignacion: '🏁',
+  delete_asignacion:   '🗑️',
   create_vehicle:      '🚐',
   update_vehicle:      '✏️',
   delete_vehicle:      '🗑️',
@@ -33,11 +39,42 @@ const ACTION_ICON = {
   create_user:         '👤',
   update_user:         '✏️',
   delete_user:         '🗑️',
-  access_denied:       '🚫',
+  reset_password:      '🔒',
+};
+
+// Texto legible en español para cada acción registrada
+const ACTION_LABEL = {
+  login:               'Inició sesión',
+  logout:              'Cerró sesión',
+  access_denied:       'Acceso denegado',
+  toggle_feature:      'Cambió una funcionalidad',
+  create_trabajo:      'Creó un trabajo',
+  update_trabajo:      'Editó un trabajo',
+  delete_trabajo:      'Eliminó un trabajo',
+  finalize_trabajo:    'Finalizó un trabajo',
+  activate_trabajo:    'Activó un trabajo',
+  create_asignacion:   'Creó una asignación',
+  activate_asignacion: 'Activó una asignación',
+  finalize_asignacion: 'Finalizó una asignación',
+  delete_asignacion:   'Eliminó una asignación',
+  create_vehicle:      'Creó un vehículo',
+  update_vehicle:      'Editó un vehículo',
+  delete_vehicle:      'Eliminó un vehículo',
+  create_incidencia:   'Registró una incidencia',
+  update_incidencia:   'Actualizó una incidencia',
+  create_revision:     'Registró una revisión',
+  create_user:         'Creó un usuario',
+  update_user:         'Editó un usuario',
+  delete_user:         'Eliminó un usuario',
+  reset_password:      'Reseteó una contraseña',
 };
 
 function actionIcon(action) {
   return ACTION_ICON[action] || '📝';
+}
+
+function actionLabel(action) {
+  return ACTION_LABEL[action] || action;
 }
 
 // ── StatCard ──────────────────────────────────────────────────────────────────
@@ -70,7 +107,7 @@ function DateFilter({ desde, hasta, onDesde, onHasta, onReset }) {
 }
 
 // ── Tab Auditoría ─────────────────────────────────────────────────────────────
-function TabAuditoria() {
+function TabAuditoria({ initialUserId = '' }) {
   const { notify } = useNotification();
   const [logs,    setLogs]    = useState([]);
   const [total,   setTotal]   = useState(0);
@@ -78,12 +115,25 @@ function TabAuditoria() {
   const [loading, setLoading] = useState(false);
   const [desde,   setDesde]   = useState('');
   const [hasta,   setHasta]   = useState('');
+  const [userId,  setUserId]  = useState(initialUserId ? String(initialUserId) : '');
+  const [action,  setAction]  = useState('');
+  const [users,   setUsers]   = useState([]);
+
+  // Lista de usuarios con actividad (para el desplegable de filtro)
+  useEffect(() => {
+    adminService.listAuditUsers().then(setUsers).catch(() => {});
+  }, []);
+
+  // Si llegamos con un usuario preseleccionado (clic desde "Resumen")
+  useEffect(() => { setUserId(initialUserId ? String(initialUserId) : ''); }, [initialUserId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await adminService.listAudit({
         page, limit: 30,
+        user_id: userId || undefined,
+        action:  action || undefined,
         desde: desde || undefined,
         hasta: hasta || undefined,
       });
@@ -91,23 +141,63 @@ function TabAuditoria() {
       setTotal(r.pagination?.total || 0);
     } catch { notify.error('Error al cargar auditoría'); }
     finally { setLoading(false); }
-  }, [page, desde, hasta]);
+  }, [page, userId, action, desde, hasta]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [desde, hasta]);
+  useEffect(() => { setPage(1); }, [userId, action, desde, hasta]);
 
   const totalPages = Math.ceil(total / 30);
+  const selectedUser = users.find(u => String(u.user_id) === userId);
+  const hasFilters = userId || action || desde || hasta;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <p className="text-sm text-neutral-500">{total} registro{total !== 1 ? 's' : ''}</p>
-        <DateFilter
-          desde={desde} hasta={hasta}
-          onDesde={setDesde} onHasta={setHasta}
-          onReset={() => { setDesde(''); setHasta(''); }}
-        />
+      {/* Filtros */}
+      <div className="card py-3 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-neutral-500 block mb-1">Usuario</label>
+            <select className="input text-sm py-1.5" value={userId} onChange={e => setUserId(e.target.value)}>
+              <option value="">Todos los usuarios</option>
+              {users.map(u => (
+                <option key={u.user_id} value={u.user_id}>
+                  {u.user_info} ({u.total})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-neutral-500 block mb-1">Acción</label>
+            <select className="input text-sm py-1.5" value={action} onChange={e => setAction(e.target.value)}>
+              <option value="">Todas las acciones</option>
+              {Object.entries(ACTION_LABEL).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <DateFilter
+            desde={desde} hasta={hasta}
+            onDesde={setDesde} onHasta={setHasta}
+            onReset={() => { setDesde(''); setHasta(''); }}
+          />
+          {hasFilters && (
+            <button
+              onClick={() => { setUserId(''); setAction(''); setDesde(''); setHasta(''); }}
+              className="btn-secondary text-xs py-1"
+            >
+              Quitar todos los filtros
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Cabecera de resultados */}
+      <p className="text-sm text-neutral-500">
+        {total} registro{total !== 1 ? 's' : ''}
+        {selectedUser && <span className="text-neutral-700 font-medium"> · {selectedUser.user_info}</span>}
+      </p>
 
       {loading ? <PageLoading /> : (
         <>
@@ -124,7 +214,7 @@ function TabAuditoria() {
                     <div className="flex items-center gap-2">
                       <span className="text-lg">{actionIcon(log.action)}</span>
                       <div>
-                        <span className="font-medium text-sm text-neutral-800">{log.action}</span>
+                        <span className="font-medium text-sm text-neutral-800">{actionLabel(log.action)}</span>
                         {log.entity_type && (
                           <span className="ml-2 text-xs text-neutral-400">
                             → {log.entity_type}
@@ -362,6 +452,10 @@ export default function AdminPanel() {
   const [tab,    setTab]    = useState('features');
   const [stats,  setStats]  = useState(null);
   const [loading, setLoading] = useState(false);
+  const [auditUserId, setAuditUserId] = useState('');
+
+  // Saltar al historial filtrado por un usuario concreto
+  const verUsuario = (userId) => { setAuditUserId(userId); setTab('auditoria'); };
 
   useEffect(() => {
     if (tab !== 'stats') return;
@@ -425,14 +519,20 @@ export default function AdminPanel() {
 
             {stats.top_users?.length > 0 && (
               <div className="card">
-                <h3 className="font-semibold text-neutral-800 mb-3">Usuarios más activos</h3>
-                <div className="space-y-2">
+                <h3 className="font-semibold text-neutral-800 mb-1">Usuarios más activos</h3>
+                <p className="text-xs text-neutral-400 mb-3">Toca un usuario para ver su historial detallado</p>
+                <div className="space-y-1">
                   {stats.top_users.map((u, i) => (
-                    <div key={i} className="flex items-center gap-3">
+                    <button
+                      key={i}
+                      onClick={() => verUsuario(u.user_id)}
+                      className="w-full flex items-center gap-3 text-left px-2 py-1.5 -mx-2 rounded-lg hover:bg-neutral-50 transition-colors"
+                    >
                       <span className="text-sm font-mono text-neutral-400 w-5 text-right">{i + 1}.</span>
                       <span className="text-sm text-neutral-700 flex-1">{u.user_info}</span>
                       <span className="font-semibold text-sm text-neutral-900">{u.total} acciones</span>
-                    </div>
+                      <span className="text-xs text-primary-600 flex-shrink-0">Ver →</span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -442,7 +542,7 @@ export default function AdminPanel() {
       )}
 
       {tab === 'features'  && <TabFuncionalidades />}
-      {tab === 'auditoria' && <TabAuditoria />}
+      {tab === 'auditoria' && <TabAuditoria initialUserId={auditUserId} />}
       {tab === 'errores'   && <TabErrores />}
     </div>
   );
