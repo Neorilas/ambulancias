@@ -18,7 +18,17 @@ const {
   misTrab, activarTrabajo,
 } = require('../../../controllers/trabajos.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
-const { IMAGEN_TIPOS_REQUERIDOS } = require('../../../config/constants');
+const { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
+  require('../../../config/constants');
+
+// Filas de vehicle_images que cubren TODAS las fotos requeridas de inicio y fin,
+// cada una con su `momento` (lo que finalizeTrabajo usa para validar evidencias).
+function evidenciaCompletaRows() {
+  return [
+    ...IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' })),
+    ...IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' })),
+  ];
+}
 
 // Helper to mock getTrabajoCompleto (4 queries, all destructured)
 function mockGetTrabajoCompleto(trabajo = {}) {
@@ -35,7 +45,10 @@ function mockGetTrabajoCompleto(trabajo = {}) {
 }
 
 describe('trabajos.controller', () => {
-  beforeEach(() => jest.clearAllMocks());
+  // clearAllMocks NO vacía la cola de mockResolvedValueOnce; mockReset sí.
+  // Sin esto, los valores encolados y no consumidos por un test se filtran al
+  // siguiente y corrompen sus resultados de `query`.
+  beforeEach(() => { jest.clearAllMocks(); query.mockReset(); transaction.mockReset(); });
 
   // ── listTrabajos ───────────────────────────────────────
   describe('listTrabajos', () => {
@@ -336,9 +349,8 @@ describe('trabajos.controller', () => {
       query.mockResolvedValueOnce([[
         { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 2 },
       ]]);
-      // evidence check for vehicle 1
-      const allTipos = IMAGEN_TIPOS_REQUERIDOS.map(t => ({ tipo_imagen: t }));
-      query.mockResolvedValueOnce([allTipos]);
+      // evidence check for vehicle 1 — evidencias completas (inicio + fin)
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
       // transaction
       transaction.mockImplementation(async (cb) => {
         const conn = { execute: jest.fn().mockResolvedValue([]) };
@@ -424,9 +436,8 @@ describe('trabajos.controller', () => {
       query.mockResolvedValueOnce([[
         { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 1 },
       ]]);
-      // All evidence provided
-      const allTipos = IMAGEN_TIPOS_REQUERIDOS.map(t => ({ tipo_imagen: t }));
-      query.mockResolvedValueOnce([allTipos]);
+      // All evidence provided → debe fallar por los km, no por las fotos
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
 
       const res = mockRes();
       await finalizeTrabajo(mockReq({
@@ -442,8 +453,7 @@ describe('trabajos.controller', () => {
       query.mockResolvedValueOnce([[
         { id: 1, estado: 'activo', fecha_fin: futureDate, vehicle_id: 1, responsable_user_id: 1 },
       ]]);
-      const allTipos = IMAGEN_TIPOS_REQUERIDOS.map(t => ({ tipo_imagen: t }));
-      query.mockResolvedValueOnce([allTipos]);
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
       transaction.mockImplementation(async (cb) => {
         const conn = { execute: jest.fn().mockResolvedValue([]) };
         return cb(conn);

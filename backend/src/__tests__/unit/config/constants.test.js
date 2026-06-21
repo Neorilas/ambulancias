@@ -12,10 +12,21 @@ describe('constants', () => {
     expect(constants.ROLES.MEDICO).toBe('medico');
   });
 
-  it('IMAGEN_TIPOS_REQUERIDOS is a subset of IMAGEN_TIPOS', () => {
+  it('IMAGEN_TIPOS_REQUERIDOS is a non-empty subset of IMAGEN_TIPOS', () => {
     for (const tipo of constants.IMAGEN_TIPOS_REQUERIDOS) {
       expect(constants.IMAGEN_TIPOS).toContain(tipo);
     }
-    expect(constants.IMAGEN_TIPOS_REQUERIDOS).toHaveLength(6);
+    expect(constants.IMAGEN_TIPOS_REQUERIDOS.length).toBeGreaterThan(0);
+  });
+
+  it('IMAGEN_TIPOS_INICIO y IMAGEN_TIPOS_FIN son subconjuntos no vacíos de IMAGEN_TIPOS', () => {
+    for (const tipo of constants.IMAGEN_TIPOS_INICIO) {
+      expect(constants.IMAGEN_TIPOS).toContain(tipo);
+    }
+    for (const tipo of constants.IMAGEN_TIPOS_FIN) {
+      expect(constants.IMAGEN_TIPOS).toContain(tipo);
+    }
+    expect(constants.IMAGEN_TIPOS_INICIO.length).toBeGreaterThan(0);
+    expect(constants.IMAGEN_TIPOS_FIN.length).toBeGreaterThan(0);
   });
 });
