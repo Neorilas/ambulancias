@@ -18,7 +18,17 @@ const {
   crearIncidenciaDesdeAsignacion,
 } = require('../../../controllers/asignaciones.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
-const { IMAGEN_TIPOS_REQUERIDOS } = require('../../../config/constants');
+const { IMAGEN_TIPOS_REQUERIDOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
+  require('../../../config/constants');
+
+// Filas de getProgreso que cubren TODAS las fotos requeridas de inicio y fin,
+// cada una con su `momento` (lo que getProgreso usa para calcular `completo`).
+function progresoCompletoRows() {
+  return [
+    ...IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' })),
+    ...IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' })),
+  ];
+}
 
 // Helper: mock getAsignacionCompleta (main + evidencias + getProgreso)
 function mockAsignacionCompleta(overrides = {}) {
@@ -37,7 +47,10 @@ function mockAsignacionCompleta(overrides = {}) {
 }
 
 describe('asignaciones.controller', () => {
-  beforeEach(() => jest.clearAllMocks());
+  // clearAllMocks NO vacía la cola de mockResolvedValueOnce; mockReset sí.
+  // Sin esto, los valores encolados y no consumidos por un test se filtran al
+  // siguiente y corrompen sus resultados de `query`.
+  beforeEach(() => { jest.clearAllMocks(); query.mockReset(); });
 
   // ── listAsignaciones ───────────────────────────────────
   describe('listAsignaciones', () => {
@@ -319,9 +332,8 @@ describe('asignaciones.controller', () => {
     it('finalizes with complete evidence', async () => {
       // getAsignacionCompleta (past fecha_fin)
       mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
-      // getProgreso (called inside finalizarAsignacion)
-      const allTipos = IMAGEN_TIPOS_REQUERIDOS.map(t => ({ tipo_imagen: t }));
-      query.mockResolvedValueOnce([allTipos]);
+      // getProgreso (called inside finalizarAsignacion) — evidencias completas
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
       query.mockResolvedValueOnce([]); // UPDATE
       mockAsignacionCompleta({ estado: 'finalizada' });
 
