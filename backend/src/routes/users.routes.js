@@ -8,7 +8,8 @@ const express  = require('express');
 const { body, param, query } = require('express-validator');
 const ctrl     = require('../controllers/users.controller');
 const { authenticate }       = require('../middleware/auth.middleware');
-const { requireAdminOrGestor, requireAdmin } = require('../middleware/roles.middleware');
+const { requireAdminOrGestor, requireAdmin, requireRole } = require('../middleware/roles.middleware');
+const { ROLES }              = require('../config/constants');
 const { handleValidation }   = require('../middleware/validate.middleware');
 
 const router = express.Router();
@@ -76,6 +77,18 @@ router.put('/:id',
   ],
   handleValidation,
   ctrl.updateUser
+);
+
+// POST /users/:id/reset-password  - resetear contraseña (admin o superadmin)
+router.post('/:id/reset-password',
+  requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN),
+  [
+    param('id').isInt({ min: 1 }).withMessage('ID inválido'),
+    body('password').optional({ nullable: true }).isString()
+      .isLength({ min: 8 }).withMessage('Mínimo 8 caracteres'),
+  ],
+  handleValidation,
+  ctrl.resetPassword
 );
 
 // DELETE /users/:id  - soft delete (solo admin)

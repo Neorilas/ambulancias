@@ -6,11 +6,11 @@
 'use strict';
 
 const { query, transaction }          = require('../config/database');
-const { hashPassword, validatePasswordStrength } = require('../utils/password.utils');
+const { hashPassword, validatePasswordStrength, generatePassword } = require('../utils/password.utils');
 const { success, created, error, notFound, forbidden, paginated, validationError } =
   require('../utils/response.utils');
 const { ROLES, PAGINATION }           = require('../config/constants');
-const { isAdmin }                     = require('../middleware/roles.middleware');
+const { isAdmin, isSuperAdmin }       = require('../middleware/roles.middleware');
 const { logAudit }                    = require('./admin.controller');
 
 // ============================================================
@@ -292,6 +292,72 @@ async function updateUser(req, res, next) {
 }
 
 // ============================================================
+// POST /users/:id/reset-password
+// Resetea la contraseña de un usuario (admin o superadmin).
+// Si no se envía `password`, se genera una segura y se devuelve en claro
+// para que el administrador pueda comunicársela al usuario.
+// Revoca las sesiones activas para forzar un nuevo login.
+// ============================================================
+async function resetPassword(req, res, next) {
+  try {
+    const targetId = parseInt(req.params.id);
+    const caller   = req.user;
+
+    const [existing] = await query(
+      `SELECT u.id, u.username, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id
+       LEFT JOIN roles r ON ur.role_id = r.id
+       WHERE u.id = ? AND u.deleted_at IS NULL
+       GROUP BY u.id`,
+      [targetId]
+    );
+    if (!existing.length) return notFound(res, 'Usuario');
+
+    const targetRoles = existing[0].roles ? existing[0].roles.split(',') : [];
+
+    // Solo un superadmin puede resetear la contraseña de otro superadmin
+    if (targetRoles.includes(ROLES.SUPERADMIN) && !isSuperAdmin(caller)) {
+      return forbidden(res, 'Solo un superadministrador puede resetear a otro superadministrador');
+    }
+
+    // Contraseña: la indicada o una generada automáticamente
+    const provided  = typeof req.body.password === 'string' && req.body.password.length
+      ? req.body.password
+      : null;
+    if (provided) {
+      const { valid, errors: pwErrors } = validatePasswordStrength(provided);
+      if (!valid) return validationError(res, pwErrors.map(e => ({ field: 'password', message: e })));
+    }
+    const newPassword = provided || generatePassword();
+    const passwordHash = await hashPassword(newPassword);
+
+    await transaction(async (conn) => {
+      await conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, targetId]);
+      // Revocar tokens activos: el usuario tendrá que volver a iniciar sesión
+      await conn.execute(
+        'UPDATE refresh_tokens SET revoked = 1, revoked_at = NOW() WHERE user_id = ? AND revoked = 0',
+        [targetId]
+      );
+    });
+
+    logAudit({
+      userId:   caller.id,
+      userInfo: caller.username,
+      action:   'reset_password',
+      entityType: 'user', entityId: targetId,
+      details:  { target_username: existing[0].username, generated: !provided },
+      ip: req.ip,
+    });
+
+    // Devolvemos la contraseña en claro SOLO en esta respuesta (no se almacena).
+    return success(res, { password: newPassword }, 'Contraseña reseteada correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // DELETE /users/:id  (soft delete - solo admin)
 // ============================================================
 async function deleteUser(req, res, next) {
@@ -368,4 +434,4 @@ async function createRole(req, res, next) {
   }
 }
 
-module.exports = { listUsers, getUser, createUser, updateUser, deleteUser, listRoles, createRole };
+module.exports = { listUsers, getUser, createUser, updateUser, deleteUser, resetPassword, listRoles, createRole };

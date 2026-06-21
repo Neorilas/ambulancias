@@ -16,6 +16,9 @@ export const usersService = {
   delete(id) {
     return api.delete(`/users/${id}`).then(r => r.data);
   },
+  resetPassword(id, data = {}) {
+    return api.post(`/users/${id}/reset-password`, data).then(r => r.data.data);
+  },
   listRoles() {
     return api.get('/users/roles').then(r => r.data.data);
   },

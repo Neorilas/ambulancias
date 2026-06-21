@@ -6,6 +6,7 @@
 'use strict';
 
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 
@@ -41,4 +42,23 @@ function validatePasswordStrength(password) {
   return { valid: errors.length === 0, errors };
 }
 
-module.exports = { hashPassword, comparePassword, validatePasswordStrength };
+/**
+ * Genera una contraseña aleatoria segura (mayúscula, minúscula, dígito y
+ * carácter especial garantizados). Se excluyen caracteres ambiguos (0/O, 1/l/I)
+ * para facilitar su lectura/comunicación. Cumple validatePasswordStrength.
+ * @returns {string}
+ */
+function generatePassword() {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digit = '23456789';
+  const spec  = '!@#$%&*.';
+  const all   = upper + lower + digit + spec;
+  const pick  = set => set[crypto.randomInt(set.length)];
+  let pw = pick(upper) + pick(lower) + pick(digit) + pick(spec);
+  for (let i = 0; i < 8; i++) pw += pick(all);
+  // Mezclar para que las clases garantizadas no queden siempre al principio
+  return pw.split('').sort(() => crypto.randomInt(3) - 1).join('');
+}
+
+module.exports = { hashPassword, comparePassword, validatePasswordStrength, generatePassword };

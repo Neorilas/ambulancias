@@ -6,10 +6,13 @@ import { ActiveBadge, RolBadge } from '../../components/common/StatusBadge.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import UserForm from './UserForm.jsx';
+import ResetPasswordModal from './ResetPasswordModal.jsx';
 
 export default function UserList() {
-  const { isAdmin, canDeleteAny } = useAuth();
+  const { isAdmin, isSuperAdmin, canDeleteAny } = useAuth();
   const { notify } = useNotification();
+
+  const canResetPassword = isAdmin() || isSuperAdmin();
 
   const [users,      setUsers]      = useState([]);
   const [pagination, setPagination] = useState(null);
@@ -18,6 +21,7 @@ export default function UserList() {
   const [loading,    setLoading]    = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [editUser,   setEditUser]   = useState(null);
+  const [resetUser,  setResetUser]  = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
 
@@ -128,6 +132,14 @@ export default function UserList() {
                         >
                           Editar
                         </button>
+                        {canResetPassword && (
+                          <button
+                            onClick={() => setResetUser(u)}
+                            className="btn-ghost text-xs px-2 py-1 text-amber-600 hover:bg-amber-50"
+                          >
+                            Resetear clave
+                          </button>
+                        )}
                         {canDeleteAny() && (
                           <button
                             onClick={() => setDeleteId(u.id)}
@@ -172,6 +184,14 @@ export default function UserList() {
           user={editUser}
           onSaved={handleFormSaved}
           onClose={() => { setShowForm(false); setEditUser(null); }}
+        />
+      )}
+
+      {/* Modal de reseteo de contraseña */}
+      {resetUser && (
+        <ResetPasswordModal
+          user={resetUser}
+          onClose={() => setResetUser(null)}
         />
       )}
 
