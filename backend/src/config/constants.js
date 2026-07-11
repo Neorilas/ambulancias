@@ -42,15 +42,18 @@ module.exports = {
   // Momentos posibles
   IMAGEN_MOMENTOS: ['inicio', 'fin', 'general'],
   // Fotos obligatorias al ASIGNARSE el vehículo (momento = 'inicio')
+  // Revisión mecánica (aceite, líquidos, cuadro) + estado exterior (4 caras).
   IMAGEN_TIPOS_INICIO: [
     'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
-    'nivel_aceite', 'nivel_liquidos_general',
+    'nivel_aceite', 'nivel_liquidos_general', 'cuentakilometros',
   ],
   // Fotos obligatorias al FINALIZAR (momento = 'fin')
   IMAGEN_TIPOS_FIN: [
     'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
     'cuentakilometros',
   ],
+  // Fotos opcionales de incidencia/observación (momento = 'general'); no bloquean
+  IMAGEN_TIPOS_GENERAL: ['danos'],
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

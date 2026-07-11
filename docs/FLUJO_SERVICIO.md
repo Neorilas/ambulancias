@@ -98,8 +98,15 @@ La funcionalidad ya existe como **"asignaciones libres"** (`asignaciones_libres`
 6. **Orden de fotos:** libre ("indistintamente") para las exteriores.
 
 ### Estado de implementación
-- ✅ **Fase 1-2 (parcial, este commit):** columna `inicio_real_at` + registro de hora real al activar; el **responsable** puede registrar incidencias en su propia asignación.
-- ⏳ **Pendiente:** wizard de inicio por pasos, añadir `cuentakilometros` al set de inicio, checklist de revisión (necesita los puntos de Q4).
+- ✅ **Fase 1-2:** columna `inicio_real_at` + registro de hora real al activar; el **responsable** puede registrar incidencias en su propia asignación.
+- ✅ **Fase 3 (wizard de inicio):** `InicioAsignacion.jsx` es ahora un **wizard por secciones** (`SECCIONES` configurable, extensible al futuro menú "estado de vehículo / material / …"):
+  1. **Inicio de servicio** — botón que activa y sella la hora real (idempotente; funciona aunque el cron ya la haya activado).
+  2. **Revisión mecánica** — aceite, líquidos, cuadro (`cuentakilometros` añadido al set de inicio → 7 fotos).
+  3. **Estado exterior** — 4 caras, orden libre.
+  4. **Incidencias** — "No hay incidencias" / reportar: fotos (momento `general`, tipo `danos`) + observaciones → crea incidencia real (Q5).
+- ⏳ **Pendiente:** menú de secciones adicionales (material, etc.) que definirá el cliente; checklist con checks OK-por-defecto (Q4); ajustar el flujo de cierre a la nueva estructura.
+
+> **Nota de arquitectura:** el wizard se construyó sobre `const SECCIONES = [...]`. Añadir una sección nueva (p. ej. "material") es agregar una entrada con `tipo: 'photos'` (o un nuevo `tipo`) sin tocar el resto del flujo.
 
 ---
 

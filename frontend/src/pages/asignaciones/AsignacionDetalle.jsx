@@ -119,13 +119,19 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <p className="text-neutral-500 text-xs">@{asig.responsable_username}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Inicio</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
               </div>
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Fin</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_fin)}</p>
               </div>
+              {asig.inicio_real_at && (
+                <div>
+                  <p className="text-neutral-400 text-xs mb-0.5">Inicio real de servicio</p>
+                  <p className="text-neutral-900">{formatDateTime(asig.inicio_real_at)}</p>
+                </div>
+              )}
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Km inicio</p>
                 <p className="text-neutral-900">{asig.km_inicio != null ? `${asig.km_inicio.toLocaleString()} km` : '—'}</p>
@@ -157,7 +163,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                     <p className="font-semibold text-amber-900 text-sm">Faltan fotos de inicio</p>
                     <p className="text-xs text-amber-800 mt-0.5">
                       Antes de poder finalizar, documenta el estado del vehículo al recibirlo
-                      ({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 6}).
+                      ({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}).
                     </p>
                   </div>
                   <button
@@ -244,7 +250,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   Fotos al recibir el vehículo
                 </h3>
                 <span className={`text-xs font-medium ${asig.progreso?.inicio?.completo ? 'text-green-600' : 'text-amber-600'}`}>
-                  {asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 6}
+                  {asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">

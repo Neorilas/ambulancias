@@ -22,11 +22,11 @@ describe('constants', () => {
     expect(TRABAJO_ESTADOS.FINALIZADO).toBe('finalizado');
   });
 
-  it('exports IMAGEN_TIPOS_INICIO with the 6 required start-photos', () => {
+  it('exports IMAGEN_TIPOS_INICIO with the 7 required start-photos (mecánica + exterior)', () => {
     expect(Array.isArray(IMAGEN_TIPOS_INICIO)).toBe(true);
     expect(IMAGEN_TIPOS_INICIO.map(t => t.key)).toEqual([
       'frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho',
-      'nivel_aceite', 'nivel_liquidos_general',
+      'nivel_aceite', 'nivel_liquidos_general', 'cuentakilometros',
     ]);
   });
 

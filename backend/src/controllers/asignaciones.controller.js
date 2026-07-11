@@ -8,7 +8,7 @@
 const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
-const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, PERMISSIONS } =
+const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS } =
   require('../config/constants');
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
@@ -291,11 +291,14 @@ async function activarAsignacion(req, res, next) {
 
     // Solo el responsable o admin/gestor pueden activar
     if (!canManage && asig.user_id !== req.user.id) {
-      return forbidden(res, 'Solo el responsable puede activar esta asignación');
+      return forbidden(res, 'Solo el responsable puede iniciar esta asignación');
     }
 
-    if (asig.estado !== 'programada') {
-      return error(res, `Solo se puede activar una asignación programada (estado actual: ${asig.estado})`, 400);
+    // "Inicio de servicio": sella la hora real. Es idempotente y funciona
+    // aunque el cron ya la haya pasado a 'activa' (inicio_real_at seguiría NULL
+    // hasta que el responsable pulse el botón).
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede iniciar una asignación en estado "${asig.estado}"`, 400);
     }
 
     await query(
@@ -421,10 +424,12 @@ async function uploadEvidencia(req, res, next) {
     const momento = req.body.momento || 'fin';
     const imageUrl = req.processedFile.url;
 
-    if (!['inicio', 'fin'].includes(momento)) {
-      return error(res, 'momento debe ser "inicio" o "fin"', 400);
+    if (!['inicio', 'fin', 'general'].includes(momento)) {
+      return error(res, 'momento debe ser "inicio", "fin" o "general"', 400);
     }
-    const listaValida = momento === 'inicio' ? IMAGEN_TIPOS_INICIO : IMAGEN_TIPOS_FIN;
+    const listaValida = momento === 'inicio' ? IMAGEN_TIPOS_INICIO
+                      : momento === 'fin'    ? IMAGEN_TIPOS_FIN
+                      : IMAGEN_TIPOS_GENERAL;
     if (!listaValida.includes(tipo_imagen)) {
       return error(res,
         `tipo_imagen "${tipo_imagen}" no es válido para momento="${momento}". Válidos: ${listaValida.join(', ')}`,
@@ -432,8 +437,9 @@ async function uploadEvidencia(req, res, next) {
       );
     }
 
-    // Si ya existe una foto del mismo tipo+momento para esta asignación, reemplazarla
-    const [existing] = await query(
+    // Las fotos 'general' (incidencias/observaciones) son acumulables: no se
+    // reemplazan entre sí. El resto (inicio/fin) es único por tipo+momento.
+    const [existing] = momento === 'general' ? [[]] : await query(
       `SELECT id, image_url FROM vehicle_images
        WHERE asignacion_id = ? AND tipo_imagen = ? AND momento = ?`,
       [asig.id, tipo_imagen, momento]

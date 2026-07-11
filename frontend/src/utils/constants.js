@@ -44,7 +44,7 @@ const NIVELES_LIQUIDOS_LEGACY = { key: 'niveles_liquidos',   label: 'Niveles (le
 // Fotos de INICIO — cuando te asignan el vehículo
 export const IMAGEN_TIPOS_INICIO = [
   FRONTAL, LATERAL_IZQUIERDO, TRASERA, LATERAL_DERECHO,
-  NIVEL_ACEITE, NIVEL_LIQUIDOS,
+  NIVEL_ACEITE, NIVEL_LIQUIDOS, CUENTAKILOMETROS,
 ];
 
 // Fotos de FIN — al finalizar el trabajo/asignación
@@ -52,6 +52,13 @@ export const IMAGEN_TIPOS_FIN = [
   FRONTAL, LATERAL_IZQUIERDO, TRASERA, LATERAL_DERECHO,
   CUENTAKILOMETROS,
 ];
+
+// Subconjuntos por sección del wizard de inicio
+export const IMAGEN_TIPOS_INICIO_MECANICA = [NIVEL_ACEITE, NIVEL_LIQUIDOS, CUENTAKILOMETROS];
+export const IMAGEN_TIPOS_INICIO_EXTERIOR = [FRONTAL, LATERAL_IZQUIERDO, TRASERA, LATERAL_DERECHO];
+
+// Fotos de incidencia/observación (momento = 'general')
+export const IMAGEN_TIPOS_GENERAL = [DANOS];
 
 // Fotos opcionales fuera del flujo principal
 export const IMAGEN_TIPOS_OPCIONALES = [DANOS];

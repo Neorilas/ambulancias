@@ -304,8 +304,17 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    it('returns 400 for non-programada', async () => {
+    it('es idempotente: sella la hora aunque ya esté activa (200)', async () => {
       mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' });
+      const res = mockRes();
+      await activarAsignacion(mockReq({ params: { id: '1' }, user: { id: 2, roles: ['tecnico'], permissions: [] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 400 for finalizada/cancelada', async () => {
+      mockAsignacionCompleta({ estado: 'finalizada' });
       const res = mockRes();
       await activarAsignacion(mockReq({ params: { id: '1' }, user: { id: 2, roles: ['tecnico'], permissions: [] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
