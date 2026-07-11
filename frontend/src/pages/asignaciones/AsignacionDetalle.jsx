@@ -180,7 +180,7 @@ export default function AsignacionDetalle({ id, onClose }) {
             {(puedeFin || (soyResponsable && !finalizada && !inicioIncompleto)) && (
               <div className="flex gap-2">
                 <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
-                  ✓ Finalizar asignación
+                  ✓ Finalizar servicio
                 </button>
               </div>
             )}

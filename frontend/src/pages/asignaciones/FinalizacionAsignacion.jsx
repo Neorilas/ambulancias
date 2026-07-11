@@ -1,37 +1,68 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
-import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { formatDateTime } from '../../utils/dateUtils.js';
+import {
+  IMAGEN_TIPOS_FIN,
+  IMAGEN_TIPOS_FIN_EXTERIOR,
+  IMAGEN_TIPO_CUENTAKILOMETROS,
+} from '../../utils/constants.js';
 
 /**
- * Flujo de finalización de asignación libre:
- * Paso 1: 6 fotos + km fin
- * Paso 2: Motivo (solo si anticipada)
- * Paso 3: Confirmar y enviar
+ * Wizard de CIERRE de servicio — coherente con el de inicio.
+ *
+ * Secciones (SECCIONES, extensible igual que en InicioAsignacion):
+ *   1. exterior — 4 caras del vehículo (orden libre)
+ *   2. km       — foto del cuadro + kilómetros finales
+ *   3. motivo   — solo si la finalización es anticipada
+ *   4. confirm  — resumen y envío
+ *
+ * Al confirmar sube las fotos de fin (momento='fin') y llama a /finalizar.
+ *
+ * Props: asignacion (con progreso.inicio), onDone(), onCancel()
  */
 export default function FinalizacionAsignacion({ asignacion, onDone, onCancel }) {
-  const { notify }  = useNotification();
-  const navigate    = useNavigate();
+  const { notify } = useNotification();
   const isAnticipada = new Date() < new Date(asignacion?.fecha_fin);
 
-  const [step,     setStep]    = useState('fotos');
-  const [fotos,    setFotos]   = useState({});         // { [tipo.key]: File }
-  const [kmFin,    setKmFin]   = useState('');
-  const [motivo,   setMotivo]  = useState('');
+  const [step,   setStep]   = useState(0);
+  const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
+  const [kmFin,  setKmFin]  = useState('');
+  const [motivo, setMotivo] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
+  const [progress,  setProgress]  = useState({});
+
+  // Cámara
   const [showCamera, setShowCamera] = useState(false);
-  const [cameraIndex, setCameraIndex] = useState(0);
+  const [camTipos,   setCamTipos]   = useState([]);
+  const [camIndex,   setCamIndex]   = useState(0);
 
-  const openCamera = (index = 0) => {
-    setCameraIndex(index);
-    setShowCamera(true);
-  };
+  // Previews
+  const previews = useMemo(() => {
+    const map = {};
+    for (const [k, f] of Object.entries(fotos)) if (f) map[k] = URL.createObjectURL(f);
+    return map;
+  }, [fotos]);
+  useEffect(() => () => Object.values(previews).forEach(URL.revokeObjectURL), [previews]);
 
-  // Captura desde cámara guiada → vuelca los Files en el mapa de fotos
+  // ── Secciones (motivo condicional) ──────────────────────────
+  const secciones = useMemo(() => {
+    const base = [
+      { id: 'exterior', tipo: 'photos', titulo: 'Estado exterior',
+        subtitulo: 'Las cuatro caras del vehículo (orden libre)', fotos: IMAGEN_TIPOS_FIN_EXTERIOR },
+      { id: 'km', tipo: 'km', titulo: 'Kilometraje',
+        subtitulo: 'Foto del cuadro y kilómetros finales' },
+    ];
+    if (isAnticipada) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
+    base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
+    return base;
+  }, [isAnticipada]);
+
+  const seccion = secciones[step];
+
+  // ── Cámara ──────────────────────────────────────────────────
+  const openCamera = (tipos, index) => { setCamTipos(tipos); setCamIndex(index); setShowCamera(true); };
   const handleCameraComplete = (captures) => {
     setShowCamera(false);
     setFotos(prev => {
@@ -41,21 +72,20 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     });
   };
 
-  // ── Bloqueo: inicio incompleto ────────────────────────────
+  // ── Bloqueo: inicio incompleto ──────────────────────────────
   const inicioIncompleto = asignacion?.progreso?.inicio && !asignacion.progreso.inicio.completo;
   if (inicioIncompleto) {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-neutral-900">Finalizar asignación</h2>
+        <h2 className="text-lg font-semibold text-neutral-900">Finalizar servicio</h2>
         <div className="card bg-amber-50 border border-amber-200 space-y-2">
           <p className="text-amber-800 font-medium">⚠ Faltan las fotos de inicio</p>
           <p className="text-amber-700 text-sm">
-            No puedes finalizar esta asignación hasta que no hayas subido las
-            fotos de inicio del vehículo ({asignacion.progreso.inicio.completado}/
-            {asignacion.progreso.inicio.total} subidas).
+            No puedes finalizar hasta completar la revisión de inicio
+            ({asignacion.progreso.inicio.completado}/{asignacion.progreso.inicio.total} fotos).
           </p>
           <p className="text-amber-600 text-xs">
-            Cierra esta ventana y pulsa <strong>"Fotos de inicio"</strong> en el detalle.
+            Cierra esta ventana y pulsa <strong>"Inicio de servicio"</strong> en el detalle.
           </p>
         </div>
         <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
@@ -63,70 +93,100 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     );
   }
 
-  const canProceedFotos = () =>
-    IMAGEN_TIPOS_FIN.every(t => fotos[t.key]) && kmFin !== '';
+  // ── Envío final ─────────────────────────────────────────────
+  const handleFinalizar = async () => {
+    setUploading(true);
+    try {
+      for (const tipo of IMAGEN_TIPOS_FIN) {
+        const file = fotos[tipo.key];
+        if (!file) continue;
+        setProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
+        const fd = new FormData();
+        fd.append('image', file);
+        fd.append('tipo_imagen', tipo.key);
+        fd.append('momento', 'fin');
+        await asignacionesService.uploadEvidencia(asignacion.id, fd);
+        setProgress(p => ({ ...p, [tipo.key]: '✓' }));
+      }
+      await asignacionesService.finalizar(asignacion.id, {
+        km_fin:     kmFin !== '' ? parseInt(kmFin) : null,
+        motivo_fin: motivo || null,
+      });
+      notify.success('Servicio finalizado correctamente');
+      onDone?.();
+    } catch (err) {
+      notify.error(err.response?.data?.message || err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  // ── Cámara guiada ───────────────────────────────────────────
+  // ── Cámara a pantalla completa ──────────────────────────────
   if (showCamera) {
     return (
       <CameraCapture
-        tipos={IMAGEN_TIPOS_FIN}
+        tipos={camTipos}
         onComplete={handleCameraComplete}
         onCancel={() => setShowCamera(false)}
-        initialIndex={cameraIndex}
+        initialIndex={camIndex}
       />
     );
   }
 
-  // ── Paso fotos ──────────────────────────────────────────────
-  if (step === 'fotos') {
+  // ── Cabecera con progreso ───────────────────────────────────
+  const Header = () => (
+    <div className="space-y-3">
+      <div className="flex items-center gap-1.5">
+        {secciones.map((s, i) => (
+          <div key={s.id} className={`h-1.5 flex-1 rounded-full transition-colors ${
+            i < step ? 'bg-green-500' : i === step ? 'bg-primary-500' : 'bg-neutral-200'
+          }`} />
+        ))}
+      </div>
+      <div>
+        <p className="text-xs text-neutral-400">
+          Paso {step + 1} de {secciones.length} — {asignacion.matricula}
+          {isAnticipada && <span className="ml-2 text-amber-600 font-medium">⚠ Anticipada</span>}
+        </p>
+        <h2 className="text-lg font-semibold text-neutral-900">{seccion.titulo}</h2>
+        {seccion.subtitulo && <p className="text-sm text-neutral-500">{seccion.subtitulo}</p>}
+      </div>
+    </div>
+  );
+
+  // ── Sección: fotos exteriores ───────────────────────────────
+  if (seccion.tipo === 'photos') {
+    const tipos = seccion.fotos;
+    const done  = tipos.filter(t => fotos[t.key]).length;
+    const completa = done === tipos.length;
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold text-neutral-900 mb-1">
-            Finalizar asignación — {asignacion.matricula}
-          </h2>
-          <p className="text-sm text-neutral-500">
-            {asignacion.vehiculo_alias && `${asignacion.vehiculo_alias} · `}
-            Hasta {formatDateTime(asignacion.fecha_fin)}
-            {isAnticipada && (
-              <span className="ml-2 text-amber-600 font-medium">⚠ Finalización anticipada</span>
-            )}
-          </p>
-        </div>
-
-        {/* Cámara guiada */}
+        <Header />
         <div className="flex items-center justify-between">
-          <button onClick={() => openCamera(0)} className="btn-secondary text-sm">
-            📷 Cámara guiada
-          </button>
-          <span className="text-xs text-neutral-500">
-            {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length}/{IMAGEN_TIPOS_FIN.length} fotos
-          </span>
+          <button onClick={() => openCamera(tipos, 0)} className="btn-secondary text-sm">📷 Cámara guiada</button>
+          <span className="text-xs text-neutral-500">{done}/{tipos.length} fotos</span>
         </div>
-
-        {/* Grid de fotos */}
         <div className="grid grid-cols-2 gap-3">
-          {IMAGEN_TIPOS_FIN.map((tipo, index) => {
+          {tipos.map((tipo, index) => {
             const file = fotos[tipo.key];
-            const preview = file ? URL.createObjectURL(file) : null;
+            const preview = previews[tipo.key];
             return (
               <div key={tipo.key} className="space-y-1">
                 <p className="text-xs font-medium text-neutral-600">{tipo.label}</p>
                 <div
                   className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
                     ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
-                  onClick={() => openCamera(index)}
+                  onClick={() => openCamera(tipos, index)}
                 >
                   {preview ? (
                     <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full gap-2 text-neutral-300">
+                    <div className="flex flex-col items-center justify-center h-full gap-2 text-neutral-300 p-2">
                       <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                      <span className="text-xs text-neutral-400 text-center px-2">{tipo.instruccion}</span>
+                      <span className="text-xs text-neutral-400 text-center">{tipo.instruccion}</span>
                     </div>
                   )}
                   {file && (
@@ -137,116 +197,94 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
                     </div>
                   )}
                 </div>
-                {uploadProgress[tipo.key] && (
-                  <p className="text-xs text-primary-600">{uploadProgress[tipo.key]}</p>
-                )}
               </div>
             );
           })}
         </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
+          <button onClick={() => setStep(step + 1)} disabled={!completa} className="btn-primary flex-1">Siguiente →</button>
+        </div>
+      </div>
+    );
+  }
 
-        {/* Km fin */}
+  // ── Sección: kilometraje (foto cuadro + km) ─────────────────
+  if (seccion.tipo === 'km') {
+    const ckm = IMAGEN_TIPO_CUENTAKILOMETROS;
+    const file = fotos[ckm.key];
+    const preview = previews[ckm.key];
+    const puedeSeguir = !!file && kmFin !== '';
+    return (
+      <div className="space-y-6">
+        <Header />
+        <div>
+          <p className="text-xs font-medium text-neutral-600 mb-1">{ckm.label}</p>
+          <div
+            className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
+              ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
+            onClick={() => openCamera([ckm], 0)}
+          >
+            {preview ? (
+              <img src={preview} alt={ckm.label} className="w-full h-full object-cover" />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-neutral-300 p-2">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-xs text-neutral-400 text-center">{ckm.instruccion}</span>
+              </div>
+            )}
+          </div>
+        </div>
         <div>
           <label className="label">Kilómetros finales <span className="text-red-500">*</span></label>
           <input
-            type="number"
-            min={asignacion.km_inicio || 0}
-            className="input"
+            type="number" min={asignacion.km_inicio || 0} className="input"
             placeholder={asignacion.km_inicio ? `Mín. ${asignacion.km_inicio}` : 'Introduce los km actuales'}
-            value={kmFin}
-            onChange={e => setKmFin(e.target.value)}
+            value={kmFin} onChange={e => setKmFin(e.target.value)}
           />
           {asignacion.km_inicio != null && (
             <p className="text-xs text-neutral-400 mt-1">Km inicio: {asignacion.km_inicio.toLocaleString()} km</p>
           )}
         </div>
-
-        {/* Botones */}
         <div className="flex gap-3">
-          <button onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
-          <button
-            onClick={() => setStep(isAnticipada ? 'motivo' : 'confirm')}
-            disabled={!canProceedFotos()}
-            className="btn-primary flex-1"
-          >
-            Siguiente →
-          </button>
+          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
+          <button onClick={() => setStep(step + 1)} disabled={!puedeSeguir} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
     );
   }
 
-  // ── Paso motivo ─────────────────────────────────────────────
-  if (step === 'motivo') {
+  // ── Sección: motivo (anticipada) ────────────────────────────
+  if (seccion.tipo === 'motivo') {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold text-neutral-900 mb-1">Motivo de finalización anticipada</h2>
-          <p className="text-sm text-amber-600">
-            El plazo asignado termina el {formatDateTime(asignacion.fecha_fin)}.
-            Estás finalizando antes de esa fecha.
-          </p>
-        </div>
+        <Header />
+        <p className="text-sm text-amber-600">
+          El plazo termina el {formatDateTime(asignacion.fecha_fin)}. Estás finalizando antes de esa fecha.
+        </p>
         <div>
           <label className="label">Motivo <span className="text-red-500">*</span></label>
           <textarea
-            className="input resize-none"
-            rows={5}
-            placeholder="Explica el motivo por el que finalizas la asignación antes de lo previsto"
-            value={motivo}
-            onChange={e => setMotivo(e.target.value)}
+            className="input resize-none" rows={5}
+            placeholder="Explica el motivo por el que finalizas antes de lo previsto"
+            value={motivo} onChange={e => setMotivo(e.target.value)}
           />
         </div>
         <div className="flex gap-3">
-          <button onClick={() => setStep('fotos')} className="btn-secondary flex-1">← Atrás</button>
-          <button
-            onClick={() => setStep('confirm')}
-            disabled={!motivo.trim()}
-            className="btn-primary flex-1"
-          >
-            Siguiente →
-          </button>
+          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
+          <button onClick={() => setStep(step + 1)} disabled={!motivo.trim()} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
     );
   }
 
-  // ── Paso confirmar ──────────────────────────────────────────
-  const handleFinalizar = async () => {
-    setUploading(true);
-    try {
-      // 1. Subir todas las fotos
-      for (const tipo of IMAGEN_TIPOS_FIN) {
-        const file = fotos[tipo.key];
-        if (!file) continue;
-        setUploadProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
-        const fd = new FormData();
-        fd.append('image', file);
-        fd.append('tipo_imagen', tipo.key);
-        fd.append('momento',     'fin');
-        await asignacionesService.uploadEvidencia(asignacion.id, fd);
-        setUploadProgress(p => ({ ...p, [tipo.key]: '✓' }));
-      }
-
-      // 2. Finalizar
-      await asignacionesService.finalizar(asignacion.id, {
-        km_fin:     kmFin !== '' ? parseInt(kmFin) : null,
-        motivo_fin: motivo || null,
-      });
-
-      notify.success('Asignación finalizada correctamente');
-      onDone?.();
-    } catch (err) {
-      notify.error(err.response?.data?.message || err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
+  // ── Sección: confirmar ──────────────────────────────────────
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-neutral-900">Confirmar finalización</h2>
-
+      <Header />
       <div className="card bg-neutral-50 space-y-3 text-sm">
         <div className="flex justify-between">
           <span className="text-neutral-500">Vehículo</span>
@@ -258,7 +296,9 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Fotos</span>
-          <span className="font-medium text-green-600">{IMAGEN_TIPOS_FIN.length}/{IMAGEN_TIPOS_FIN.length} ✓</span>
+          <span className="font-medium text-green-600">
+            {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length}/{IMAGEN_TIPOS_FIN.length} ✓
+          </span>
         </div>
         {motivo && (
           <div>
@@ -267,13 +307,10 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           </div>
         )}
       </div>
-
       <div className="flex gap-3">
-        <button onClick={() => setStep(isAnticipada ? 'motivo' : 'fotos')} className="btn-secondary flex-1" disabled={uploading}>
-          ← Atrás
-        </button>
+        <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
         <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading}>
-          {uploading ? 'Enviando…' : '✓ Confirmar finalización'}
+          {uploading ? 'Enviando…' : '✓ Finalizar servicio'}
         </button>
       </div>
     </div>
