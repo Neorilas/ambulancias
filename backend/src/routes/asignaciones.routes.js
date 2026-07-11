@@ -86,9 +86,11 @@ router.post('/:id/finalizar',
   ctrl.finalizarAsignacion
 );
 
-// POST /asignaciones/:id/incidencias  (admin/gestor: registrar incidencia al revisar)
+// POST /asignaciones/:id/incidencias
+// El responsable puede registrar incidencias en su propia asignación;
+// admin/gestor (MANAGE_INCIDENCIAS) en cualquiera. La autorización se
+// resuelve en el controlador.
 router.post('/:id/incidencias',
-  requirePermission(PERMISSIONS.MANAGE_INCIDENCIAS),
   [
     param('id').isInt({ min: 1 }),
     body('descripcion').trim().notEmpty().withMessage('Descripción requerida'),

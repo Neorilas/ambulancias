@@ -110,7 +110,7 @@ async function listAsignaciones(req, res, next) {
 
     const [rows] = await query(
       `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
-              al.estado, al.km_inicio, al.km_fin, al.notas, al.created_at,
+              al.estado, al.inicio_real_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               v.matricula, v.alias AS vehiculo_alias,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
               u.username AS responsable_username
@@ -299,7 +299,7 @@ async function activarAsignacion(req, res, next) {
     }
 
     await query(
-      'UPDATE asignaciones_libres SET estado = ? WHERE id = ?',
+      'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, NOW()) WHERE id = ?',
       ['activa', asig.id]
     );
 
@@ -480,8 +480,15 @@ async function uploadEvidencia(req, res, next) {
 // ============================================================
 async function crearIncidenciaDesdeAsignacion(req, res, next) {
   try {
+    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_INCIDENCIAS);
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
+
+    // El responsable de la asignación puede registrar incidencias en la suya;
+    // admin/gestor (MANAGE_INCIDENCIAS) en cualquiera.
+    if (!canManage && asig.user_id !== req.user.id) {
+      return forbidden(res, 'Solo el responsable o un gestor pueden registrar incidencias en esta asignación');
+    }
 
     const { tipo, gravedad, descripcion } = req.body;
     if (!descripcion || !descripcion.trim()) {

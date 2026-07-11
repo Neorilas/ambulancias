@@ -534,6 +534,32 @@ describe('asignaciones.controller', () => {
       await crearIncidenciaDesdeAsignacion(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    it('permite al responsable (sin manage_incidencias) registrar en su propia asignación', async () => {
+      mockAsignacionCompleta({ id: 7, vehicle_id: 3, user_id: 9, matricula: '9864JSF' });
+      query.mockResolvedValueOnce([{ insertId: 56 }]);              // INSERT
+      query.mockResolvedValueOnce([[{ id: 56, descripcion: 'Golpe' }]]); // SELECT created
+
+      const req = mockReq({
+        params: { id: '7' },
+        body: { descripcion: 'Golpe' },
+        user: { id: 9, username: 'tec', roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('devuelve 403 si no es responsable ni tiene manage_incidencias', async () => {
+      mockAsignacionCompleta({ id: 7, user_id: 9 });
+      const req = mockReq({
+        params: { id: '7' }, body: { descripcion: 'X' },
+        user: { id: 3, username: 'otro', roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
   });
 });
 
