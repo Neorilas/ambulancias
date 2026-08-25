@@ -30,6 +30,29 @@ cd backend
 node scripts/create-admin.js
 ```
 
+### Migraciones de esquema
+
+`database/schema.sql` **no está completo**: las tablas y columnas añadidas después
+de la v1 (entre otras `asignaciones_libres`, `app_features` o `inicio_real_at`)
+viven en `database/migration_v*.sql`.
+
+No hace falta aplicarlas a mano: el backend las ejecuta al arrancar
+(`backend/src/config/migrations.js`), una sola vez cada una, anotándolas en la
+tabla `schema_migrations`. El deploy de GitHub Actions solo reconstruye el
+backend y nunca toca MySQL, así que **este runner es el único punto donde el
+esquema se pone al día en producción**.
+
+Al añadir una migración nueva hay que registrarla en el array `MIGRATIONS` de ese
+fichero, además de dejar el `.sql` en `/database`. Si solo se crea el `.sql`, la
+migración no llega a producción y la API empieza a devolver 500 en cuanto el
+código nuevo consulte la columna que falta.
+
+Comprobar qué se ha aplicado:
+
+```sql
+SELECT * FROM schema_migrations ORDER BY applied_at;
+```
+
 ---
 
 ## 2. Backend
