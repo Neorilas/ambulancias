@@ -4,6 +4,7 @@
 > Alcance acordado: **solo Asignaciones + Vehículos** deben funcionar correctamente.
 > Todo lo relativo a *Trabajos* está congelado y oculto por feature flags.
 > Fecha de corte: **2026-08-25** · commit `acb1210` · rama `master` · árbol limpio.
+> El plan de ejecución de todo lo pendiente vive en [PLAN_TRABAJO.md](PLAN_TRABAJO.md).
 
 ---
 
