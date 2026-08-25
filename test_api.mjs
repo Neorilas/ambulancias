@@ -1,11 +1,43 @@
 /**
  * Test funcional completo de la API
- * Uso: node test_api.mjs
+ *
+ * Uso (PowerShell):
+ *   $env:API_BASE="https://api.vapss.net/api/v1"
+ *   $env:TEST_ADMIN_USER="..."; $env:TEST_ADMIN_PASS="..."
+ *   $env:TEST_TECH_USER="...";  $env:TEST_TECH_PASS="..."
+ *   node test_api.mjs
+ *
+ * Uso (bash):
+ *   API_BASE=... TEST_ADMIN_USER=... TEST_ADMIN_PASS=... TEST_TECH_USER=... TEST_TECH_PASS=... node test_api.mjs
+ *
+ * NUNCA hardcodees credenciales aqui: este fichero esta rastreado en git.
  */
 
-const BASE = 'https://api.vapss.net/api/v1';
-const ADMIN_CREDS = { username: 'findelias', password: 'FiNDe991))!' };
-const TECH_CREDS  = { username: 'jlopez',    password: 'Tecnico2025.-' };
+import { randomUUID } from 'node:crypto';
+
+const BASE = process.env.API_BASE || 'https://api.vapss.net/api/v1';
+
+const REQUIRED_ENV = [
+  'TEST_ADMIN_USER',
+  'TEST_ADMIN_PASS',
+  'TEST_TECH_USER',
+  'TEST_TECH_PASS',
+];
+
+const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name]);
+if (missingEnv.length) {
+  console.error('');
+  console.error('Faltan variables de entorno: ' + missingEnv.join(', '));
+  console.error('Este script usa credenciales reales; pasalas por entorno, nunca en el codigo.');
+  console.error('');
+  process.exit(1);
+}
+
+const ADMIN_CREDS = { username: process.env.TEST_ADMIN_USER, password: process.env.TEST_ADMIN_PASS };
+const TECH_CREDS  = { username: process.env.TEST_TECH_USER,  password: process.env.TEST_TECH_PASS };
+
+// Password efimera para el usuario de test que este script crea en cada ejecucion.
+const TEST_USER_PASSWORD = `T${randomUUID().replace(/-/g, '').slice(0, 20)}!9`;
 
 let pass = 0, fail = 0, warn = 0;
 const issues = [];
@@ -72,7 +104,7 @@ async function testAuth() {
   } catch(e) { ok('Técnico login exitoso', false, e.message); }
 
   // Credenciales incorrectas → 401
-  const bad = await req('POST', '/auth/login', null, { username: 'findelias', password: 'wrongpass' });
+  const bad = await req('POST', '/auth/login', null, { username: ADMIN_CREDS.username, password: 'wrongpass' });
   ok('Login incorrecto devuelve 401', bad.status === 401);
 
   // Sin token → 401
@@ -374,7 +406,7 @@ async function testUsers(adminToken, techToken) {
 
   // Obtener usuario por id
   const getUser = await req('GET', '/users/1', adminToken);
-  ok('Admin obtiene usuario id=1 (findelias)', getUser.body?.success);
+  ok('Admin obtiene usuario id=1', getUser.body?.success);
   ok('Usuario tiene roles', getUser.body?.data?.roles?.length > 0);
 
   // Técnico no puede obtener listado de usuarios
@@ -384,7 +416,7 @@ async function testUsers(adminToken, techToken) {
   // Crear usuario de test
   const create = await req('POST', '/users', adminToken, {
     username: 'test_api_user',
-    password: 'TestApi2025!',
+    password: TEST_USER_PASSWORD,
     nombre: 'Test',
     apellidos: 'API',
     dni: '99999998Z',

@@ -29,6 +29,10 @@ secrets.txt
 copys.txt
 accesos.html
 
+# Scripts ad-hoc de inspeccion/despliegue (suelen acabar con credenciales dentro)
+deploy_helper.py
+.env.test
+
 # ============================================================
 # Certificados y claves privadas
 # ============================================================
