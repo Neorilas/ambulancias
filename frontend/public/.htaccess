@@ -11,13 +11,27 @@ RewriteRule ^ index.html [QSA,L]
 AddType application/manifest+json  .webmanifest
 AddType text/javascript            .js
 
-# Service Worker: sin caché y scope correcto
-<FilesMatch "sw\.js$">
-  Header set Cache-Control "no-cache, no-store, must-revalidate"
-  Header set Service-Worker-Allowed "/app/"
-</FilesMatch>
+<IfModule mod_headers.c>
+  # ── ORDEN IMPORTANTE ──────────────────────────────────────────────────────
+  # Apache aplica los FilesMatch en el orden del fichero y `Header set`
+  # sobrescribe el valor anterior: gana el ÚLTIMO que encaje. Por eso la regla
+  # genérica de assets va PRIMERO y las excepciones (sw.js, index.html…)
+  # después. Si se invierte, sw.js hereda "immutable, max-age=1 año" y los
+  # dispositivos se quedan clavados en la versión vieja de la PWA.
 
-# Assets con hash: caché larga
-<FilesMatch "\.(js|css|png|jpg|svg|woff2|ico)$">
-  Header set Cache-Control "public, max-age=31536000, immutable"
-</FilesMatch>
+  # 1. Assets con hash en el nombre: caché larga, nunca cambian de contenido
+  <FilesMatch "\.(js|css|png|jpg|jpeg|svg|woff2|ico)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # 2. Service Worker: SIEMPRE fresco — es lo que dispara la actualización
+  <FilesMatch "^sw\.js$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Service-Worker-Allowed "/app/"
+  </FilesMatch>
+
+  # 3. Punto de entrada y manifiesto: sin caché, referencian los assets
+  <FilesMatch "^(index\.html|manifest\.webmanifest)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+</IfModule>
