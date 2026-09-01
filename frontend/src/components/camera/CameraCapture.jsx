@@ -170,7 +170,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
             <p className="text-white text-center font-medium">
               {currentTipo.label}
               {currentTipo.multiple && addedCount > 0 && (
-                <span className="ml-2 text-green-400 text-sm">
+                <span className="ml-2 text-ok-500 text-sm">
                   ({addedCount} foto{addedCount !== 1 ? 's' : ''} añadida{addedCount !== 1 ? 's' : ''})
                 </span>
               )}
@@ -179,22 +179,22 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
             {currentTipo.multiple ? (
               <div className="flex gap-2">
                 <button onClick={retake} className="flex-1 btn-secondary text-sm py-2" disabled={compressing}>
-                  🔄 Repetir
+                  Repetir
                 </button>
                 <button onClick={() => savePhoto(false)} className="flex-1 btn-secondary text-sm py-2" disabled={compressing}>
-                  {compressing ? '…' : '📷 + Añadir'}
+                  {compressing ? '…' : '+ Añadir'}
                 </button>
                 <button onClick={() => savePhoto(true)} className="flex-1 btn-primary text-sm py-2" disabled={compressing}>
-                  {compressing ? 'Procesando…' : '✓ Continuar'}
+                  {compressing ? 'Procesando…' : 'Continuar'}
                 </button>
               </div>
             ) : (
               <div className="flex gap-3">
                 <button onClick={retake} className="flex-1 btn-secondary" disabled={compressing}>
-                  🔄 Repetir
+                  Repetir
                 </button>
                 <button onClick={() => savePhoto(true)} className="flex-1 btn-primary" disabled={compressing}>
-                  {compressing ? 'Procesando…' : '✓ Usar foto'}
+                  {compressing ? 'Procesando…' : 'Usar foto'}
                 </button>
               </div>
             )}
@@ -206,7 +206,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
       <div className="flex-1 relative overflow-hidden">
         {error ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-            <p className="text-4xl mb-4">📷</p>
+            <p className="micro mb-4">Cámara</p>
             <p className="text-white text-sm leading-relaxed">{error}</p>
             <button onClick={onCancel} className="btn-secondary mt-6">Cancelar</button>
           </div>
@@ -251,13 +251,13 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                       <p className="font-bold">{currentTipo.label}</p>
                       <p className="text-xs opacity-75">{currentIndex + 1} / {tipos.length}</p>
                       {currentTipo.multiple && addedCount > 0 && (
-                        <p className="text-xs text-green-400 mt-0.5">
+                        <p className="text-xs text-ok-500 mt-0.5">
                           {addedCount} foto{addedCount !== 1 ? 's' : ''} guardada{addedCount !== 1 ? 's' : ''}
                         </p>
                       )}
                     </div>
 
-                    <button onClick={toggleCamera} className="p-2 rounded-full bg-black/40 text-white">🔄</button>
+                    <button onClick={toggleCamera} className="px-2.5 py-1.5 rounded-md bg-black/40 text-white text-xs font-medium">Girar</button>
                   </div>
 
                   {/* Miniaturas de progreso */}
@@ -270,7 +270,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                           className={`w-8 h-8 rounded border-2 overflow-hidden
                             ${i === currentIndex
                               ? 'border-primary-500 ring-2 ring-primary-300'
-                              : done ? 'border-green-400' : 'border-white/30'}`}
+                              : done ? 'border-ok-500' : 'border-white/30'}`}
                         >
                           {done
                             ? <img src={done.preview} alt={tipo.label} className="w-full h-full object-cover"/>
@@ -288,11 +288,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                     className="absolute left-0 right-0 flex justify-center z-10 px-4"
                     style={{ top: 'calc(env(safe-area-inset-top) + 7rem)' }}
                   >
-                    <div className="flex items-center gap-2 bg-amber-500/90 text-black
-                                    text-sm font-semibold px-4 py-2 rounded-full shadow-lg">
-                      <span style={{ display: 'inline-block', transform: 'rotate(90deg)', fontSize: '1.1rem' }}>
-                        📱
-                      </span>
+                    <div className="bg-warn-500 text-black text-sm font-semibold
+                                    px-4 py-2 rounded-full shadow-lg">
                       Gira el móvil para esta foto
                     </div>
                   </div>

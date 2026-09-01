@@ -151,9 +151,9 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
           <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
           <h2 className="text-lg font-bold text-neutral-900">Fotos de inicio</h2>
         </div>
-        <div className="card bg-green-50 border border-green-200">
-          <p className="text-green-700 font-medium">✓ Inicio ya registrado</p>
-          <p className="text-green-600 text-sm mt-1">
+        <div className="card bg-ok-50 border border-ok-200">
+          <p className="text-ok-600 font-medium">Inicio ya registrado</p>
+          <p className="text-ok-600 text-sm mt-1">
             Todas las fotos de inicio están subidas para tus vehículos en este trabajo.
           </p>
         </div>
@@ -174,7 +174,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
       </div>
 
       <div className="card bg-primary-50 border border-primary-200">
-        <p className="text-primary-800 font-medium text-sm">📸 Antes de empezar</p>
+        <p className="text-primary-800 font-medium text-sm">Antes de empezar</p>
         <p className="text-primary-700 text-xs mt-1">
           Sube las {IMAGEN_TIPOS_INICIO.length} fotos obligatorias de cada vehículo:
           4 del contorno del vehículo, nivel de aceite y resto de líquidos.
@@ -196,7 +196,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
                 onClick={() => openCamera(vi, 0)}
                 className="btn-secondary text-sm"
               >
-                📷 Cámara guiada
+                Cámara guiada
               </button>
             </div>
 
@@ -218,31 +218,31 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
                       onClick={() => openCamera(vi, ti)}
                       className="w-full text-left"
                     >
-                      <div className={`aspect-square rounded-lg border-2 overflow-hidden relative
-                        ${file ? 'border-green-400' : 'border-dashed border-neutral-300 hover:border-primary-400'}`}>
+                      <div className={`aspect-square rounded-lg border overflow-hidden relative
+                        ${file ? 'border-ok-200' : 'border-dashed border-neutral-300 hover:border-primary-600'}`}>
                         {preview ? (
                           <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1">
-                            <span className="text-neutral-300 text-xl">📷</span>
-                            <span className="text-neutral-400 text-[10px] text-center px-1 leading-tight">
+                          <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1 p-1">
+                            <span className="data text-[11px] font-semibold text-neutral-400">{ti + 1}</span>
+                            <span className="text-neutral-400 text-[10px] text-center leading-tight">
                               {tipo.label.split(' ')[0]}
                             </span>
                           </div>
                         )}
                         {prog === 'ok' && (
-                          <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                            <span className="text-green-600 text-2xl">✓</span>
+                          <div className="absolute inset-x-0 bottom-0 bg-ok-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                            Subida
                           </div>
                         )}
                         {prog === 'error' && (
-                          <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                            <span className="text-red-600 text-2xl">✕</span>
+                          <div className="absolute inset-x-0 bottom-0 bg-bad-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                            Error
                           </div>
                         )}
                       </div>
-                      <p className="text-center text-[10px] text-neutral-500 mt-0.5 leading-tight">
-                        {tipo.label}{file && <span className="text-green-600"> ✓</span>}
+                      <p className="text-center text-[10px] mt-1 leading-tight">
+                        <span className={file ? 'text-neutral-700 font-medium' : 'text-neutral-500'}>{tipo.label}</span>
                       </p>
                     </button>
                   </div>
@@ -266,16 +266,16 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
       <button
         onClick={handleSubmit}
         disabled={!canSubmit || uploading}
-        className="btn-primary w-full py-3"
+        className="btn-primary btn-full"
       >
         {uploading ? (
           <span className="flex items-center justify-center gap-2">
             <span className="w-4 h-4 spinner" /> Subiendo fotos...
           </span>
-        ) : '✓ Guardar fotos de inicio'}
+        ) : 'Guardar fotos de inicio'}
       </button>
       {!canSubmit && (
-        <p className="text-xs text-center text-red-500">
+        <p className="text-xs text-center text-bad-500">
           Completa las {IMAGEN_TIPOS_INICIO.length} fotos de cada vehículo
         </p>
       )}

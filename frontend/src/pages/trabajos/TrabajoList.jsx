@@ -68,28 +68,28 @@ export default function TrabajoList() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-neutral-900">Trabajos</h1>
+          <h1 className="text-[19px] font-semibold text-neutral-900">Trabajos</h1>
           <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} trabajos</p>
         </div>
         <div className="flex gap-2">
           {/* Toggle vista */}
-          <div className="flex rounded-lg border border-neutral-200 overflow-hidden">
+          <div className="flex rounded-md border border-neutral-200 overflow-hidden bg-white">
             <button
               onClick={() => setView('list')}
-              className={`px-3 py-2 text-sm ${view === 'list' ? 'bg-primary-600 text-white' : 'hover:bg-neutral-50'}`}
+              className={`px-3 h-8 text-[12.5px] font-medium border-r border-neutral-200 ${view === 'list' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
-              📋 Lista
+              Lista
             </button>
             <button
               onClick={() => setView('calendar')}
-              className={`px-3 py-2 text-sm ${view === 'calendar' ? 'bg-primary-600 text-white' : 'hover:bg-neutral-50'}`}
+              className={`px-3 h-8 text-[12.5px] font-medium ${view === 'calendar' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
-              📅 Calendario
+              Calendario
             </button>
           </div>
           {canManageTrabajos() && (
             <button onClick={() => setShowForm(true)} className="btn-primary">
-              + Nuevo
+              Nuevo trabajo
             </button>
           )}
         </div>
@@ -130,9 +130,9 @@ export default function TrabajoList() {
           {loading ? <PageLoading /> : (
             <>
               {trabajos.length === 0 ? (
-                <div className="card text-center py-12 text-neutral-400">
-                  <p className="text-4xl mb-3">📋</p>
-                  <p>Sin trabajos que mostrar</p>
+                <div className="empty">
+                  <p className="empty-title">Sin trabajos</p>
+                  <p className="empty-hint">Ninguno coincide con los filtros actuales</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -152,8 +152,8 @@ export default function TrabajoList() {
                           <div className="flex items-center gap-2 flex-wrap">
                             {t.estado === 'activo' && (
                               <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ok-500 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-ok-500" />
                               </span>
                             )}
                             <span className="font-semibold text-neutral-900">{t.nombre}</span>
@@ -170,7 +170,7 @@ export default function TrabajoList() {
                         {canDeleteAny() && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setDeleteId(t.id); }}
-                            className="btn-ghost text-xs px-2 py-1 text-red-600 hover:bg-red-50 flex-shrink-0"
+                            className="btn-ghost text-xs px-2 py-1 text-bad-600 hover:bg-bad-50 flex-shrink-0"
                           >
                             ✕
                           </button>

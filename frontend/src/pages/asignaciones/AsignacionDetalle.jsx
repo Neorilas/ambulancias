@@ -25,15 +25,15 @@ const TIPO_INC_OPTS = [
 const TIPO_INC_LABELS = Object.fromEntries(TIPO_INC_OPTS);
 
 const GRAVEDAD_BADGE = {
-  leve:     'bg-yellow-100 text-yellow-700',
-  moderado: 'bg-orange-100 text-orange-700',
-  grave:    'bg-red-100 text-red-700',
+  leve:     'bg-warn-50 text-warn-600',
+  moderado: 'bg-warn-50 text-warn-600',
+  grave:    'bg-bad-50 text-bad-600',
 };
 
 const ESTADO_INC_BADGE = {
-  pendiente:   'bg-red-100 text-red-700',
-  en_revision: 'bg-yellow-100 text-yellow-700',
-  resuelto:    'bg-green-100 text-green-700',
+  pendiente:   'bg-bad-50 text-bad-600',
+  en_revision: 'bg-warn-50 text-warn-600',
+  resuelto:    'bg-ok-50 text-ok-600',
 };
 
 const ESTADO_INC_LABELS = {
@@ -337,12 +337,11 @@ export default function AsignacionDetalle({ id, onClose }) {
 
             {/* Aviso persistente: falta inicio */}
             {puedeInicio && (
-              <div className="card bg-amber-50 border-amber-300 border-2 space-y-2">
+              <div className="card bg-warn-50 border-warn-200 border-2 space-y-2">
                 <div className="flex items-start gap-3">
-                  <span className="text-2xl">⚠</span>
                   <div className="flex-1">
-                    <p className="font-semibold text-amber-900 text-sm">Faltan fotos de inicio</p>
-                    <p className="text-xs text-amber-800 mt-0.5">
+                    <p className="font-semibold text-warn-700 text-sm">Faltan fotos de inicio</p>
+                    <p className="text-xs text-warn-700 mt-0.5">
                       Antes de poder finalizar, documenta el estado del vehículo al recibirlo
                       ({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}).
                     </p>
@@ -351,7 +350,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                     onClick={() => setShowInicio(true)}
                     className="btn-primary text-xs whitespace-nowrap"
                   >
-                    📸 Subir ahora
+                    Subir ahora
                   </button>
                 </div>
               </div>
@@ -361,7 +360,7 @@ export default function AsignacionDetalle({ id, onClose }) {
             {(puedeFin || (soyResponsable && !finalizada && !inicioIncompleto)) && (
               <div className="flex gap-2">
                 <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
-                  ✓ Finalizar servicio
+                  Finalizar servicio
                 </button>
               </div>
             )}
@@ -371,7 +370,7 @@ export default function AsignacionDetalle({ id, onClose }) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium text-neutral-900 text-sm">
-                    <span className="inline-block bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">
+                    <span className="inline-block bg-warn-50 text-warn-600 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">
                       INCIDENCIAS
                     </span>
                     {incidencias.length > 0
@@ -421,8 +420,8 @@ export default function AsignacionDetalle({ id, onClose }) {
 
                 {/* Alta de una nueva incidencia (admin/gestor) */}
                 {puedeGestionar && showIncForm && (
-                  <form onSubmit={handleCrearIncidencia} className="card border-amber-200 bg-amber-50/40 space-y-3">
-                    <h4 className="font-medium text-neutral-900 text-sm">⚠ Nueva incidencia</h4>
+                  <form onSubmit={handleCrearIncidencia} className="card border-warn-200 bg-warn-50/40 space-y-3">
+                    <h4 className="font-medium text-neutral-900 text-sm">Nueva incidencia</h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
@@ -481,7 +480,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   <span className="inline-block bg-blue-100 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">INICIO</span>
                   Fotos al recibir el vehículo
                 </h3>
-                <span className={`text-xs font-medium ${asig.progreso?.inicio?.completo ? 'text-green-600' : 'text-amber-600'}`}>
+                <span className={`text-xs font-medium ${asig.progreso?.inicio?.completo ? 'text-ok-600' : 'text-warn-600'}`}>
                   {asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}
                 </span>
               </div>
@@ -520,10 +519,10 @@ export default function AsignacionDetalle({ id, onClose }) {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium text-neutral-900 text-sm">
-                  <span className="inline-block bg-green-100 text-green-700 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">FIN</span>
+                  <span className="inline-block bg-ok-50 text-ok-600 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">FIN</span>
                   Fotos al finalizar
                 </h3>
-                <span className={`text-xs font-medium ${asig.progreso?.fin?.completo ? 'text-green-600' : 'text-amber-600'}`}>
+                <span className={`text-xs font-medium ${asig.progreso?.fin?.completo ? 'text-ok-600' : 'text-warn-600'}`}>
                   {asig.progreso?.fin?.completado || 0}/{asig.progreso?.fin?.total || 5}
                 </span>
               </div>

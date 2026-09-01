@@ -9,10 +9,10 @@ import { ESTADO_COLORS } from '../../utils/constants.js';
 import { PageLoading } from '../common/LoadingSpinner.jsx';
 
 const DOT_COLORS = {
-  programado:            'bg-yellow-400',
+  programado:            'bg-warn-500',
   activo:                'bg-blue-500',
-  finalizado:            'bg-green-500',
-  finalizado_anticipado: 'bg-red-500',
+  finalizado:            'bg-ok-500',
+  finalizado_anticipado: 'bg-bad-500',
 };
 
 export default function CalendarioTrab({ onSelectTrabajo }) {

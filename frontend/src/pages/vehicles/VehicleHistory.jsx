@@ -1,10 +1,10 @@
 /**
  * VehicleHistory.jsx
  * Ficha de un vehículo con cuatro pestañas:
- *   📋 Resumen     — datos del vehículo, documentación y estado de incidencias
- *   📷 Fotos       — historial fotográfico agrupado por trabajo
- *   ⚠️ Incidencias — daños/averías registradas con responsable
- *   🔧 Revisiones  — ITV, ITS, mantenimiento, etc.
+ *   Resumen     — datos del vehículo, documentación y estado de incidencias
+ *   Fotos       — historial fotográfico agrupado por trabajo
+ *   Incidencias — daños/averías registradas con responsable
+ *   Revisiones  — ITV, ITS, mantenimiento, etc.
  *
  * Solo accesible para administradores y gestores.
  */
@@ -34,15 +34,15 @@ const TIPO_FOTO_LABELS = {
 };
 
 const GRAVEDAD_BADGE = {
-  leve:     'bg-yellow-100 text-yellow-700',
-  moderado: 'bg-orange-100 text-orange-700',
-  grave:    'bg-red-100 text-red-700',
+  leve:     'bg-warn-50 text-warn-600',
+  moderado: 'bg-warn-50 text-warn-600',
+  grave:    'bg-bad-50 text-bad-600',
 };
 
 const ESTADO_INC_BADGE = {
-  pendiente:    'bg-red-100 text-red-700',
-  en_revision:  'bg-yellow-100 text-yellow-700',
-  resuelto:     'bg-green-100 text-green-700',
+  pendiente:    'bg-bad-50 text-bad-600',
+  en_revision:  'bg-warn-50 text-warn-600',
+  resuelto:     'bg-ok-50 text-ok-600',
 };
 
 const TIPO_INC_LABELS = {
@@ -64,9 +64,9 @@ const TIPO_REV_LABELS = {
 };
 
 const RESULTADO_BADGE = {
-  aprobado:    'bg-green-100 text-green-700',
-  rechazado:   'bg-red-100 text-red-700',
-  condicionado:'bg-orange-100 text-orange-700',
+  aprobado:    'bg-ok-50 text-ok-600',
+  rechazado:   'bg-bad-50 text-bad-600',
+  condicionado:'bg-warn-50 text-warn-600',
   realizado:   'bg-blue-100 text-blue-700',
 };
 
@@ -142,7 +142,6 @@ function TrabajoCard({ trabajo }) {
     <div className="card overflow-hidden">
       <button className="w-full flex items-center justify-between gap-2 text-left" onClick={() => setOpen(o => !o)}>
         <div className="flex items-start gap-3 min-w-0">
-          <span className="text-2xl mt-0.5">🚑</span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-neutral-900 text-sm">
@@ -154,8 +153,8 @@ function TrabajoCard({ trabajo }) {
                 </span>
               )}
               {trabajo.responsable_nombre && (
-                <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-2 py-0.5">
-                  👤 {trabajo.responsable_nombre}
+                <span className="text-xs text-neutral-500">
+                  {trabajo.responsable_nombre}
                 </span>
               )}
             </div>
@@ -303,11 +302,11 @@ function TabIncidencias({ vehicleId }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-2 text-sm">
-          <span className="badge bg-red-100 text-red-700">{pendientes.length} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
-          <span className="badge bg-green-100 text-green-700">{resueltas.length} resuelta{resueltas.length !== 1 ? 's' : ''}</span>
+          <span className="badge bg-bad-50 text-bad-600">{pendientes.length} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
+          <span className="badge bg-ok-50 text-ok-600">{resueltas.length} resuelta{resueltas.length !== 1 ? 's' : ''}</span>
         </div>
         <button onClick={() => setShowForm(s => !s)} className="btn-primary text-sm">
-          {showForm ? '✕ Cancelar' : '+ Nueva incidencia'}
+          {showForm ? 'Cancelar' : '+ Nueva incidencia'}
         </button>
       </div>
 
@@ -354,9 +353,9 @@ function TabIncidencias({ vehicleId }) {
 
       {/* Lista */}
       {incidencias.length === 0 ? (
-        <div className="card text-center py-12 text-neutral-400">
-          <p className="text-3xl mb-2">✅</p>
-          <p className="text-sm">Sin incidencias registradas</p>
+        <div className="empty">
+          <p className="empty-title">Sin incidencias registradas</p>
+          <p className="empty-hint">Este vehículo no tiene daños ni averías anotadas</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -381,13 +380,13 @@ function TabIncidencias({ vehicleId }) {
               <div className="text-xs text-neutral-500 space-y-0.5">
                 {inc.trabajo && (
                   <p>
-                    🚑 <Link to={`/trabajos/${inc.trabajo.id}`} className="text-primary-600 hover:underline">
+                    <Link to={`/trabajos/${inc.trabajo.id}`} className="text-primary-600 hover:underline">
                       {inc.trabajo.referencia || `Trabajo #${inc.trabajo.id}`}
                     </Link>
                   </p>
                 )}
                 {inc.asignacion_id && (
-                  <p>🔑 Detectada en la asignación #{inc.asignacion_id}</p>
+                  <p>Detectada en la asignación #{inc.asignacion_id}</p>
                 )}
                 <p>
                   Responsable: <strong className="text-neutral-700">
@@ -556,9 +555,8 @@ function TabRevisiones({ vehicleId }) {
             const vencida = dias < 0;
             return (
               <div key={r.id} className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${
-                vencida ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-yellow-50 border border-yellow-200 text-yellow-700'
+                vencida ? 'bg-bad-50 border border-bad-200 text-bad-600' : 'bg-warn-50 border border-warn-200 text-warn-600'
               }`}>
-                <span>⚠️</span>
                 <span>
                   <strong>{TIPO_REV_LABELS[r.tipo] || r.tipo}</strong>
                   {' '}{vencida ? `vencida hace ${Math.abs(dias)} días` : `en ${dias} día${dias !== 1 ? 's' : ''}`}
@@ -637,9 +635,9 @@ function TabRevisiones({ vehicleId }) {
 
       {/* Lista */}
       {revisiones.length === 0 ? (
-        <div className="card text-center py-12 text-neutral-400">
-          <p className="text-3xl mb-2">🔧</p>
-          <p className="text-sm">Sin revisiones registradas</p>
+        <div className="empty">
+          <p className="empty-title">Sin revisiones registradas</p>
+          <p className="empty-hint">Aún no se ha anotado ninguna ITV, ITS ni mantenimiento</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -659,8 +657,8 @@ function TabRevisiones({ vehicleId }) {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button onClick={() => openEdit(rev)} className="btn-ghost text-xs text-neutral-500">Editar</button>
                     <button onClick={() => handleDelete(rev.id)} disabled={deletingId === rev.id}
-                      className="btn-ghost text-xs text-red-500 hover:bg-red-50">
-                      {deletingId === rev.id ? '...' : '✕'}
+                      className="btn-ghost btn-sm text-bad-600 hover:bg-bad-50">
+                      {deletingId === rev.id ? '…' : 'Eliminar'}
                     </button>
                   </div>
                 </div>
@@ -674,7 +672,7 @@ function TabRevisiones({ vehicleId }) {
                     <div>
                       <span className="text-neutral-400">Próxima: </span>
                       <span className={diasProxima !== null && diasProxima <= 30
-                        ? (diasProxima < 0 ? 'text-red-600 font-semibold' : 'text-yellow-600 font-semibold')
+                        ? (diasProxima < 0 ? 'text-bad-600 font-semibold' : 'text-warn-600 font-semibold')
                         : ''}>
                         {formatDate(rev.fecha_proxima)}
                         {diasProxima !== null && diasProxima <= 30 && (
@@ -732,7 +730,7 @@ function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   const vencida = dias < 0;
   const avisa   = dias <= umbralAviso;
   return (
-    <span className={vencida ? 'text-red-600 font-medium' : avisa ? 'text-yellow-700 font-medium' : ''}>
+    <span className={vencida ? 'text-bad-600 font-medium' : avisa ? 'text-warn-600 font-medium' : ''}>
       {formatDate(proxima)}
       {avisa && (
         <span className="ml-1 text-xs">
@@ -840,9 +838,9 @@ function TabResumen({ vehicleId, historial, onVerIncidencias, onVerRevisiones, o
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h3 className="font-medium text-neutral-900 text-sm">Incidencias históricas</h3>
           <div className="flex gap-2 text-xs">
-            <span className="badge bg-red-100 text-red-700">{pendientes.length} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
-            <span className="badge bg-yellow-100 text-yellow-700">{enRevision.length} en revisión</span>
-            <span className="badge bg-green-100 text-green-700">{resueltas.length} resuelta{resueltas.length !== 1 ? 's' : ''}</span>
+            <span className="badge bg-bad-50 text-bad-600">{pendientes.length} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
+            <span className="badge bg-warn-50 text-warn-600">{enRevision.length} en revisión</span>
+            <span className="badge bg-ok-50 text-ok-600">{resueltas.length} resuelta{resueltas.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
 
@@ -902,10 +900,10 @@ function TabResumen({ vehicleId, historial, onVerIncidencias, onVerRevisiones, o
 
 // ── Página principal ───────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'resumen',     label: '📋 Resumen' },
-  { key: 'fotos',       label: '📷 Fotos' },
-  { key: 'incidencias', label: '⚠️ Incidencias' },
-  { key: 'revisiones',  label: '🔧 Revisiones' },
+  { key: 'resumen',     label: 'Resumen' },
+  { key: 'fotos',       label: 'Fotos' },
+  { key: 'incidencias', label: 'Incidencias' },
+  { key: 'revisiones',  label: 'Revisiones' },
 ];
 
 export default function VehicleHistory() {
@@ -930,7 +928,7 @@ export default function VehicleHistory() {
 
   if (error) return (
     <div className="p-6 text-center">
-      <p className="text-red-500 mb-4">{error}</p>
+      <p className="text-bad-500 mb-4">{error}</p>
       <button onClick={() => navigate('/vehiculos')} className="btn-secondary">← Volver</button>
     </div>
   );
@@ -944,7 +942,7 @@ export default function VehicleHistory() {
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/vehiculos')} className="btn-ghost text-neutral-500">← Volver</button>
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">{vehicle.alias}</h1>
+          <h1 className="text-[19px] font-semibold text-neutral-900">{vehicle.alias}</h1>
           <p className="text-sm text-neutral-500 font-mono">{vehicle.matricula}</p>
         </div>
       </div>
@@ -952,30 +950,26 @@ export default function VehicleHistory() {
       {/* Resumen */}
       <div className="grid grid-cols-3 gap-3">
         <div className="card text-center py-3">
-          <p className="text-2xl font-bold text-neutral-900">{trabajos.length}</p>
+          <p className="text-[19px] font-semibold text-neutral-900">{trabajos.length}</p>
           <p className="text-xs text-neutral-500 mt-1">Trabajos con fotos</p>
         </div>
         <div className="card text-center py-3">
-          <p className="text-2xl font-bold text-neutral-900">{totalFotos}</p>
+          <p className="text-[19px] font-semibold text-neutral-900">{totalFotos}</p>
           <p className="text-xs text-neutral-500 mt-1">Fotos totales</p>
         </div>
         <div className="card text-center py-3">
-          <p className="text-2xl font-bold text-neutral-900">{vehicle.kilometros_actuales?.toLocaleString()}</p>
+          <p className="text-[19px] font-semibold text-neutral-900">{vehicle.kilometros_actuales?.toLocaleString()}</p>
           <p className="text-xs text-neutral-500 mt-1">Km actuales</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-neutral-100 p-1 rounded-lg">
+      <div className="tabs">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 text-sm font-medium py-1.5 px-3 rounded-md transition ${
-              tab === t.key
-                ? 'bg-white shadow text-neutral-900'
-                : 'text-neutral-500 hover:text-neutral-700'
-            }`}
+            className={tab === t.key ? 'tab-active' : 'tab'}
           >
             {t.label}
           </button>
@@ -995,9 +989,9 @@ export default function VehicleHistory() {
 
       {tab === 'fotos' && (
         trabajos.length === 0 ? (
-          <div className="card text-center py-12 text-neutral-400">
-            <p className="text-4xl mb-3">📷</p>
-            <p>Aún no hay fotografías registradas para este vehículo.</p>
+          <div className="empty">
+            <p className="empty-title">Sin fotografías</p>
+            <p className="empty-hint">Aún no se ha registrado ninguna foto de este vehículo</p>
           </div>
         ) : (
           <div className="space-y-4">

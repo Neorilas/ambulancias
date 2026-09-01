@@ -65,24 +65,24 @@ export default function ResetPasswordModal({ user, onClose }) {
       {result ? (
         /* ── Resultado: mostrar la nueva contraseña ── */
         <div className="space-y-4">
-          <div className="rounded-xl bg-green-50 border border-green-200 p-4">
-            <p className="text-sm text-green-800 font-medium mb-2">
+          <div className="rounded-xl bg-ok-50 border border-ok-200 p-4">
+            <p className="text-sm text-ok-700 font-medium mb-2">
               Contraseña reseteada para <span className="font-semibold">{user.nombre} {user.apellidos}</span>
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 px-3 py-2 bg-white rounded-lg border border-green-300 font-mono text-base tracking-wide break-all select-all">
+              <code className="flex-1 px-3 py-2 bg-white rounded-lg border border-ok-200 font-mono text-base tracking-wide break-all select-all">
                 {result}
               </code>
               <button
                 onClick={handleCopy}
                 className="btn-secondary text-sm whitespace-nowrap px-3 py-2"
               >
-                {copied ? '✓ Copiado' : 'Copiar'}
+                {copied ? 'Copiado' : 'Copiar'}
               </button>
             </div>
           </div>
-          <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            ⚠️ Anótala y comunícasela al usuario ahora. No se podrá volver a mostrar.
+          <p className="text-xs text-warn-600 bg-warn-50 border border-warn-200 rounded-lg p-3">
+            Anótala y comunícasela al usuario ahora. No se podrá volver a mostrar.
             Las sesiones activas se han cerrado: deberá iniciar sesión con esta contraseña.
           </p>
         </div>

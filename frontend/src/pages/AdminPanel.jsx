@@ -16,30 +16,25 @@ import { formatDateTime } from '../utils/dateUtils.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const ACTION_ICON = {
-  login:               '🔐',
-  logout:              '🚪',
-  access_denied:       '🚫',
-  toggle_feature:      '⚙️',
-  create_trabajo:      '➕',
-  update_trabajo:      '✏️',
-  delete_trabajo:      '🗑️',
-  finalize_trabajo:    '✅',
-  activate_trabajo:    '▶️',
-  create_asignacion:   '🔑',
-  activate_asignacion: '▶️',
-  finalize_asignacion: '🏁',
-  delete_asignacion:   '🗑️',
-  create_vehicle:      '🚐',
-  update_vehicle:      '✏️',
-  delete_vehicle:      '🗑️',
-  create_incidencia:   '⚠️',
-  update_incidencia:   '⚠️',
-  create_revision:     '🔧',
-  create_user:         '👤',
-  update_user:         '✏️',
-  delete_user:         '🗑️',
-  reset_password:      '🔒',
+/**
+ * Color del punto que precede a cada acción en el registro.
+ * Sustituye a los iconos: sirve para barrer la lista con la vista,
+ * no para identificar la acción (eso lo hace el texto).
+ */
+const ACTION_TONE = {
+  access_denied:       'bg-bad-500',
+  delete_trabajo:      'bg-bad-500',
+  delete_asignacion:   'bg-bad-500',
+  delete_vehicle:      'bg-bad-500',
+  delete_user:         'bg-bad-500',
+  reset_password:      'bg-warn-500',
+  toggle_feature:      'bg-warn-500',
+  create_incidencia:   'bg-warn-500',
+  update_incidencia:   'bg-warn-500',
+  finalize_trabajo:    'bg-ok-500',
+  finalize_asignacion: 'bg-ok-500',
+  login:               'bg-idle-500',
+  logout:              'bg-idle-500',
 };
 
 // Texto legible en español para cada acción registrada
@@ -69,8 +64,16 @@ const ACTION_LABEL = {
   reset_password:      'Reseteó una contraseña',
 };
 
-function actionIcon(action) {
-  return ACTION_ICON[action] || '📝';
+// El resto de acciones (crear/editar/activar) son rutina: azul de marca.
+function ActionDot({ action }) {
+  return (
+    <span
+      className={`inline-block w-[6px] h-[6px] rounded-full flex-shrink-0 ${
+        ACTION_TONE[action] || 'bg-primary-600'
+      }`}
+      aria-hidden="true"
+    />
+  );
 }
 
 function actionLabel(action) {
@@ -78,15 +81,12 @@ function actionLabel(action) {
 }
 
 // ── StatCard ──────────────────────────────────────────────────────────────────
-function StatCard({ icon, label, value, sub, color = 'text-neutral-900' }) {
+function StatCard({ label, value, sub, color = 'text-neutral-900' }) {
   return (
-    <div className="card flex items-center gap-4">
-      <span className="text-3xl">{icon}</span>
-      <div>
-        <p className={`text-2xl font-bold ${color}`}>{value ?? '–'}</p>
-        <p className="text-sm text-neutral-500">{label}</p>
-        {sub && <p className="text-xs text-neutral-400 mt-0.5">{sub}</p>}
-      </div>
+    <div className="card">
+      <p className="micro">{label}</p>
+      <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${color}`}>{value ?? '–'}</p>
+      {sub && <p className="text-xs text-neutral-400 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -202,9 +202,9 @@ function TabAuditoria({ initialUserId = '' }) {
       {loading ? <PageLoading /> : (
         <>
           {logs.length === 0 ? (
-            <div className="card text-center py-10 text-neutral-400">
-              <p className="text-3xl mb-2">📋</p>
-              <p className="text-sm">Sin registros</p>
+            <div className="empty">
+              <p className="empty-title">Sin registros</p>
+              <p className="empty-hint">Ninguna acción coincide con los filtros</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -212,7 +212,7 @@ function TabAuditoria({ initialUserId = '' }) {
                 <div key={log.id} className="card py-3 space-y-1">
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">{actionIcon(log.action)}</span>
+                      <ActionDot action={log.action} />
                       <div>
                         <span className="font-medium text-sm text-neutral-800">{actionLabel(log.action)}</span>
                         {log.entity_type && (
@@ -225,12 +225,12 @@ function TabAuditoria({ initialUserId = '' }) {
                     </div>
                     <span className="text-xs text-neutral-400 flex-shrink-0">{formatDateTime(log.created_at)}</span>
                   </div>
-                  <p className="text-xs text-neutral-600 pl-7">
-                    👤 {log.user_info || '—'}
+                  <p className="text-xs text-neutral-600 pl-3.5">
+                    {log.user_info || '—'}
                     {log.ip_address && <span className="ml-2 text-neutral-400">{log.ip_address}</span>}
                   </p>
                   {log.details && (
-                    <pre className="text-[10px] text-neutral-400 pl-7 bg-neutral-50 rounded p-1 overflow-x-auto">
+                    <pre className="text-[10px] text-neutral-400 ml-3.5 bg-neutral-50 rounded p-1 overflow-x-auto">
                       {typeof log.details === 'string'
                         ? log.details
                         : JSON.stringify(log.details, null, 2)}
@@ -298,9 +298,9 @@ function TabErrores() {
       {loading ? <PageLoading /> : (
         <>
           {logs.length === 0 ? (
-            <div className="card text-center py-10 text-neutral-400">
-              <p className="text-3xl mb-2">✅</p>
-              <p className="text-sm">Sin errores registrados</p>
+            <div className="empty">
+              <p className="empty-title">Sin errores registrados</p>
+              <p className="empty-hint">El servidor no ha devuelto ningún 5xx en este periodo</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -308,7 +308,7 @@ function TabErrores() {
                 <div key={log.id} className="card border-l-4 border-l-red-400 space-y-1">
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <span className="badge bg-red-100 text-red-700 font-mono text-xs">{log.status_code}</span>
+                      <span className="badge bg-bad-50 text-bad-600 font-mono text-xs">{log.status_code}</span>
                       <span className="text-xs font-medium text-neutral-600">
                         {log.method} <span className="font-mono text-neutral-800 break-all">{log.url}</span>
                       </span>
@@ -316,11 +316,11 @@ function TabErrores() {
                     <span className="text-xs text-neutral-400 flex-shrink-0">{formatDateTime(log.created_at)}</span>
                   </div>
 
-                  <p className="text-sm text-red-700 font-medium">{log.error_message}</p>
+                  <p className="text-sm text-bad-600 font-medium">{log.error_message}</p>
 
                   {log.user_info && (
                     <p className="text-xs text-neutral-500">
-                      👤 {log.user_info}
+                      {log.user_info}
                       {log.ip_address && <span className="ml-2">{log.ip_address}</span>}
                     </p>
                   )}
@@ -333,7 +333,7 @@ function TabErrores() {
                   </button>
 
                   {expanded === log.id && log.stack_trace && (
-                    <pre className="text-[10px] bg-neutral-900 text-green-400 rounded p-3 overflow-x-auto max-h-48 mt-1">
+                    <pre className="text-[10px] bg-neutral-900 text-ok-500 rounded p-3 overflow-x-auto max-h-48 mt-1">
                       {log.stack_trace}
                     </pre>
                   )}
@@ -393,8 +393,8 @@ function TabFuncionalidades() {
 
   return (
     <div className="space-y-4">
-      <div className="card bg-amber-50 border-amber-200 py-3 px-4">
-        <p className="text-sm text-amber-800">
+      <div className="card bg-warn-50 border-warn-200 py-3 px-4">
+        <p className="text-sm text-warn-700">
           Activa o desactiva secciones de la app. Los cambios son inmediatos para todos los usuarios.
           El panel Superadmin siempre es visible para ti.
         </p>
@@ -441,10 +441,10 @@ function TabFuncionalidades() {
 
 // ── Página principal ───────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'features',  label: '⚙️ Funcionalidades' },
-  { key: 'stats',     label: '📊 Resumen' },
-  { key: 'auditoria', label: '🕵️ Auditoría' },
-  { key: 'errores',   label: '🔴 Errores' },
+  { key: 'features',  label: 'Funcionalidades' },
+  { key: 'stats',     label: 'Resumen' },
+  { key: 'auditoria', label: 'Auditoría' },
+  { key: 'errores',   label: 'Errores' },
 ];
 
 export default function AdminPanel() {
@@ -470,21 +470,17 @@ export default function AdminPanel() {
     <div className="space-y-5 max-w-4xl mx-auto animate-fade-in">
       {/* Cabecera */}
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">Panel Superadmin</h1>
+        <h1 className="text-[19px] font-semibold text-neutral-900">Panel Superadmin</h1>
         <p className="text-neutral-400 text-sm">Logs del sistema, auditoría y estadísticas avanzadas</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-neutral-100 p-1 rounded-lg">
+      <div className="tabs">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 text-sm font-medium py-1.5 px-3 rounded-md transition ${
-              tab === t.key
-                ? 'bg-white shadow text-neutral-900'
-                : 'text-neutral-500 hover:text-neutral-700'
-            }`}
+            className={tab === t.key ? 'tab-active' : 'tab'}
           >
             {t.label}
           </button>
@@ -496,10 +492,10 @@ export default function AdminPanel() {
         loading ? <PageLoading /> : stats ? (
           <div className="space-y-5">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard icon="📋" label="Acciones auditadas" value={stats.audit_total?.toLocaleString()} />
-              <StatCard icon="🔴" label="Errores totales"    value={stats.errors_total?.toLocaleString()} color="text-red-600" />
-              <StatCard icon="⚠️" label="Errores hoy"        value={stats.errors_hoy}   color={stats.errors_hoy > 0 ? 'text-orange-600' : 'text-neutral-900'} />
-              <StatCard icon="🔒" label="Logins fallidos 24h" value={stats.logins_fallidos_24h} color={stats.logins_fallidos_24h > 10 ? 'text-red-600' : 'text-neutral-900'} />
+              <StatCard label="Acciones auditadas" value={stats.audit_total?.toLocaleString()} />
+              <StatCard label="Errores totales"    value={stats.errors_total?.toLocaleString()} color="text-bad-600" />
+              <StatCard label="Errores hoy"        value={stats.errors_hoy}   color={stats.errors_hoy > 0 ? 'text-warn-600' : 'text-neutral-900'} />
+              <StatCard label="Logins fallidos 24h" value={stats.logins_fallidos_24h} color={stats.logins_fallidos_24h > 10 ? 'text-bad-600' : 'text-neutral-900'} />
             </div>
 
             {stats.top_actions?.length > 0 && (
@@ -508,7 +504,7 @@ export default function AdminPanel() {
                 <div className="space-y-2">
                   {stats.top_actions.map(a => (
                     <div key={a.action} className="flex items-center gap-3">
-                      <span className="text-lg w-6 text-center">{actionIcon(a.action)}</span>
+                      <ActionDot action={a.action} />
                       <span className="text-sm text-neutral-700 flex-1">{a.action}</span>
                       <span className="font-semibold text-sm text-neutral-900">{a.total}</span>
                     </div>

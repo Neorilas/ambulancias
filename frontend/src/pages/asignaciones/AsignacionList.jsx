@@ -70,7 +70,7 @@ export default function AsignacionList() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-neutral-900">Asignaciones de vehículos</h1>
+          <h1 className="text-[19px] font-semibold text-neutral-900">Asignaciones de vehículos</h1>
           <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} asignaciones</p>
         </div>
         <button onClick={() => { setEditItem(null); setShowForm(true); }} className="btn-primary">
@@ -153,7 +153,7 @@ export default function AsignacionList() {
                           )}
                           <button
                             onClick={() => setDeleteId(a.id)}
-                            className="btn-ghost text-xs px-2 py-1 text-red-600 hover:bg-red-50"
+                            className="btn-ghost text-xs px-2 py-1 text-bad-600 hover:bg-bad-50"
                           >
                             Eliminar
                           </button>

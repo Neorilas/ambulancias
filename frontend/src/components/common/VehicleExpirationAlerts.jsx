@@ -16,7 +16,6 @@ import { useAuth }         from '../../context/AuthContext.jsx';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import {
   TIPO_LABEL,
-  TIPO_ICON,
   thresholdStyle,
   isDismissed,
   markDismissed,
@@ -47,7 +46,6 @@ function AlertCard({ alerta, onDismiss }) {
       </button>
 
       <div className={`font-semibold ${style.text} flex items-center gap-1.5`}>
-        <span>{vencida ? '⛔' : '⚠️'}</span>
         <span>
           {vencida
             ? `${TIPO_LABEL[tipo]} VENCIDA`
@@ -57,7 +55,7 @@ function AlertCard({ alerta, onDismiss }) {
 
       <div className="mt-1 text-neutral-800">
         <Link to="/alertas" className="font-medium hover:underline">
-          {TIPO_ICON[tipo] || ''} {alias}
+          {alias}
         </Link>
         <span className="text-neutral-500 font-mono ml-2">{matricula}</span>
       </div>

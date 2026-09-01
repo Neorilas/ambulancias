@@ -137,7 +137,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Nombre */}
         <div>
-          <label className="label">Nombre <span className="text-red-500">*</span></label>
+          <label className="label">Nombre <span className="text-bad-500">*</span></label>
           <input type="text" className={`input ${errors.nombre ? 'input-error' : ''}`}
             value={form.nombre} onChange={set('nombre')} placeholder="Nombre descriptivo del trabajo" />
           {errors.nombre && <p className="field-error">{errors.nombre}</p>}
@@ -156,13 +156,13 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
         {/* Fechas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Fecha inicio <span className="text-red-500">*</span></label>
+            <label className="label">Fecha inicio <span className="text-bad-500">*</span></label>
             <input type="datetime-local" className={`input ${errors.fecha_inicio ? 'input-error' : ''}`}
               value={form.fecha_inicio} onChange={set('fecha_inicio')} />
             {errors.fecha_inicio && <p className="field-error">{errors.fecha_inicio}</p>}
           </div>
           <div>
-            <label className="label">Fecha fin <span className="text-red-500">*</span></label>
+            <label className="label">Fecha fin <span className="text-bad-500">*</span></label>
             <input type="datetime-local" className={`input ${errors.fecha_fin ? 'input-error' : ''}`}
               value={form.fecha_fin} onChange={set('fecha_fin')} />
             {errors.fecha_fin && <p className="field-error">{errors.fecha_fin}</p>}
@@ -184,7 +184,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-neutral-600">Vehículo {i + 1}</span>
                   <button type="button" onClick={() => removeVehicle(i)}
-                    className="text-red-500 hover:text-red-700 text-xs">✕ Quitar</button>
+                    className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>

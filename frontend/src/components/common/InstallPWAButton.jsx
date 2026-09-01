@@ -75,7 +75,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
             <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-10 shadow-2xl"
                  onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 bg-neutral-300 rounded-full mx-auto mb-5" />
-              <h3 className="text-xl font-bold text-neutral-900 text-center mb-1">Instalar VAPSS</h3>
+              <h3 className="text-[19px] font-semibold text-neutral-900 text-center mb-1">Instalar VAPSS</h3>
               <p className="text-sm text-neutral-500 text-center mb-6">Sigue estos pasos en Safari</p>
               <ol className="space-y-4">
                 <li className="flex items-center gap-4 p-3 bg-neutral-50 rounded-xl">
@@ -100,7 +100,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
                   </div>
                 </li>
               </ol>
-              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-5 text-center">
+              <p className="text-xs text-warn-600 bg-warn-50 border border-warn-200 rounded-lg p-3 mt-5 text-center">
                 Solo funciona desde <strong>Safari</strong>. Si usas Chrome, cámbialo a Safari primero.
               </p>
               <button onClick={() => setShowModal(false)}

@@ -212,7 +212,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Vehículo */}
         <div>
-          <label className="label">Vehículo <span className="text-red-500">*</span></label>
+          <label className="label">Vehículo <span className="text-bad-500">*</span></label>
           <select
             className={`input ${errors.vehicle_id ? 'input-error' : ''}`}
             value={form.vehicle_id}
@@ -231,7 +231,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
 
         {/* Responsable — combobox buscable */}
         <div>
-          <label className="label">Responsable <span className="text-red-500">*</span></label>
+          <label className="label">Responsable <span className="text-bad-500">*</span></label>
           <UserCombobox
             users={users}
             value={form.user_id}
@@ -247,7 +247,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
         {/* Fechas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Fecha inicio <span className="text-red-500">*</span></label>
+            <label className="label">Fecha inicio <span className="text-bad-500">*</span></label>
             <input
               type="datetime-local"
               className={`input ${errors.fecha_inicio ? 'input-error' : ''}`}
@@ -257,7 +257,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             {errors.fecha_inicio && <p className="field-error">{errors.fecha_inicio}</p>}
           </div>
           <div>
-            <label className="label">Fecha fin <span className="text-red-500">*</span></label>
+            <label className="label">Fecha fin <span className="text-bad-500">*</span></label>
             <input
               type="datetime-local"
               className={`input ${errors.fecha_fin ? 'input-error' : ''}`}

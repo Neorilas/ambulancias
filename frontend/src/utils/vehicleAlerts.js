@@ -54,12 +54,6 @@ export const TIPO_LABEL = {
   tarjeta_transporte: 'Tarjeta de transporte',
 };
 
-export const TIPO_ICON = {
-  itv:                '🔧',
-  its:                '🩺',
-  tarjeta_transporte: '🪪',
-};
-
 /**
  * Dado `dias_restantes`, devuelve el umbral "activo":
  *   vencida | 15 | 30 | 45 | 60 | null
@@ -73,15 +67,19 @@ export function thresholdFor(dias) {
   return null;
 }
 
-/** Color hint por umbral (tailwind-ready) */
+/**
+ * Color por umbral, sobre la paleta semántica:
+ *   rojo = vencida · ámbar = próxima (15/30 días) · azul = aviso lejano
+ * `badge` devuelve directamente la clase de pastilla de index.css.
+ */
 export function thresholdStyle(threshold) {
   switch (threshold) {
-    case 'vencida': return { bg: 'bg-red-50 border-red-300',       text: 'text-red-700',    pill: 'bg-red-100 text-red-700 border-red-200' };
-    case 15:        return { bg: 'bg-orange-50 border-orange-300', text: 'text-orange-700', pill: 'bg-orange-100 text-orange-700 border-orange-200' };
-    case 30:        return { bg: 'bg-yellow-50 border-yellow-300', text: 'text-yellow-800', pill: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
-    case 45:        return { bg: 'bg-blue-50 border-blue-300',     text: 'text-blue-800',   pill: 'bg-blue-100 text-blue-800 border-blue-200' };
-    case 60:        return { bg: 'bg-blue-50 border-blue-200',     text: 'text-blue-700',   pill: 'bg-blue-50 text-blue-700 border-blue-100' };
-    default:        return { bg: 'bg-neutral-50 border-neutral-200', text: 'text-neutral-700', pill: 'bg-neutral-100 text-neutral-700 border-neutral-200' };
+    case 'vencida': return { bg: 'bg-bad-50 border-bad-200',   text: 'text-bad-600',  badge: 'badge-red' };
+    case 15:        return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-700', badge: 'badge-yellow' };
+    case 30:        return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-600', badge: 'badge-yellow' };
+    case 45:        return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
+    case 60:        return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
+    default:        return { bg: 'bg-idle-50 border-idle-200', text: 'text-idle-600', badge: 'badge-gray' };
   }
 }
 

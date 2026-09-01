@@ -71,7 +71,7 @@ export default function UserList() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-neutral-900">Usuarios</h1>
+          <h1 className="text-[19px] font-semibold text-neutral-900">Usuarios</h1>
           <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} usuarios registrados</p>
         </div>
         {isAdmin() && (
@@ -135,7 +135,7 @@ export default function UserList() {
                         {canResetPassword && (
                           <button
                             onClick={() => setResetUser(u)}
-                            className="btn-ghost text-xs px-2 py-1 text-amber-600 hover:bg-amber-50"
+                            className="btn-ghost text-xs px-2 py-1 text-warn-600 hover:bg-warn-50"
                           >
                             Resetear clave
                           </button>
@@ -143,7 +143,7 @@ export default function UserList() {
                         {canDeleteAny() && (
                           <button
                             onClick={() => setDeleteId(u.id)}
-                            className="btn-ghost text-xs px-2 py-1 text-red-600 hover:bg-red-50"
+                            className="btn-ghost text-xs px-2 py-1 text-bad-600 hover:bg-bad-50"
                           >
                             Eliminar
                           </button>

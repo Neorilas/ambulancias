@@ -129,7 +129,7 @@ export default function UserForm({ user, onSaved, onClose }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {!isEdit && (
             <div>
-              <label className="label">Username <span className="text-red-500">*</span></label>
+              <label className="label">Username <span className="text-bad-500">*</span></label>
               <input className={`input ${errors.username ? 'input-error' : ''}`}
                 value={form.username} onChange={set('username')}
                 autoCapitalize="none" autoComplete="off" />
@@ -137,19 +137,19 @@ export default function UserForm({ user, onSaved, onClose }) {
             </div>
           )}
           <div>
-            <label className="label">Nombre <span className="text-red-500">*</span></label>
+            <label className="label">Nombre <span className="text-bad-500">*</span></label>
             <input className={`input ${errors.nombre ? 'input-error' : ''}`}
               value={form.nombre} onChange={set('nombre')} />
             {errors.nombre && <p className="field-error">{errors.nombre}</p>}
           </div>
           <div>
-            <label className="label">Apellidos <span className="text-red-500">*</span></label>
+            <label className="label">Apellidos <span className="text-bad-500">*</span></label>
             <input className={`input ${errors.apellidos ? 'input-error' : ''}`}
               value={form.apellidos} onChange={set('apellidos')} />
             {errors.apellidos && <p className="field-error">{errors.apellidos}</p>}
           </div>
           <div>
-            <label className="label">DNI <span className="text-red-500">*</span></label>
+            <label className="label">DNI <span className="text-bad-500">*</span></label>
             <input className={`input ${errors.dni ? 'input-error' : ''}`}
               value={form.dni} onChange={set('dni')} />
             {errors.dni && <p className="field-error">{errors.dni}</p>}
@@ -176,7 +176,7 @@ export default function UserForm({ user, onSaved, onClose }) {
         <div>
           <label className="label">
             {isEdit ? 'Nueva contraseña (dejar en blanco para no cambiar)' : 'Contraseña'}
-            {!isEdit && <span className="text-red-500 ml-1">*</span>}
+            {!isEdit && <span className="text-bad-500 ml-1">*</span>}
           </label>
           <input type="password" className={`input ${errors.password ? 'input-error' : ''}`}
             value={form.password} onChange={set('password')} />

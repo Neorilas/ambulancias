@@ -119,7 +119,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'inicio');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
-        setProgress(p => ({ ...p, [tipo.key]: '✓' }));
+        setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
 
       // 2. Fotos de incidencia (opcionales, no bloquean)
@@ -164,7 +164,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         <div
           key={s.id}
           className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i < step ? 'bg-green-500' : i === step ? 'bg-primary-500' : 'bg-neutral-200'
+            i < step ? 'bg-ok-500' : i === step ? 'bg-primary-500' : 'bg-neutral-200'
           }`}
         />
       ))}
@@ -225,7 +225,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         <Header />
         <div className="flex items-center justify-between">
           <button onClick={() => openCamera(tipos, 0, 'inicio')} className="btn-secondary text-sm">
-            📷 Cámara guiada
+            Cámara guiada
           </button>
           <span className="text-xs text-neutral-500">{done}/{tipos.length} fotos</span>
         </div>
@@ -239,7 +239,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
                 <p className="text-xs font-medium text-neutral-600">{tipo.label}</p>
                 <div
                   className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
-                    ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
+                    ${file ? 'border-ok-500 bg-ok-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
                   onClick={() => openCamera(tipos, index, 'inicio')}
                 >
                   {preview ? (
@@ -254,7 +254,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
                     </div>
                   )}
                   {file && (
-                    <div className="absolute top-1 right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow">
+                    <div className="absolute top-1 right-1 w-6 h-6 bg-ok-500 rounded-full flex items-center justify-center shadow">
                       <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
@@ -287,15 +287,15 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => setHayInc(false)}
-          className={`card text-sm font-medium py-4 border-2 ${!hayInc ? 'border-green-400 bg-green-50 text-green-700' : 'border-neutral-200 text-neutral-600'}`}
+          className={`card text-sm font-medium py-4 border-2 ${!hayInc ? 'border-ok-500 bg-ok-50 text-ok-600' : 'border-neutral-200 text-neutral-600'}`}
         >
-          ✓ No hay incidencias
+          No hay incidencias
         </button>
         <button
           onClick={() => setHayInc(true)}
-          className={`card text-sm font-medium py-4 border-2 ${hayInc ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-neutral-200 text-neutral-600'}`}
+          className={`card text-sm font-medium py-4 border-2 ${hayInc ? 'border-warn-500 bg-warn-50 text-warn-600' : 'border-neutral-200 text-neutral-600'}`}
         >
-          ⚠ Reportar incidencia
+          Reportar incidencia
         </button>
       </div>
 
@@ -308,7 +308,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
                 onClick={() => openCamera([{ key: 'danos', label: 'Daños / Incidencias', instruccion: 'Fotografía el daño o lo relevante', landscape: false, multiple: true }], 0, 'incidencia')}
                 className="btn-secondary text-xs"
               >
-                📷 Añadir foto
+                Añadir foto
               </button>
             </div>
             {incFotos.length === 0 ? (
@@ -343,7 +343,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       <div className="flex gap-3">
         <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
         <button onClick={handleSubmit} className="btn-primary flex-1" disabled={uploading}>
-          {uploading ? 'Guardando…' : '✓ Finalizar revisión'}
+          {uploading ? 'Guardando…' : 'Finalizar revisión'}
         </button>
       </div>
     </div>

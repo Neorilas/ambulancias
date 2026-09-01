@@ -78,13 +78,13 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-neutral-900">Finalizar servicio</h2>
-        <div className="card bg-amber-50 border border-amber-200 space-y-2">
-          <p className="text-amber-800 font-medium">⚠ Faltan las fotos de inicio</p>
-          <p className="text-amber-700 text-sm">
+        <div className="card bg-warn-50 border border-warn-200 space-y-2">
+          <p className="text-warn-700 font-medium">Faltan las fotos de inicio</p>
+          <p className="text-warn-600 text-sm">
             No puedes finalizar hasta completar la revisión de inicio
             ({asignacion.progreso.inicio.completado}/{asignacion.progreso.inicio.total} fotos).
           </p>
-          <p className="text-amber-600 text-xs">
+          <p className="text-warn-600 text-xs">
             Cierra esta ventana y pulsa <strong>"Inicio de servicio"</strong> en el detalle.
           </p>
         </div>
@@ -106,7 +106,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'fin');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
-        setProgress(p => ({ ...p, [tipo.key]: '✓' }));
+        setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
       await asignacionesService.finalizar(asignacion.id, {
         km_fin:     kmFin !== '' ? parseInt(kmFin) : null,
@@ -139,14 +139,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div className="flex items-center gap-1.5">
         {secciones.map((s, i) => (
           <div key={s.id} className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i < step ? 'bg-green-500' : i === step ? 'bg-primary-500' : 'bg-neutral-200'
+            i < step ? 'bg-ok-500' : i === step ? 'bg-primary-500' : 'bg-neutral-200'
           }`} />
         ))}
       </div>
       <div>
         <p className="text-xs text-neutral-400">
           Paso {step + 1} de {secciones.length} — {asignacion.matricula}
-          {isAnticipada && <span className="ml-2 text-amber-600 font-medium">⚠ Anticipada</span>}
+          {isAnticipada && <span className="ml-2 text-warn-600 font-medium">Anticipada</span>}
         </p>
         <h2 className="text-lg font-semibold text-neutral-900">{seccion.titulo}</h2>
         {seccion.subtitulo && <p className="text-sm text-neutral-500">{seccion.subtitulo}</p>}
@@ -163,7 +163,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div className="space-y-6">
         <Header />
         <div className="flex items-center justify-between">
-          <button onClick={() => openCamera(tipos, 0)} className="btn-secondary text-sm">📷 Cámara guiada</button>
+          <button onClick={() => openCamera(tipos, 0)} className="btn-secondary text-sm">Cámara guiada</button>
           <span className="text-xs text-neutral-500">{done}/{tipos.length} fotos</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -175,7 +175,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
                 <p className="text-xs font-medium text-neutral-600">{tipo.label}</p>
                 <div
                   className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
-                    ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
+                    ${file ? 'border-ok-500 bg-ok-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
                   onClick={() => openCamera(tipos, index)}
                 >
                   {preview ? (
@@ -190,7 +190,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
                     </div>
                   )}
                   {file && (
-                    <div className="absolute top-1 right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow">
+                    <div className="absolute top-1 right-1 w-6 h-6 bg-ok-500 rounded-full flex items-center justify-center shadow">
                       <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
@@ -222,7 +222,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           <p className="text-xs font-medium text-neutral-600 mb-1">{ckm.label}</p>
           <div
             className={`relative aspect-[4/3] rounded-xl overflow-hidden border-2 cursor-pointer transition-colors
-              ${file ? 'border-green-400 bg-green-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
+              ${file ? 'border-ok-500 bg-ok-50' : 'border-dashed border-neutral-300 bg-neutral-50 hover:border-primary-400'}`}
             onClick={() => openCamera([ckm], 0)}
           >
             {preview ? (
@@ -239,7 +239,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           </div>
         </div>
         <div>
-          <label className="label">Kilómetros finales <span className="text-red-500">*</span></label>
+          <label className="label">Kilómetros finales <span className="text-bad-500">*</span></label>
           <input
             type="number" min={asignacion.km_inicio || 0} className="input"
             placeholder={asignacion.km_inicio ? `Mín. ${asignacion.km_inicio}` : 'Introduce los km actuales'}
@@ -262,11 +262,11 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     return (
       <div className="space-y-6">
         <Header />
-        <p className="text-sm text-amber-600">
+        <p className="text-sm text-warn-600">
           El plazo termina el {formatDateTime(asignacion.fecha_fin)}. Estás finalizando antes de esa fecha.
         </p>
         <div>
-          <label className="label">Motivo <span className="text-red-500">*</span></label>
+          <label className="label">Motivo <span className="text-bad-500">*</span></label>
           <textarea
             className="input resize-none" rows={5}
             placeholder="Explica el motivo por el que finalizas antes de lo previsto"
@@ -296,8 +296,8 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Fotos</span>
-          <span className="font-medium text-green-600">
-            {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length}/{IMAGEN_TIPOS_FIN.length} ✓
+          <span className="font-medium data text-ok-600">
+            {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length} / {IMAGEN_TIPOS_FIN.length}
           </span>
         </div>
         {motivo && (
@@ -310,7 +310,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div className="flex gap-3">
         <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
         <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading}>
-          {uploading ? 'Enviando…' : '✓ Finalizar servicio'}
+          {uploading ? 'Enviando…' : 'Finalizar servicio'}
         </button>
       </div>
     </div>

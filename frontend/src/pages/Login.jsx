@@ -71,7 +71,7 @@ export default function Login() {
         </h2>
 
         {errors.general && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div className="mb-4 p-3 bg-bad-50 border border-bad-200 rounded-lg text-bad-600 text-sm">
             {errors.general}
           </div>
         )}
@@ -110,10 +110,12 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPass(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold
+                           uppercase tracking-wide text-neutral-400 hover:text-neutral-700"
                 tabIndex={-1}
+                aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
               >
-                {showPass ? '🙈' : '👁️'}
+                {showPass ? 'Ocultar' : 'Mostrar'}
               </button>
             </div>
             {errors.password && <p className="field-error">{errors.password}</p>}
@@ -121,7 +123,7 @@ export default function Login() {
 
           <button
             type="submit"
-            className="btn-primary w-full py-3 text-base mt-2"
+            className="btn-primary btn-full mt-2"
             disabled={loading}
           >
             {loading ? (

@@ -19,17 +19,16 @@ function diferenciaHoras(fechaInicio) {
 
 // ── Componentes comunes ───────────────────────────────────────────────────────
 
-function StatCard({ label, value, icon, to }) {
+function StatCard({ label, value, to, tone = 'text-neutral-900' }) {
   const inner = (
-    <div className="card flex items-center gap-4 hover:shadow-md transition-shadow">
-      <div className="text-3xl">{icon}</div>
-      <div>
-        <p className="text-2xl font-bold text-neutral-900">{value ?? '–'}</p>
-        <p className="text-sm text-neutral-500">{label}</p>
-      </div>
+    <div className="card hover:border-neutral-300 transition-colors h-full">
+      <p className="micro">{label}</p>
+      <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${tone}`}>
+        {value ?? '–'}
+      </p>
     </div>
   );
-  return to ? <Link to={to}>{inner}</Link> : inner;
+  return to ? <Link to={to} className="block h-full">{inner}</Link> : inner;
 }
 
 // Tira semanal: 7 días con puntos de color por estado de trabajo
@@ -56,10 +55,10 @@ function WeekStrip({ trabajos }) {
   };
 
   const dotColor = (estado) => ({
-    activo:                'bg-blue-500',
-    programado:            'bg-yellow-400',
-    finalizado:            'bg-green-500',
-    finalizado_anticipado: 'bg-green-400',
+    activo:                'bg-primary-600',
+    programado:            'bg-warn-500',
+    finalizado:            'bg-ok-500',
+    finalizado_anticipado: 'bg-ok-500',
   }[estado] || 'bg-neutral-300');
 
   return (
@@ -93,9 +92,9 @@ function WeekStrip({ trabajos }) {
         })}
       </div>
       <div className="flex gap-3 mt-2 text-[10px] text-neutral-400">
-        <span><span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-1"/>Activo</span>
-        <span><span className="inline-block w-2 h-2 bg-yellow-400 rounded-full mr-1"/>Programado</span>
-        <span><span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1"/>Finalizado</span>
+        <span><span className="inline-block w-2 h-2 bg-primary-600 rounded-full mr-1"/>Activo</span>
+        <span><span className="inline-block w-2 h-2 bg-warn-500 rounded-full mr-1"/>Programado</span>
+        <span><span className="inline-block w-2 h-2 bg-ok-500 rounded-full mr-1"/>Finalizado</span>
       </div>
     </div>
   );
@@ -111,27 +110,27 @@ function ActiveJobCard({ trabajo, onFinalizar }) {
   const enTiempo = horas > 0;
 
   return (
-    <div className="card border-l-4 border-l-blue-500 space-y-3">
+    <div className="card pl-5 space-y-3">
+      <span className="stripe-activa" />
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">✦ Trabajo en curso</p>
+          <p className="micro text-primary-600">Trabajo en curso</p>
           <h3 className="font-semibold text-neutral-900 mt-0.5">{trabajo.nombre}</h3>
-          <p className="text-xs text-neutral-500 font-mono">{trabajo.identificador}</p>
+          <p className="text-xs text-neutral-500 data">{trabajo.identificador}</p>
         </div>
         <EstadoBadge estado={trabajo.estado} />
       </div>
 
       {trabajo.vehiculo_alias && (
-        <div className="flex items-center gap-2 text-sm">
-          <span>🚐</span>
-          <span className="font-medium">{trabajo.vehiculo_alias}</span>
-          <span className="text-neutral-400 font-mono text-xs">({trabajo.matricula})</span>
+        <div className="flex items-baseline gap-2 text-sm">
+          <span className="data font-semibold text-neutral-900">{trabajo.matricula}</span>
+          <span className="text-neutral-500 text-[13px]">{trabajo.vehiculo_alias}</span>
         </div>
       )}
 
       <div className="text-xs text-neutral-500 space-y-0.5">
         <p>Inicio: {formatDateTime(trabajo.fecha_inicio)}</p>
-        <p className={enTiempo ? 'text-neutral-500' : 'text-red-600 font-medium'}>
+        <p className={enTiempo ? 'text-neutral-500' : 'text-bad-600 font-medium'}>
           Fin previsto: {formatDateTime(trabajo.fecha_fin)}
           {!enTiempo && ' · Tiempo superado'}
         </p>
@@ -174,10 +173,11 @@ function NextJobCard({ trabajo }) {
   const dias  = Math.ceil(horas / 24);
 
   return (
-    <div className="card border-l-4 border-l-yellow-400 space-y-2">
+    <div className="card pl-5 space-y-2">
+      <span className="stripe-programada" />
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs text-yellow-600 font-medium uppercase tracking-wide">
+          <p className="micro text-warn-600">
             {horas < 24 ? `En ${Math.round(horas)}h` : `En ${dias} día${dias !== 1 ? 's' : ''}`}
           </p>
           <h3 className="font-medium text-neutral-800 mt-0.5">{trabajo.nombre}</h3>
@@ -185,7 +185,9 @@ function NextJobCard({ trabajo }) {
         <EstadoBadge estado={trabajo.estado} />
       </div>
       {trabajo.vehiculo_alias && (
-        <p className="text-xs text-neutral-500">🚐 {trabajo.vehiculo_alias} ({trabajo.matricula})</p>
+        <p className="text-xs text-neutral-500">
+          <span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}
+        </p>
       )}
       <p className="text-xs text-neutral-400">
         {formatDateTime(trabajo.fecha_inicio)} → {formatDateTime(trabajo.fecha_fin)}
@@ -206,11 +208,12 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
   const enTiempo = horas > 0;
 
   return (
-    <div className="card border-l-4 border-l-emerald-500 space-y-3">
+    <div className="card pl-5 space-y-3">
+      <span className="stripe-activa" />
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs text-emerald-600 font-medium uppercase tracking-wide">🚐 Vehículo asignado</p>
-          <h3 className="font-semibold text-neutral-900 mt-0.5">{asignacion.matricula}</h3>
+          <p className="micro">Vehículo asignado</p>
+          <h3 className="plate mt-0.5">{asignacion.matricula}</h3>
           {asignacion.vehiculo_alias && (
             <p className="text-xs text-neutral-500">{asignacion.vehiculo_alias}</p>
           )}
@@ -222,7 +225,7 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
 
       <div className="text-xs text-neutral-500 space-y-0.5">
         <p>Inicio: {formatDateTime(asignacion.fecha_inicio)}</p>
-        <p className={enTiempo ? 'text-neutral-500' : 'text-red-600 font-medium'}>
+        <p className={enTiempo ? 'text-neutral-500' : 'text-bad-600 font-medium'}>
           Fin previsto: {formatDateTime(asignacion.fecha_fin)}
           {!enTiempo && ' · Tiempo superado'}
         </p>
@@ -256,7 +259,7 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
           </button>
         )}
         {asignacion.estado === 'programada' && (
-          <span className="text-xs text-yellow-600 font-medium py-1">Pendiente de activar</span>
+          <span className="text-xs text-warn-600 font-medium py-1">Pendiente de activar</span>
         )}
       </div>
     </div>
@@ -345,8 +348,8 @@ function DashboardOperacional({ user }) {
     <div className="space-y-5 animate-fade-in">
       {/* Saludo */}
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">
-          {saludo}, {user?.nombre} 👋
+        <h1 className="text-[19px] font-semibold text-neutral-900">
+          {saludo}, {user?.nombre}
         </h1>
         <p className="text-neutral-400 text-sm">
           {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -382,9 +385,9 @@ function DashboardOperacional({ user }) {
       )}
 
       {asignaciones.length === 0 && activos.length === 0 && (
-        <div className="card text-center py-8 text-neutral-400">
-          <p className="text-3xl mb-2">😴</p>
-          <p className="text-sm font-medium">Sin asignaciones ni trabajos activos</p>
+        <div className="empty">
+          <p className="empty-title">Sin asignaciones ni trabajos activos</p>
+          <p className="empty-hint">Cuando te asignen un vehículo o un trabajo aparecerá aquí</p>
         </div>
       )}
 
@@ -403,9 +406,8 @@ function DashboardOperacional({ user }) {
       <div className="space-y-2">
         <Link
           to="/mis-asignaciones"
-          className="card flex items-center gap-3 py-4 hover:shadow-md transition-shadow"
+          className="card flex items-center gap-3 py-4 hover:border-neutral-300 transition-colors"
         >
-          <span className="text-2xl">🚐</span>
           <div>
             <p className="font-medium text-neutral-800 text-sm">Mis asignaciones</p>
             <p className="text-xs text-neutral-400">{asignaciones.length} asignación{asignaciones.length !== 1 ? 'es' : ''} activa{asignaciones.length !== 1 ? 's' : ''}</p>
@@ -414,9 +416,8 @@ function DashboardOperacional({ user }) {
         </Link>
         <Link
           to="/mis-trabajos"
-          className="card flex items-center gap-3 py-4 hover:shadow-md transition-shadow"
+          className="card flex items-center gap-3 py-4 hover:border-neutral-300 transition-colors"
         >
-          <span className="text-2xl">📋</span>
           <div>
             <p className="font-medium text-neutral-800 text-sm">Mis trabajos</p>
             <p className="text-xs text-neutral-400">{trabajos.length} trabajo{trabajos.length !== 1 ? 's' : ''} asignado{trabajos.length !== 1 ? 's' : ''}</p>
@@ -461,8 +462,8 @@ function DashboardAdmin({ user }) {
     <div className="space-y-6 animate-fade-in">
       {/* Saludo */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">
-          {saludo}, {user?.nombre} 👋
+        <h1 className="text-[19px] font-semibold text-neutral-900">
+          {saludo}, {user?.nombre}
         </h1>
         <p className="text-neutral-500 text-sm mt-1">
           {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -473,47 +474,44 @@ function DashboardAdmin({ user }) {
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Trabajos activos — indicador pulsante si hay alguno */}
-          <Link to="/trabajos?estado=activo">
-            <div className="card flex items-center gap-4 hover:shadow-md transition-shadow">
-              <div className="relative text-3xl">
-                🚑
+          <Link to="/trabajos?estado=activo" className="block h-full">
+            <div className="card hover:border-neutral-300 transition-colors h-full">
+              <p className="micro flex items-center gap-1.5">
+                Trabajo{stats.activos !== 1 ? 's' : ''} activo{stats.activos !== 1 ? 's' : ''}
                 {stats.activos > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ok-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-ok-600" />
                   </span>
                 )}
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${stats.activos > 0 ? 'text-green-700' : 'text-neutral-900'}`}>
-                  {stats.activos}
-                </p>
-                <p className="text-sm text-neutral-500">
-                  Trabajo{stats.activos !== 1 ? 's' : ''} activo{stats.activos !== 1 ? 's' : ''}
-                </p>
-              </div>
+              </p>
+              <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${
+                stats.activos > 0 ? 'text-ok-600' : 'text-neutral-900'
+              }`}>
+                {stats.activos}
+              </p>
             </div>
           </Link>
-          <StatCard label="Vehículos"  value={stats.vehiculos} icon="🚐" to="/vehiculos" />
-          <StatCard label="Usuarios"   value={stats.usuarios}  icon="👥" to="/usuarios" />
+          <StatCard label="Vehículos" value={stats.vehiculos} to="/vehiculos" />
+          <StatCard label="Usuarios"  value={stats.usuarios}  to="/usuarios" />
         </div>
       )}
 
       {/* Accesos rápidos */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { to: '/trabajos',    icon: '📅', label: 'Trabajos' },
-          { to: '/vehiculos',   icon: '🚐', label: 'Vehículos' },
-          { to: '/usuarios',    icon: '👥', label: 'Usuarios' },
-          { to: '/mis-trabajos',icon: '📋', label: 'Mis trabajos' },
-        ].map(({ to, icon, label }) => (
+          { to: '/trabajos',     label: 'Trabajos' },
+          { to: '/vehiculos',    label: 'Vehículos' },
+          { to: '/usuarios',     label: 'Usuarios' },
+          { to: '/mis-trabajos', label: 'Mis trabajos' },
+        ].map(({ to, label }) => (
           <Link
             key={to}
             to={to}
-            className="card flex flex-col items-center gap-2 py-5 hover:shadow-md transition-shadow text-center"
+            className="card flex items-center justify-between gap-2 py-3.5 hover:border-neutral-300 transition-colors"
           >
-            <span className="text-3xl">{icon}</span>
-            <span className="text-sm font-medium text-neutral-700">{label}</span>
+            <span className="text-[13.5px] font-medium text-neutral-700">{label}</span>
+            <span className="text-neutral-300">›</span>
           </Link>
         ))}
       </div>

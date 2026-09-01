@@ -171,9 +171,9 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
           <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
         </div>
-        <div className="card bg-red-50 border border-red-200 space-y-2">
-          <p className="text-red-700 font-medium">⚠ Sin vehículos asignados</p>
-          <p className="text-red-600 text-sm">
+        <div className="card bg-bad-50 border border-bad-200 space-y-2">
+          <p className="text-bad-600 font-medium">Sin vehículos asignados</p>
+          <p className="text-bad-600 text-sm">
             Este trabajo no tiene vehículos asignados. Contacta con el administrador.
           </p>
         </div>
@@ -191,12 +191,12 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
           <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
         </div>
-        <div className="card bg-amber-50 border border-amber-200 space-y-2">
-          <p className="text-amber-800 font-medium">⚠ Faltan las fotos de inicio</p>
-          <p className="text-amber-700 text-sm">
+        <div className="card bg-warn-50 border border-warn-200 space-y-2">
+          <p className="text-warn-700 font-medium">Faltan las fotos de inicio</p>
+          <p className="text-warn-600 text-sm">
             Antes de finalizar tienes que subir las fotos de inicio de:
           </p>
-          <ul className="text-amber-700 text-sm list-disc pl-5">
+          <ul className="text-warn-600 text-sm list-disc pl-5">
             {vehiculosSinInicio.map(v => (
               <li key={v.vehicle_id}>
                 <strong>{v.vehiculo_alias || v.matricula}</strong> ({v.matricula})
@@ -205,7 +205,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
               </li>
             ))}
           </ul>
-          <p className="text-amber-600 text-xs">
+          <p className="text-warn-600 text-xs">
             Vuelve al detalle del trabajo y pulsa <strong>"Fotos de inicio"</strong> para completarlas.
           </p>
         </div>
@@ -241,10 +241,10 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           return (
             <React.Fragment key={s}>
               <div className={`flex items-center gap-1.5 text-xs font-medium
-                ${isActive ? 'text-primary-600' : isDone ? 'text-green-600' : 'text-neutral-400'}`}>
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs
-                  ${isActive ? 'bg-primary-600 text-white' : isDone ? 'bg-green-500 text-white' : 'bg-neutral-200'}`}>
-                  {isDone ? '✓' : i + 1}
+                ${isActive ? 'text-primary-700' : isDone ? 'text-ok-600' : 'text-neutral-400'}`}>
+                <span className={`data w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-semibold
+                  ${isActive ? 'bg-primary-600 text-white' : isDone ? 'bg-ok-600 text-white' : 'bg-neutral-200 text-neutral-500'}`}>
+                  {i + 1}
                 </span>
                 <span className="hidden sm:inline">{s}</span>
               </div>
@@ -272,7 +272,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                     onClick={() => openCamera(vi, 0)}
                     className="btn-secondary text-sm"
                   >
-                    📷 Cámara guiada
+                    Cámara guiada
                   </button>
                 </div>
 
@@ -295,31 +295,31 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                           onClick={() => openCamera(vi, ti)}
                           className="w-full text-left"
                         >
-                          <div className={`aspect-square rounded-lg border-2 overflow-hidden relative
-                            ${file ? 'border-green-400' : 'border-dashed border-neutral-300 hover:border-primary-400'}`}>
+                          <div className={`aspect-square rounded-lg border overflow-hidden relative
+                            ${file ? 'border-ok-200' : 'border-dashed border-neutral-300 hover:border-primary-600'}`}>
                             {preview ? (
                               <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
                             ) : (
-                              <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1">
-                                <span className="text-neutral-300 text-xl">📷</span>
-                                <span className="text-neutral-400 text-[10px] text-center px-1 leading-tight">
+                              <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1 p-1">
+                                <span className="data text-[11px] font-semibold text-neutral-400">{ti + 1}</span>
+                                <span className="text-neutral-400 text-[10px] text-center leading-tight">
                                   {tipo.label.split(' ')[0]}
                                 </span>
                               </div>
                             )}
                             {prog === 'ok' && (
-                              <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                                <span className="text-green-600 text-2xl">✓</span>
+                              <div className="absolute inset-x-0 bottom-0 bg-ok-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                                Subida
                               </div>
                             )}
                             {prog === 'error' && (
-                              <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                                <span className="text-red-600 text-2xl">✕</span>
+                              <div className="absolute inset-x-0 bottom-0 bg-bad-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                                Error
                               </div>
                             )}
                           </div>
-                          <p className="text-center text-[10px] text-neutral-500 mt-0.5 leading-tight">
-                            {tipo.label}{file && <span className="text-green-600"> ✓</span>}
+                          <p className="text-center text-[10px] mt-1 leading-tight">
+                            <span className={file ? 'text-neutral-700 font-medium' : 'text-neutral-500'}>{tipo.label}</span>
                           </p>
                         </button>
                       </div>
@@ -341,7 +341,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                 {/* Kilómetros finales — en el mismo paso */}
                 <div className="border-t border-neutral-100 pt-3">
                   <label className="label text-sm">
-                    Kilómetros finales <span className="text-red-500">*</span>
+                    Kilómetros finales <span className="text-bad-500">*</span>
                   </label>
                   <div className="flex items-center gap-3 mt-1">
                     {veh.kilometros_inicio != null && (
@@ -366,12 +366,12 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
           <button
             onClick={() => setStep(isAnticipado ? 'motivo' : 'confirm')}
             disabled={!canProceedFromFotos}
-            className="btn-primary w-full py-3"
+            className="btn-primary btn-full"
           >
             Continuar →
           </button>
           {!canProceedFromFotos && (
-            <p className="text-xs text-center text-red-500">
+            <p className="text-xs text-center text-bad-500">
               Completa las {IMAGEN_TIPOS_FIN.length} fotos y los kilómetros de cada vehículo
             </p>
           )}
@@ -381,14 +381,14 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
       {/* ── Paso 2: Motivo (solo si anticipado) ─────────── */}
       {step === 'motivo' && (
         <div className="space-y-4">
-          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-yellow-800 text-sm">
-              ⚠ Estás finalizando el trabajo antes de la fecha prevista.
+          <div className="p-3 bg-warn-50 border border-warn-200 rounded-lg">
+            <p className="text-warn-700 text-sm">
+              Estás finalizando el trabajo antes de la fecha prevista.
               Por favor, indica el motivo.
             </p>
           </div>
           <div>
-            <label className="label">Motivo de finalización anticipada <span className="text-red-500">*</span></label>
+            <label className="label">Motivo de finalización anticipada <span className="text-bad-500">*</span></label>
             <textarea
               className="input min-h-28 resize-none"
               value={motivo}
@@ -435,9 +435,9 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
               ))}
             </div>
             {isAnticipado && motivo && (
-              <div className="bg-yellow-50 rounded-lg p-3">
-                <p className="text-xs font-medium text-yellow-800">Motivo:</p>
-                <p className="text-sm text-yellow-700 mt-1">{motivo}</p>
+              <div className="bg-warn-50 rounded-lg p-3">
+                <p className="text-xs font-medium text-warn-700">Motivo:</p>
+                <p className="text-sm text-warn-600 mt-1">{motivo}</p>
               </div>
             )}
           </div>
@@ -459,7 +459,7 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 spinner" /> Finalizando...
                 </span>
-              ) : '✓ Finalizar trabajo'}
+              ) : 'Finalizar trabajo'}
             </button>
           </div>
         </div>

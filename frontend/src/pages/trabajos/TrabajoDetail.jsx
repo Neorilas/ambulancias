@@ -17,7 +17,7 @@ const TIPO_LABELS = IMAGEN_TIPO_LABELS;
 const MOMENTO_LABEL = { inicio: 'Inicio', fin: 'Fin', general: '' };
 const MOMENTO_BADGE = {
   inicio:  'bg-blue-100 text-blue-700',
-  fin:     'bg-green-100 text-green-700',
+  fin:     'bg-ok-50 text-ok-600',
   general: 'bg-neutral-100 text-neutral-600',
 };
 
@@ -82,7 +82,7 @@ function Lightbox({ img, allImgs, onClose }) {
               onClick={e => e.stopPropagation()}
               className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition"
             >
-              ⬇ Descargar
+              Descargar
             </a>
           </div>
         </div>
@@ -190,7 +190,7 @@ export default function TrabajoDetail() {
         <button onClick={() => navigate('/trabajos')} className="btn-ghost btn-icon mt-1">‹</button>
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-neutral-900">{trabajo.nombre}</h1>
+            <h1 className="text-[19px] font-semibold text-neutral-900">{trabajo.nombre}</h1>
             <EstadoBadge estado={trabajo.estado} />
             <TipoBadge tipo={trabajo.tipo} />
           </div>
@@ -202,7 +202,7 @@ export default function TrabajoDetail() {
           )}
           {!finalizado && (soyResponsable || canManageTrabajos()) && faltaInicio && (
             <button onClick={() => setShowInicio(true)} className="btn-primary text-sm">
-              📸 Fotos de inicio
+              Fotos de inicio
             </button>
           )}
           {!finalizado && (soyResponsable || canManageTrabajos()) && !faltaInicio && (
@@ -235,17 +235,16 @@ export default function TrabajoDetail() {
 
       {/* Aviso persistente: faltan fotos de inicio */}
       {faltaInicio && (
-        <div className="card bg-amber-50 border-amber-300 border-2 space-y-2">
+        <div className="card bg-warn-50 border-warn-200 border-2 space-y-2">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">⚠</span>
             <div className="flex-1">
-              <p className="font-semibold text-amber-900">Faltan las fotos de inicio</p>
-              <p className="text-sm text-amber-800 mt-0.5">
+              <p className="font-semibold text-warn-700">Faltan las fotos de inicio</p>
+              <p className="text-sm text-warn-700 mt-0.5">
                 Antes de poder finalizar, tienes que documentar el estado del
                 vehículo al recibirlo: 4 fotos del contorno, nivel de aceite y
                 líquidos.
               </p>
-              <ul className="text-xs text-amber-700 mt-2 space-y-0.5">
+              <ul className="text-xs text-warn-600 mt-2 space-y-0.5">
                 {vehSinInicio.map(v => (
                   <li key={v.vehicle_id}>
                     · <strong>{v.vehiculo_alias || v.matricula}</strong>{' — '}
@@ -259,7 +258,7 @@ export default function TrabajoDetail() {
               onClick={() => setShowInicio(true)}
               className="btn-primary text-sm whitespace-nowrap"
             >
-              📸 Subir ahora
+              Subir ahora
             </button>
           </div>
         </div>
@@ -267,9 +266,9 @@ export default function TrabajoDetail() {
 
       {/* Motivo finalización anticipada */}
       {trabajo.motivo_finalizacion_anticipada && (
-        <div className="card bg-yellow-50 border-yellow-200">
-          <p className="text-xs font-semibold text-yellow-800 mb-1">Motivo finalización anticipada:</p>
-          <p className="text-sm text-yellow-700">{trabajo.motivo_finalizacion_anticipada}</p>
+        <div className="card bg-warn-50 border-warn-200">
+          <p className="text-xs font-semibold text-warn-700 mb-1">Motivo finalización anticipada:</p>
+          <p className="text-sm text-warn-600">{trabajo.motivo_finalizacion_anticipada}</p>
         </div>
       )}
 
@@ -287,7 +286,6 @@ export default function TrabajoDetail() {
                   {v.kilometros_fin ? ` → Km fin: ${v.kilometros_fin.toLocaleString()}` : ''}
                 </p>
               </div>
-              <span className="text-2xl">🚐</span>
             </div>
           ))}
         </div>
@@ -342,7 +340,7 @@ export default function TrabajoDetail() {
                   )}
                   {/* Overlay lupa */}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                    <span className="text-white text-2xl opacity-0 group-hover:opacity-100 transition-opacity drop-shadow">🔍</span>
+                    <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity drop-shadow">Ampliar</span>
                   </div>
                 </button>
                 <p className="text-xs text-center text-neutral-500 capitalize">

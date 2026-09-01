@@ -22,7 +22,6 @@ import { PageLoading }       from '../components/common/LoadingSpinner.jsx';
 import ConfirmDialog         from '../components/common/ConfirmDialog.jsx';
 import {
   TIPO_LABEL,
-  TIPO_ICON,
   thresholdStyle,
   isDismissed,
   markDismissed,
@@ -59,9 +58,7 @@ function DiasBadge({ dias, threshold }) {
     ? `Vencida hace ${Math.abs(dias)}d`
     : `${dias}d`;
   return (
-    <span className={`inline-flex items-center gap-1 text-xs border rounded-full px-2 py-0.5 font-medium ${style.pill}`}>
-      {threshold === 'vencida' ? '⛔' : '⚠'} {text}
-    </span>
+    <span className={style.badge}>{text}</span>
   );
 }
 
@@ -156,7 +153,7 @@ export default function AlertsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-neutral-900">Alertas de caducidad</h1>
+          <h1 className="text-[19px] font-semibold text-neutral-900">Alertas de caducidad</h1>
           <p className="text-neutral-500 text-sm">
             ITV, ITS y tarjeta de transporte · {kpis.total} alertas en los próximos {horizonte} días
             {lastFetch && (
@@ -179,21 +176,21 @@ export default function AlertsPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
         <KpiCard
-          color="bg-red-50 text-red-700"
+          color="bg-bad-50 text-bad-600"
           label="Vencidas"
           count={kpis.vencida}
           active={filtroUmbral === 'vencida'}
           onClick={() => setFiltroUmbral(filtroUmbral === 'vencida' ? 'todos' : 'vencida')}
         />
         <KpiCard
-          color="bg-orange-50 text-orange-700"
+          color="bg-warn-50 text-warn-600"
           label="≤ 15 días"
           count={kpis[15]}
           active={filtroUmbral === '15'}
           onClick={() => setFiltroUmbral(filtroUmbral === '15' ? 'todos' : '15')}
         />
         <KpiCard
-          color="bg-yellow-50 text-yellow-800"
+          color="bg-warn-50 text-warn-700"
           label="≤ 30 días"
           count={kpis[30]}
           active={filtroUmbral === '30'}
@@ -255,9 +252,9 @@ export default function AlertsPage() {
       {/* Lista */}
       {loading ? <PageLoading /> : (
         visibles.length === 0 ? (
-          <div className="card text-center py-12 text-neutral-400">
-            <p className="text-4xl mb-3">✨</p>
-            <p>Sin alertas que mostrar con los filtros actuales</p>
+          <div className="empty">
+            <p className="empty-title">Sin alertas</p>
+            <p className="empty-hint">Ninguna coincide con los filtros actuales</p>
           </div>
         ) : (
           <>
@@ -272,7 +269,7 @@ export default function AlertsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-neutral-900">
-                          {TIPO_ICON[a.tipo]} {TIPO_LABEL[a.tipo]}
+                          {TIPO_LABEL[a.tipo]}
                         </p>
                         <p className="text-sm text-neutral-700">
                           {a.alias} <span className="text-neutral-400 font-mono">{a.matricula}</span>
@@ -285,7 +282,7 @@ export default function AlertsPage() {
                       <Link to="/vehiculos" className="btn-ghost text-xs flex-1 text-center">Ver vehículo</Link>
                       {descartada
                         ? <button onClick={() => handleRestore(a)} className="btn-ghost text-xs flex-1 text-primary-600">↺ Restaurar</button>
-                        : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs flex-1 text-neutral-600">✕ Descartar</button>
+                        : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs flex-1 text-neutral-600">Descartar</button>
                       }
                     </div>
                   </div>
@@ -321,10 +318,7 @@ export default function AlertsPage() {
                             <div className="text-xs text-neutral-500 font-mono">{a.matricula}</div>
                           </td>
                           <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-1.5">
-                              <span>{TIPO_ICON[a.tipo]}</span>
-                              <span>{TIPO_LABEL[a.tipo]}</span>
-                            </span>
+                            <span>{TIPO_LABEL[a.tipo]}</span>
                           </td>
                           <td className="px-4 py-3 text-neutral-700">{fechaStr}</td>
                           <td className="px-4 py-3">
@@ -340,7 +334,7 @@ export default function AlertsPage() {
                             <Link to="/vehiculos" className="btn-ghost text-xs">Ver vehículo</Link>
                             {descartada
                               ? <button onClick={() => handleRestore(a)} className="btn-ghost text-xs text-primary-600 ml-1">↺ Restaurar</button>
-                              : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs text-neutral-600 ml-1">✕ Descartar</button>
+                              : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs text-neutral-600 ml-1">Descartar</button>
                             }
                           </td>
                         </tr>

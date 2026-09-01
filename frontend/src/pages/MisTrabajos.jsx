@@ -20,9 +20,9 @@ const ESTADO_COLOR = {
 
 const ESTADO_DOT = {
   activo:                'bg-blue-500',
-  programado:            'bg-yellow-400',
-  finalizado:            'bg-green-500',
-  finalizado_anticipado: 'bg-green-400',
+  programado:            'bg-warn-500',
+  finalizado:            'bg-ok-500',
+  finalizado_anticipado: 'bg-ok-500',
 };
 
 // Retorna el lunes de la semana que contiene `date`
@@ -242,13 +242,13 @@ function TrabajoCard({ trabajo, onFinalizar }) {
             <h3 className="font-semibold text-neutral-900">{trabajo.nombre}</h3>
             <EstadoBadge estado={trabajo.estado} />
             {esResponsable && (
-              <span className="badge bg-purple-100 text-purple-700 text-xs">Responsable</span>
+              <span className="badge bg-idle-50 text-idle-600 text-xs">Responsable</span>
             )}
           </div>
           <p className="text-xs text-neutral-500 mt-1 font-mono">{trabajo.identificador}</p>
           {trabajo.vehiculo_alias && (
             <p className="text-xs text-neutral-500 mt-0.5">
-              🚐 {trabajo.vehiculo_alias} ({trabajo.matricula})
+              <span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}
             </p>
           )}
           <p className="text-xs text-neutral-400 mt-1">
@@ -258,7 +258,7 @@ function TrabajoCard({ trabajo, onFinalizar }) {
             <span className="inline-block mt-1 text-xs text-blue-600 font-medium">En curso ahora</span>
           )}
           {vencido && trabajo.estado === 'activo' && (
-            <span className="inline-block mt-1 text-xs text-red-600 font-medium">
+            <span className="inline-block mt-1 text-xs text-bad-600 font-medium">
               Tiempo superado — pendiente de finalizar
             </span>
           )}
@@ -324,7 +324,7 @@ function QuickModal({ trabajo, onClose, onFinalizar }) {
         <EstadoBadge estado={trabajo.estado} />
 
         {trabajo.vehiculo_alias && (
-          <p className="text-sm text-neutral-600">🚐 {trabajo.vehiculo_alias} ({trabajo.matricula})</p>
+          <p className="text-sm text-neutral-600"><span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}</p>
         )}
         <div className="text-xs text-neutral-500 space-y-0.5">
           <p>Inicio: {formatDateTime(trabajo.fecha_inicio)}</p>
@@ -360,9 +360,9 @@ function QuickModal({ trabajo, onClose, onFinalizar }) {
 
 // ── Página principal ───────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'lista',  label: '📋 Lista' },
-  { key: 'semana', label: '📅 Semana' },
-  { key: 'mes',    label: '🗓 Mes' },
+  { key: 'lista',  label: 'Lista' },
+  { key: 'semana', label: 'Semana' },
+  { key: 'mes',    label: 'Mes' },
 ];
 
 export default function MisTrabajos() {
@@ -429,21 +429,17 @@ export default function MisTrabajos() {
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">Mis Trabajos</h1>
+        <h1 className="text-[19px] font-semibold text-neutral-900">Mis Trabajos</h1>
         <p className="text-neutral-500 text-sm">Trabajos asignados a ti</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-neutral-100 p-1 rounded-lg">
+      <div className="tabs">
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 text-sm font-medium py-1.5 px-3 rounded-md transition ${
-              tab === t.key
-                ? 'bg-white shadow text-neutral-900'
-                : 'text-neutral-500 hover:text-neutral-700'
-            }`}
+            className={tab === t.key ? 'tab-active' : 'tab'}
           >
             {t.label}
           </button>
@@ -458,7 +454,7 @@ export default function MisTrabajos() {
             <p className="text-xs text-neutral-500">Activos</p>
           </div>
           <div className="card py-3 text-center">
-            <p className="text-lg font-bold text-yellow-600">{progCount}</p>
+            <p className="text-lg font-bold text-warn-600">{progCount}</p>
             <p className="text-xs text-neutral-500">Programados</p>
           </div>
         </div>
@@ -470,9 +466,9 @@ export default function MisTrabajos() {
           {tab === 'lista' && (
             <>
               {trabajos.length === 0 ? (
-                <div className="card text-center py-16">
-                  <p className="text-4xl mb-3">📋</p>
-                  <p className="text-neutral-500">No tienes trabajos asignados</p>
+                <div className="empty">
+                  <p className="empty-title">No tienes trabajos asignados</p>
+                  <p className="empty-hint">Aquí aparecerán los trabajos en los que participes</p>
                 </div>
               ) : (
                 <div className="space-y-3">

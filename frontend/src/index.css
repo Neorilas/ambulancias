@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -22,6 +22,12 @@
     @apply bg-neutral-50 text-neutral-900 font-sans;
     min-height: 100dvh; /* dynamic viewport height para móvil */
     overscroll-behavior: none; /* evitar bounce en iOS */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Títulos: algo más ajustados, el peso marca la jerarquía */
+  h1, h2, h3 {
+    letter-spacing: -0.012em;
   }
 
   /* Prevenir auto-zoom en iOS Safari al hacer focus en inputs */
@@ -42,91 +48,202 @@
 }
 
 @layer components {
-  /* Botones */
+  /* ── Botones ─────────────────────────────────────────────────────
+     Altura fija de 34px (40px en .btn-full para uso con guantes),
+     radio 6px y sin sombra. El azul solo lo lleva la acción principal. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5
-           rounded-lg font-medium text-sm transition-all duration-150
-           focus:outline-none focus:ring-2 focus:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 h-[34px] px-3.5
+           rounded-md font-medium text-sm border border-transparent
+           transition-colors duration-150 whitespace-nowrap
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1
+           disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply btn bg-primary-600 text-white hover:bg-primary-700;
   }
+  /* Secundario: superficie blanca con borde, no gris relleno */
   .btn-secondary {
-    @apply btn bg-neutral-100 text-neutral-700 hover:bg-neutral-200 focus:ring-neutral-400;
+    @apply btn bg-white border-neutral-200 text-neutral-600
+           hover:border-neutral-400 hover:text-neutral-900;
   }
   .btn-danger {
-    @apply btn bg-red-100 text-red-700 hover:bg-red-200 focus:ring-red-400;
+    @apply btn bg-white border-bad-200 text-bad-600 hover:bg-bad-50;
   }
   .btn-ghost {
-    @apply btn text-neutral-600 hover:bg-neutral-100 focus:ring-neutral-300;
+    @apply btn border-transparent text-neutral-500 px-2 hover:bg-neutral-100 hover:text-neutral-900;
   }
   .btn-icon {
-    @apply btn p-2 rounded-full;
+    @apply btn w-[34px] px-0 rounded-md;
+  }
+  /* Ancho completo y más alto: acciones principales en móvil */
+  .btn-full {
+    @apply w-full h-10 text-[14px];
+  }
+  .btn-sm {
+    @apply h-7 px-2.5 text-xs;
   }
 
-  /* Inputs */
+  /* ── Formularios ─────────────────────────────────────────────── */
   .input {
-    @apply w-full px-3 py-2.5 rounded-lg border border-neutral-300
+    @apply w-full h-[42px] px-3 rounded-md border border-neutral-300 bg-white
            text-neutral-900 text-sm placeholder-neutral-400
-           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           focus:outline-none focus:border-primary-600 focus:ring-1 focus:ring-primary-600
            transition-colors duration-150;
     font-size: 16px; /* Evita auto-zoom en iOS Safari al hacer focus */
   }
-  .input-error {
-    @apply border-red-400 focus:ring-red-400;
+  textarea.input,
+  select.input {
+    @apply h-auto py-2.5;
   }
+  .input-error {
+    @apply border-bad-200 focus:border-bad-600 focus:ring-bad-600;
+  }
+  /* Micro-etiqueta en versalitas: sustituye a los títulos de campo en gris */
   .label {
-    @apply block text-sm font-medium text-neutral-700 mb-1;
+    @apply block text-[10.5px] font-semibold uppercase tracking-[0.09em]
+           text-neutral-400 mb-1;
   }
   .field-error {
-    @apply mt-1 text-xs text-red-600;
+    @apply mt-1 text-xs text-bad-600;
   }
 
-  /* Cards */
+  /* ── Tarjetas ────────────────────────────────────────────────────
+     Borde de 1px en vez de sombra, radio 8px. */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-neutral-100 p-4;
+    @apply relative bg-white rounded-lg border border-neutral-200 p-4;
   }
   .card-header {
     @apply flex items-center justify-between mb-4;
   }
-
-  /* Badges de estado */
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  /* Franja de estado de 3px pegada al borde izquierdo de una .card */
+  .stripe {
+    @apply absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg;
   }
-  .badge-green  { @apply badge bg-green-100 text-green-800; }
-  .badge-blue   { @apply badge bg-blue-100 text-blue-800; }
-  .badge-yellow { @apply badge bg-yellow-100 text-yellow-800; }
-  .badge-red    { @apply badge bg-red-100 text-red-800; }
-  .badge-gray   { @apply badge bg-neutral-100 text-neutral-700; }
+  .stripe-activa      { @apply stripe bg-primary-600; }
+  .stripe-programada  { @apply stripe bg-warn-500; }
+  .stripe-finalizada  { @apply stripe bg-ok-500; }
+  .stripe-incidencia  { @apply stripe bg-bad-500; }
+  .stripe-inactiva    { @apply stripe bg-idle-500; }
 
-  /* Tablas responsivas */
+  /* ── Dato identificador: matrícula, km, fechas ───────────────────
+     Monoespaciada con cifras tabulares para que alinee en columna. */
+  .plate {
+    @apply font-mono font-semibold text-[17px] tracking-[0.03em] text-neutral-900;
+    font-variant-numeric: tabular-nums;
+  }
+  .data {
+    @apply font-mono;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Par etiqueta / valor ───────────────────────────────────────── */
+  .kv-row {
+    @apply flex flex-wrap gap-x-8 gap-y-3 mt-3.5;
+  }
+  .kv-k {
+    @apply block text-[10.5px] font-semibold uppercase tracking-[0.09em]
+           text-neutral-400 mb-0.5;
+  }
+  .kv-v {
+    @apply block text-[13.5px] font-medium text-neutral-900;
+  }
+  /* Micro-etiqueta suelta (cabeceras de grupo, eyebrows) */
+  .micro {
+    @apply text-[10.5px] font-semibold uppercase tracking-[0.09em] text-neutral-400;
+  }
+
+  /* ── Pastillas de estado ─────────────────────────────────────────
+     Un único idioma: punto + palabra. Sin iconos.
+     azul activa · ámbar programada · verde cerrada · rojo incidencia */
+  .badge {
+    @apply inline-flex items-center gap-1.5 h-5 px-2 rounded
+           text-[11px] font-semibold tracking-[0.02em] border align-middle;
+  }
+  /* El punto va en cada variante: las clases se usan sueltas (badge-blue),
+     sin acompañar a .badge, así que .badge::before no las alcanzaría. */
+  .badge::before,
+  .badge-blue::before,
+  .badge-yellow::before,
+  .badge-green::before,
+  .badge-red::before,
+  .badge-gray::before {
+    content: '';
+    @apply w-[5px] h-[5px] rounded-full bg-current shrink-0;
+  }
+  .badge-blue   { @apply badge text-primary-700 bg-primary-50 border-primary-200; }
+  .badge-yellow { @apply badge text-warn-600    bg-warn-50    border-warn-200; }
+  .badge-green  { @apply badge text-ok-600      bg-ok-50      border-ok-200; }
+  .badge-red    { @apply badge text-bad-600     bg-bad-50     border-bad-200; }
+  .badge-gray   { @apply badge text-idle-600    bg-idle-50    border-idle-200; }
+
+  /* ── Tablas ─────────────────────────────────────────────────────── */
   .table-container {
     @apply overflow-x-auto -mx-4 sm:mx-0;
   }
   .table {
-    @apply w-full text-sm text-left;
+    @apply w-full text-[13.5px] text-left;
   }
   .table thead tr {
     @apply bg-neutral-50 border-b border-neutral-200;
   }
   .table th {
-    @apply px-4 py-3 font-medium text-neutral-600 whitespace-nowrap;
+    @apply px-3.5 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.09em]
+           text-neutral-400 whitespace-nowrap;
   }
   .table tbody tr {
-    @apply border-b border-neutral-100 hover:bg-neutral-50 transition-colors;
+    @apply border-b border-neutral-100 transition-colors;
+  }
+  .table tbody tr:last-child {
+    @apply border-b-0;
+  }
+  .table tbody tr:hover {
+    @apply bg-primary-50;
   }
   .table td {
-    @apply px-4 py-3 text-neutral-700;
+    @apply px-3.5 py-2.5 text-neutral-600 align-middle;
+  }
+  /* Columnas numéricas: monoespaciadas y alineadas a la derecha */
+  .table td.num {
+    @apply font-mono text-right text-neutral-900;
+    font-variant-numeric: tabular-nums;
+  }
+  .table td.id {
+    @apply font-mono font-semibold text-neutral-900 tracking-[0.02em];
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Spinner */
+  /* ── Pestañas ────────────────────────────────────────────────────
+     Subrayado, no botón-cápsula. */
+  .tabs {
+    @apply flex gap-0.5 border-b border-neutral-200 overflow-x-auto;
+  }
+  .tab {
+    @apply px-3.5 py-2.5 text-[13.5px] font-medium text-neutral-500 whitespace-nowrap
+           border-b-2 border-transparent -mb-px transition-colors
+           hover:text-neutral-900;
+  }
+  .tab-active {
+    @apply tab text-primary-700 border-primary-600;
+  }
+
+  /* ── Estado vacío ────────────────────────────────────────────────
+     Solo texto: sin emoji ni ilustración. */
+  .empty {
+    @apply card text-center py-12 px-4;
+  }
+  .empty-title {
+    @apply text-[13.5px] font-semibold text-neutral-600;
+  }
+  .empty-hint {
+    @apply text-[12.5px] text-neutral-400 mt-0.5;
+  }
+
+  /* ── Spinner ─────────────────────────────────────────────────────── */
   .spinner {
     @apply animate-spin rounded-full border-2 border-neutral-200 border-t-primary-600;
   }
 
-  /* Camera overlay */
+  /* ── Camera overlay ──────────────────────────────────────────────── */
   .camera-guide {
     @apply absolute inset-0 pointer-events-none;
   }
@@ -167,6 +284,7 @@
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
   .min-h-dvh   { min-height: 100dvh; }
   .h-dvh       { height:     100dvh; }
+  .tnum        { font-variant-numeric: tabular-nums; }
 
   /* Touch-friendly tap targets */
   .touch-target {
@@ -186,6 +304,15 @@
 }
 .animate-slide-up { animation: slideUp 0.25s ease-out; }
 .animate-fade-in  { animation: fadeIn  0.2s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up,
+  .animate-fade-in,
+  .spinner {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
 
 /* Splash screen durante carga inicial */
 #root:empty::before {

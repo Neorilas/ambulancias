@@ -44,14 +44,14 @@ function RevisionBadge({ label, proxima, umbralAviso = 30 }) {
   const vencida  = diasRestantes < 0;
   const proximo  = diasRestantes >= 0 && diasRestantes <= umbralAviso;
 
-  let cls = 'text-green-700 bg-green-50 border-green-200';
-  let icono = '✓';
-  if (vencida) { cls = 'text-red-700 bg-red-50 border-red-200';         icono = '✕'; }
-  if (proximo) { cls = 'text-yellow-700 bg-yellow-50 border-yellow-200'; icono = '⚠'; }
+  // El estado lo lleva el color, no un icono
+  let cls = 'text-ok-600 bg-ok-50 border-ok-200';
+  if (vencida) cls = 'text-bad-600 bg-bad-50 border-bad-200';
+  if (proximo) cls = 'text-warn-600 bg-warn-50 border-warn-200';
 
   return (
     <div className={`text-xs border rounded px-2 py-1 ${cls}`}>
-      <span className="font-semibold">{icono} {label}:</span>{' '}
+      <span className="font-semibold">{label}:</span>{' '}
       {vencida
         ? `Vencida hace ${Math.abs(diasRestantes)} días`
         : `Vence en ${diasRestantes} días (${proxima.toLocaleDateString('es-ES')})`}
@@ -146,7 +146,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
         {/* Matrícula y Alias */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Matrícula <span className="text-red-500">*</span></label>
+            <label className="label">Matrícula <span className="text-bad-500">*</span></label>
             <input
               type="text"
               className={`input uppercase ${errors.matricula ? 'input-error' : ''}`}
@@ -158,7 +158,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
             {errors.matricula && <p className="field-error">{errors.matricula}</p>}
           </div>
           <div>
-            <label className="label">Alias <span className="text-red-500">*</span></label>
+            <label className="label">Alias <span className="text-bad-500">*</span></label>
             <input
               type="text"
               className={`input ${errors.alias ? 'input-error' : ''}`}
@@ -212,7 +212,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
                 <p className="text-xs text-neutral-400 mt-1">
                   {(() => {
                     const edad = (new Date() - new Date(form.fecha_matriculacion)) / (1000 * 60 * 60 * 24 * 365.25);
-                    return edad >= 5 ? '⏱ Semestral (vehículo ≥5 años)' : '⏱ Anual (vehículo <5 años)';
+                    return edad >= 5 ? 'Semestral (vehículo ≥5 años)' : 'Anual (vehículo <5 años)';
                   })()}
                 </p>
               )}
@@ -225,7 +225,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
                 value={form.fecha_its}
                 onChange={set('fecha_its')}
               />
-              <p className="text-xs text-neutral-400 mt-1">⏱ Anual</p>
+              <p className="text-xs text-neutral-400 mt-1">Anual</p>
             </div>
           </div>
 
@@ -250,7 +250,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
                 value={form.fecha_tarjeta_transporte}
                 onChange={set('fecha_tarjeta_transporte')}
               />
-              <p className="text-xs text-neutral-400 mt-1">⏱ Vigencia 2 años · aviso 2 meses antes</p>
+              <p className="text-xs text-neutral-400 mt-1">Vigencia 2 años · aviso 2 meses antes</p>
             </div>
           </div>
 
