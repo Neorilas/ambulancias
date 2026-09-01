@@ -12,6 +12,42 @@
 
 export const UMBRALES = [60, 45, 30, 15];
 
+/**
+ * Calcula la próxima fecha de ITV según normativa:
+ * - Menos de 5 años desde matriculación: revisión anual
+ * - 5 o más años: revisión semestral (cada 6 meses)
+ */
+export function calcProximaITV(fechaMatriculacion, fechaUltimaITV) {
+  if (!fechaUltimaITV) return null;
+  const matricula = fechaMatriculacion ? new Date(fechaMatriculacion) : null;
+  const ultimaITV = new Date(fechaUltimaITV);
+  const hoy = new Date();
+
+  let mesesIntervalo = 12;
+  if (matricula) {
+    const edadAnios = (hoy - matricula) / (1000 * 60 * 60 * 24 * 365.25);
+    if (edadAnios >= 5) mesesIntervalo = 6;
+  }
+
+  const proxima = new Date(ultimaITV);
+  proxima.setMonth(proxima.getMonth() + mesesIntervalo);
+  return proxima;
+}
+
+/** La ITS es anual desde la última realizada. */
+export function calcProximaITS(fechaUltimaITS) {
+  if (!fechaUltimaITS) return null;
+  const proxima = new Date(fechaUltimaITS);
+  proxima.setFullYear(proxima.getFullYear() + 1);
+  return proxima;
+}
+
+/** Días que faltan (negativo = vencida) hasta una fecha. */
+export function diasHasta(fecha) {
+  if (!fecha) return null;
+  return Math.ceil((new Date(fecha) - new Date()) / (1000 * 60 * 60 * 24));
+}
+
 export const TIPO_LABEL = {
   itv:                'ITV',
   its:                'ITS',

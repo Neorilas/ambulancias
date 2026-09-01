@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
+import { vehiclesService } from '../../services/vehicles.service.js';
+import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
@@ -20,6 +22,160 @@ const TIPO_INC_OPTS = [
   ['otro',          'Otro'],
 ];
 
+const TIPO_INC_LABELS = Object.fromEntries(TIPO_INC_OPTS);
+
+const GRAVEDAD_BADGE = {
+  leve:     'bg-yellow-100 text-yellow-700',
+  moderado: 'bg-orange-100 text-orange-700',
+  grave:    'bg-red-100 text-red-700',
+};
+
+const ESTADO_INC_BADGE = {
+  pendiente:   'bg-red-100 text-red-700',
+  en_revision: 'bg-yellow-100 text-yellow-700',
+  resuelto:    'bg-green-100 text-green-700',
+};
+
+const ESTADO_INC_LABELS = {
+  pendiente:   'Pendiente',
+  en_revision: 'En revisión',
+  resuelto:    'Resuelto',
+};
+
+const nombreCompleto = (u) => (u ? [u.nombre, u.apellidos].filter(Boolean).join(' ') : '—');
+
+/**
+ * Ficha de una incidencia ya registrada en la asignación.
+ * Muestra todos sus datos y, para admin/gestor, permite reclasificarla
+ * (tipo / gravedad / estado) y reasignarla a cualquier empleado.
+ */
+function IncidenciaCard({ inc, vehicleId, users, canManage, onSaved }) {
+  const { notify } = useNotification();
+  const [editing, setEditing] = useState(false);
+  const [saving,  setSaving]  = useState(false);
+
+  const formInicial = () => ({
+    tipo:                inc.tipo,
+    gravedad:            inc.gravedad,
+    estado:              inc.estado,
+    responsable_user_id: inc.responsable?.id ? String(inc.responsable.id) : '',
+  });
+  const [form, setForm] = useState(formInicial);
+
+  const cancelar = () => { setForm(formInicial()); setEditing(false); };
+
+  const guardar = async () => {
+    setSaving(true);
+    try {
+      await vehiclesService.updateIncidencia(vehicleId, inc.id, {
+        tipo:                form.tipo,
+        gravedad:            form.gravedad,
+        estado:              form.estado,
+        responsable_user_id: form.responsable_user_id ? parseInt(form.responsable_user_id) : null,
+      });
+      notify.success('Incidencia actualizada');
+      setEditing(false);
+      onSaved?.();
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al actualizar la incidencia');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className={`card space-y-2 ${inc.estado === 'resuelto' ? 'opacity-70' : ''}`}>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`badge text-xs ${GRAVEDAD_BADGE[inc.gravedad]}`}>
+            {inc.gravedad.charAt(0).toUpperCase() + inc.gravedad.slice(1)}
+          </span>
+          <span className="text-xs text-neutral-500 font-medium">
+            {TIPO_INC_LABELS[inc.tipo] || inc.tipo}
+          </span>
+          <span className={`badge text-xs ${ESTADO_INC_BADGE[inc.estado]}`}>
+            {ESTADO_INC_LABELS[inc.estado] || inc.estado}
+          </span>
+        </div>
+        <span className="text-xs text-neutral-400">{formatDateTime(inc.created_at)}</span>
+      </div>
+
+      <p className="text-sm text-neutral-700 whitespace-pre-line">{inc.descripcion}</p>
+
+      <div className="text-xs text-neutral-500 space-y-0.5">
+        <p>Reportada por: <strong className="text-neutral-700">{nombreCompleto(inc.reportado_por)}</strong></p>
+        <p>
+          Asignada a:{' '}
+          <strong className="text-neutral-700">
+            {inc.responsable ? nombreCompleto(inc.responsable) : 'Sin asignar'}
+          </strong>
+        </p>
+        {inc.resuelto_por && (
+          <p>Resuelta por: {nombreCompleto(inc.resuelto_por)} · {formatDateTime(inc.resuelto_at)}</p>
+        )}
+      </div>
+
+      {canManage && !editing && (
+        <div className="pt-1 border-t border-neutral-100">
+          <button onClick={() => setEditing(true)} className="btn-secondary text-xs">
+            Reclasificar / reasignar
+          </button>
+        </div>
+      )}
+
+      {canManage && editing && (
+        <div className="pt-2 border-t border-neutral-100 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
+              <select className="input text-sm" value={form.tipo}
+                onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                {TIPO_INC_OPTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-neutral-500 block mb-1">Gravedad</label>
+              <select className="input text-sm" value={form.gravedad}
+                onChange={e => setForm(f => ({ ...f, gravedad: e.target.value }))}>
+                <option value="leve">Leve</option>
+                <option value="moderado">Moderado</option>
+                <option value="grave">Grave</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-neutral-500 block mb-1">Estado</label>
+              <select className="input text-sm" value={form.estado}
+                onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
+                <option value="pendiente">Pendiente</option>
+                <option value="en_revision">En revisión</option>
+                <option value="resuelto">Resuelto</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-neutral-500 block mb-1">Responsable</label>
+              <select className="input text-sm" value={form.responsable_user_id}
+                onChange={e => setForm(f => ({ ...f, responsable_user_id: e.target.value }))}>
+                <option value="">Sin asignar</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre} {u.apellidos} (@{u.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={cancelar} className="btn-secondary text-sm flex-1">Cancelar</button>
+            <button type="button" onClick={guardar} disabled={saving} className="btn-primary text-sm flex-1">
+              {saving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AsignacionDetalle({ id, onClose }) {
   const { notify } = useNotification();
   const { user, canManageTrabajos } = useAuth();
@@ -29,8 +185,12 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [showInicio, setShowInicio] = useState(false);
   const [showFin,    setShowFin]    = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
-  const [incForm, setIncForm] = useState({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '' });
+  const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
+  const [incForm, setIncForm] = useState(emptyIncForm);
   const [savingInc, setSavingInc] = useState(false);
+  const [users, setUsers] = useState([]);
+
+  const puedeGestionar = canManageTrabajos();
 
   const load = () => {
     setLoading(true);
@@ -42,6 +202,14 @@ export default function AsignacionDetalle({ id, onClose }) {
 
   useEffect(() => { load(); }, [id]);
 
+  // Empleados a los que se puede atribuir una incidencia (solo admin/gestor)
+  useEffect(() => {
+    if (!puedeGestionar) return;
+    usersService.list({ limit: 300 })
+      .then(r => setUsers(r.data || []))
+      .catch(() => {/* el selector queda vacío; no bloquea el resto del detalle */});
+  }, [puedeGestionar]);
+
   const handleCrearIncidencia = async (e) => {
     e.preventDefault();
     if (!incForm.descripcion.trim()) return;
@@ -51,10 +219,19 @@ export default function AsignacionDetalle({ id, onClose }) {
         tipo:        incForm.tipo,
         gravedad:    incForm.gravedad,
         descripcion: incForm.descripcion.trim(),
+        ...(incForm.responsable_user_id
+          ? { responsable_user_id: parseInt(incForm.responsable_user_id) }
+          : {}),
       });
-      notify.success(`Incidencia asignada a ${asig.responsable_nombre}`);
+      const destino = incForm.responsable_user_id
+        ? (users.find(u => String(u.id) === incForm.responsable_user_id)
+            ? nombreCompleto(users.find(u => String(u.id) === incForm.responsable_user_id))
+            : 'el empleado seleccionado')
+        : asig.responsable_nombre;
+      notify.success(`Incidencia asignada a ${destino}`);
       setShowIncForm(false);
-      setIncForm({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '' });
+      setIncForm(emptyIncForm);
+      load();
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al registrar la incidencia');
     } finally {
@@ -65,10 +242,14 @@ export default function AsignacionDetalle({ id, onClose }) {
   // Evidencias indexadas por (momento, tipo)
   const evInicio = {};
   const evFin    = {};
+  const evGeneral = [];
   asig?.evidencias?.forEach(e => {
     if (e.momento === 'inicio') evInicio[e.tipo_imagen] = e;
     else if (e.momento === 'fin') evFin[e.tipo_imagen] = e;
+    else evGeneral.push(e);
   });
+
+  const incidencias = asig?.incidencias || [];
 
   const soyResponsable = asig?.user_id === user?.id || canManageTrabajos();
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
@@ -185,26 +366,63 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
             )}
 
-            {/* Registrar incidencia (admin/gestor) */}
-            {canManageTrabajos() && (
-              <div className="card border-amber-200 bg-amber-50/40 space-y-3">
+            {/* ── Incidencias de la asignación ───────────────────── */}
+            {(incidencias.length > 0 || evGeneral.length > 0 || puedeGestionar) && (
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium text-neutral-900 text-sm">⚠ Incidencia detectada</h3>
-                    <p className="text-xs text-neutral-500 mt-0.5">
-                      Se asignará a <strong className="text-neutral-700">{asig.responsable_nombre}</strong>,
-                      responsable de esta asignación.
-                    </p>
-                  </div>
-                  {!showIncForm && (
+                  <h3 className="font-medium text-neutral-900 text-sm">
+                    <span className="inline-block bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded mr-2">
+                      INCIDENCIAS
+                    </span>
+                    {incidencias.length > 0
+                      ? `${incidencias.length} registrada${incidencias.length !== 1 ? 's' : ''}`
+                      : 'Sin incidencias registradas'}
+                  </h3>
+                  {puedeGestionar && !showIncForm && (
                     <button onClick={() => setShowIncForm(true)} className="btn-secondary text-xs whitespace-nowrap">
                       + Registrar
                     </button>
                   )}
                 </div>
 
-                {showIncForm && (
-                  <form onSubmit={handleCrearIncidencia} className="space-y-3">
+                {/* Fotos aportadas al reportar (momento «general») */}
+                {evGeneral.length > 0 && (
+                  <div>
+                    <p className="text-xs text-neutral-500 mb-2">Fotos aportadas en la incidencia</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {evGeneral.map(ev => (
+                        <div key={ev.id} className="relative aspect-[4/3] rounded-lg overflow-hidden border border-neutral-200 bg-neutral-50">
+                          <img
+                            src={getImageUrl(ev.image_url)}
+                            alt="Foto de incidencia"
+                            className="w-full h-full object-cover cursor-pointer"
+                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
+                            {formatDateTime(ev.uploaded_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Listado de incidencias */}
+                {incidencias.map(inc => (
+                  <IncidenciaCard
+                    key={inc.id}
+                    inc={inc}
+                    vehicleId={asig.vehicle_id}
+                    users={users}
+                    canManage={puedeGestionar}
+                    onSaved={load}
+                  />
+                ))}
+
+                {/* Alta de una nueva incidencia (admin/gestor) */}
+                {puedeGestionar && showIncForm && (
+                  <form onSubmit={handleCrearIncidencia} className="card border-amber-200 bg-amber-50/40 space-y-3">
+                    <h4 className="font-medium text-neutral-900 text-sm">⚠ Nueva incidencia</h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
@@ -224,6 +442,20 @@ export default function AsignacionDetalle({ id, onClose }) {
                       </div>
                     </div>
                     <div>
+                      <label className="text-xs text-neutral-500 block mb-1">Responsable</label>
+                      <select className="input text-sm" value={incForm.responsable_user_id}
+                        onChange={e => setIncForm(f => ({ ...f, responsable_user_id: e.target.value }))}>
+                        <option value="">
+                          {asig.responsable_nombre} — responsable de la asignación
+                        </option>
+                        {users.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.nombre} {u.apellidos} (@{u.username})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="text-xs text-neutral-500 block mb-1">Descripción *</label>
                       <textarea className="input text-sm" rows={3} required
                         placeholder="Describe el daño o incidencia detectada…"
@@ -231,7 +463,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                         onChange={e => setIncForm(f => ({ ...f, descripcion: e.target.value }))} />
                     </div>
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => setShowIncForm(false)}
+                      <button type="button" onClick={() => { setShowIncForm(false); setIncForm(emptyIncForm); }}
                         className="btn-secondary text-sm flex-1">Cancelar</button>
                       <button type="submit" disabled={savingInc} className="btn-primary text-sm flex-1">
                         {savingInc ? 'Guardando…' : 'Registrar incidencia'}

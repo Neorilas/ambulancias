@@ -30,7 +30,7 @@ function progresoCompletoRows() {
   ];
 }
 
-// Helper: mock getAsignacionCompleta (main + evidencias + getProgreso)
+// Helper: mock getAsignacionCompleta (main + evidencias + incidencias + getProgreso)
 function mockAsignacionCompleta(overrides = {}) {
   const base = {
     id: 1, vehicle_id: 1, user_id: 2, estado: 'activa',
@@ -43,6 +43,7 @@ function mockAsignacionCompleta(overrides = {}) {
   };
   query.mockResolvedValueOnce([[base]]); // main query
   query.mockResolvedValueOnce([[]]);     // evidencias
+  query.mockResolvedValueOnce([[]]);     // incidencias
   query.mockResolvedValueOnce([[]]);     // getProgreso
 }
 
@@ -116,6 +117,37 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await getAsignacion(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('incluye las incidencias registradas en la asignación', async () => {
+      query.mockResolvedValueOnce([[{
+        id: 1, vehicle_id: 3, user_id: 9, estado: 'activa',
+        matricula: '9864JSF', responsable_nombre: 'J Lopez', responsable_username: 'jlopez',
+      }]]);                                // main query
+      query.mockResolvedValueOnce([[]]);   // evidencias
+      query.mockResolvedValueOnce([[{     // incidencias
+        id: 20, tipo: 'dano_exterior', gravedad: 'leve',
+        descripcion: 'Golpe en el paragolpes', estado: 'pendiente',
+        created_at: new Date(), resuelto_at: null,
+        responsable_user_id: 9, responsable_nombre: 'Jose', responsable_apellidos: 'Lopez',
+        reporter_id: 9, reporter_nombre: 'Jose', reporter_apellidos: 'Lopez',
+        resolutor_id: null,
+      }]]);
+      query.mockResolvedValueOnce([[]]);   // getProgreso
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] } });
+      const res = mockRes();
+      await getAsignacion(req, res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data.incidencias).toHaveLength(1);
+      expect(res._json.data.incidencias[0]).toMatchObject({
+        id: 20,
+        descripcion: 'Golpe en el paragolpes',
+        responsable:   { id: 9, nombre: 'Jose', apellidos: 'Lopez' },
+        reportado_por: { id: 9, nombre: 'Jose', apellidos: 'Lopez' },
+        resuelto_por:  null,
+      });
     });
 
     it('returns 403 for operacional accessing another user asignacion', async () => {
@@ -564,6 +596,52 @@ describe('asignaciones.controller', () => {
       const req = mockReq({
         params: { id: '7' }, body: { descripcion: 'X' },
         user: { id: 3, username: 'otro', roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('un gestor puede atribuir la incidencia a otro empleado', async () => {
+      mockAsignacionCompleta({ id: 7, vehicle_id: 3, user_id: 9, matricula: '9864JSF' });
+      query.mockResolvedValueOnce([[{ id: 42, username: 'otro_tec' }]]); // empleado destino
+      query.mockResolvedValueOnce([{ insertId: 60 }]);                   // INSERT
+      query.mockResolvedValueOnce([[{ id: 60, descripcion: 'Rayón' }]]); // SELECT created
+
+      const req = mockReq({
+        params: { id: '7' },
+        body: { descripcion: 'Rayón', responsable_user_id: 42 },
+        user: { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const insertCall = query.mock.calls.find(c => /INSERT INTO vehicle_incidencias/.test(c[0]));
+      expect(insertCall[1]).toEqual([3, 7, 1, 42, 'dano_exterior', 'leve', 'Rayón']);
+    });
+
+    it('devuelve 400 si el empleado destino no existe', async () => {
+      mockAsignacionCompleta({ id: 7, vehicle_id: 3, user_id: 9 });
+      query.mockResolvedValueOnce([[]]); // empleado inexistente
+
+      const req = mockReq({
+        params: { id: '7' },
+        body: { descripcion: 'Rayón', responsable_user_id: 999 },
+        user: { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await crearIncidenciaDesdeAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('el técnico no puede atribuir su incidencia a otro empleado', async () => {
+      mockAsignacionCompleta({ id: 7, vehicle_id: 3, user_id: 9 });
+
+      const req = mockReq({
+        params: { id: '7' },
+        body: { descripcion: 'Golpe', responsable_user_id: 42 },
+        user: { id: 9, username: 'tec', roles: ['tecnico'], permissions: [] },
       });
       const res = mockRes();
       await crearIncidenciaDesdeAsignacion(req, res, mockNext());

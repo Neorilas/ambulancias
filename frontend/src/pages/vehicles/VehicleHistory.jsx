@@ -1,19 +1,22 @@
 /**
  * VehicleHistory.jsx
- * Historial de un vehículo con tres pestañas:
- *   📷 Fotos      — historial fotográfico agrupado por trabajo
+ * Ficha de un vehículo con cuatro pestañas:
+ *   📋 Resumen     — datos del vehículo, documentación y estado de incidencias
+ *   📷 Fotos       — historial fotográfico agrupado por trabajo
  *   ⚠️ Incidencias — daños/averías registradas con responsable
  *   🔧 Revisiones  — ITV, ITS, mantenimiento, etc.
  *
  * Solo accesible para administradores y gestores.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
+import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate, formatDateTime } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
+import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -221,6 +224,9 @@ function TabIncidencias({ vehicleId }) {
   const [form,        setForm]        = useState({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', trabajo_id: '' });
   const [saving,      setSaving]      = useState(false);
   const [updatingId,  setUpdatingId]  = useState(null);
+  const [users,       setUsers]       = useState([]);
+  const [reasignId,   setReasignId]   = useState(null);
+  const [reasignVal,  setReasignVal]  = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,6 +238,32 @@ function TabIncidencias({ vehicleId }) {
   }, [vehicleId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Empleados a los que se puede atribuir una incidencia
+  useEffect(() => {
+    usersService.list({ limit: 300 })
+      .then(r => setUsers(r.data || []))
+      .catch(() => {/* el selector queda vacío; no bloquea la lista */});
+  }, []);
+
+  const abrirReasignar = (inc) => {
+    setReasignId(inc.id);
+    setReasignVal(inc.responsable?.id ? String(inc.responsable.id) : '');
+  };
+
+  const guardarResponsable = async (inc) => {
+    setUpdatingId(inc.id);
+    try {
+      await vehiclesService.updateIncidencia(vehicleId, inc.id, {
+        responsable_user_id: reasignVal ? parseInt(reasignVal) : null,
+      });
+      notify.success('Responsable actualizado');
+      setReasignId(null);
+      load();
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al reasignar');
+    } finally { setUpdatingId(null); }
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -357,37 +389,64 @@ function TabIncidencias({ vehicleId }) {
                 {inc.asignacion_id && (
                   <p>🔑 Detectada en la asignación #{inc.asignacion_id}</p>
                 )}
-                {inc.responsable && (
-                  <p>
-                    Responsable: <strong className="text-neutral-700">
-                      {inc.responsable.nombre} {inc.responsable.apellidos}
-                    </strong>
-                  </p>
-                )}
+                <p>
+                  Responsable: <strong className="text-neutral-700">
+                    {inc.responsable
+                      ? `${inc.responsable.nombre} ${inc.responsable.apellidos || ''}`.trim()
+                      : 'Sin asignar'}
+                  </strong>
+                </p>
                 <p>Reportado por: {inc.reportado_por?.nombre} {inc.reportado_por?.apellidos}</p>
                 {inc.resuelto_por && (
                   <p>Resuelto por: {inc.resuelto_por.nombre} {inc.resuelto_por.apellidos} · {formatDateTime(inc.resuelto_at)}</p>
                 )}
               </div>
 
-              {/* Acciones de estado */}
-              {inc.estado !== 'resuelto' && (
-                <div className="flex gap-2 pt-1 border-t border-neutral-100">
-                  {inc.estado === 'pendiente' && (
-                    <button
-                      onClick={() => handleEstado(inc, 'en_revision')}
-                      disabled={updatingId === inc.id}
-                      className="btn-secondary text-xs"
-                    >
-                      Marcar en revisión
-                    </button>
-                  )}
+              {/* Acciones de estado y responsable */}
+              <div className="flex gap-2 flex-wrap pt-1 border-t border-neutral-100">
+                {inc.estado === 'pendiente' && (
+                  <button
+                    onClick={() => handleEstado(inc, 'en_revision')}
+                    disabled={updatingId === inc.id}
+                    className="btn-secondary text-xs"
+                  >
+                    Marcar en revisión
+                  </button>
+                )}
+                {inc.estado !== 'resuelto' && (
                   <button
                     onClick={() => handleEstado(inc, 'resuelto')}
                     disabled={updatingId === inc.id}
                     className="btn-primary text-xs"
                   >
                     Marcar resuelta
+                  </button>
+                )}
+                {reasignId !== inc.id && (
+                  <button onClick={() => abrirReasignar(inc)} className="btn-ghost text-xs">
+                    Reasignar responsable
+                  </button>
+                )}
+              </div>
+
+              {reasignId === inc.id && (
+                <div className="flex gap-2 items-end flex-wrap">
+                  <div className="flex-1 min-w-[180px]">
+                    <label className="text-xs text-neutral-500 block mb-1">Responsable</label>
+                    <select className="input text-sm" value={reasignVal}
+                      onChange={e => setReasignVal(e.target.value)}>
+                      <option value="">Sin asignar</option>
+                      {users.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.nombre} {u.apellidos} (@{u.username})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button onClick={() => setReasignId(null)} className="btn-secondary text-xs">Cancelar</button>
+                  <button onClick={() => guardarResponsable(inc)} disabled={updatingId === inc.id}
+                    className="btn-primary text-xs">
+                    {updatingId === inc.id ? 'Guardando…' : 'Guardar'}
                   </button>
                 </div>
               )}
@@ -654,8 +713,196 @@ function TabRevisiones({ vehicleId }) {
   );
 }
 
+// ── Tab Resumen (ficha del vehículo) ──────────────────────────────────────────
+
+/** Fila etiqueta/valor de la ficha. */
+function Dato({ label, children }) {
+  return (
+    <div>
+      <p className="text-neutral-400 text-xs mb-0.5">{label}</p>
+      <div className="text-sm text-neutral-900">{children ?? '—'}</div>
+    </div>
+  );
+}
+
+/** Fecha de caducidad con aviso de vencida / próxima. */
+function FechaVencimiento({ proxima, umbralAviso = 30 }) {
+  if (!proxima) return <span className="text-neutral-400">—</span>;
+  const dias = diasHasta(proxima);
+  const vencida = dias < 0;
+  const avisa   = dias <= umbralAviso;
+  return (
+    <span className={vencida ? 'text-red-600 font-medium' : avisa ? 'text-yellow-700 font-medium' : ''}>
+      {formatDate(proxima)}
+      {avisa && (
+        <span className="ml-1 text-xs">
+          {vencida ? `(vencida hace ${Math.abs(dias)} d)` : `(en ${dias} d)`}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function TabResumen({ vehicleId, historial, onVerIncidencias, onVerRevisiones, onVerFotos }) {
+  const { notify } = useNotification();
+  const [vehicle,     setVehicle]     = useState(null);
+  const [incidencias, setIncidencias] = useState([]);
+  const [revisiones,  setRevisiones]  = useState([]);
+  const [loading,     setLoading]     = useState(true);
+
+  useEffect(() => {
+    let cancelado = false;
+    setLoading(true);
+    Promise.all([
+      vehiclesService.get(vehicleId),
+      vehiclesService.listIncidencias(vehicleId),
+      vehiclesService.listRevisiones(vehicleId),
+    ])
+      .then(([veh, incs, revs]) => {
+        if (cancelado) return;
+        setVehicle(veh);
+        setIncidencias(incs || []);
+        setRevisiones(revs || []);
+      })
+      .catch(() => { if (!cancelado) notify.error('Error al cargar la ficha del vehículo'); })
+      .finally(() => { if (!cancelado) setLoading(false); });
+    return () => { cancelado = true; };
+  }, [vehicleId]);
+
+  if (loading) return <PageLoading />;
+  if (!vehicle) return null;
+
+  const proximaITV     = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
+  const proximaITS     = calcProximaITS(vehicle.fecha_its);
+  const proximaTarjeta = vehicle.fecha_tarjeta_transporte ? new Date(vehicle.fecha_tarjeta_transporte) : null;
+
+  const pendientes  = incidencias.filter(i => i.estado === 'pendiente');
+  const enRevision  = incidencias.filter(i => i.estado === 'en_revision');
+  const resueltas   = incidencias.filter(i => i.estado === 'resuelto');
+  const abiertas    = [...pendientes, ...enRevision];
+  const ultimasInc  = incidencias.slice(0, 5);
+
+  const ultimaRevision = revisiones[0] || null;
+  const totalFotos = (historial?.trabajos || []).reduce((s, t) => s + t.fotos.length, 0);
+  const totalServicios = (historial?.trabajos || []).length;
+
+  const antiguedad = vehicle.fecha_matriculacion
+    ? Math.floor((new Date() - new Date(vehicle.fecha_matriculacion)) / (1000 * 60 * 60 * 24 * 365.25))
+    : null;
+
+  return (
+    <div className="space-y-4">
+      {/* Datos generales */}
+      <div className="card space-y-3">
+        <h3 className="font-medium text-neutral-900 text-sm">Datos del vehículo</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <Dato label="Matrícula"><span className="font-mono">{vehicle.matricula}</span></Dato>
+          <Dato label="Alias">{vehicle.alias}</Dato>
+          <Dato label="Kilómetros actuales">
+            {vehicle.kilometros_actuales != null ? `${vehicle.kilometros_actuales.toLocaleString()} km` : null}
+          </Dato>
+          <Dato label="Fecha de matriculación">
+            {vehicle.fecha_matriculacion ? formatDate(vehicle.fecha_matriculacion) : null}
+          </Dato>
+          <Dato label="Antigüedad">
+            {antiguedad != null ? `${antiguedad} año${antiguedad !== 1 ? 's' : ''}` : null}
+          </Dato>
+          <Dato label="Último servicio">
+            {vehicle.fecha_ultimo_servicio ? formatDate(vehicle.fecha_ultimo_servicio) : null}
+          </Dato>
+        </div>
+      </div>
+
+      {/* Documentación y vencimientos */}
+      <div className="card space-y-3">
+        <h3 className="font-medium text-neutral-900 text-sm">Documentación y vencimientos</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <Dato label="Última ITV">{vehicle.fecha_itv ? formatDate(vehicle.fecha_itv) : null}</Dato>
+          <Dato label="Próxima ITV"><FechaVencimiento proxima={proximaITV} /></Dato>
+          <Dato label="Última ITS">{vehicle.fecha_its ? formatDate(vehicle.fecha_its) : null}</Dato>
+          <Dato label="Próxima ITS"><FechaVencimiento proxima={proximaITS} /></Dato>
+          <Dato label="Tarjeta de transporte">
+            <FechaVencimiento proxima={proximaTarjeta} umbralAviso={60} />
+          </Dato>
+          <Dato label="Última revisión registrada">
+            {ultimaRevision
+              ? `${TIPO_REV_LABELS[ultimaRevision.tipo] || ultimaRevision.tipo} · ${formatDate(ultimaRevision.fecha_revision)}`
+              : (vehicle.fecha_ultima_revision ? formatDate(vehicle.fecha_ultima_revision) : null)}
+          </Dato>
+        </div>
+        <button onClick={onVerRevisiones} className="btn-secondary text-xs">
+          Ver todas las revisiones ({revisiones.length})
+        </button>
+      </div>
+
+      {/* Incidencias históricas */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="font-medium text-neutral-900 text-sm">Incidencias históricas</h3>
+          <div className="flex gap-2 text-xs">
+            <span className="badge bg-red-100 text-red-700">{pendientes.length} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
+            <span className="badge bg-yellow-100 text-yellow-700">{enRevision.length} en revisión</span>
+            <span className="badge bg-green-100 text-green-700">{resueltas.length} resuelta{resueltas.length !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+
+        {incidencias.length === 0 ? (
+          <p className="text-sm text-neutral-400 py-4 text-center">Sin incidencias registradas</p>
+        ) : (
+          <>
+            {abiertas.length > 0 && (
+              <p className="text-xs text-neutral-500">
+                {abiertas.length} incidencia{abiertas.length !== 1 ? 's' : ''} sin resolver.
+              </p>
+            )}
+            <div className="divide-y divide-neutral-100">
+              {ultimasInc.map(inc => (
+                <div key={inc.id} className="py-2 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`badge text-xs ${GRAVEDAD_BADGE[inc.gravedad]}`}>
+                      {inc.gravedad.charAt(0).toUpperCase() + inc.gravedad.slice(1)}
+                    </span>
+                    <span className="text-xs text-neutral-500">{TIPO_INC_LABELS[inc.tipo] || inc.tipo}</span>
+                    <span className={`badge text-xs ${ESTADO_INC_BADGE[inc.estado]}`}>{
+                      inc.estado === 'pendiente' ? 'Pendiente' : inc.estado === 'en_revision' ? 'En revisión' : 'Resuelto'
+                    }</span>
+                    <span className="text-xs text-neutral-400 ml-auto">{formatDate(inc.created_at)}</span>
+                  </div>
+                  <p className="text-sm text-neutral-700 line-clamp-2">{inc.descripcion}</p>
+                  <p className="text-xs text-neutral-500">
+                    Responsable: {inc.responsable
+                      ? `${inc.responsable.nombre} ${inc.responsable.apellidos || ''}`.trim()
+                      : 'Sin asignar'}
+                    {' · '}Reportada por {inc.reportado_por?.nombre} {inc.reportado_por?.apellidos}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <button onClick={onVerIncidencias} className="btn-secondary text-xs">
+              Ver todas las incidencias ({incidencias.length})
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Actividad documentada */}
+      <div className="card space-y-3">
+        <h3 className="font-medium text-neutral-900 text-sm">Actividad documentada</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <Dato label="Trabajos y asignaciones con fotos">{totalServicios}</Dato>
+          <Dato label="Fotos registradas">{totalFotos}</Dato>
+        </div>
+        <button onClick={onVerFotos} className="btn-secondary text-xs">
+          Ver historial fotográfico
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 const TABS = [
+  { key: 'resumen',     label: '📋 Resumen' },
   { key: 'fotos',       label: '📷 Fotos' },
   { key: 'incidencias', label: '⚠️ Incidencias' },
   { key: 'revisiones',  label: '🔧 Revisiones' },
@@ -664,8 +911,10 @@ const TABS = [
 export default function VehicleHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
-  const [tab,     setTab]     = useState('fotos');
+  // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos
+  const [tab,     setTab]     = useState(pathname.endsWith('/historial') ? 'fotos' : 'resumen');
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -695,7 +944,7 @@ export default function VehicleHistory() {
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/vehiculos')} className="btn-ghost text-neutral-500">← Volver</button>
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Historial — {vehicle.alias}</h1>
+          <h1 className="text-xl font-bold text-neutral-900">{vehicle.alias}</h1>
           <p className="text-sm text-neutral-500 font-mono">{vehicle.matricula}</p>
         </div>
       </div>
@@ -734,6 +983,16 @@ export default function VehicleHistory() {
       </div>
 
       {/* Contenido de cada tab */}
+      {tab === 'resumen' && (
+        <TabResumen
+          vehicleId={id}
+          historial={data}
+          onVerIncidencias={() => setTab('incidencias')}
+          onVerRevisiones={() => setTab('revisiones')}
+          onVerFotos={() => setTab('fotos')}
+        />
+      )}
+
       {tab === 'fotos' && (
         trabajos.length === 0 ? (
           <div className="card text-center py-12 text-neutral-400">

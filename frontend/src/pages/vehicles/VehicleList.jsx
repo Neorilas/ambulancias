@@ -6,29 +6,8 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate } from '../../utils/dateUtils.js';
+import { calcProximaITV, calcProximaITS } from '../../utils/vehicleAlerts.js';
 import VehicleForm from './VehicleForm.jsx';
-
-function calcProximaITV(fechaMatriculacion, fechaUltimaITV) {
-  if (!fechaUltimaITV) return null;
-  const matricula = fechaMatriculacion ? new Date(fechaMatriculacion) : null;
-  const ultimaITV = new Date(fechaUltimaITV);
-  const hoy = new Date();
-  let meses = 12;
-  if (matricula) {
-    const edadAnios = (hoy - matricula) / (1000 * 60 * 60 * 24 * 365.25);
-    if (edadAnios >= 5) meses = 6;
-  }
-  const proxima = new Date(ultimaITV);
-  proxima.setMonth(proxima.getMonth() + meses);
-  return proxima;
-}
-
-function calcProximaITS(fechaUltimaITS) {
-  if (!fechaUltimaITS) return null;
-  const proxima = new Date(fechaUltimaITS);
-  proxima.setFullYear(proxima.getFullYear() + 1);
-  return proxima;
-}
 
 function RevisionPill({ label, proxima, umbralAviso = 30 }) {
   if (!proxima) return null;
@@ -88,8 +67,14 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
       )}
       <div className="flex gap-2 pt-1 border-t border-neutral-100">
         <button
-          onClick={() => navigate(`/vehiculos/${vehicle.id}/historial`)}
+          onClick={() => navigate(`/vehiculos/${vehicle.id}`)}
           className="btn-secondary text-xs flex-1"
+        >
+          📋 Detalle
+        </button>
+        <button
+          onClick={() => navigate(`/vehiculos/${vehicle.id}/historial`)}
+          className="btn-ghost text-xs flex-1"
         >
           📷 Historial
         </button>

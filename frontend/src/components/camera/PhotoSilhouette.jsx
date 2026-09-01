@@ -66,48 +66,6 @@ const SILUETAS = {
     </svg>
   ),
 
-  // Niveles de líquidos — icono de depósito genérico
-  niveles_liquidos: (
-    <svg viewBox="0 0 100 120" fill="none" stroke="white" strokeWidth="3"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Depósito */}
-      <rect x="25" y="20" width="50" height="75" rx="5"/>
-      {/* Nivel del líquido (línea horizontal interior) */}
-      <line x1="25" y1="65" x2="75" y2="65" strokeWidth="2" strokeDasharray="6 3"/>
-      {/* Tapón superior */}
-      <rect x="38" y="12" width="24" height="10" rx="3"/>
-    </svg>
-  ),
-
-  // Nivel de aceite — varilla con gota
-  nivel_aceite: (
-    <svg viewBox="0 0 100 140" fill="none" stroke="white" strokeWidth="3"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Asa en la parte superior */}
-      <circle cx="50" cy="18" r="10"/>
-      <line x1="50" y1="28" x2="50" y2="100"/>
-      {/* Marcas MIN/MAX */}
-      <line x1="42" y1="88" x2="58" y2="88" strokeWidth="2.5"/>
-      <line x1="42" y1="96" x2="58" y2="96" strokeWidth="2.5"/>
-      {/* Gota de aceite */}
-      <path d="M50 108 C 42 118, 42 128, 50 130 C 58 128, 58 118, 50 108 Z" fill="white" opacity="0.35"/>
-    </svg>
-  ),
-
-  // Líquidos general — dos depósitos
-  nivel_liquidos_general: (
-    <svg viewBox="0 0 140 120" fill="none" stroke="white" strokeWidth="3"
-         strokeLinecap="round" strokeLinejoin="round" opacity="0.75" className="w-full h-full">
-      {/* Depósito izquierdo */}
-      <rect x="15" y="25" width="45" height="70" rx="5"/>
-      <line x1="15" y1="65" x2="60" y2="65" strokeWidth="2" strokeDasharray="6 3"/>
-      <rect x="25" y="17" width="25" height="9" rx="3"/>
-      {/* Depósito derecho */}
-      <rect x="80" y="35" width="45" height="60" rx="5"/>
-      <line x1="80" y1="70" x2="125" y2="70" strokeWidth="2" strokeDasharray="6 3"/>
-      <rect x="90" y="27" width="25" height="9" rx="3"/>
-    </svg>
-  ),
 };
 
 const SILUETA_RATIO = {
@@ -115,15 +73,16 @@ const SILUETA_RATIO = {
   lateral_izquierdo:       '220/100',
   trasera:                 '100/110',
   lateral_derecho:         '220/100',
-  niveles_liquidos:        '100/120',
-  nivel_aceite:            '100/140',
-  nivel_liquidos_general:  '140/120',
   cuentakilometros:        '120/120',
 };
 
 /**
  * PhotoSilhouette — silueta SVG de encuadre + instrucción para cada tipo de foto.
  * Componente puro: no tiene estado ni efectos secundarios.
+ *
+ * Los tipos de foto de niveles (aceite y líquidos) NO llevan silueta: el objetivo
+ * es fotografiar la varilla / el depósito real y cualquier dibujo superpuesto
+ * estorba el encuadre. Para esos tipos solo se muestra la instrucción.
  *
  * Props:
  *   tipoKey       — clave del tipo de foto (ej: 'frontal', 'lateral_izquierdo')
@@ -133,7 +92,7 @@ const SILUETA_RATIO = {
  */
 export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, instruccion }) {
   const svg = SILUETAS[tipoKey];
-  if (!svg) return null;
+  if (!svg && !instruccion) return null;
 
   const style = (() => {
     if (wantLandscape) return { width: '88%' };
@@ -143,14 +102,18 @@ export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, i
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-      <div className="drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]" style={style}>
-        {svg}
-      </div>
-      <div className="absolute bottom-32 left-0 right-0 text-center px-6">
-        <p className="text-white text-sm bg-black/50 rounded-lg px-3 py-2 inline-block">
-          {instruccion}
-        </p>
-      </div>
+      {svg && (
+        <div className="drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]" style={style}>
+          {svg}
+        </div>
+      )}
+      {instruccion && (
+        <div className="absolute bottom-32 left-0 right-0 text-center px-6">
+          <p className="text-white text-sm bg-black/50 rounded-lg px-3 py-2 inline-block">
+            {instruccion}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

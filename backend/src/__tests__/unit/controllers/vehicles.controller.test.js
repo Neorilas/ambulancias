@@ -482,6 +482,72 @@ describe('vehicles.controller', () => {
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it('reasigna la incidencia a otro empleado', async () => {
+      query.mockResolvedValueOnce([[{ id: 15, estado: 'pendiente' }]]); // exists
+      query.mockResolvedValueOnce([[{ id: 42 }]]);                      // empleado destino
+      query.mockResolvedValueOnce([]);                                  // UPDATE
+      query.mockResolvedValueOnce([[{ id: 15, responsable_user_id: 42 }]]);
+
+      const res = mockRes();
+      await updateIncidencia(mockReq({
+        params: { vehicleId: '1', incId: '15' },
+        body: { responsable_user_id: 42 },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const updateSql = query.mock.calls[2][0];
+      expect(updateSql).toContain('responsable_user_id = ?');
+      expect(query.mock.calls[2][1]).toContain(42);
+    });
+
+    it('permite dejar la incidencia sin responsable', async () => {
+      query.mockResolvedValueOnce([[{ id: 15, estado: 'pendiente' }]]); // exists
+      query.mockResolvedValueOnce([]);                                  // UPDATE
+      query.mockResolvedValueOnce([[{ id: 15, responsable_user_id: null }]]);
+
+      const res = mockRes();
+      await updateIncidencia(mockReq({
+        params: { vehicleId: '1', incId: '15' },
+        body: { responsable_user_id: null },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[1][0]).toContain('responsable_user_id = NULL');
+    });
+
+    it('devuelve 400 si el empleado destino no existe', async () => {
+      query.mockResolvedValueOnce([[{ id: 15, estado: 'pendiente' }]]); // exists
+      query.mockResolvedValueOnce([[]]);                                // empleado inexistente
+
+      const res = mockRes();
+      await updateIncidencia(mockReq({
+        params: { vehicleId: '1', incId: '15' },
+        body: { responsable_user_id: 999 },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('permite reclasificar el tipo de la incidencia', async () => {
+      query.mockResolvedValueOnce([[{ id: 15, estado: 'pendiente' }]]); // exists
+      query.mockResolvedValueOnce([]);                                  // UPDATE
+      query.mockResolvedValueOnce([[{ id: 15, tipo: 'mecanico' }]]);
+
+      const res = mockRes();
+      await updateIncidencia(mockReq({
+        params: { vehicleId: '1', incId: '15' },
+        body: { tipo: 'mecanico' },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[1][0]).toContain('tipo = ?');
+      expect(query.mock.calls[1][1]).toContain('mecanico');
+    });
   });
 
   // ── listRevisiones ─────────────────────────────────────

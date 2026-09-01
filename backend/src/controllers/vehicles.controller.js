@@ -602,7 +602,7 @@ async function updateIncidencia(req, res, next) {
   try {
     const vehicleId = parseInt(req.params.vehicleId);
     const incId     = parseInt(req.params.incId);
-    const { estado, descripcion, gravedad } = req.body;
+    const { estado, descripcion, gravedad, tipo, responsable_user_id } = req.body;
 
     const [existing] = await query(
       'SELECT id, estado FROM vehicle_incidencias WHERE id = ? AND vehicle_id = ?',
@@ -615,6 +615,23 @@ async function updateIncidencia(req, res, next) {
 
     if (descripcion !== undefined) { updates.push('descripcion = ?'); vals.push(descripcion.trim()); }
     if (gravedad    !== undefined) { updates.push('gravedad = ?');    vals.push(gravedad); }
+    if (tipo        !== undefined) { updates.push('tipo = ?');        vals.push(tipo); }
+
+    // Reasignar la incidencia a otro empleado (o dejarla sin responsable con null)
+    if (responsable_user_id !== undefined) {
+      if (responsable_user_id === null || responsable_user_id === '') {
+        updates.push('responsable_user_id = NULL');
+      } else {
+        const [urow] = await query(
+          'SELECT id FROM users WHERE id = ? AND deleted_at IS NULL',
+          [responsable_user_id]
+        );
+        if (!urow.length) return error(res, 'El empleado indicado no existe', 400);
+        updates.push('responsable_user_id = ?');
+        vals.push(urow[0].id);
+      }
+    }
+
     if (estado      !== undefined) {
       updates.push('estado = ?');
       vals.push(estado);
@@ -638,7 +655,7 @@ async function updateIncidencia(req, res, next) {
       userInfo: req.user.username,
       action:   'update_incidencia',
       entityType: 'vehicle', entityId: vehicleId,
-      details:  { incidencia_id: incId, estado, gravedad },
+      details:  { incidencia_id: incId, estado, gravedad, tipo, responsable_user_id },
       ip: req.ip,
     });
     return success(res, updated[0], 'Incidencia actualizada');

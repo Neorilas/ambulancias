@@ -69,8 +69,49 @@ async function getAsignacionCompleta(id) {
     [id]
   );
 
-  asig.evidencias = evidencias;
-  asig.progreso   = await getProgreso(id);
+  // Incidencias registradas en esta asignación (para que admin/gestor puedan
+  // leer lo que reportó el técnico, no solo crear nuevas).
+  const [incidencias] = await query(
+    `SELECT vi.id, vi.tipo, vi.gravedad, vi.descripcion, vi.estado,
+            vi.created_at, vi.resuelto_at,
+            vi.responsable_user_id,
+            rep.id        AS reporter_id,
+            rep.nombre    AS reporter_nombre,
+            rep.apellidos AS reporter_apellidos,
+            rsp.nombre    AS responsable_nombre,
+            rsp.apellidos AS responsable_apellidos,
+            res.id        AS resolutor_id,
+            res.nombre    AS resolutor_nombre,
+            res.apellidos AS resolutor_apellidos
+     FROM vehicle_incidencias vi
+     LEFT JOIN users rep ON vi.reported_by         = rep.id
+     LEFT JOIN users rsp ON vi.responsable_user_id = rsp.id
+     LEFT JOIN users res ON vi.resuelto_by         = res.id
+     WHERE vi.asignacion_id = ?
+     ORDER BY vi.created_at DESC`,
+    [id]
+  );
+
+  asig.evidencias  = evidencias;
+  asig.incidencias = incidencias.map(r => ({
+    id:          r.id,
+    tipo:        r.tipo,
+    gravedad:    r.gravedad,
+    descripcion: r.descripcion,
+    estado:      r.estado,
+    created_at:  r.created_at,
+    resuelto_at: r.resuelto_at,
+    responsable: r.responsable_user_id
+      ? { id: r.responsable_user_id, nombre: r.responsable_nombre, apellidos: r.responsable_apellidos }
+      : null,
+    reportado_por: r.reporter_id
+      ? { id: r.reporter_id, nombre: r.reporter_nombre, apellidos: r.reporter_apellidos }
+      : null,
+    resuelto_por: r.resolutor_id
+      ? { id: r.resolutor_id, nombre: r.resolutor_nombre, apellidos: r.resolutor_apellidos }
+      : null,
+  }));
+  asig.progreso = await getProgreso(id);
 
   return asig;
 }
@@ -496,9 +537,26 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
       return forbidden(res, 'Solo el responsable o un gestor pueden registrar incidencias en esta asignación');
     }
 
-    const { tipo, gravedad, descripcion } = req.body;
+    const { tipo, gravedad, descripcion, responsable_user_id } = req.body;
     if (!descripcion || !descripcion.trim()) {
       return error(res, 'Descripción requerida', 400);
+    }
+
+    // Por defecto la incidencia queda asignada al técnico responsable de la
+    // asignación; admin/gestor puede atribuírsela a otro empleado.
+    let responsableId       = asig.user_id;
+    let responsableUsername = asig.responsable_username;
+    if (responsable_user_id !== undefined && responsable_user_id !== null) {
+      if (!canManage) {
+        return forbidden(res, 'Solo un gestor puede asignar la incidencia a otro empleado');
+      }
+      const [urow] = await query(
+        'SELECT id, username FROM users WHERE id = ? AND deleted_at IS NULL',
+        [responsable_user_id]
+      );
+      if (!urow.length) return error(res, 'El empleado indicado no existe', 400);
+      responsableId       = urow[0].id;
+      responsableUsername = urow[0].username;
     }
 
     const [result] = await query(
@@ -510,7 +568,7 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
         asig.vehicle_id,
         asig.id,
         req.user.id,
-        asig.user_id, // técnico responsable EN esta asignación
+        responsableId,
         tipo     || 'dano_exterior',
         gravedad || 'leve',
         descripcion.trim(),
@@ -529,7 +587,8 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
       details:  {
         asignacion_id: asig.id,
         vehiculo:      asig.matricula,
-        responsable:   asig.responsable_username,
+        responsable_user_id: responsableId,
+        responsable:   responsableUsername,
         tipo:          tipo || 'dano_exterior',
         gravedad:      gravedad || 'leve',
         descripcion:   descripcion.trim(),

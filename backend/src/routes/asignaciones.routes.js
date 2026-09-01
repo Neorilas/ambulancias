@@ -96,6 +96,7 @@ router.post('/:id/incidencias',
     body('descripcion').trim().notEmpty().withMessage('Descripción requerida'),
     body('tipo').optional().isIn(['dano_exterior','dano_interior','mecanico','fluido','electrico','otro']),
     body('gravedad').optional().isIn(['leve','moderado','grave']),
+    body('responsable_user_id').optional({ nullable: true }).isInt({ min: 1 }),
   ],
   handleValidation,
   ctrl.crearIncidenciaDesdeAsignacion

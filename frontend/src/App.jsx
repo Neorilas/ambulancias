@@ -81,6 +81,15 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              {/* Ficha del vehículo: mismo componente, la pestaña inicial es el resumen */}
+              <Route
+                path="/vehiculos/:id"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_vehiculos">
+                    <VehicleHistory />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/vehiculos/:id/historial"
                 element={
