@@ -3,7 +3,7 @@ services:
   # ── MySQL 8 ───────────────────────────────────────────────────────────────
   mysql:
     image: mysql:8.0
-    container_name: ambulancia-mysql
+    container_name: ${STACK_NAME:-ambulancia}-mysql
     restart: unless-stopped
     environment:
       TZ: Europe/Madrid
@@ -33,7 +33,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ambulancia-backend
+    container_name: ${STACK_NAME:-ambulancia}-backend
     restart: unless-stopped
     depends_on:
       mysql:
@@ -41,6 +41,8 @@ services:
     environment:
       TZ: Europe/Madrid
       NODE_ENV: production
+      APP_ENV: ${APP_ENV:-produccion}   # produccion | pre — solo informativo (/health)
+      GIT_COMMIT: ${GIT_COMMIT:-}       # lo escribe el workflow de deploy; se ve en /health
       PORT: 3001
       API_VERSION: v1
 
@@ -76,7 +78,7 @@ services:
       ACCOUNT_LOCKOUT_DURATION_MINUTES: 30
 
       # ── Logging ──────────────────────────────────────────────────────────────
-      LOG_LEVEL: info
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ./logs
       BCRYPT_ROUNDS: 12
 

@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useNotification } from '../context/NotificationContext.jsx';
 import InstallPWAButton from '../components/common/InstallPWAButton.jsx';
 
+const ES_PRE = import.meta.env.VITE_APP_ENV === 'pre';
+
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -62,6 +64,14 @@ export default function Login() {
           className="h-20 mx-auto mb-4 object-contain brightness-0 invert drop-shadow-lg"
         />
         <p className="text-primary-200 text-sm mt-1">Sistema interno de operaciones · v1.0</p>
+
+        {/* El login es donde más fácil es equivocarse de entorno: mismo dominio,
+            mismo aspecto, credenciales distintas. */}
+        {ES_PRE && (
+          <p className="mt-3 inline-block px-3 py-1 rounded-full bg-amber-400 text-amber-950 text-xs font-bold tracking-widest uppercase">
+            Entorno de pruebas
+          </p>
+        )}
       </div>
 
       {/* Card de login */}

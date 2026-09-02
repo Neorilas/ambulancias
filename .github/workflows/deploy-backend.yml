@@ -1,66 +1,139 @@
-name: Deploy Backend → Hetzner
+name: Deploy Backend
+
+# develop → PRE (automático)   ·   master → PRODUCCIÓN (requiere autorización)
+#
+# El código YA NO lo trae el servidor con `git pull`: se empaqueta aquí y se
+# sube por SSH. Así el servidor no necesita credenciales de GitHub (el pull
+# llevaba fallando desde el 02/09/2026) y lo desplegado es exactamente el
+# commit que disparó el workflow.
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
     paths:
       - 'backend/**'
+      - 'database/**'
       - 'docker-compose.yml'
       - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+concurrency:
+  # Un deploy a la vez por rama; no se cancela el que esté en marcha.
+  group: deploy-backend-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+
+  # ── Resuelve a qué entorno va este push ──────────────────────────────────
+  destino:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      entorno:    ${{ steps.map.outputs.entorno }}
+      deploy_dir: ${{ steps.map.outputs.deploy_dir }}
+      api_url:    ${{ steps.map.outputs.api_url }}
+    steps:
+      - id: map
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            echo "entorno=produccion"                >> "$GITHUB_OUTPUT"
+            echo "deploy_dir=/root/ambulancia"       >> "$GITHUB_OUTPUT"
+            echo "api_url=https://api.vapss.net"     >> "$GITHUB_OUTPUT"
+          else
+            echo "entorno=pre"                       >> "$GITHUB_OUTPUT"
+            echo "deploy_dir=/root/ambulancia-pre"   >> "$GITHUB_OUTPUT"
+            echo "api_url=https://api-pre.vapss.net" >> "$GITHUB_OUTPUT"
+          fi
+
+  desplegar:
+    needs: destino
+    runs-on: ubuntu-latest
+
+    # Aquí está la puerta de autorización: el Environment `produccion` lleva
+    # required reviewers en la configuración del repo, así que el job se queda
+    # esperando aprobación. `pre` no tiene reviewers y pasa directo.
+    environment:
+      name: ${{ needs.destino.outputs.entorno }}
+      url:  ${{ needs.destino.outputs.api_url }}
 
     steps:
-      - name: Deploy via SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Empaquetar release
+        run: tar czf release.tar.gz backend database docker-compose.yml
+
+      - name: Subir release al servidor
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:   ${{ secrets.HETZNER_HOST }}
+          username: root
+          key:    ${{ secrets.HETZNER_SSH_KEY }}
+          source: release.tar.gz
+          target: ${{ needs.destino.outputs.deploy_dir }}
+
+      - name: Desplegar
         uses: appleboy/ssh-action@v1.0.3
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO:  ${{ github.repository }}
+          DEPLOY_DIR: ${{ needs.destino.outputs.deploy_dir }}
+          ENTORNO:    ${{ needs.destino.outputs.entorno }}
+          SHA:        ${{ github.sha }}
+        envs: DEPLOY_DIR,ENTORNO,SHA
         with:
-          host: ${{ secrets.HETZNER_HOST }}
+          host:     ${{ secrets.HETZNER_HOST }}
           username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: GH_TOKEN,GH_REPO
+          key:      ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
           script: |
             set -e
-            cd /root/ambulancia
+            cd "$DEPLOY_DIR"
 
-            echo "🔄 Actualizando código..."
-            git stash || true
-            # GitHub rechaza la mayoría de las peticiones HTTPS anónimas desde
-            # esta IP de Hetzner ("could not read Username"), así que el fetch va
-            # autenticado con el token efímero del propio workflow. La URL no se
-            # guarda en el remote: el token muere al terminar el job.
-            for i in 1 2 3; do
-              if git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" master; then
-                break
-              fi
-              echo "   fetch fallido, reintento $i/3..."
-              sleep 5
-            done
-            git merge --ff-only FETCH_HEAD
+            if [ ! -f .env ]; then
+              echo "No existe $DEPLOY_DIR/.env — ver docs/ENTORNOS.md"
+              exit 1
+            fi
 
-            echo "🐳 Reconstruyendo imagen backend..."
+            echo "Desplegando $SHA en $ENTORNO ($DEPLOY_DIR)"
+
+            # Extraer a un staging y comprobar antes de pisar nada.
+            rm -rf .release && mkdir .release
+            tar xzf release.tar.gz -C .release
+            test -f .release/docker-compose.yml
+            test -f .release/backend/server.js
+
+            rm -rf backend database docker-compose.yml
+            mv .release/backend .release/database .release/docker-compose.yml .
+            rm -rf .release release.tar.gz
+
+            # GIT_COMMIT se interpola en docker-compose.yml y sale por /health,
+            # que es como se comprueba qué versión está corriendo de verdad.
+            export GIT_COMMIT="$SHA"
+
             docker compose build backend
-
-            echo "🚀 Reiniciando backend (MySQL no se toca en deploys)..."
             docker compose up -d --no-deps backend
 
-            echo "⏳ Esperando health check..."
+            echo "Esperando health check..."
             for i in $(seq 1 20); do
-              if docker compose exec -T backend wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
-                echo "✅ Backend OK"
-                break
+              RESP=$(docker compose exec -T backend wget -qO- http://localhost:3001/health 2>/dev/null || true)
+              case "$RESP" in
+                *"$SHA"*) echo "Backend OK, sirviendo $SHA"; break ;;
+                *'"status":"ok"'*) echo "  responde pero aún con otro commit ($i/20)" ;;
+                *) echo "  sin respuesta ($i/20)" ;;
+              esac
+              if [ "$i" = "20" ]; then
+                echo "El backend no llegó a servir $SHA. Últimos logs:"
+                docker compose logs --tail 60 backend
+                exit 1
               fi
-              echo "   intento $i/20..."
               sleep 3
             done
 
-            echo "🧹 Limpiando imágenes antiguas..."
-            docker image prune -f
+            # Las migraciones corren al arrancar: si alguna falla el servidor
+            # sigue en pie pero con el esquema a medias. Hay que verlo aquí.
+            if docker compose logs --tail 200 backend | grep -q "Migración FALLIDA"; then
+              echo "Una migración ha fallado:"
+              docker compose logs --tail 200 backend | grep -A3 "Migración FALLIDA"
+              exit 1
+            fi
 
-            echo "✅ Deploy completado"
+            docker image prune -f
+            echo "Deploy completado"

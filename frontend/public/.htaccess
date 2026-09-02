@@ -1,6 +1,9 @@
+# ATENCION: plantilla. Los __BASE_PATH__ los sustituye scripts/gen-htaccess.js
+# al terminar el build (postbuild), con el valor de VITE_BASE_PATH. Asi el
+# mismo fichero sirve para /app/ (produccion) y /app-pre/ (PRE).
 Options -MultiViews
 RewriteEngine On
-RewriteBase /app/
+RewriteBase __BASE_PATH__
 
 # SPA: redirige todo a index.html excepto archivos y carpetas existentes
 RewriteCond %{REQUEST_FILENAME} !-f
@@ -27,7 +30,7 @@ AddType text/javascript            .js
   # 2. Service Worker: SIEMPRE fresco — es lo que dispara la actualización
   <FilesMatch "^sw\.js$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
-    Header set Service-Worker-Allowed "/app/"
+    Header set Service-Worker-Allowed "__BASE_PATH__"
   </FilesMatch>
 
   # 3. Punto de entrada y manifiesto: sin caché, referencian los assets

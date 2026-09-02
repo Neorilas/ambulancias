@@ -1,3 +1,11 @@
+> **DESACTUALIZADO.** Este documento describe un montaje con nginx + PM2 que
+> nunca llegó a usarse, y menciona Railway, que tampoco. El despliegue real
+> —Docker en Hetzner para la API, hosting de Hostalia para la PWA, dos entornos
+> con ramas— está en **[ENTORNOS.md](ENTORNOS.md)**.
+>
+> Se conserva por la configuración de nginx y las notas de instalación de PWA,
+> que siguen siendo útiles como referencia.
+
 # Guía de Despliegue
 
 ## Requisitos del servidor

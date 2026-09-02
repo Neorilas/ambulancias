@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 
+const ES_PRE = import.meta.env.VITE_APP_ENV === 'pre';
+
 export default function Navbar({ onMenuToggle }) {
   const { user, logout, isAdmin, isGestor, canManageUsers, canManageVehicles } = useAuth();
   const { notify } = useNotification();
@@ -41,6 +43,18 @@ export default function Navbar({ onMenuToggle }) {
             className="h-6 object-contain brightness-0 invert"
           />
         </Link>
+
+        {/* PRE y produccion se sirven del mismo dominio y con el mismo diseño.
+            Sin una marca visible es cuestión de tiempo que alguien dé por buena
+            una prueba hecha contra el entorno equivocado — o al revés. */}
+        {ES_PRE && (
+          <span
+            className="px-2 py-0.5 rounded bg-amber-400 text-amber-950 text-[11px] font-bold tracking-widest uppercase"
+            title="Entorno de pruebas — los datos no son los del cliente"
+          >
+            Pre
+          </span>
+        )}
 
         <div className="flex-1" />
 

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../services/auth.service.js';
 import { ROLES, PERMISSIONS } from '../utils/constants.js';
+import { getItem, setItem, removeItem, clear as clearSesion } from '../utils/sessionStorage.js';
 
 const AuthContext = createContext(null);
 
@@ -9,15 +10,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser  = localStorage.getItem('user');
-    const accessToken = localStorage.getItem('accessToken');
+    const storedUser  = getItem('user');
+    const accessToken = getItem('accessToken');
     if (!storedUser || !accessToken) {
       setLoading(false);
       return;
     }
 
     try { setUser(JSON.parse(storedUser)); }
-    catch { localStorage.clear(); setLoading(false); return; }
+    catch { clearSesion(); setLoading(false); return; }
     setLoading(false);
 
     // Revalidar contra el servidor: roles y permisos pueden haber cambiado
@@ -29,7 +30,7 @@ export function AuthProvider({ children }) {
         if (!fresh?.id) return;
         setUser(prev => {
           const updated = { ...prev, ...fresh };
-          localStorage.setItem('user', JSON.stringify(updated));
+          setItem('user', JSON.stringify(updated));
           return updated;
         });
       })
@@ -38,26 +39,26 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (username, password) => {
     const data = await authService.login(username, password);
-    localStorage.setItem('accessToken',  data.accessToken);
-    localStorage.setItem('refreshToken', data.refreshToken);
-    localStorage.setItem('user',         JSON.stringify(data.user));
+    setItem('accessToken',  data.accessToken);
+    setItem('refreshToken', data.refreshToken);
+    setItem('user',         JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
   }, []);
 
   const logout = useCallback(async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
+    const refreshToken = getItem('refreshToken');
     await authService.logout(refreshToken);
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    removeItem('accessToken');
+    removeItem('refreshToken');
+    removeItem('user');
     setUser(null);
   }, []);
 
   const updateStoredUser = useCallback((updates) => {
     setUser(prev => {
       const updated = { ...prev, ...updates };
-      localStorage.setItem('user', JSON.stringify(updated));
+      setItem('user', JSON.stringify(updated));
       return updated;
     });
   }, []);

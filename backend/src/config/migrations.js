@@ -41,6 +41,20 @@ async function ensureColumn(table, column, alterSql) {
   return false;
 }
 
+/** Aplica `alterSql` solo si el indice no existe todavia. */
+async function ensureIndex(table, index, alterSql) {
+  const [rows] = await query(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, index]
+  );
+  if (rows[0].c === 0) {
+    await query(alterSql);
+    return true;
+  }
+  return false;
+}
+
 /** Crea la tabla de control de migraciones si no existe. */
 async function ensureLedger() {
   await query(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -66,6 +80,264 @@ async function markApplied(name) {
 // reaplicara pisaría los flags que el superadmin haya cambiado desde /admin.
 
 const MIGRATIONS = [
+  // ── v2..v8 ────────────────────────────────────────────────────────────────
+  // Estas migraciones vivían solo como .sql en /database y se aplicaron a mano
+  // sobre producción, así que nunca llegaron a este runner ni al ledger. Sin
+  // ellas una base de datos NUEVA (entorno PRE, local, un futuro cliente)
+  // arranca con las 10 tablas de schema.sql y le faltan 7. Aquí van reescritas
+  // para MySQL 8 y con guardas: sobre una BD que ya las tiene son no-ops.
+
+  {
+    name: 'v2_revisiones_incidencias',
+    description: 'Historial de revisiones e incidencias de vehículo',
+    async run() {
+      await query(`CREATE TABLE IF NOT EXISTS vehicle_revisiones (
+        id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        vehicle_id      INT UNSIGNED NOT NULL,
+        tipo            ENUM('itv','its','mantenimiento','revision_preventiva','reparacion','otro') NOT NULL,
+        fecha_revision  DATE NOT NULL,
+        fecha_proxima   DATE,
+        resultado       ENUM('aprobado','rechazado','condicionado','realizado') NOT NULL DEFAULT 'realizado',
+        descripcion     TEXT,
+        coste           DECIMAL(10,2),
+        realizado_por   VARCHAR(200),
+        created_by      INT UNSIGNED NOT NULL,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id),
+        INDEX idx_vrev_vehicle (vehicle_id),
+        INDEX idx_vrev_fecha   (fecha_revision)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await query(`CREATE TABLE IF NOT EXISTS vehicle_incidencias (
+        id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        vehicle_id     INT UNSIGNED NOT NULL,
+        trabajo_id     INT UNSIGNED,
+        reported_by    INT UNSIGNED NOT NULL,
+        tipo           ENUM('dano_exterior','dano_interior','mecanico','fluido','electrico','otro')
+                       NOT NULL DEFAULT 'dano_exterior',
+        gravedad       ENUM('leve','moderado','grave') NOT NULL DEFAULT 'leve',
+        descripcion    TEXT NOT NULL,
+        estado         ENUM('pendiente','en_revision','resuelto') NOT NULL DEFAULT 'pendiente',
+        resuelto_by    INT UNSIGNED,
+        resuelto_at    DATETIME,
+        created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id)  REFERENCES vehicles(id)  ON DELETE CASCADE,
+        FOREIGN KEY (trabajo_id)  REFERENCES trabajos(id)  ON DELETE SET NULL,
+        FOREIGN KEY (reported_by) REFERENCES users(id),
+        FOREIGN KEY (resuelto_by) REFERENCES users(id),
+        INDEX idx_vinc_vehicle  (vehicle_id),
+        INDEX idx_vinc_estado   (estado),
+        INDEX idx_vinc_gravedad (gravedad)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
+
+  {
+    name: 'v3_superadmin_auditoria',
+    description: 'Rol superadmin + tablas audit_logs y error_logs',
+    async run() {
+      await query(`INSERT IGNORE INTO roles (nombre, descripcion)
+                   VALUES ('superadmin', 'Super administrador. Acceso completo a logs de errores y auditoría del sistema.')`);
+
+      // El .sql original daba superadmin al user_id 1 a pelo. En una BD nueva
+      // ese usuario todavía no existe (se crea con scripts/create-admin.js),
+      // así que solo se asigna si está.
+      const [existe] = await query(`SELECT id FROM users WHERE id = 1`);
+      if (existe.length > 0) {
+        await query(`INSERT IGNORE INTO user_roles (user_id, role_id)
+                     SELECT 1, id FROM roles WHERE nombre = 'superadmin'`);
+      }
+
+      await query(`CREATE TABLE IF NOT EXISTS audit_logs (
+        id          INT UNSIGNED   NOT NULL AUTO_INCREMENT,
+        user_id     INT UNSIGNED   NULL DEFAULT NULL COMMENT 'NULL si usuario eliminado',
+        user_info   VARCHAR(200)   NOT NULL          COMMENT 'username y nombre en el momento de la acción',
+        action      VARCHAR(100)   NOT NULL,
+        entity_type VARCHAR(50)    NULL DEFAULT NULL,
+        entity_id   INT            NULL DEFAULT NULL,
+        details     JSON           NULL DEFAULT NULL,
+        ip_address  VARCHAR(45)    NULL DEFAULT NULL,
+        user_agent  VARCHAR(500)   NULL DEFAULT NULL,
+        created_at  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        INDEX idx_created_at (created_at DESC),
+        INDEX idx_user_id    (user_id),
+        INDEX idx_action     (action),
+        INDEX idx_entity     (entity_type, entity_id),
+        CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await query(`CREATE TABLE IF NOT EXISTS error_logs (
+        id            INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+        method        VARCHAR(10)   NULL DEFAULT NULL,
+        url           VARCHAR(1000) NULL DEFAULT NULL,
+        status_code   SMALLINT      NULL DEFAULT NULL,
+        error_message TEXT          NULL DEFAULT NULL,
+        stack_trace   TEXT          NULL DEFAULT NULL,
+        user_id       INT UNSIGNED  NULL DEFAULT NULL,
+        user_info     VARCHAR(200)  NULL DEFAULT NULL,
+        ip_address    VARCHAR(45)   NULL DEFAULT NULL,
+        created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        INDEX idx_created_at  (created_at DESC),
+        INDEX idx_status_code (status_code),
+        INDEX idx_user_id     (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
+
+  {
+    name: 'v4_permisos',
+    description: 'Sistema de permisos granular (permissions + role_permissions)',
+    async run() {
+      await query(`CREATE TABLE IF NOT EXISTS permissions (
+        id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        nombre      VARCHAR(100) NOT NULL,
+        descripcion VARCHAR(255) NULL DEFAULT NULL,
+        created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_perm_nombre (nombre)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await query(`CREATE TABLE IF NOT EXISTS role_permissions (
+        role_id       INT UNSIGNED NOT NULL,
+        permission_id INT UNSIGNED NOT NULL,
+        PRIMARY KEY (role_id, permission_id),
+        CONSTRAINT fk_rp_role       FOREIGN KEY (role_id)       REFERENCES roles(id)       ON DELETE CASCADE,
+        CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await query(`INSERT IGNORE INTO permissions (nombre, descripcion) VALUES
+        ('manage_vehicles',    'Crear, editar y eliminar vehículos'),
+        ('manage_users',       'Crear, editar y eliminar usuarios; gestionar roles'),
+        ('manage_trabajos',    'Crear, editar y eliminar trabajos'),
+        ('view_all_trabajos',  'Ver todos los trabajos (sin este permiso solo se ven los propios)'),
+        ('manage_incidencias', 'Crear y gestionar incidencias y revisiones de vehículos'),
+        ('access_admin',       'Acceder al panel superadmin (logs, auditoría, estadísticas)')`);
+
+      // El reparto rol→permiso solo se siembra si la tabla está vacía. Hoy
+      // nada la escribe en caliente, pero si mañana se edita desde /admin o a
+      // mano, reaplicar los INSERT resucitaría permisos revocados a propósito
+      // — el mismo accidente que documenta v10_baseline_vehiculos.
+      const [yaSembrado] = await query(`SELECT COUNT(*) AS c FROM role_permissions`);
+      if (yaSembrado[0].c === 0) {
+        // superadmin: todos los permisos
+        await query(`INSERT IGNORE INTO role_permissions (role_id, permission_id)
+                     SELECT r.id, p.id FROM roles r, permissions p
+                     WHERE r.nombre = 'superadmin'`);
+
+        // administrador y gestor: todos menos access_admin
+        await query(`INSERT IGNORE INTO role_permissions (role_id, permission_id)
+                     SELECT r.id, p.id FROM roles r, permissions p
+                     WHERE r.nombre IN ('administrador','gestor')
+                       AND p.nombre IN ('manage_vehicles','manage_users','manage_trabajos',
+                                        'view_all_trabajos','manage_incidencias')`);
+      }
+    },
+  },
+
+  {
+    name: 'v5_trabajos_activado_por',
+    description: 'Columna activado_por en trabajos',
+    async run() {
+      // El .sql original usaba ADD COLUMN IF NOT EXISTS, que es sintaxis de
+      // MariaDB y en MySQL 8 revienta. Por eso aquí va con ensureColumn.
+      await ensureColumn('trabajos', 'activado_por',
+        `ALTER TABLE trabajos
+           ADD COLUMN activado_por INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Usuario que activó manualmente el trabajo',
+           ADD CONSTRAINT fk_trabajos_activado_por
+             FOREIGN KEY (activado_por) REFERENCES users(id) ON DELETE SET NULL`);
+    },
+  },
+
+  {
+    name: 'v6_asignaciones_libres',
+    description: 'Tabla asignaciones_libres + vínculo desde vehicle_images',
+    async run() {
+      await query(`CREATE TABLE IF NOT EXISTS asignaciones_libres (
+        id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        vehicle_id     INT UNSIGNED NOT NULL,
+        user_id        INT UNSIGNED NOT NULL COMMENT 'Usuario responsable',
+        created_by     INT UNSIGNED NOT NULL COMMENT 'Admin que creó la asignación',
+        fecha_inicio   DATETIME     NOT NULL,
+        fecha_fin      DATETIME     NOT NULL,
+        estado         ENUM('programada','activa','finalizada','cancelada') NOT NULL DEFAULT 'programada',
+        km_inicio      INT UNSIGNED NULL DEFAULT NULL,
+        km_fin         INT UNSIGNED NULL DEFAULT NULL,
+        motivo_fin     TEXT         NULL DEFAULT NULL,
+        finalizado_por INT UNSIGNED NULL DEFAULT NULL,
+        finalizado_at  DATETIME     NULL DEFAULT NULL,
+        notas          TEXT         NULL DEFAULT NULL,
+        created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at     TIMESTAMP    NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_al_vehicle (vehicle_id),
+        INDEX idx_al_user    (user_id),
+        INDEX idx_al_estado  (estado),
+        INDEX idx_al_fechas  (fecha_inicio, fecha_fin),
+        INDEX idx_al_deleted (deleted_at),
+        CONSTRAINT fk_al_vehicle        FOREIGN KEY (vehicle_id)     REFERENCES vehicles(id) ON DELETE RESTRICT,
+        CONSTRAINT fk_al_user           FOREIGN KEY (user_id)        REFERENCES users(id)    ON DELETE RESTRICT,
+        CONSTRAINT fk_al_created_by     FOREIGN KEY (created_by)     REFERENCES users(id)    ON DELETE RESTRICT,
+        CONSTRAINT fk_al_finalizado_por FOREIGN KEY (finalizado_por) REFERENCES users(id)    ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await ensureColumn('vehicle_images', 'asignacion_id',
+        `ALTER TABLE vehicle_images
+           ADD COLUMN asignacion_id INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'FK a asignaciones_libres; NULL si es evidencia de un trabajo',
+           ADD INDEX idx_vi_asignacion (asignacion_id),
+           ADD CONSTRAINT fk_vi_asignacion
+             FOREIGN KEY (asignacion_id) REFERENCES asignaciones_libres(id) ON DELETE SET NULL`);
+    },
+  },
+
+  {
+    name: 'v7_tarjeta_transporte',
+    description: 'Fecha de caducidad de la tarjeta de transporte',
+    async run() {
+      await ensureColumn('vehicles', 'fecha_tarjeta_transporte',
+        `ALTER TABLE vehicles
+           ADD COLUMN fecha_tarjeta_transporte DATE NULL DEFAULT NULL
+             COMMENT 'Caducidad de la tarjeta de transporte (vigencia 2 años)'
+             AFTER fecha_its`);
+      await ensureIndex('vehicles', 'idx_veh_tarjeta_transporte',
+        `ALTER TABLE vehicles ADD INDEX idx_veh_tarjeta_transporte (fecha_tarjeta_transporte)`);
+    },
+  },
+
+  {
+    name: 'v8_fotos_inicio_fin',
+    description: 'Momento inicio/fin en vehicle_images + nuevos tipos de imagen',
+    async run() {
+      const [enumRows] = await query(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_images'
+           AND COLUMN_NAME = 'tipo_imagen' AND COLUMN_TYPE LIKE '%nivel_aceite%'`
+      );
+      if (enumRows[0].c === 0) {
+        await query(`ALTER TABLE vehicle_images MODIFY COLUMN tipo_imagen
+          ENUM('frontal','lateral_izquierdo','lateral_derecho','trasera',
+               'niveles_liquidos','nivel_aceite','nivel_liquidos_general',
+               'cuentakilometros','danos') NOT NULL`);
+      }
+
+      await ensureColumn('vehicle_images', 'momento',
+        `ALTER TABLE vehicle_images
+           ADD COLUMN momento ENUM('inicio','fin','general') NOT NULL DEFAULT 'general'
+             COMMENT 'inicio = foto al asignarse el vehículo; fin = al finalizar; general = otra'
+             AFTER tipo_imagen`);
+
+      await ensureIndex('vehicle_images', 'idx_vi_momento',
+        `ALTER TABLE vehicle_images ADD INDEX idx_vi_momento (momento)`);
+    },
+  },
+
   {
     name: 'v9_app_features',
     description: 'Tabla app_features + flags de menú por defecto',

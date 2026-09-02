@@ -1,15 +1,55 @@
-name: Deploy Frontend → cPanel
+name: Deploy Frontend
+
+# develop → https://vapss.net/app-pre/   (automático)
+# master  → https://vapss.net/app/       (requiere autorización)
+#
+# Las dos PWA viven en el mismo hosting y se distinguen por la carpeta. La
+# configuración de cada una está en frontend/.env.pre y frontend/.env.production
+# (son URLs públicas, no secretos); aquí solo se elige el modo de build y el
+# directorio remoto.
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
     paths:
-      - 'frontend/**'        # solo cuando cambia algo en frontend/
+      - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+
+  destino:
     runs-on: ubuntu-latest
+    outputs:
+      entorno:  ${{ steps.map.outputs.entorno }}
+      modo:     ${{ steps.map.outputs.modo }}
+      url:      ${{ steps.map.outputs.url }}
+    steps:
+      - id: map
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            echo "entorno=produccion"                 >> "$GITHUB_OUTPUT"
+            echo "modo=production"                    >> "$GITHUB_OUTPUT"
+            echo "url=https://vapss.net/app/"         >> "$GITHUB_OUTPUT"
+          else
+            echo "entorno=pre"                        >> "$GITHUB_OUTPUT"
+            echo "modo=pre"                           >> "$GITHUB_OUTPUT"
+            echo "url=https://vapss.net/app-pre/"     >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-deploy:
+    needs: destino
+    runs-on: ubuntu-latest
+
+    # El Environment `produccion` tiene required reviewers: el job espera aquí
+    # hasta que alguien autoriza. `pre` no los tiene y sigue de largo.
+    environment:
+      name: ${{ needs.destino.outputs.entorno }}
+      url:  ${{ needs.destino.outputs.url }}
 
     steps:
       - name: Checkout
@@ -26,25 +66,55 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build
+      - name: Tests
         working-directory: frontend
+        run: npm test
+
+      - name: Build (${{ needs.destino.outputs.modo }})
+        working-directory: frontend
+        run: npm run build -- --mode ${{ needs.destino.outputs.modo }}
+
+      # El .htaccess lleva dentro la ruta base y sin él se rompen el fallback de
+      # la SPA y el alcance del service worker. Vite lo copia de public/ y
+      # gen-htaccess.js le sustituye la ruta; si algo de eso falla, mejor no
+      # subir nada.
+      - name: Comprobar el build
+        working-directory: frontend
+        run: |
+          test -f dist/.htaccess || { echo "Falta dist/.htaccess"; exit 1; }
+          test -f dist/sw.js     || { echo "Falta dist/sw.js"; exit 1; }
+          if grep -q "__BASE_PATH__" dist/.htaccess; then
+            echo "El .htaccess conserva marcadores sin sustituir"; exit 1
+          fi
+          echo "--- dist/.htaccess (RewriteBase) ---"
+          grep -E "RewriteBase|Service-Worker-Allowed" dist/.htaccess
+
+      # Si server-dir llegase vacío, FTP-Deploy-Action subiría el build a la
+      # raíz del hosting y se llevaría por delante la web de vapss.net.
+      - name: Comprobar destino FTP
         env:
-          VITE_BASE_PATH: /app/
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-        run: npm run build
+          REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+        run: |
+          if [ -z "$REMOTE_DIR" ]; then
+            echo "FTP_REMOTE_DIR vacío para el entorno '${{ needs.destino.outputs.entorno }}'."
+            echo "Defínelo como secret del Environment (ver docs/ENTORNOS.md)."
+            exit 1
+          fi
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_HOST }}
+          server:   ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: frontend/dist/
+          # Secret a nivel de Environment: `produccion` hereda el del repo (la
+          # carpeta /app/) y `pre` define el suyo apuntando a /app-pre/.
           server-dir: ${{ secrets.FTP_REMOTE_DIR }}
           protocol: ftps                               # TLS explícito (Hostalia lo requiere)
           port: 21
           dangerous-clean-slate: false
-          timeout: 60000                               # 60s timeout para conexiones lentas
+          timeout: 60000                               # 60s para conexiones lentas
           exclude: |
             **/.git*
             **/node_modules/**

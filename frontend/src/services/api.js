@@ -4,6 +4,7 @@
  */
 
 import axios from 'axios';
+import { getItem, setItem, removeItem } from '../utils/sessionStorage.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -16,7 +17,7 @@ const api = axios.create({
 // ── Request interceptor: añadir Authorization header ──────────────────────
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
+    const token = getItem('accessToken');
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
@@ -46,7 +47,7 @@ api.interceptors.response.use(
       !originalRequest.url?.includes('/auth/refresh') &&
       !originalRequest.url?.includes('/auth/login')
     ) {
-      const refreshToken = localStorage.getItem('refreshToken');
+      const refreshToken = getItem('refreshToken');
       if (!refreshToken) {
         // Sin refresh token → limpiar sesión y redirigir a login
         clearAuth();
@@ -70,8 +71,8 @@ api.interceptors.response.use(
         const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
         const { accessToken, refreshToken: newRefresh } = data.data;
 
-        localStorage.setItem('accessToken',  accessToken);
-        localStorage.setItem('refreshToken', newRefresh);
+        setItem('accessToken',  accessToken);
+        setItem('refreshToken', newRefresh);
 
         api.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
         originalRequest.headers.Authorization     = `Bearer ${accessToken}`;
@@ -93,9 +94,9 @@ api.interceptors.response.use(
 );
 
 function clearAuth() {
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
+  removeItem('accessToken');
+  removeItem('refreshToken');
+  removeItem('user');
   // Redirigir a login sin causar loop
   if (!window.location.pathname.includes('/login')) {
     window.location.href = `${import.meta.env.BASE_URL}login`;

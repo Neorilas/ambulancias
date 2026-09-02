@@ -1,15 +1,60 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Sustituye los marcadores __BASE_PATH__ del .htaccess que Vite copia de
+ * public/ a dist/.
+ *
+ * PRE y producción comparten hosting y se distinguen solo por la carpeta
+ * (/app-pre/ y /app/). El .htaccess lleva esa ruta dentro dos veces
+ * —RewriteBase y Service-Worker-Allowed— y si no coincide con la carpeta real
+ * se rompen el fallback de la SPA y el alcance del service worker.
+ *
+ * Va como plugin y no como script de postbuild a propósito: aquí el valor de
+ * `base` es el que Vite ha usado de verdad. Un script aparte tendría que
+ * adivinarlo desde process.env, donde Vite no lo publica.
+ */
+function htaccessConBase(base) {
+  return {
+    name: 'htaccess-con-base',
+    apply: 'build',
+    closeBundle() {
+      const destino = resolve(process.cwd(), 'dist', '.htaccess');
+      if (!existsSync(destino)) {
+        this.error('No se ha generado dist/.htaccess (¿sigue en public/?)');
+      }
+      const contenido = readFileSync(destino, 'utf8').replaceAll('__BASE_PATH__', base);
+      if (contenido.includes('__BASE_PATH__')) {
+        this.error('Han quedado marcadores __BASE_PATH__ sin sustituir');
+      }
+      writeFileSync(destino, contenido, 'utf8');
+      this.info(`.htaccess generado para base "${base}"`);
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env  = loadEnv(mode, process.cwd(), '');
-  const BASE = env.VITE_BASE_PATH || '/';
+  const BASE    = env.VITE_BASE_PATH || '/';
+  const APP_ENV = env.VITE_APP_ENV    || 'produccion';
+  const ES_PRE  = APP_ENV === 'pre';
+
+  // PRE y PRODUCCIÓN comparten el dominio vapss.net y se distinguen solo por
+  // la carpeta (/app-pre/ y /app/). Cambiar el nombre y el color del manifest
+  // hace que se instalen como dos apps distintas en el móvil del técnico y que
+  // no haya forma de confundirlas.
+  const NOMBRE      = ES_PRE ? 'VAPSS PRE · Operaciones' : 'VAPSS · Gestión Operaciones';
+  const NOMBRE_CORT = ES_PRE ? 'VAPSS PRE'               : 'VAPSS';
+  const COLOR_TEMA  = ES_PRE ? '#b45309'                 : '#2563eb';
 
   return {
     base: BASE,
     plugins: [
       react(),
+      htaccessConBase(BASE),
       VitePWA({
         registerType:   'autoUpdate',
         includeAssets:  ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
@@ -41,10 +86,10 @@ export default defineConfig(({ mode }) => {
           ],
         },
         manifest: {
-          name:             'VAPSS · Gestión Operaciones',
-          short_name:       'VAPSS',
+          name:             NOMBRE,
+          short_name:       NOMBRE_CORT,
           description:      'Sistema interno de operaciones · V.A.P Servicios Sanitarios',
-          theme_color:      '#2563eb',
+          theme_color:      COLOR_TEMA,
           background_color: '#ffffff',
           display:          'standalone',
           orientation:      'any',

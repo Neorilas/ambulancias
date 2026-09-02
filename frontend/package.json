@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pre": "vite build --mode pre",
     "preview": "vite preview",
     "generate-icons": "node scripts/generate-icons.js",
     "test": "vitest run",

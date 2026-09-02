@@ -27,6 +27,7 @@ vi.mock('axios', () => {
 });
 
 import axios from 'axios';
+import { PREFIJO } from '../../../utils/sessionStorage.js';
 
 let api;
 let reqFulfilled, reqRejected, resFulfilled, resRejected;
@@ -60,7 +61,7 @@ afterEach(() => {
 describe('api service', () => {
   describe('request interceptor', () => {
     it('adds Authorization header when token exists', () => {
-      localStorage.setItem('accessToken', 'test-token');
+      localStorage.setItem(PREFIJO + 'accessToken', 'test-token');
       const config = { headers: {} };
       const result = reqFulfilled(config);
       expect(result.headers.Authorization).toBe('Bearer test-token');
@@ -106,21 +107,21 @@ describe('api service', () => {
     });
 
     it('clears auth and rejects when no refreshToken on 401', async () => {
-      localStorage.setItem('accessToken', 'old');
-      localStorage.setItem('user', '{}');
+      localStorage.setItem(PREFIJO + 'accessToken', 'old');
+      localStorage.setItem(PREFIJO + 'user', '{}');
       // No refreshToken set
       const error = {
         response: { status: 401 },
         config: { url: '/trabajos', headers: {}, _retry: false },
       };
       await expect(resRejected(error)).rejects.toEqual(error);
-      expect(localStorage.getItem('accessToken')).toBeNull();
-      expect(localStorage.getItem('user')).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'user')).toBeNull();
     });
 
     it('attempts refresh on 401 with refreshToken', async () => {
-      localStorage.setItem('refreshToken', 'rt-old');
-      localStorage.setItem('accessToken', 'at-old');
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
 
       axios.post.mockResolvedValueOnce({
         data: { data: { accessToken: 'at-new', refreshToken: 'rt-new' } },
@@ -136,14 +137,14 @@ describe('api service', () => {
 
       const result = await resRejected(error);
       expect(result).toEqual({ data: { ok: true } });
-      expect(localStorage.getItem('accessToken')).toBe('at-new');
-      expect(localStorage.getItem('refreshToken')).toBe('rt-new');
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at-new');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-new');
     });
 
     it('clears auth when refresh fails', async () => {
-      localStorage.setItem('refreshToken', 'rt-old');
-      localStorage.setItem('accessToken', 'at-old');
-      localStorage.setItem('user', '{}');
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
+      localStorage.setItem(PREFIJO + 'user', '{}');
 
       axios.post.mockRejectedValueOnce(new Error('refresh failed'));
 
@@ -153,12 +154,12 @@ describe('api service', () => {
       };
 
       await expect(resRejected(error)).rejects.toThrow('refresh failed');
-      expect(localStorage.getItem('accessToken')).toBeNull();
-      expect(localStorage.getItem('refreshToken')).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBeNull();
     });
 
     it('queues requests during refresh', async () => {
-      localStorage.setItem('refreshToken', 'rt');
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
 
       // First call: triggers refresh
       let resolveRefresh;

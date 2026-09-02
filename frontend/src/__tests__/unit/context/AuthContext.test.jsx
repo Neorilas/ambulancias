@@ -4,6 +4,7 @@ import { renderHook, act } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../../../context/AuthContext';
 import { authService } from '../../../services/auth.service';
 import { ROLES, PERMISSIONS } from '../../../utils/constants';
+import { PREFIJO } from '../../../utils/sessionStorage.js';
 
 vi.mock('../../../services/auth.service', () => ({
   authService: {
@@ -29,8 +30,8 @@ describe('AuthContext', () => {
 
   it('restores user from localStorage on mount', () => {
     const user = { id: 1, username: 'admin', roles: ['superadmin'], permissions: [] };
-    localStorage.setItem('user', JSON.stringify(user));
-    localStorage.setItem('accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     expect(result.current.user).toEqual(user);
@@ -38,15 +39,15 @@ describe('AuthContext', () => {
   });
 
   it('clears localStorage if stored user is invalid JSON', () => {
-    localStorage.setItem('user', 'not-json');
-    localStorage.setItem('accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', 'not-json');
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
 
     renderHook(() => useAuth(), { wrapper });
-    expect(localStorage.getItem('user')).toBeNull();
+    expect(localStorage.getItem(PREFIJO + 'user')).toBeNull();
   });
 
   it('does not restore user if no accessToken', () => {
-    localStorage.setItem('user', JSON.stringify({ id: 1 }));
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1 }));
     // no accessToken
     const { result } = renderHook(() => useAuth(), { wrapper });
     expect(result.current.user).toBeNull();
@@ -66,14 +67,14 @@ describe('AuthContext', () => {
     });
 
     expect(result.current.user).toEqual(loginData.user);
-    expect(localStorage.getItem('accessToken')).toBe('at');
-    expect(localStorage.getItem('refreshToken')).toBe('rt');
+    expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at');
+    expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt');
   });
 
   it('logout clears user and tokens', async () => {
-    localStorage.setItem('accessToken', 'at');
-    localStorage.setItem('refreshToken', 'rt');
-    localStorage.setItem('user', JSON.stringify({ id: 1, roles: [] }));
+    localStorage.setItem(PREFIJO + 'accessToken', 'at');
+    localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, roles: [] }));
     authService.logout.mockResolvedValueOnce({});
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -83,13 +84,13 @@ describe('AuthContext', () => {
     });
 
     expect(result.current.user).toBeNull();
-    expect(localStorage.getItem('accessToken')).toBeNull();
+    expect(localStorage.getItem(PREFIJO + 'accessToken')).toBeNull();
   });
 
   it('updateStoredUser merges and persists', async () => {
     const user = { id: 1, username: 'test', roles: [], permissions: [] };
-    localStorage.setItem('user', JSON.stringify(user));
-    localStorage.setItem('accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -99,14 +100,14 @@ describe('AuthContext', () => {
 
     expect(result.current.user.nombre).toBe('Updated');
     expect(result.current.user.username).toBe('test');
-    expect(JSON.parse(localStorage.getItem('user')).nombre).toBe('Updated');
+    expect(JSON.parse(localStorage.getItem(PREFIJO + 'user')).nombre).toBe('Updated');
   });
 
   describe('role helpers', () => {
     function setupUser(roles, permissions = []) {
       const user = { id: 1, roles, permissions };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       return renderHook(() => useAuth(), { wrapper });
     }
 
@@ -156,16 +157,16 @@ describe('AuthContext', () => {
   describe('permission helpers', () => {
     it('hasPermission returns true for superadmin without specific permission', () => {
       const user = { id: 1, roles: [ROLES.SUPERADMIN], permissions: [] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.hasPermission(PERMISSIONS.MANAGE_USERS)).toBe(true);
     });
 
     it('hasPermission returns true if user has the permission', () => {
       const user = { id: 1, roles: [ROLES.GESTOR], permissions: [PERMISSIONS.MANAGE_VEHICLES] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.hasPermission(PERMISSIONS.MANAGE_VEHICLES)).toBe(true);
       expect(result.current.hasPermission(PERMISSIONS.MANAGE_USERS)).toBe(false);
@@ -178,40 +179,40 @@ describe('AuthContext', () => {
 
     it('canManageUsers delegates to hasPermission', () => {
       const user = { id: 1, roles: [ROLES.GESTOR], permissions: [PERMISSIONS.MANAGE_USERS] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.canManageUsers()).toBe(true);
     });
 
     it('canManageVehicles delegates to hasPermission', () => {
       const user = { id: 1, roles: [ROLES.GESTOR], permissions: [PERMISSIONS.MANAGE_VEHICLES] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.canManageVehicles()).toBe(true);
     });
 
     it('canManageTrabajos delegates to hasPermission', () => {
       const user = { id: 1, roles: [ROLES.GESTOR], permissions: [PERMISSIONS.MANAGE_TRABAJOS] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.canManageTrabajos()).toBe(true);
     });
 
     it('canDeleteAny true for admin', () => {
       const user = { id: 1, roles: [ROLES.ADMINISTRADOR], permissions: [] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.canDeleteAny()).toBe(true);
     });
 
     it('canDeleteAny false for gestor', () => {
       const user = { id: 1, roles: [ROLES.GESTOR], permissions: [] };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('accessToken', 'tok');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify(user));
+      localStorage.setItem(PREFIJO + 'accessToken', 'tok');
       const { result } = renderHook(() => useAuth(), { wrapper });
       expect(result.current.canDeleteAny()).toBe(false);
     });

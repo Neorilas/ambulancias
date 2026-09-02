@@ -78,6 +78,10 @@ app.get('/health', (_req, res) => {
     status:  'ok',
     version: process.env.npm_package_version || '1.0.0',
     env:     process.env.NODE_ENV,
+    // Qué entorno es realmente: produccion o pre. Ambos corren con
+    // NODE_ENV=production, así que sin esto no se distinguen desde fuera.
+    appEnv:  process.env.APP_ENV || 'produccion',
+    commit:  process.env.GIT_COMMIT || null,
     ts:      new Date().toISOString(),
   });
 });

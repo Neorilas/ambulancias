@@ -13,6 +13,7 @@ vi.mock('../../../services/auth.service', () => ({
 }));
 
 import { authService } from '../../../services/auth.service';
+import { PREFIJO } from '../../../utils/sessionStorage.js';
 
 function Wrapper({ children }) {
   return (
@@ -64,14 +65,14 @@ describe('AuthContext', () => {
       expect(screen.getByTestId('user').textContent).toBe('admin');
       expect(screen.getByTestId('hasAdmin').textContent).toBe('yes');
     });
-    expect(localStorage.getItem('accessToken')).toBe('at');
+    expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at');
   });
 
   it('logout clears user', async () => {
     // Pre-populate
-    localStorage.setItem('accessToken', 'at');
-    localStorage.setItem('refreshToken', 'rt');
-    localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
+    localStorage.setItem(PREFIJO + 'accessToken', 'at');
+    localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
 
     authService.logout.mockResolvedValueOnce({});
     authService.me.mockResolvedValueOnce({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] });
@@ -84,8 +85,8 @@ describe('AuthContext', () => {
   });
 
   it('isOperacional returns true for tecnico', async () => {
-    localStorage.setItem('accessToken', 'at');
-    localStorage.setItem('user', JSON.stringify({ id: 5, username: 'tec', roles: ['tecnico'], permissions: [] }));
+    localStorage.setItem(PREFIJO + 'accessToken', 'at');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 5, username: 'tec', roles: ['tecnico'], permissions: [] }));
     authService.me.mockResolvedValueOnce({ id: 5, username: 'tec', roles: ['tecnico'], permissions: [] });
 
     render(<Wrapper><TestConsumer /></Wrapper>);
@@ -93,8 +94,8 @@ describe('AuthContext', () => {
   });
 
   it('restores user from localStorage on mount', async () => {
-    localStorage.setItem('accessToken', 'at');
-    localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
+    localStorage.setItem(PREFIJO + 'accessToken', 'at');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
     authService.me.mockResolvedValueOnce({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] });
 
     render(<Wrapper><TestConsumer /></Wrapper>);
