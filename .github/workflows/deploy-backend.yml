@@ -11,21 +11,38 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO:  ${{ github.repository }}
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GH_TOKEN,GH_REPO
           script: |
             set -e
             cd /root/ambulancia
 
             echo "🔄 Actualizando código..."
             git stash || true
-            git pull origin master
+            # GitHub rechaza la mayoría de las peticiones HTTPS anónimas desde
+            # esta IP de Hetzner ("could not read Username"), así que el fetch va
+            # autenticado con el token efímero del propio workflow. La URL no se
+            # guarda en el remote: el token muere al terminar el job.
+            for i in 1 2 3; do
+              if git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" master; then
+                break
+              fi
+              echo "   fetch fallido, reintento $i/3..."
+              sleep 5
+            done
+            git merge --ff-only FETCH_HEAD
 
             echo "🐳 Reconstruyendo imagen backend..."
             docker compose build backend
