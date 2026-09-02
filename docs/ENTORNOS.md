@@ -85,6 +85,12 @@ Ya están todas en `backend/src/config/migrations.js`, reescritas para MySQL 8
 (la v5 usaba `ADD COLUMN IF NOT EXISTS`, que es sintaxis de MariaDB) y con
 guardas para que sobre una BD que ya las tiene sean no-ops.
 
+**Verificado el 02/09/2026** contra un MySQL 8 limpio: `schema.sql` deja 10
+tablas, el runner aplica las 12 migraciones sin fallos y la base queda con 22
+tablas, todas las columnas y las semillas correctas (6 roles, 6 permisos, 16
+filas en `role_permissions`). Una segunda pasada no aplica nada, que es lo que
+tiene que pasar.
+
 Comprobar el estado:
 
 ```sql
