@@ -89,15 +89,30 @@ jobs:
           echo "--- dist/.htaccess (RewriteBase) ---"
           grep -E "RewriteBase|Service-Worker-Allowed" dist/.htaccess
 
-      # Si server-dir llegase vacío, FTP-Deploy-Action subiría el build a la
-      # raíz del hosting y se llevaría por delante la web de vapss.net.
+      # Dos accidentes que este paso evita:
+      #   1. server-dir vacío → FTP-Deploy-Action sube el build a la raíz del
+      #      hosting y se lleva por delante la web de vapss.net.
+      #   2. El entorno `pre` sin su propio FTP_REMOTE_DIR → hereda el secret
+      #      del repo, que apunta a /app/, y PRE se publica ENCIMA de
+      #      producción. Por eso el destino de PRE tiene que decir "pre".
       - name: Comprobar destino FTP
         env:
           REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+          ENTORNO:    ${{ needs.destino.outputs.entorno }}
         run: |
           if [ -z "$REMOTE_DIR" ]; then
-            echo "FTP_REMOTE_DIR vacío para el entorno '${{ needs.destino.outputs.entorno }}'."
+            echo "FTP_REMOTE_DIR vacío para el entorno '$ENTORNO'."
             echo "Defínelo como secret del Environment (ver docs/ENTORNOS.md)."
+            exit 1
+          fi
+          if [ "$ENTORNO" = "pre" ] && ! echo "$REMOTE_DIR" | grep -q "pre"; then
+            echo "El destino FTP de PRE no contiene 'pre': se estaría publicando"
+            echo "sobre la carpeta de producción. Define FTP_REMOTE_DIR como"
+            echo "secret del Environment 'pre' (ver docs/ENTORNOS.md)."
+            exit 1
+          fi
+          if [ "$ENTORNO" = "produccion" ] && echo "$REMOTE_DIR" | grep -q "pre"; then
+            echo "El destino FTP de producción apunta a una carpeta de PRE."
             exit 1
           fi
 
