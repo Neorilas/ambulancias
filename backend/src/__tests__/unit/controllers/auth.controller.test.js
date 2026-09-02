@@ -85,6 +85,19 @@ describe('auth.controller', () => {
       expect(res._json.data.refreshToken).toBeDefined();
       expect(res._json.data.user.username).toBe('admin');
     });
+
+    it('devuelve los permisos en el usuario (el front decide con ellos)', async () => {
+      query.mockResolvedValueOnce([[{ attempts: 0 }]]); // not locked
+      query.mockResolvedValueOnce([[makeUser({ password_hash: validHash })]]); // user
+      query.mockResolvedValueOnce([]); // recordLoginAttempt (success)
+      query.mockResolvedValueOnce([[{ nombre: 'manage_vehicles' }, { nombre: 'manage_users' }]]); // getUserPermissions
+      query.mockResolvedValueOnce([]); // insert refresh token
+
+      const req = mockReq({ body: { username: 'admin', password: 'Test1234!' }, ip: '1.1.1.1', headers: { 'user-agent': 'test' } });
+      const res = mockRes();
+      await login(req, res, mockNext());
+      expect(res._json.data.user.permissions).toEqual(['manage_vehicles', 'manage_users']);
+    });
   });
 
   // ── refresh ────────────────────────────────────────────
@@ -157,6 +170,21 @@ describe('auth.controller', () => {
       await me(mockReq({ user: { id: 1, roles: ['administrador'] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res._json.data.username).toBe('admin');
+    });
+
+    it('incluye roles y permisos del token', async () => {
+      query.mockResolvedValueOnce([[{
+        id: 1, username: 'admin', email: 'a@b.com', nombre: 'Admin', apellidos: 'U',
+        dni: '12345678A', telefono: '600000000', activo: 1, created_at: new Date(),
+      }]]);
+
+      const res = mockRes();
+      await me(
+        mockReq({ user: { id: 1, roles: ['administrador'], permissions: ['manage_vehicles'] } }),
+        res, mockNext()
+      );
+      expect(res._json.data.roles).toEqual(['administrador']);
+      expect(res._json.data.permissions).toEqual(['manage_vehicles']);
     });
 
     it('returns 401 when user not found', async () => {

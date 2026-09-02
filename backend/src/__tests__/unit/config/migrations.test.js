@@ -73,7 +73,7 @@ describe('runMigrations', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v12_inicio_real_at']);
+    expect(aplicadas).toEqual(['v12_inicio_real_at', 'v13_incidencia_comentarios']);
     expect(ejecutadas.some(sql =>
       sql.includes('ALTER TABLE asignaciones_libres') && sql.includes('inicio_real_at')
     )).toBe(true);

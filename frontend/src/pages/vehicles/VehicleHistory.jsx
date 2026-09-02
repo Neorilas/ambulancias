@@ -14,6 +14,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
+import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import { formatDate, formatDateTime } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
@@ -314,6 +315,12 @@ function TabIncidencias({ vehicleId }) {
       {showForm && (
         <form onSubmit={handleCreate} className="card space-y-3 border-primary-200 bg-primary-50/30">
           <h4 className="font-medium text-neutral-800">Nueva incidencia</h4>
+          {incidencias.length > 0 && (
+            <p className="text-xs text-neutral-500">
+              Si es sobre un daño ya registrado, usa «Añadir comentario» en su ficha:
+              así no queda duplicado.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
@@ -375,6 +382,14 @@ function TabIncidencias({ vehicleId }) {
               </div>
 
               <p className="text-sm text-neutral-700">{inc.descripcion}</p>
+
+              {/* Comentarios: aportar información sin duplicar la incidencia */}
+              <ComentariosIncidencia
+                inc={inc}
+                vehicleId={vehicleId}
+                puedeComentar
+                onSaved={load}
+              />
 
               {/* Responsable y origen */}
               <div className="text-xs text-neutral-500 space-y-0.5">

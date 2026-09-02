@@ -74,7 +74,7 @@ describe('AuthContext', () => {
     localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
 
     authService.logout.mockResolvedValueOnce({});
-    authService.me.mockResolvedValueOnce({ data: { data: { id: 1, username: 'admin', roles: ['administrador'], permissions: [] } } });
+    authService.me.mockResolvedValueOnce({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] });
 
     render(<Wrapper><TestConsumer /></Wrapper>);
     await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('yes'));
@@ -86,7 +86,7 @@ describe('AuthContext', () => {
   it('isOperacional returns true for tecnico', async () => {
     localStorage.setItem('accessToken', 'at');
     localStorage.setItem('user', JSON.stringify({ id: 5, username: 'tec', roles: ['tecnico'], permissions: [] }));
-    authService.me.mockResolvedValueOnce({ data: { data: { id: 5, username: 'tec', roles: ['tecnico'], permissions: [] } } });
+    authService.me.mockResolvedValueOnce({ id: 5, username: 'tec', roles: ['tecnico'], permissions: [] });
 
     render(<Wrapper><TestConsumer /></Wrapper>);
     await waitFor(() => expect(screen.getByTestId('isOp').textContent).toBe('yes'));
@@ -95,7 +95,7 @@ describe('AuthContext', () => {
   it('restores user from localStorage on mount', async () => {
     localStorage.setItem('accessToken', 'at');
     localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] }));
-    authService.me.mockResolvedValueOnce({ data: { data: { id: 1, username: 'admin', roles: ['administrador'], permissions: [] } } });
+    authService.me.mockResolvedValueOnce({ id: 1, username: 'admin', roles: ['administrador'], permissions: [] });
 
     render(<Wrapper><TestConsumer /></Wrapper>);
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('admin'));

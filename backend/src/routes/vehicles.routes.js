@@ -160,6 +160,20 @@ router.patch('/:vehicleId/incidencias/:incId',
   ctrl.updateIncidencia
 );
 
+// POST /vehicles/:vehicleId/incidencias/:incId/comentarios
+// Sin requireAdminOrGestor: el técnico responsable (o quien la reportó)
+// también puede aportar su comentario. La autorización va en el controlador.
+router.post('/:vehicleId/incidencias/:incId/comentarios',
+  [
+    param('vehicleId').isInt({ min: 1 }),
+    param('incId').isInt({ min: 1 }),
+    body('comentario').trim().notEmpty().withMessage('Comentario requerido')
+      .isLength({ max: 2000 }).withMessage('Comentario demasiado largo'),
+  ],
+  handleValidation,
+  ctrl.addIncidenciaComentario
+);
+
 // ── Revisiones / mantenimiento ────────────────────────────────
 
 // GET  /vehicles/:id/revisiones         (admin o gestor)

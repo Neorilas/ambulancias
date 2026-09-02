@@ -38,6 +38,11 @@ export const vehiclesService = {
   updateIncidencia(vehicleId, incId, data) {
     return api.patch(`/vehicles/${vehicleId}/incidencias/${incId}`, data).then(r => r.data.data);
   },
+  // Aportar información a una incidencia existente sin dar de alta otra
+  addIncidenciaComentario(vehicleId, incId, comentario) {
+    return api.post(`/vehicles/${vehicleId}/incidencias/${incId}/comentarios`, { comentario })
+      .then(r => r.data.data);
+  },
 
   // ── Revisiones / mantenimiento ───────────────────────────────
   listRevisiones(id) {

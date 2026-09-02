@@ -133,6 +133,10 @@ describe('asignaciones.controller', () => {
         reporter_id: 9, reporter_nombre: 'Jose', reporter_apellidos: 'Lopez',
         resolutor_id: null,
       }]]);
+      query.mockResolvedValueOnce([[{     // comentarios de esas incidencias
+        id: 5, incidencia_id: 20, comentario: 'Revisado en taller', created_at: new Date(),
+        autor_id: 1, autor_nombre: 'Admin', autor_apellidos: 'User',
+      }]]);
       query.mockResolvedValueOnce([[]]);   // getProgreso
 
       const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] } });
@@ -148,6 +152,15 @@ describe('asignaciones.controller', () => {
         reportado_por: { id: 9, nombre: 'Jose', apellidos: 'Lopez' },
         resuelto_por:  null,
       });
+      // Los comentarios evitan tener que dar de alta otra incidencia para
+      // aportar la versión del administrador.
+      expect(res._json.data.incidencias[0].comentarios).toEqual([
+        expect.objectContaining({
+          id: 5,
+          comentario: 'Revisado en taller',
+          autor: { id: 1, nombre: 'Admin', apellidos: 'User' },
+        }),
+      ]);
     });
 
     it('returns 403 for operacional accessing another user asignacion', async () => {

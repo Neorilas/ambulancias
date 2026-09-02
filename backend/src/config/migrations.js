@@ -136,6 +136,26 @@ const MIGRATIONS = [
              AFTER estado`);
     },
   },
+
+  {
+    name: 'v13_incidencia_comentarios',
+    description: 'Comentarios firmados sobre una incidencia ya registrada',
+    async run() {
+      await query(`CREATE TABLE IF NOT EXISTS incidencia_comentarios (
+        id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        incidencia_id INT UNSIGNED NOT NULL,
+        user_id       INT UNSIGNED DEFAULT NULL,
+        comentario    TEXT NOT NULL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_inccom_incidencia (incidencia_id, created_at),
+        CONSTRAINT fk_inccom_incidencia FOREIGN KEY (incidencia_id)
+          REFERENCES vehicle_incidencias(id) ON DELETE CASCADE,
+        CONSTRAINT fk_inccom_user FOREIGN KEY (user_id)
+          REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 // ============================================================

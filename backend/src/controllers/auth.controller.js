@@ -150,6 +150,9 @@ async function login(req, res, next) {
         nombre:   user.nombre,
         apellidos: user.apellidos,
         roles,
+        // El front decide qué menús y acciones muestra a partir de estos
+        // permisos: si no viajan aquí, un admin ve la app como un usuario raso.
+        permissions,
       },
     }, 'Login exitoso');
 
@@ -257,7 +260,11 @@ async function me(req, res, next) {
 
     if (!rows.length) return unauthorized(res, 'Usuario no encontrado');
 
-    return success(res, { ...rows[0], roles: req.user.roles });
+    return success(res, {
+      ...rows[0],
+      roles:       req.user.roles,
+      permissions: req.user.permissions || [],
+    });
   } catch (err) {
     next(err);
   }

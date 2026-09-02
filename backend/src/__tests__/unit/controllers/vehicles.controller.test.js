@@ -15,7 +15,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 const {
   listVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle,
   uploadImages, getVehicleImages, getVehicleHistorial,
-  listIncidencias, createIncidencia, updateIncidencia,
+  listIncidencias, createIncidencia, updateIncidencia, addIncidenciaComentario,
   listRevisiones, createRevision, updateRevision, deleteRevision,
 } = require('../../../controllers/vehicles.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
@@ -380,10 +380,93 @@ describe('vehicles.controller', () => {
     it('returns incidencias list', async () => {
       query.mockResolvedValueOnce([[{ id: 1 }]]); // vehicle exists
       query.mockResolvedValueOnce([[{ id: 10, tipo: 'dano_exterior', descripcion: 'Rayón' }]]);
+      query.mockResolvedValueOnce([[]]); // comentarios
 
       const res = mockRes();
       await listIncidencias(mockReq({ params: { id: '1' } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('adjunta los comentarios de cada incidencia', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]); // vehicle exists
+      query.mockResolvedValueOnce([[{ id: 10, tipo: 'dano_exterior', descripcion: 'Rayón' }]]);
+      query.mockResolvedValueOnce([[{
+        id: 3, incidencia_id: 10, comentario: 'Pendiente de presupuesto', created_at: new Date(),
+        autor_id: 1, autor_nombre: 'Admin', autor_apellidos: 'User',
+      }]]);
+
+      const res = mockRes();
+      await listIncidencias(mockReq({ params: { id: '1' } }), res, mockNext());
+      expect(res._json.data[0].comentarios).toHaveLength(1);
+      expect(res._json.data[0].comentarios[0].comentario).toBe('Pendiente de presupuesto');
+    });
+  });
+
+  // ── addIncidenciaComentario ────────────────────────────
+  describe('addIncidenciaComentario', () => {
+    const incidencia = { id: 10, reported_by: 9, responsable_user_id: 9 };
+
+    it('el gestor comenta la incidencia del técnico en vez de duplicarla', async () => {
+      query.mockResolvedValueOnce([[incidencia]]);            // incidencia existe
+      query.mockResolvedValueOnce([{ insertId: 4 }]);         // INSERT comentario
+      query.mockResolvedValueOnce([[{                          // SELECT del creado
+        id: 4, comentario: 'Llevado a taller', created_at: new Date(),
+        autor_id: 1, autor_nombre: 'Admin', autor_apellidos: 'User',
+      }]]);
+
+      const req = mockReq({
+        params: { vehicleId: '3', incId: '10' },
+        body:   { comentario: 'Llevado a taller' },
+        user:   { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await addIncidenciaComentario(req, res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res._json.data.comentario).toBe('Llevado a taller');
+      // No se crea ninguna incidencia nueva
+      expect(query.mock.calls.some(c => /INSERT INTO vehicle_incidencias/.test(c[0]))).toBe(false);
+    });
+
+    it('el responsable de la incidencia también puede comentar', async () => {
+      query.mockResolvedValueOnce([[incidencia]]);
+      query.mockResolvedValueOnce([{ insertId: 5 }]);
+      query.mockResolvedValueOnce([[{ id: 5, comentario: 'Ya estaba así', created_at: new Date(), autor_id: 9 }]]);
+
+      const req = mockReq({
+        params: { vehicleId: '3', incId: '10' },
+        body:   { comentario: 'Ya estaba así' },
+        user:   { id: 9, username: 'jlopez', roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await addIncidenciaComentario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('403 para un tercero sin permisos', async () => {
+      query.mockResolvedValueOnce([[incidencia]]);
+
+      const req = mockReq({
+        params: { vehicleId: '3', incId: '10' },
+        body:   { comentario: 'Curioseando' },
+        user:   { id: 77, username: 'otro', roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await addIncidenciaComentario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('404 si la incidencia no es de ese vehículo', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({
+        params: { vehicleId: '3', incId: '99' },
+        body:   { comentario: 'Hola' },
+        user:   { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_incidencias'] },
+      });
+      const res = mockRes();
+      await addIncidenciaComentario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
     });
   });
 

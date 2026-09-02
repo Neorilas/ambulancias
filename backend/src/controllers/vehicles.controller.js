@@ -13,8 +13,8 @@
 
 const { query, transaction }  = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } = require('../utils/response.utils');
-const { PAGINATION, IMAGEN_TIPOS } = require('../config/constants');
-const { isAdmin, isOperacional }   = require('../middleware/roles.middleware');
+const { PAGINATION, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
+const { isAdmin, isOperacional, hasPermission } = require('../middleware/roles.middleware');
 const { deleteFile }               = require('../middleware/upload.middleware');
 const { logAudit }                 = require('./admin.controller');
 
@@ -477,6 +477,40 @@ async function getVehicleHistorial(req, res, next) {
   }
 }
 
+// ── Helper: comentarios de un conjunto de incidencias ─────────
+/**
+ * Devuelve un Map incidencia_id → [comentarios]. Se consulta en bloque para
+ * no hacer una query por incidencia al pintar el listado.
+ */
+async function fetchComentarios(incidenciaIds) {
+  const mapa = new Map();
+  if (!incidenciaIds.length) return mapa;
+
+  const placeholders = incidenciaIds.map(() => '?').join(',');
+  const [rows] = await query(
+    `SELECT c.id, c.incidencia_id, c.comentario, c.created_at,
+            u.id AS autor_id, u.nombre AS autor_nombre, u.apellidos AS autor_apellidos
+     FROM incidencia_comentarios c
+     LEFT JOIN users u ON c.user_id = u.id
+     WHERE c.incidencia_id IN (${placeholders})
+     ORDER BY c.created_at ASC, c.id ASC`,
+    incidenciaIds
+  );
+
+  for (const r of rows) {
+    if (!mapa.has(r.incidencia_id)) mapa.set(r.incidencia_id, []);
+    mapa.get(r.incidencia_id).push({
+      id:         r.id,
+      comentario: r.comentario,
+      created_at: r.created_at,
+      autor: r.autor_id
+        ? { id: r.autor_id, nombre: r.autor_nombre, apellidos: r.autor_apellidos }
+        : null,
+    });
+  }
+  return mapa;
+}
+
 // ============================================================
 // GET /vehicles/:id/incidencias  (admin o gestor)
 // ============================================================
@@ -524,6 +558,8 @@ async function listIncidencias(req, res, next) {
         vi.created_at DESC
     `, [vehicleId]);
 
+    const comentarios = await fetchComentarios(rows.map(r => r.id));
+
     return success(res, rows.map(r => ({
       id:          r.id,
       tipo:        r.tipo,
@@ -533,6 +569,7 @@ async function listIncidencias(req, res, next) {
       created_at:  r.created_at,
       resuelto_at: r.resuelto_at,
       asignacion_id: r.asignacion_id,
+      comentarios: comentarios.get(r.id) || [],
       trabajo: r.trabajo_id ? {
         id:         r.trabajo_id,
         referencia: r.trabajo_referencia,
@@ -590,6 +627,81 @@ async function createIncidencia(req, res, next) {
       ip: req.ip,
     });
     return created(res, created_row[0], 'Incidencia registrada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// POST /vehicles/:vehicleId/incidencias/:incId/comentarios
+// ============================================================
+/**
+ * Añade un comentario a una incidencia YA registrada.
+ *
+ * Existe para que el administrador no tenga que dar de alta una incidencia
+ * nueva solo para aportar su versión: antes de esto, el mismo daño acababa
+ * duplicado (la entrada del técnico y la del administrador).
+ *
+ * Pueden comentar admin/gestor (MANAGE_INCIDENCIAS), quien la reportó y el
+ * empleado al que está asignada.
+ */
+async function addIncidenciaComentario(req, res, next) {
+  try {
+    const vehicleId = parseInt(req.params.vehicleId);
+    const incId     = parseInt(req.params.incId);
+    const { comentario } = req.body;
+
+    if (!comentario?.trim()) return error(res, 'Comentario requerido', 400);
+
+    const [rows] = await query(
+      `SELECT id, reported_by, responsable_user_id
+       FROM vehicle_incidencias WHERE id = ? AND vehicle_id = ?`,
+      [incId, vehicleId]
+    );
+    if (!rows.length) return notFound(res, 'Incidencia');
+    const inc = rows[0];
+
+    const puedeComentar =
+      hasPermission(req.user, PERMISSIONS.MANAGE_INCIDENCIAS) ||
+      inc.reported_by === req.user.id ||
+      inc.responsable_user_id === req.user.id;
+
+    if (!puedeComentar) {
+      return forbidden(res, 'No puedes comentar esta incidencia');
+    }
+
+    const [result] = await query(
+      'INSERT INTO incidencia_comentarios (incidencia_id, user_id, comentario) VALUES (?, ?, ?)',
+      [incId, req.user.id, comentario.trim()]
+    );
+
+    const [created_row] = await query(
+      `SELECT c.id, c.comentario, c.created_at,
+              u.id AS autor_id, u.nombre AS autor_nombre, u.apellidos AS autor_apellidos
+       FROM incidencia_comentarios c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.id = ?`,
+      [result.insertId]
+    );
+    const c = created_row[0];
+
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'comment_incidencia',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  { incidencia_id: incId, comentario: comentario.trim() },
+      ip: req.ip,
+    });
+
+    return created(res, {
+      id:         c.id,
+      comentario: c.comentario,
+      created_at: c.created_at,
+      autor: c.autor_id
+        ? { id: c.autor_id, nombre: c.autor_nombre, apellidos: c.autor_apellidos }
+        : null,
+    }, 'Comentario añadido');
   } catch (err) {
     next(err);
   }
@@ -939,7 +1051,7 @@ async function listTarjetaTransporteProximas(req, res, next) {
 module.exports = {
   listVehicles, getVehicle, createVehicle, updateVehicle,
   deleteVehicle, uploadImages, getVehicleImages, getVehicleHistorial,
-  listIncidencias, createIncidencia, updateIncidencia,
+  listIncidencias, createIncidencia, updateIncidencia, addIncidenciaComentario,
   listRevisiones,  createRevision,   updateRevision,  deleteRevision,
   listTarjetaTransporteProximas,
   listAlertasVehiculos,

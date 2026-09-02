@@ -11,11 +11,29 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const storedUser  = localStorage.getItem('user');
     const accessToken = localStorage.getItem('accessToken');
-    if (storedUser && accessToken) {
-      try { setUser(JSON.parse(storedUser)); }
-      catch { localStorage.clear(); }
+    if (!storedUser || !accessToken) {
+      setLoading(false);
+      return;
     }
+
+    try { setUser(JSON.parse(storedUser)); }
+    catch { localStorage.clear(); setLoading(false); return; }
     setLoading(false);
+
+    // Revalidar contra el servidor: roles y permisos pueden haber cambiado
+    // desde el login, y las sesiones abiertas antes de que /auth/me devolviera
+    // `permissions` tienen el usuario guardado sin ellos. Si falla se mantiene
+    // lo almacenado (el interceptor de api.js ya cierra sesión ante un 401).
+    Promise.resolve(authService.me?.())
+      .then(fresh => {
+        if (!fresh?.id) return;
+        setUser(prev => {
+          const updated = { ...prev, ...fresh };
+          localStorage.setItem('user', JSON.stringify(updated));
+          return updated;
+        });
+      })
+      .catch(() => { /* sesión offline o token caducado: no bloquea la app */ });
   }, []);
 
   const login = useCallback(async (username, password) => {

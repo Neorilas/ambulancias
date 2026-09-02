@@ -92,6 +92,32 @@ async function getAsignacionCompleta(id) {
     [id]
   );
 
+  // Comentarios aportados sobre esas incidencias (admin/gestor y responsable).
+  const comentariosPorInc = new Map();
+  if (incidencias.length) {
+    const ids = incidencias.map(i => i.id);
+    const [comRows] = await query(
+      `SELECT c.id, c.incidencia_id, c.comentario, c.created_at,
+              u.id AS autor_id, u.nombre AS autor_nombre, u.apellidos AS autor_apellidos
+       FROM incidencia_comentarios c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.incidencia_id IN (${ids.map(() => '?').join(',')})
+       ORDER BY c.created_at ASC, c.id ASC`,
+      ids
+    );
+    for (const r of comRows) {
+      if (!comentariosPorInc.has(r.incidencia_id)) comentariosPorInc.set(r.incidencia_id, []);
+      comentariosPorInc.get(r.incidencia_id).push({
+        id:         r.id,
+        comentario: r.comentario,
+        created_at: r.created_at,
+        autor: r.autor_id
+          ? { id: r.autor_id, nombre: r.autor_nombre, apellidos: r.autor_apellidos }
+          : null,
+      });
+    }
+  }
+
   asig.evidencias  = evidencias;
   asig.incidencias = incidencias.map(r => ({
     id:          r.id,
@@ -110,6 +136,7 @@ async function getAsignacionCompleta(id) {
     resuelto_por: r.resolutor_id
       ? { id: r.resolutor_id, nombre: r.resolutor_nombre, apellidos: r.resolutor_apellidos }
       : null,
+    comentarios: comentariosPorInc.get(r.id) || [],
   }));
   asig.progreso = await getProgreso(id);
 

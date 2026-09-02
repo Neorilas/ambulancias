@@ -10,6 +10,7 @@ import {
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
   IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN,
 } from '../../utils/constants.js';
+import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 
@@ -51,6 +52,7 @@ const nombreCompleto = (u) => (u ? [u.nombre, u.apellidos].filter(Boolean).join(
  */
 function IncidenciaCard({ inc, vehicleId, users, canManage, onSaved }) {
   const { notify } = useNotification();
+  const { user }   = useAuth();
   const [editing, setEditing] = useState(false);
   const [saving,  setSaving]  = useState(false);
 
@@ -114,6 +116,19 @@ function IncidenciaCard({ inc, vehicleId, users, canManage, onSaved }) {
           <p>Resuelta por: {nombreCompleto(inc.resuelto_por)} · {formatDateTime(inc.resuelto_at)}</p>
         )}
       </div>
+
+      {/* Comentarios: la vía para aportar información sobre una incidencia ya
+          registrada, en lugar de dar de alta otra por el mismo daño. */}
+      <ComentariosIncidencia
+        inc={inc}
+        vehicleId={vehicleId}
+        puedeComentar={
+          canManage ||
+          inc.responsable?.id === user?.id ||
+          inc.reportado_por?.id === user?.id
+        }
+        onSaved={onSaved}
+      />
 
       {canManage && !editing && (
         <div className="pt-1 border-t border-neutral-100">
@@ -422,6 +437,12 @@ export default function AsignacionDetalle({ id, onClose }) {
                 {puedeGestionar && showIncForm && (
                   <form onSubmit={handleCrearIncidencia} className="card border-warn-200 bg-warn-50/40 space-y-3">
                     <h4 className="font-medium text-neutral-900 text-sm">Nueva incidencia</h4>
+                    {incidencias.length > 0 && (
+                      <p className="text-xs text-neutral-500">
+                        Si es sobre un daño ya registrado, usa «Añadir comentario» en su ficha:
+                        así no queda duplicado.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs text-neutral-500 block mb-1">Tipo</label>
