@@ -77,11 +77,12 @@ jobs:
           DEPLOY_DIR: ${{ needs.destino.outputs.deploy_dir }}
           ENTORNO:    ${{ needs.destino.outputs.entorno }}
           SHA:        ${{ github.sha }}
-        envs: DEPLOY_DIR,ENTORNO,SHA
         with:
           host:     ${{ secrets.HETZNER_HOST }}
           username: root
           key:      ${{ secrets.HETZNER_SSH_KEY }}
+          # Reenvía al shell remoto las variables declaradas arriba en `env`.
+          envs: DEPLOY_DIR,ENTORNO,SHA
           script_stop: true
           script: |
             set -e
