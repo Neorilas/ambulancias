@@ -64,6 +64,37 @@ describe('vehicles.controller', () => {
       const countParams = query.mock.calls[0][1];
       expect(countParams).toContain('%AMB%');
     });
+
+    // La matrícula se guarda sin separadores: buscarla tal y como está en el
+    // permiso de circulación tiene que encontrarla igualmente.
+    it('normaliza el término al buscar por matrícula', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, matricula: '1234BCD', alias: 'Ambulancia 1' }]]);
+
+      const req = mockReq({ query: { search: '1234 bcd' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await listVehicles(req, res, mockNext());
+
+      expect(query.mock.calls[0][1]).toContain('%1234BCD%');
+    });
+
+    // El cliente pidió expresamente ver la flota por nombre de ambulancia,
+    // y con orden natural: "Ambulancia 2" antes que "Ambulancia 10".
+    it('ordena por nombre de ambulancia, con los números como números', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      await listVehicles(
+        mockReq({ query: {}, user: { id: 1, roles: ['administrador'] } }),
+        mockRes(), mockNext()
+      );
+
+      const sql = query.mock.calls[1][0];
+      expect(sql).toContain('ORDER BY');
+      expect(sql).toContain("REGEXP_REPLACE(v.alias, '[0-9]+', '')");
+      expect(sql).toContain("CAST(REGEXP_SUBSTR(v.alias, '[0-9]+') AS UNSIGNED)");
+      expect(sql).not.toContain('ORDER BY v.matricula');
+    });
   });
 
   // ── getVehicle ─────────────────────────────────────────
@@ -116,23 +147,42 @@ describe('vehicles.controller', () => {
     it('creates vehicle successfully', async () => {
       query.mockResolvedValueOnce([[]]); // no duplicate
       query.mockResolvedValueOnce([{ insertId: 5 }]); // insert
-      query.mockResolvedValueOnce([[{ id: 5, matricula: 'NEW1234', alias: 'AMB-5' }]]);
+      query.mockResolvedValueOnce([[{ id: 5, matricula: '1234BCD', alias: 'Ambulancia 5' }]]);
 
       const req = mockReq({
-        body: { matricula: 'new1234', alias: 'AMB-5' },
+        body: { matricula: '1234 bcd', alias: '  Ambulancia 5 ' },
         user: { id: 1, username: 'admin', nombre: 'Admin' },
         ip: '1.1.1.1',
       });
       const res = mockRes();
       await createVehicle(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(201);
+
+      // Se guarda en forma canónica: sin espacios, en mayúsculas, y el nombre
+      // sin sobrantes, para que la clave única de matrícula sirva de algo.
+      const insert = query.mock.calls[1];
+      expect(insert[1][0]).toBe('1234BCD');
+      expect(insert[1][1]).toBe('Ambulancia 5');
     });
 
     it('returns 409 for duplicate matricula', async () => {
       query.mockResolvedValueOnce([[{ id: 1 }]]);
       const res = mockRes();
-      await createVehicle(mockReq({ body: { matricula: 'ABC1234' }, user: { id: 1, username: 'admin' } }), res, mockNext());
+      await createVehicle(mockReq({ body: { matricula: '1234BCD', alias: 'AMB-1' }, user: { id: 1, username: 'admin' } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(409);
+    });
+
+    // El cliente dio de alta la flota con el nombre de la ambulancia en el
+    // campo matrícula. Se rechaza en el alta para que no vuelva a pasar.
+    it('rechaza un nombre de ambulancia en el campo matrícula', async () => {
+      const res = mockRes();
+      await createVehicle(mockReq({
+        body: { matricula: 'Ambulancia 1', alias: '1234BCD' },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(query).not.toHaveBeenCalled();
     });
   });
 
@@ -189,6 +239,56 @@ describe('vehicles.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
   });
+
+    // Los vehículos cruzados hay que poder arreglarlos desde la ficha, así
+    // que la matrícula dejó de ser inmutable.
+    describe('corrección de la matrícula', () => {
+      it('la actualiza en forma canónica', async () => {
+        query.mockResolvedValueOnce([[{ id: 1 }]]);  // existe
+        query.mockResolvedValueOnce([[]]);           // ninguna otra la usa
+        query.mockResolvedValueOnce([]);             // UPDATE
+        query.mockResolvedValueOnce([[{ id: 1, matricula: '1234BCD', alias: 'Ambulancia 1' }]]);
+
+        const res = mockRes();
+        await updateVehicle(mockReq({
+          params: { id: '1' },
+          body: { matricula: '1234-bcd', alias: 'Ambulancia 1' },
+          user: { id: 1, username: 'admin' },
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        const update = query.mock.calls[2];
+        expect(update[0]).toContain('matricula = ?');
+        expect(update[1][0]).toBe('1234BCD');
+      });
+
+      it('no deja poner una matrícula que ya tiene otro vehículo', async () => {
+        query.mockResolvedValueOnce([[{ id: 1 }]]);  // existe
+        query.mockResolvedValueOnce([[{ id: 9 }]]);  // otro la usa
+
+        const res = mockRes();
+        await updateVehicle(mockReq({
+          params: { id: '1' },
+          body: { matricula: '1234BCD' },
+          user: { id: 1, username: 'admin' },
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(409);
+      });
+
+      it('rechaza un nombre de ambulancia en el campo matrícula', async () => {
+        query.mockResolvedValueOnce([[{ id: 1 }]]);  // existe
+
+        const res = mockRes();
+        await updateVehicle(mockReq({
+          params: { id: '1' },
+          body: { matricula: 'Ambulancia 1' },
+          user: { id: 1, username: 'admin' },
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+    });
 
   // ── deleteVehicle ──────────────────────────────────────
   describe('deleteVehicle', () => {

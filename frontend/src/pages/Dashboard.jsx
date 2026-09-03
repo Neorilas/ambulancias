@@ -123,8 +123,8 @@ function ActiveJobCard({ trabajo, onFinalizar }) {
 
       {trabajo.vehiculo_alias && (
         <div className="flex items-baseline gap-2 text-sm">
-          <span className="data font-semibold text-neutral-900">{trabajo.matricula}</span>
-          <span className="text-neutral-500 text-[13px]">{trabajo.vehiculo_alias}</span>
+          <span className="font-semibold text-neutral-900">{trabajo.vehiculo_alias}</span>
+          <span className="data text-neutral-500 text-[13px]">{trabajo.matricula}</span>
         </div>
       )}
 
@@ -186,7 +186,7 @@ function NextJobCard({ trabajo }) {
       </div>
       {trabajo.vehiculo_alias && (
         <p className="text-xs text-neutral-500">
-          <span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}
+          {trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span>
         </p>
       )}
       <p className="text-xs text-neutral-400">
@@ -213,9 +213,11 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="micro">Vehículo asignado</p>
-          <h3 className="plate mt-0.5">{asignacion.matricula}</h3>
+          <h3 className="text-[17px] font-semibold text-neutral-900 mt-0.5">
+            {asignacion.vehiculo_alias || asignacion.matricula}
+          </h3>
           {asignacion.vehiculo_alias && (
-            <p className="text-xs text-neutral-500">{asignacion.vehiculo_alias}</p>
+            <p className="text-xs text-neutral-500 data">{asignacion.matricula}</p>
           )}
         </div>
         <span className={ASIGNACION_ESTADO_COLORS[asignacion.estado]}>

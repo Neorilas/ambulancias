@@ -37,12 +37,12 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
 
   return (
     <tr>
-      <td className="id">
+      <td className="font-medium text-neutral-900">
         <Link to={`/vehiculos/${vehicle.id}`} className="hover:text-primary-700">
-          {vehicle.matricula}
+          {vehicle.alias || vehicle.matricula}
         </Link>
       </td>
-      <td className="text-neutral-900">{vehicle.alias || '—'}</td>
+      <td className="data text-[13px] text-neutral-500">{vehicle.matricula}</td>
       <td className="num">
         {vehicle.kilometros_actuales != null ? vehicle.kilometros_actuales.toLocaleString() : '—'}
       </td>
@@ -81,10 +81,13 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
   return (
     <div className="card">
       <div className="flex items-baseline gap-2.5 flex-wrap">
-        <Link to={`/vehiculos/${vehicle.id}`} className="plate hover:text-primary-700">
-          {vehicle.matricula}
+        <Link
+          to={`/vehiculos/${vehicle.id}`}
+          className="text-[16px] font-semibold text-neutral-900 hover:text-primary-700"
+        >
+          {vehicle.alias || vehicle.matricula}
         </Link>
-        <span className="text-[13.5px] font-medium text-neutral-500">{vehicle.alias}</span>
+        <span className="data text-[13px] text-neutral-500">{vehicle.matricula}</span>
       </div>
 
       <div className="kv-row">
@@ -195,7 +198,7 @@ export default function VehicleList() {
       <input
         type="search"
         className="input"
-        placeholder="Buscar matrícula o alias…"
+        placeholder="Buscar por nombre o matrícula…"
         value={search}
         onChange={e => { setPage(1); setSearch(e.target.value); }}
       />
@@ -217,8 +220,8 @@ export default function VehicleList() {
                   <table className="table">
                     <thead>
                       <tr>
+                        <th>Ambulancia</th>
                         <th>Matrícula</th>
-                        <th>Alias</th>
                         <th className="text-right">Km</th>
                         <th>Próxima ITV</th>
                         <th>Próxima ITS</th>

@@ -20,7 +20,7 @@
 
 'use strict';
 
-const { query } = require('./database');
+const { query, transaction } = require('./database');
 const logger    = require('../utils/logger.utils');
 
 // ============================================================
@@ -426,6 +426,95 @@ const MIGRATIONS = [
         CONSTRAINT fk_inccom_user FOREIGN KEY (user_id)
           REFERENCES users(id) ON DELETE SET NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
+
+  {
+    name: 'v14_normalizar_alias_matricula',
+    description: 'Deshace el cruce alias/matricula en los vehiculos ya dados de alta',
+    async run() {
+      const { normalizarMatricula, esMatricula, estaCruzado } =
+        require('../utils/matricula.utils');
+
+      // Se incluyen los borrados logicamente: su historial debe leerse igual.
+      const [vehiculos] = await query(
+        'SELECT id, matricula, alias FROM vehicles ORDER BY id'
+      );
+
+      // 1. Valor final de cada fila (sin escribir todavia).
+      const objetivos = vehiculos.map(v => {
+        const cruzado = estaCruzado(v.matricula, v.alias);
+        const matricula = cruzado
+          ? normalizarMatricula(v.alias)
+          // Si no es una matricula reconocible se deja como esta: normalizarla
+          // solo destruiria informacion que habra que revisar a mano.
+          : (esMatricula(v.matricula) ? normalizarMatricula(v.matricula) : v.matricula);
+        const alias = (cruzado ? v.matricula : v.alias || '').trim();
+        return { id: v.id, cruzado, matricula, alias, antes: v };
+      });
+
+      // 2. Descartar los que colisionarian con la clave unica de matricula.
+      const porMatricula = new Map();
+      for (const o of objetivos) {
+        const lista = porMatricula.get(o.matricula) || [];
+        lista.push(o);
+        porMatricula.set(o.matricula, lista);
+      }
+      const conflictivos = new Set();
+      for (const [matricula, lista] of porMatricula) {
+        if (lista.length > 1) {
+          conflictivos.add(matricula);
+          logger.warn(
+            `v14: matricula duplicada tras normalizar (${matricula}) en los ` +
+            `vehiculos ${lista.map(o => o.id).join(', ')}; se dejan sin tocar`
+          );
+        }
+      }
+
+      const cambios = objetivos.filter(o =>
+        !conflictivos.has(o.matricula) &&
+        (o.matricula !== o.antes.matricula || o.alias !== o.antes.alias)
+      );
+
+      if (!cambios.length) {
+        logger.info('v14: alias/matricula ya estaban normalizados, nada que corregir');
+        return;
+      }
+
+      // 3. Escritura en dos pasadas para no chocar con uq_matricula mientras
+      //    dos filas intercambian valores.
+      await transaction(async (conn) => {
+        for (const c of cambios) {
+          await conn.execute(
+            'UPDATE vehicles SET matricula = ? WHERE id = ?',
+            [`__V14__${c.id}`, c.id]
+          );
+        }
+        for (const c of cambios) {
+          await conn.execute(
+            'UPDATE vehicles SET matricula = ?, alias = ? WHERE id = ?',
+            [c.matricula, c.alias, c.id]
+          );
+        }
+      });
+
+      for (const c of cambios) {
+        logger.info(
+          `v14: vehiculo ${c.id} ${c.cruzado ? 'descruzado' : 'normalizado'} — ` +
+          `matricula "${c.antes.matricula}" -> "${c.matricula}", ` +
+          `alias "${c.antes.alias}" -> "${c.alias}"`
+        );
+      }
+
+      // 4. Lo que sigue sin parecer una matricula se reporta para revision.
+      const sospechosos = objetivos.filter(o => !esMatricula(o.matricula));
+      if (sospechosos.length) {
+        logger.warn(
+          `v14: ${sospechosos.length} vehiculo(s) con matricula no reconocible, ` +
+          `corregir a mano desde la ficha: ` +
+          sospechosos.map(o => `#${o.id} "${o.matricula}"`).join(', ')
+        );
+      }
     },
   },
 ];

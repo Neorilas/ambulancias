@@ -1,6 +1,6 @@
 'use strict';
 
-const { query } = require('../../../config/database');
+const { query, transaction } = require('../../../config/database');
 const { runMigrations, MIGRATIONS } = require('../../../config/migrations');
 
 const TODAS = MIGRATIONS.map(m => m.name);
@@ -125,7 +125,8 @@ describe('runMigrations', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v12_inicio_real_at', 'v13_incidencia_comentarios']);
+    // El ledger se quedó en v11: se esperan v12 y todas las posteriores.
+    expect(aplicadas).toEqual(TODAS.slice(TODAS.indexOf('v12_inicio_real_at')));
     expect(ejecutadas.some(sql =>
       sql.includes('ALTER TABLE asignaciones_libres') && sql.includes('inicio_real_at')
     )).toBe(true);
@@ -162,5 +163,104 @@ describe('runMigrations', () => {
 
     expect(fallida).toBe('schema_migrations');
     expect(aplicadas).toEqual([]);
+  });
+});
+
+// ============================================================
+// v14: deshacer el cruce alias / matrícula
+// ============================================================
+// El cliente dio de alta la flota escribiendo el nombre de la ambulancia en
+// `matricula` y la matrícula en `alias`. La migración lo intercambia, pero
+// solo cuando no hay ambigüedad: equivocarse aquí deja un vehículo sin
+// identificar en todo el historial.
+describe('v14_normalizar_alias_matricula', () => {
+  const v14 = MIGRATIONS.find(m => m.name === 'v14_normalizar_alias_matricula');
+
+  /**
+   * Prepara el runner con una flota concreta y devuelve los UPDATE finales
+   * (los de la segunda pasada, ya con el valor definitivo).
+   */
+  function mockFlota(vehiculos) {
+    const escrituras = [];
+
+    query.mockReset();
+    query.mockImplementation(async (sql, params = []) => {
+      if (sql.includes('FROM vehicles')) return [vehiculos];
+      if (sql.startsWith('SELECT name FROM schema_migrations')) return [[]];
+      return [[]];
+    });
+
+    transaction.mockReset();
+    transaction.mockImplementation(async (cb) => cb({
+      execute: async (sql, params) => {
+        escrituras.push({ sql, params });
+        return [{ affectedRows: 1 }];
+      },
+    }));
+
+    // Solo interesan los valores definitivos, no los placeholders __V14__.
+    const finales = () => escrituras
+      .filter(e => e.sql.includes('alias = ?'))
+      .map(e => ({ matricula: e.params[0], alias: e.params[1], id: e.params[2] }));
+
+    return { escrituras, finales };
+  }
+
+  it('intercambia los campos cuando el alias es la matrícula y la matrícula no', async () => {
+    const { finales } = mockFlota([
+      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD' },
+    ]);
+    await v14.run();
+
+    expect(finales()).toEqual([{ id: 7, matricula: '1234BCD', alias: 'Ambulancia 1' }]);
+  });
+
+  it('libera la matrícula en una primera pasada para no chocar con uq_matricula', async () => {
+    const { escrituras } = mockFlota([
+      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD' },
+    ]);
+    await v14.run();
+
+    expect(escrituras[0].params[0]).toBe('__V14__7');
+    expect(escrituras[1].params[0]).toBe('1234BCD');
+  });
+
+  it('normaliza la matrícula aunque la fila no esté cruzada', async () => {
+    const { finales } = mockFlota([
+      { id: 3, matricula: '1234 bcd', alias: 'Ambulancia 3' },
+    ]);
+    await v14.run();
+
+    expect(finales()).toEqual([{ id: 3, matricula: '1234BCD', alias: 'Ambulancia 3' }]);
+  });
+
+  it('no toca las filas ya correctas', async () => {
+    const { escrituras } = mockFlota([
+      { id: 1, matricula: '1234BCD', alias: 'Ambulancia 1' },
+      { id: 2, matricula: 'M1234AB', alias: 'Ambulancia 2' },
+    ]);
+    await v14.run();
+
+    expect(escrituras).toEqual([]);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('deja intacta la fila ambigua: ninguno de los dos parece una matrícula', async () => {
+    const { escrituras } = mockFlota([
+      { id: 5, matricula: 'UVI Movil', alias: 'Ambulancia 5' },
+    ]);
+    await v14.run();
+
+    expect(escrituras).toEqual([]);
+  });
+
+  it('no aplica un intercambio que dejaría dos vehículos con la misma matrícula', async () => {
+    const { escrituras } = mockFlota([
+      { id: 1, matricula: 'Ambulancia 1', alias: '1234BCD' },
+      { id: 2, matricula: 'Ambulancia 2', alias: '1234-BCD' },
+    ]);
+    await v14.run();
+
+    expect(escrituras).toEqual([]);
   });
 });

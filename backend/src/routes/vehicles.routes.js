@@ -14,6 +14,7 @@ const { handleValidation }      = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
 const { IMAGEN_TIPOS }          = require('../config/constants');
+const { esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 
 const router = express.Router();
 router.use(authenticate);
@@ -63,9 +64,10 @@ router.post('/',
   requireAdminOrGestor,
   [
     body('matricula').trim().notEmpty().withMessage('Matrícula requerida')
-      .isLength({ max: 20 }).withMessage('Matrícula demasiado larga'),
-    body('alias').trim().notEmpty().withMessage('Alias requerido')
-      .isLength({ max: 100 }),
+      .isLength({ max: 20 }).withMessage('Matrícula demasiado larga')
+      .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
+    body('alias').trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
+      .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
     body('kilometros_actuales').optional().isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
     body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
@@ -83,6 +85,11 @@ router.put('/:id',
   requireAdminOrGestor,
   [
     param('id').isInt({ min: 1 }),
+    body('matricula').optional().trim().notEmpty().withMessage('Matrícula requerida')
+      .isLength({ max: 20 }).withMessage('Matrícula demasiado larga')
+      .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
+    body('alias').optional().trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
+      .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
     body('kilometros_actuales').optional().isInt({ min: 0 }),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
     body('fecha_itv').optional({ nullable: true }).isISO8601(),

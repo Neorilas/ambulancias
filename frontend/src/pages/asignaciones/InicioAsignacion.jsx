@@ -191,7 +191,10 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
           <div className="flex items-center justify-between">
             <span className="text-neutral-500 text-sm">Vehículo</span>
             <span className="font-semibold text-neutral-900">
-              {asignacion.matricula}{asignacion.vehiculo_alias ? ` · ${asignacion.vehiculo_alias}` : ''}
+              {asignacion.vehiculo_alias || asignacion.matricula}
+              {asignacion.vehiculo_alias && (
+                <span className="data font-normal text-neutral-500 ml-2">{asignacion.matricula}</span>
+              )}
             </span>
           </div>
           <div className="flex items-center justify-between">

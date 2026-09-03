@@ -128,8 +128,8 @@ CREATE TABLE `refresh_tokens` (
 -- ============================================================
 CREATE TABLE `vehicles` (
   `id`                    INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-  `matricula`             VARCHAR(20)   NOT NULL,
-  `alias`                 VARCHAR(100)  NOT NULL,
+  `matricula`             VARCHAR(20)   NOT NULL  COMMENT 'Forma canónica: mayúsculas, sin espacios ni guiones (1234BCD). Identificador legal, secundario en la interfaz',
+  `alias`                 VARCHAR(100)  NOT NULL  COMMENT 'Nombre con el que el personal conoce la ambulancia. Es el titular en los listados y el criterio de orden de la flota',
   `kilometros_actuales`   INT UNSIGNED  NOT NULL DEFAULT 0,
   `fecha_matriculacion`   DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de primera matriculación (determina frecuencia ITV)',
   `fecha_itv`                DATE          NULL     DEFAULT NULL  COMMENT 'Fecha de la última ITV superada',

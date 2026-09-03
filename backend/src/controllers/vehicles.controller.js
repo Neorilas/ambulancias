@@ -15,8 +15,19 @@ const { query, transaction }  = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } = require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
 const { isAdmin, isOperacional, hasPermission } = require('../middleware/roles.middleware');
+const { normalizarMatricula, esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const { deleteFile }               = require('../middleware/upload.middleware');
 const { logAudit }                 = require('./admin.controller');
+
+// ── Orden de la flota: por nombre de la ambulancia ────────────
+// Alfabético simple dejaría "Ambulancia 10" antes que "Ambulancia 2", que es
+// justo lo que el personal no espera. Se ordena por la parte no numérica y
+// después por el número como número. La flota es de decenas de vehículos, así
+// que renunciar al índice idx_veh_alias en esta consulta no tiene coste real.
+const ORDEN_POR_NOMBRE = `
+  REGEXP_REPLACE(v.alias, '[0-9]+', '') ASC,
+  CAST(REGEXP_SUBSTR(v.alias, '[0-9]+') AS UNSIGNED) ASC,
+  v.alias ASC`;
 
 // ── Helper: ¿puede un operacional acceder a este vehículo? ────
 async function canOperacionalAccess(userId, vehicleId) {
@@ -63,8 +74,10 @@ async function listVehicles(req, res, next) {
     }
 
     if (search) {
-      where += ' AND (v.matricula LIKE ? OR v.alias LIKE ?)';
-      params.push(search, search);
+      // La matrícula se guarda sin separadores, así que buscar "1234 BCD" solo
+      // encuentra algo si el término se normaliza igual que el dato.
+      where += ' AND (v.alias LIKE ? OR v.matricula LIKE ?)';
+      params.push(search, `%${normalizarMatricula(req.query.search)}%`);
     }
 
     const [countRows] = await query(`SELECT COUNT(*) AS total FROM vehicles v ${where}`, params);
@@ -78,7 +91,7 @@ async function listVehicles(req, res, next) {
               v.created_at, v.updated_at
        FROM vehicles v
        ${where}
-       ORDER BY v.alias ASC
+       ORDER BY ${ORDEN_POR_NOMBRE}
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
@@ -135,8 +148,13 @@ async function createVehicle(req, res, next) {
             fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
 
+    // Se guarda en forma canónica (mayúsculas, sin espacios ni guiones) para
+    // que "1234 BCD" y "1234-BCD" no puedan entrar como vehículos distintos.
+    const matriculaNorm = normalizarMatricula(matricula);
+    if (!esMatricula(matriculaNorm)) return error(res, MENSAJE_FORMATO, 400);
+
     const [existing] = await query(
-      'SELECT id FROM vehicles WHERE matricula = ? AND deleted_at IS NULL', [matricula]
+      'SELECT id FROM vehicles WHERE matricula = ? AND deleted_at IS NULL', [matriculaNorm]
     );
     if (existing.length) return error(res, 'Ya existe un vehículo con esa matrícula', 409);
 
@@ -147,7 +165,7 @@ async function createVehicle(req, res, next) {
           fecha_tarjeta_transporte,
           fecha_ultima_revision, fecha_ultimo_servicio)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [matricula.toUpperCase(), alias, kilometros_actuales,
+      [matriculaNorm, alias.trim(), kilometros_actuales,
        fecha_matriculacion || null, fecha_itv || null, fecha_its || null,
        fecha_tarjeta_transporte || null,
        fecha_ultima_revision || null, fecha_ultimo_servicio || null]
@@ -159,7 +177,7 @@ async function createVehicle(req, res, next) {
       userInfo: req.user.username,
       action:   'create_vehicle',
       entityType: 'vehicle', entityId: result.insertId,
-      details:  { matricula: matricula.toUpperCase(), alias },
+      details:  { matricula: matriculaNorm, alias },
       ip: req.ip,
     });
     return created(res, newVehicle[0], 'Vehículo creado');
@@ -179,7 +197,7 @@ async function updateVehicle(req, res, next) {
     );
     if (!existing.length) return notFound(res, 'Vehículo');
 
-    const { alias, kilometros_actuales,
+    const { matricula, alias, kilometros_actuales,
             fecha_matriculacion, fecha_itv, fecha_its,
             fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
@@ -187,7 +205,22 @@ async function updateVehicle(req, res, next) {
     const updates = [];
     const vals    = [];
 
-    if (alias                    !== undefined) { updates.push('alias = ?');                    vals.push(alias); }
+    // La matrícula es editable: los primeros vehículos se dieron de alta con
+    // el nombre en este campo y hay que poder corregir a mano lo que la
+    // migración v14 no pudo desambiguar.
+    if (matricula !== undefined) {
+      const matriculaNorm = normalizarMatricula(matricula);
+      if (!esMatricula(matriculaNorm)) return error(res, MENSAJE_FORMATO, 400);
+
+      const [dup] = await query(
+        'SELECT id FROM vehicles WHERE matricula = ? AND id <> ? AND deleted_at IS NULL',
+        [matriculaNorm, id]
+      );
+      if (dup.length) return error(res, 'Ya existe un vehículo con esa matrícula', 409);
+
+      updates.push('matricula = ?'); vals.push(matriculaNorm);
+    }
+    if (alias                    !== undefined) { updates.push('alias = ?');                    vals.push(String(alias).trim()); }
     if (kilometros_actuales      !== undefined) { updates.push('kilometros_actuales = ?');      vals.push(kilometros_actuales); }
     if (fecha_matriculacion      !== undefined) { updates.push('fecha_matriculacion = ?');      vals.push(fecha_matriculacion || null); }
     if (fecha_itv                !== undefined) { updates.push('fecha_itv = ?');                vals.push(fecha_itv || null); }

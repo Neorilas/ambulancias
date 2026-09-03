@@ -145,7 +145,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       </div>
       <div>
         <p className="text-xs text-neutral-400">
-          Paso {step + 1} de {secciones.length} — {asignacion.matricula}
+          Paso {step + 1} de {secciones.length} — {asignacion.vehiculo_alias || asignacion.matricula}
           {isAnticipada && <span className="ml-2 text-warn-600 font-medium">Anticipada</span>}
         </p>
         <h2 className="text-lg font-semibold text-neutral-900">{seccion.titulo}</h2>
@@ -288,7 +288,12 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div className="card bg-neutral-50 space-y-3 text-sm">
         <div className="flex justify-between">
           <span className="text-neutral-500">Vehículo</span>
-          <span className="font-medium">{asignacion.matricula}{asignacion.vehiculo_alias ? ` · ${asignacion.vehiculo_alias}` : ''}</span>
+          <span className="font-medium">
+            {asignacion.vehiculo_alias || asignacion.matricula}
+            {asignacion.vehiculo_alias && (
+              <span className="data font-normal text-neutral-500 ml-2">{asignacion.matricula}</span>
+            )}
+          </span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Km finales</span>

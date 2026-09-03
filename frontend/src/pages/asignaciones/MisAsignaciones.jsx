@@ -71,11 +71,11 @@ export default function MisAsignaciones() {
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                      <span className="plate break-all">{a.matricula}</span>
+                      <span className="text-[16px] font-semibold text-neutral-900 truncate">
+                        {a.vehiculo_alias || a.matricula}
+                      </span>
                       {a.vehiculo_alias && (
-                        <span className="text-[13.5px] font-medium text-neutral-500 truncate">
-                          {a.vehiculo_alias}
-                        </span>
+                        <span className="data text-[13px] text-neutral-500 break-all">{a.matricula}</span>
                       )}
                       <span className={ASIGNACION_ESTADO_COLORS[a.estado]}>
                         {ASIGNACION_ESTADO_LABELS[a.estado]}

@@ -106,6 +106,10 @@
   .field-error {
     @apply mt-1 text-xs text-bad-600;
   }
+  /* Aclaración bajo un campo: para qué sirve, no qué ha fallado */
+  .hint {
+    @apply mt-1 text-[12px] text-neutral-500;
+  }
 
   /* ── Tarjetas ────────────────────────────────────────────────────
      Borde de 1px en vez de sombra, radio 8px. */

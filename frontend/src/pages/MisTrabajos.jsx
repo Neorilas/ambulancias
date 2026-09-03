@@ -248,7 +248,7 @@ function TrabajoCard({ trabajo, onFinalizar }) {
           <p className="text-xs text-neutral-500 mt-1 font-mono">{trabajo.identificador}</p>
           {trabajo.vehiculo_alias && (
             <p className="text-xs text-neutral-500 mt-0.5">
-              <span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}
+              {trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span>
             </p>
           )}
           <p className="text-xs text-neutral-400 mt-1">
@@ -324,7 +324,7 @@ function QuickModal({ trabajo, onClose, onFinalizar }) {
         <EstadoBadge estado={trabajo.estado} />
 
         {trabajo.vehiculo_alias && (
-          <p className="text-sm text-neutral-600"><span className="data text-neutral-700">{trabajo.matricula}</span> · {trabajo.vehiculo_alias}</p>
+          <p className="text-sm text-neutral-600">{trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span></p>
         )}
         <div className="text-xs text-neutral-500 space-y-0.5">
           <p>Inicio: {formatDateTime(trabajo.fecha_inicio)}</p>
