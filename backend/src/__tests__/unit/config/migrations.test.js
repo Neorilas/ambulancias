@@ -173,8 +173,8 @@ describe('runMigrations', () => {
 // `matricula` y la matrícula en `alias`. La migración lo intercambia, pero
 // solo cuando no hay ambigüedad: equivocarse aquí deja un vehículo sin
 // identificar en todo el historial.
-describe('v14_normalizar_alias_matricula', () => {
-  const v14 = MIGRATIONS.find(m => m.name === 'v14_normalizar_alias_matricula');
+describe('descruce de la flota (v14 / v15)', () => {
+  const v15 = MIGRATIONS.find(m => m.name === 'v15_descruzar_vehiculos_restantes');
 
   /**
    * Prepara el runner con una flota concreta y devuelve los UPDATE finales
@@ -208,38 +208,38 @@ describe('v14_normalizar_alias_matricula', () => {
 
   it('intercambia los campos cuando el alias es la matrícula y la matrícula no', async () => {
     const { finales } = mockFlota([
-      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD' },
+      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
 
     expect(finales()).toEqual([{ id: 7, matricula: '1234BCD', alias: 'Ambulancia 1' }]);
   });
 
   it('libera la matrícula en una primera pasada para no chocar con uq_matricula', async () => {
     const { escrituras } = mockFlota([
-      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD' },
+      { id: 7, matricula: 'Ambulancia 1', alias: '1234BCD', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
 
-    expect(escrituras[0].params[0]).toBe('__V14__7');
+    expect(escrituras[0].params[0]).toBe('__SWAP__7');
     expect(escrituras[1].params[0]).toBe('1234BCD');
   });
 
   it('normaliza la matrícula aunque la fila no esté cruzada', async () => {
     const { finales } = mockFlota([
-      { id: 3, matricula: '1234 bcd', alias: 'Ambulancia 3' },
+      { id: 3, matricula: '1234 bcd', alias: 'Ambulancia 3', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
 
     expect(finales()).toEqual([{ id: 3, matricula: '1234BCD', alias: 'Ambulancia 3' }]);
   });
 
   it('no toca las filas ya correctas', async () => {
     const { escrituras } = mockFlota([
-      { id: 1, matricula: '1234BCD', alias: 'Ambulancia 1' },
-      { id: 2, matricula: 'M1234AB', alias: 'Ambulancia 2' },
+      { id: 1, matricula: '1234BCD', alias: 'Ambulancia 1', deleted_at: null },
+      { id: 2, matricula: 'M1234AB', alias: 'Ambulancia 2', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
 
     expect(escrituras).toEqual([]);
     expect(transaction).not.toHaveBeenCalled();
@@ -247,19 +247,54 @@ describe('v14_normalizar_alias_matricula', () => {
 
   it('deja intacta la fila ambigua: ninguno de los dos parece una matrícula', async () => {
     const { escrituras } = mockFlota([
-      { id: 5, matricula: 'UVI Movil', alias: 'Ambulancia 5' },
+      { id: 5, matricula: 'UVI Movil', alias: 'Ambulancia 5', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
+
+    expect(escrituras).toEqual([]);
+  });
+
+  // Caso real de producción: el vehículo 1 se borró (el borrado lógico le pone
+  // el sufijo __del_<id> para liberar la matrícula) y el 11 seguía cruzado. Si
+  // la fila borrada cuenta como candidata, las dos aspiran a 8588KZY y ninguna
+  // se corrige, que es lo que pasó con v14.
+  it('una fila borrada no bloquea el descruce de la viva', async () => {
+    const { finales } = mockFlota([
+      { id: 1,  matricula: '8588KCY__del_1', alias: '8588-KZY', deleted_at: '2026-09-03 08:46:04' },
+      { id: 11, matricula: 'SVB-01',         alias: '8588-KZY', deleted_at: null },
+    ]);
+    await v15.run();
+
+    expect(finales()).toEqual([{ id: 11, matricula: '8588KZY', alias: 'SVB-01' }]);
+  });
+
+  it('no reescribe la matrícula sufijada de una fila borrada', async () => {
+    const { escrituras } = mockFlota([
+      { id: 1, matricula: '8095KYG__del_1', alias: 'UVI-01', deleted_at: '2026-09-03 08:47:04' },
+    ]);
+    await v15.run();
+
+    expect(escrituras).toEqual([]);
+  });
+
+  // uq_matricula cubre también las filas borradas: si una de ellas ocupa ya la
+  // matrícula canónica, la viva no puede tomarla.
+  it('respeta la matrícula que ya ocupa una fila borrada sin sufijo', async () => {
+    const { escrituras } = mockFlota([
+      { id: 1, matricula: '1234BCD',      alias: 'Antigua',      deleted_at: '2026-09-03 08:46:04' },
+      { id: 2, matricula: 'Ambulancia 2', alias: '1234-BCD',     deleted_at: null },
+    ]);
+    await v15.run();
 
     expect(escrituras).toEqual([]);
   });
 
   it('no aplica un intercambio que dejaría dos vehículos con la misma matrícula', async () => {
     const { escrituras } = mockFlota([
-      { id: 1, matricula: 'Ambulancia 1', alias: '1234BCD' },
-      { id: 2, matricula: 'Ambulancia 2', alias: '1234-BCD' },
+      { id: 1, matricula: 'Ambulancia 1', alias: '1234BCD', deleted_at: null },
+      { id: 2, matricula: 'Ambulancia 2', alias: '1234-BCD', deleted_at: null },
     ]);
-    await v14.run();
+    await v15.run();
 
     expect(escrituras).toEqual([]);
   });

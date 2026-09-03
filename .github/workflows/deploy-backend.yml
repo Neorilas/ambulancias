@@ -83,7 +83,12 @@ jobs:
           key:      ${{ secrets.HETZNER_SSH_KEY }}
           # Reenvía al shell remoto las variables declaradas arriba en `env`.
           envs: DEPLOY_DIR,ENTORNO,SHA
-          script_stop: true
+          # OJO: nada de `script_stop: true`. La accion, con esa opcion, trocea
+          # el script y lo vuelve a unir, y revienta los bloques multilinea
+          # (`for`, `case`): el deploy del 03/09/2026 murio con
+          # "syntax error near unexpected token ';'" DESPUES de arrancar el
+          # contenedor, asi que la comprobacion de migraciones nunca corrio.
+          # El `set -e` de la primera linea ya da el corte al primer fallo.
           script: |
             set -e
             cd "$DEPLOY_DIR"

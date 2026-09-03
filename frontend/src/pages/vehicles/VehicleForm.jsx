@@ -132,7 +132,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     <Modal
       isOpen
       onClose={onClose}
-      title={isEdit ? `Editar: ${vehicle.alias || vehicle.matricula}` : 'Nueva ambulancia'}
+      title={isEdit ? `Editar: ${vehicle.alias}` : 'Nueva ambulancia'}
       size="md"
       footer={
         <>

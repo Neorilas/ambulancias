@@ -135,6 +135,13 @@
     @apply font-mono font-semibold text-[17px] tracking-[0.03em] text-neutral-900;
     font-variant-numeric: tabular-nums;
   }
+  /* ── Nombre de la ambulancia ─────────────────────────────────────
+     Hereda el protagonismo que antes tenía .plate: el personal identifica el
+     vehículo por su nombre, no por la matrícula. No va monoespaciado porque
+     es un nombre, no un dato. */
+  .veh-name {
+    @apply font-semibold text-[17px] text-neutral-900;
+  }
   .data {
     @apply font-mono;
     font-variant-numeric: tabular-nums;
@@ -214,6 +221,10 @@
   .table td.id {
     @apply font-mono font-semibold text-neutral-900 tracking-[0.02em];
     font-variant-numeric: tabular-nums;
+  }
+  /* Columna del nombre: el peso de .id, sin la tipografía de dato */
+  .table td.name {
+    @apply font-semibold text-neutral-900;
   }
 
   /* ── Pestañas ────────────────────────────────────────────────────

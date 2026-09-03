@@ -79,6 +79,106 @@ async function markApplied(name) {
 // En concreto 'v10_baseline_vehiculos' debe conservar ese nombre exacto: si se
 // reaplicara pisaría los flags que el superadmin haya cambiado desde /admin.
 
+/**
+ * Deshace el cruce alias/matricula de la flota y deja la matricula en forma
+ * canonica. Idempotente: sobre una flota ya correcta no escribe nada.
+ *
+ * Solo son candidatas las filas VIVAS. Una fila borrada logicamente lleva la
+ * matricula con sufijo __del_<id> (ver deleteVehicle) justo para liberar la
+ * matricula real, asi que descruzarla la devolveria a competir por una
+ * matricula que ya es de otro vehiculo.
+ */
+async function descruzarFlota() {
+  const { normalizarMatricula, esMatricula, estaCruzado } =
+    require('../utils/matricula.utils');
+
+  const [vehiculos] = await query(
+    'SELECT id, matricula, alias, deleted_at FROM vehicles ORDER BY id'
+  );
+  const vivos = vehiculos.filter(v => !v.deleted_at);
+
+  // 1. Valor final de cada fila viva (sin escribir todavia).
+  const objetivos = vivos.map(v => {
+    const cruzado = estaCruzado(v.matricula, v.alias);
+    const matricula = cruzado
+      ? normalizarMatricula(v.alias)
+      // Si no es una matricula reconocible se deja como esta: normalizarla
+      // solo destruiria informacion que habra que revisar a mano.
+      : (esMatricula(v.matricula) ? normalizarMatricula(v.matricula) : v.matricula);
+    const alias = (cruzado ? v.matricula : v.alias || '').trim();
+    return { id: v.id, cruzado, matricula, alias, antes: v };
+  });
+
+  // 2. Descartar los que colisionarian con la clave unica de matricula. El
+  //    indice uq_matricula cubre tambien las filas borradas, asi que sus
+  //    matriculas (con sufijo) cuentan como ocupadas.
+  const ocupadas = new Map();
+  for (const v of vehiculos) {
+    if (v.deleted_at) ocupadas.set(v.matricula, [`#${v.id} (borrado)`]);
+  }
+  for (const o of objetivos) {
+    const lista = ocupadas.get(o.matricula) || [];
+    lista.push(`#${o.id}`);
+    ocupadas.set(o.matricula, lista);
+  }
+  const conflictivas = new Set();
+  for (const [matricula, lista] of ocupadas) {
+    if (lista.length > 1) {
+      conflictivas.add(matricula);
+      logger.warn(
+        `Descruce de flota: matricula duplicada tras normalizar (${matricula}) ` +
+        `en ${lista.join(', ')}; se dejan sin tocar`
+      );
+    }
+  }
+
+  const cambios = objetivos.filter(o =>
+    !conflictivas.has(o.matricula) &&
+    (o.matricula !== o.antes.matricula || o.alias !== o.antes.alias)
+  );
+
+  if (!cambios.length) {
+    logger.info('Descruce de flota: alias/matricula ya estaban normalizados');
+    return;
+  }
+
+  // 3. Escritura en dos pasadas para no chocar con uq_matricula mientras
+  //    dos filas intercambian valores.
+  await transaction(async (conn) => {
+    for (const c of cambios) {
+      await conn.execute(
+        'UPDATE vehicles SET matricula = ? WHERE id = ?',
+        [`__SWAP__${c.id}`, c.id]
+      );
+    }
+    for (const c of cambios) {
+      await conn.execute(
+        'UPDATE vehicles SET matricula = ?, alias = ? WHERE id = ?',
+        [c.matricula, c.alias, c.id]
+      );
+    }
+  });
+
+  for (const c of cambios) {
+    logger.info(
+      `Descruce de flota: vehiculo ${c.id} ${c.cruzado ? 'descruzado' : 'normalizado'} — ` +
+      `matricula "${c.antes.matricula}" -> "${c.matricula}", ` +
+      `alias "${c.antes.alias}" -> "${c.alias}"`
+    );
+  }
+
+  // 4. Lo que sigue sin parecer una matricula se reporta para revision. Las
+  //    filas borradas quedan fuera: su sufijo __del_<id> es correcto.
+  const sospechosos = objetivos.filter(o => !esMatricula(o.matricula));
+  if (sospechosos.length) {
+    logger.warn(
+      `Descruce de flota: ${sospechosos.length} vehiculo(s) con matricula no ` +
+      `reconocible, corregir a mano desde la ficha: ` +
+      sospechosos.map(o => `#${o.id} "${o.matricula}"`).join(', ')
+    );
+  }
+}
+
 const MIGRATIONS = [
   // ── v2..v8 ────────────────────────────────────────────────────────────────
   // Estas migraciones vivían solo como .sql en /database y se aplicaron a mano
@@ -433,88 +533,21 @@ const MIGRATIONS = [
     name: 'v14_normalizar_alias_matricula',
     description: 'Deshace el cruce alias/matricula en los vehiculos ya dados de alta',
     async run() {
-      const { normalizarMatricula, esMatricula, estaCruzado } =
-        require('../utils/matricula.utils');
+      await descruzarFlota();
+    },
+  },
 
-      // Se incluyen los borrados logicamente: su historial debe leerse igual.
-      const [vehiculos] = await query(
-        'SELECT id, matricula, alias FROM vehicles ORDER BY id'
-      );
-
-      // 1. Valor final de cada fila (sin escribir todavia).
-      const objetivos = vehiculos.map(v => {
-        const cruzado = estaCruzado(v.matricula, v.alias);
-        const matricula = cruzado
-          ? normalizarMatricula(v.alias)
-          // Si no es una matricula reconocible se deja como esta: normalizarla
-          // solo destruiria informacion que habra que revisar a mano.
-          : (esMatricula(v.matricula) ? normalizarMatricula(v.matricula) : v.matricula);
-        const alias = (cruzado ? v.matricula : v.alias || '').trim();
-        return { id: v.id, cruzado, matricula, alias, antes: v };
-      });
-
-      // 2. Descartar los que colisionarian con la clave unica de matricula.
-      const porMatricula = new Map();
-      for (const o of objetivos) {
-        const lista = porMatricula.get(o.matricula) || [];
-        lista.push(o);
-        porMatricula.set(o.matricula, lista);
-      }
-      const conflictivos = new Set();
-      for (const [matricula, lista] of porMatricula) {
-        if (lista.length > 1) {
-          conflictivos.add(matricula);
-          logger.warn(
-            `v14: matricula duplicada tras normalizar (${matricula}) en los ` +
-            `vehiculos ${lista.map(o => o.id).join(', ')}; se dejan sin tocar`
-          );
-        }
-      }
-
-      const cambios = objetivos.filter(o =>
-        !conflictivos.has(o.matricula) &&
-        (o.matricula !== o.antes.matricula || o.alias !== o.antes.alias)
-      );
-
-      if (!cambios.length) {
-        logger.info('v14: alias/matricula ya estaban normalizados, nada que corregir');
-        return;
-      }
-
-      // 3. Escritura en dos pasadas para no chocar con uq_matricula mientras
-      //    dos filas intercambian valores.
-      await transaction(async (conn) => {
-        for (const c of cambios) {
-          await conn.execute(
-            'UPDATE vehicles SET matricula = ? WHERE id = ?',
-            [`__V14__${c.id}`, c.id]
-          );
-        }
-        for (const c of cambios) {
-          await conn.execute(
-            'UPDATE vehicles SET matricula = ?, alias = ? WHERE id = ?',
-            [c.matricula, c.alias, c.id]
-          );
-        }
-      });
-
-      for (const c of cambios) {
-        logger.info(
-          `v14: vehiculo ${c.id} ${c.cruzado ? 'descruzado' : 'normalizado'} — ` +
-          `matricula "${c.antes.matricula}" -> "${c.matricula}", ` +
-          `alias "${c.antes.alias}" -> "${c.alias}"`
-        );
-      }
-
-      // 4. Lo que sigue sin parecer una matricula se reporta para revision.
-      const sospechosos = objetivos.filter(o => !esMatricula(o.matricula));
-      if (sospechosos.length) {
-        logger.warn(
-          `v14: ${sospechosos.length} vehiculo(s) con matricula no reconocible, ` +
-          `corregir a mano desde la ficha: ` +
-          sospechosos.map(o => `#${o.id} "${o.matricula}"`).join(', ')
-        );
-      }
+  {
+    name: 'v15_descruzar_vehiculos_restantes',
+    description: 'Remata el descruce en las bases donde v14 corrio con el criterio viejo',
+    async run() {
+      // v14 tomo como candidatas TODAS las filas, tambien las borradas. En
+      // produccion eso dejo un vehiculo vivo sin corregir: su matricula
+      // objetivo chocaba con la de una fila borrada que apunta a la misma
+      // matricula. El borrado logico ya libera la matricula con el sufijo
+      // __del_<id>, asi que las filas borradas no deben competir por ella.
+      // Sobre una base donde v14 ya hizo bien el trabajo, esto es un no-op.
+      await descruzarFlota();
     },
   },
 ];

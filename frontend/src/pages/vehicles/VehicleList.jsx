@@ -37,9 +37,9 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
 
   return (
     <tr>
-      <td className="font-medium text-neutral-900">
+      <td className="name">
         <Link to={`/vehiculos/${vehicle.id}`} className="hover:text-primary-700">
-          {vehicle.alias || vehicle.matricula}
+          {vehicle.alias}
         </Link>
       </td>
       <td className="data text-[13px] text-neutral-500">{vehicle.matricula}</td>
@@ -83,9 +83,9 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
       <div className="flex items-baseline gap-2.5 flex-wrap">
         <Link
           to={`/vehiculos/${vehicle.id}`}
-          className="text-[16px] font-semibold text-neutral-900 hover:text-primary-700"
+          className="veh-name hover:text-primary-700"
         >
-          {vehicle.alias || vehicle.matricula}
+          {vehicle.alias}
         </Link>
         <span className="data text-[13px] text-neutral-500">{vehicle.matricula}</span>
       </div>

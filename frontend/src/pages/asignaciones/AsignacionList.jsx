@@ -118,8 +118,8 @@ export default function AsignacionList() {
                   ) : asignaciones.map(a => (
                     <tr key={a.id} className="cursor-pointer" onClick={() => setDetalleId(a.id)}>
                       <td>
-                        <p className="font-medium text-neutral-900">{a.vehiculo_alias || a.matricula}</p>
-                        {a.vehiculo_alias && <p className="text-xs text-neutral-500 data">{a.matricula}</p>}
+                        <p className="font-medium text-neutral-900">{a.vehiculo_alias}</p>
+                        <p className="text-xs text-neutral-500 data">{a.matricula}</p>
                       </td>
                       <td>
                         <p className="text-sm text-neutral-700">{a.responsable_nombre}</p>

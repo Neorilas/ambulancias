@@ -306,8 +306,8 @@ export default function AsignacionDetalle({ id, onClose }) {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Vehículo</p>
-                <p className="font-medium text-neutral-900">{asig.vehiculo_alias || asig.matricula}</p>
-                {asig.vehiculo_alias && <p className="text-neutral-500 text-xs data">{asig.matricula}</p>}
+                <p className="font-medium text-neutral-900">{asig.vehiculo_alias}</p>
+                <p className="text-neutral-500 text-xs data">{asig.matricula}</p>
               </div>
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Responsable</p>

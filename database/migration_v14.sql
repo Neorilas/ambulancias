@@ -21,6 +21,11 @@
 -- descarta las filas cuya matrícula normalizada colisionaría con la de otro
 -- vehículo, y deja en el log los que quedan con matrícula no reconocible.
 -- Se puede ejecutar varias veces sin efecto adverso.
+--
+-- CORREGIDA POR v15. Este criterio toma como candidatas todas las filas,
+-- también las borradas lógicamente, y eso dejó en producción un vehículo vivo
+-- sin descruzar porque su matrícula objetivo chocaba con la de una fila
+-- borrada. Ver database/migration_v15.sql.
 -- ============================================================
 
 -- Forma de matrícula española: 1234BCD (actual) o M1234AB (anterior),

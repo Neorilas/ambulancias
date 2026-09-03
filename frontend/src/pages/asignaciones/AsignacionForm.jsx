@@ -222,7 +222,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             <option value="">— Seleccionar vehículo —</option>
             {vehicles.map(v => (
               <option key={v.id} value={v.id}>
-                {v.alias || v.matricula}{v.alias ? ` · ${v.matricula}` : ''}
+                {v.alias} · {v.matricula}
               </option>
             ))}
           </select>

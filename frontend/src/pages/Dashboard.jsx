@@ -213,12 +213,8 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="micro">Vehículo asignado</p>
-          <h3 className="text-[17px] font-semibold text-neutral-900 mt-0.5">
-            {asignacion.vehiculo_alias || asignacion.matricula}
-          </h3>
-          {asignacion.vehiculo_alias && (
-            <p className="text-xs text-neutral-500 data">{asignacion.matricula}</p>
-          )}
+          <h3 className="veh-name mt-0.5">{asignacion.vehiculo_alias}</h3>
+          <p className="text-xs text-neutral-500 data">{asignacion.matricula}</p>
         </div>
         <span className={ASIGNACION_ESTADO_COLORS[asignacion.estado]}>
           {ASIGNACION_ESTADO_LABELS[asignacion.estado]}
