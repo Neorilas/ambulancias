@@ -41,6 +41,12 @@ app.use(cors({
   methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
+  // El frontend vive en vapss.net y la API en api.vapss.net, así que toda
+  // llamada con Authorization lleva antes su preflight. Sin maxAge el
+  // navegador apenas lo cachea (5 s en Chrome) y en el 4G de un técnico eso
+  // es un ida y vuelta de más en casi cada petición. 24 h es el techo que
+  // respetan Chrome y Firefox; pedir más no da más.
+  maxAge: 86400,
 }));
 
 // Compresión gzip
