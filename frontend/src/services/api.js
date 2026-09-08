@@ -40,6 +40,21 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // 429: el servidor ha cortado por exceso de peticiones. No se reintenta
+    // (volver a insistir sólo consume más cupo), pero se marca el error y se
+    // deja un mensaje claro para que la pantalla no diga "Error al cargar".
+    if (error.response?.status === 429) {
+      error.esLimiteDePeticiones = true;
+      const espera = Number(error.response.headers?.['retry-after']);
+      if (error.response.data && typeof error.response.data === 'object' && Number.isFinite(espera)) {
+        const minutos = Math.ceil(espera / 60);
+        error.response.data.message =
+          `${error.response.data.message || 'Demasiadas solicitudes.'} ` +
+          `Vuelve a intentarlo en ${minutos <= 1 ? 'un minuto' : `${minutos} minutos`}.`;
+      }
+      return Promise.reject(error);
+    }
+
     // Si es 401 y no es el propio endpoint de refresh → intentar refresh
     if (
       error.response?.status === 401 &&
@@ -82,7 +97,11 @@ api.interceptors.response.use(
 
       } catch (refreshErr) {
         processQueue(refreshErr, null);
-        clearAuth();
+        // Un 429 en el refresco no significa que la sesión sea inválida: el
+        // token sigue siendo bueno y el siguiente intento lo renovará. Cerrar
+        // sesión aquí echaba al técnico a la pantalla de login en mitad de un
+        // servicio, y su relogin gastaba a su vez cupo del limitador de login.
+        if (refreshErr.response?.status !== 429) clearAuth();
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;
