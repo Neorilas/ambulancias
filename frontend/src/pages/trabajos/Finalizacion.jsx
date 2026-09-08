@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -46,6 +46,10 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
   const [motivo,         setMotivo]        = useState('');
   const [uploading,      setUploading]     = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
+  // Fotos que ya llegaron al servidor, por vehículo y tipo. Un trabajo con tres
+  // ambulancias son ~15 subidas; sin esto, un fallo en la última repetía las
+  // catorce anteriores y agotaba el cupo de peticiones en el reintento.
+  const subidas = useRef({});
 
   const currentVeh = vehiculos[currentVehIdx];
 
@@ -97,6 +101,9 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
         for (const tipo of IMAGEN_TIPOS_FIN) {
           const file = evidencias[veh.vehicle_id]?.[tipo.key];
           if (!file) continue;
+          // Ya subida en un intento anterior: no repetirla. Se compara el File
+          // y no un booleano para que una foto rehecha sí vuelva a enviarse.
+          if (subidas.current[veh.vehicle_id]?.[tipo.key] === file) continue;
 
           const fd = new FormData();
           fd.append('image',       file);
@@ -106,6 +113,9 @@ export default function Finalizacion({ trabajo, onDone, onCancel }) {
 
           try {
             await trabajosService.uploadEvidencia(trabajo.id, fd);
+            subidas.current[veh.vehicle_id] = {
+              ...(subidas.current[veh.vehicle_id] || {}), [tipo.key]: file,
+            };
             setUploadProgress(p => ({
               ...p,
               [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'ok' },

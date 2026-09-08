@@ -32,6 +32,10 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [motivo, setMotivo] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
+  // Fotos ya subidas, guardadas por File. Si el cierre falla a mitad (red mala,
+  // 429) el reintento manda sólo las que faltan; y si el técnico repite una
+  // foto, el File es otro y vuelve a subirse.
+  const [subidas,   setSubidas]   = useState({});
 
   // Cámara
   const [showCamera, setShowCamera] = useState(false);
@@ -100,12 +104,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       for (const tipo of IMAGEN_TIPOS_FIN) {
         const file = fotos[tipo.key];
         if (!file) continue;
+        if (subidas[tipo.key] === file) continue;   // ya está en el servidor
         setProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
         const fd = new FormData();
         fd.append('image', file);
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'fin');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
+        setSubidas(s => ({ ...s, [tipo.key]: file }));
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
       await asignacionesService.finalizar(asignacion.id, {

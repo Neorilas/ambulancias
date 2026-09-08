@@ -158,6 +158,42 @@ describe('api service', () => {
       expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBeNull();
     });
 
+    it('marca el 429 y añade la espera al mensaje', async () => {
+      const error = {
+        response: {
+          status: 429,
+          headers: { 'retry-after': '900' },
+          data: { success: false, message: 'Demasiadas solicitudes en poco tiempo.' },
+        },
+        config: { url: '/vehicles', headers: {} },
+      };
+
+      await expect(resRejected(error)).rejects.toBe(error);
+      expect(error.esLimiteDePeticiones).toBe(true);
+      expect(error.response.data.message).toContain('15 minutos');
+    });
+
+    it('no cierra la sesión cuando el refresh devuelve 429', async () => {
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
+      localStorage.setItem(PREFIJO + 'user', '{}');
+
+      const err429 = Object.assign(new Error('rate limited'), {
+        response: { status: 429, headers: {}, data: {} },
+      });
+      axios.post.mockRejectedValueOnce(err429);
+
+      const error = {
+        response: { status: 401 },
+        config: { url: '/trabajos', headers: {}, _retry: false },
+      };
+
+      await expect(resRejected(error)).rejects.toThrow('rate limited');
+      // La sesión sobrevive: el token seguía siendo válido, sólo se cortó el refresco.
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at-old');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-old');
+    });
+
     it('queues requests during refresh', async () => {
       localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
 

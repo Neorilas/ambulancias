@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDebounce } from '../../hooks/useDebounce.js';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -25,10 +26,14 @@ export default function UserList() {
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
 
+  // El "debounce" de antes sólo retrasaba el reset de página: la petición
+  // seguía saliendo con cada tecla porque `search` estaba en las dependencias.
+  const busqueda = useDebounce(search, 400);
+
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await usersService.list({ page, search: search || undefined, limit: 15 });
+      const resp = await usersService.list({ page, search: busqueda || undefined, limit: 15 });
       setUsers(resp.data || []);
       setPagination(resp.pagination);
     } catch (err) {
@@ -36,15 +41,11 @@ export default function UserList() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, busqueda]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  // Buscar con debounce
-  useEffect(() => {
-    const t = setTimeout(() => { setPage(1); }, 500);
-    return () => clearTimeout(t);
-  }, [search]);
+  useEffect(() => { setPage(1); }, [busqueda]);
 
   const handleDelete = async () => {
     setDeleting(true);

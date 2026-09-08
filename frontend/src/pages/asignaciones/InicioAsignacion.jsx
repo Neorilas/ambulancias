@@ -50,6 +50,11 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
   const [activado,  setActivado]  = useState(asignacion?.estado === 'activa' && !!asignacion?.inicio_real_at);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
+  // Fotos que ya están en el servidor. Si el envío se corta a mitad (red mala,
+  // 429), el reintento sube sólo lo que falta en vez de repetir las siete.
+  // Se guarda el propio File, no un booleano: si el técnico repite una foto el
+  // File es otro y vuelve a subirse, en vez de darse por hecha la anterior.
+  const [subidas,   setSubidas]   = useState(() => ({ inicio: {}, incidencia: new Set() }));
 
   // Cámara
   const [showCamera,  setShowCamera]  = useState(false);
@@ -113,23 +118,27 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       for (const tipo of IMAGEN_TIPOS_INICIO) {
         const file = fotos[tipo.key];
         if (!file) continue;
+        if (subidas.inicio[tipo.key] === file) continue;   // ya está en el servidor
         setProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
         const fd = new FormData();
         fd.append('image', file);
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'inicio');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
+        setSubidas(s => ({ ...s, inicio: { ...s.inicio, [tipo.key]: file } }));
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
 
       // 2. Fotos de incidencia (opcionales, no bloquean)
       if (hayInc) {
         for (const file of incFotos) {
+          if (subidas.incidencia.has(file)) continue;
           const fd = new FormData();
           fd.append('image', file);
           fd.append('tipo_imagen', 'danos');
           fd.append('momento', 'general');
           await asignacionesService.uploadEvidencia(asignacion.id, fd);
+          setSubidas(s => ({ ...s, incidencia: new Set(s.incidencia).add(file) }));
         }
         // 3. Registrar la incidencia (queda en el historial del vehículo)
         const descripcion = observ.trim() || 'Incidencia reportada en la revisión de inicio (ver fotos).';
