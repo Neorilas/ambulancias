@@ -21,14 +21,15 @@ services:
     container_name: ambulancia-local-mysql
     restart: unless-stopped
     environment:
-      TZ: Europe/Madrid
       MYSQL_ROOT_PASSWORD: local_root
       MYSQL_DATABASE: ambulancia_local
       MYSQL_USER: ambulancia_local
       MYSQL_PASSWORD: local_dev
+    # UTC, igual que PRE y producción: ver el comentario del docker-compose.yml.
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+00:00
       --event-scheduler=ON
     # 3307 en el host a propósito: si algún día hay un MySQL instalado en la
     # máquina ocupando el 3306, esto sigue funcionando sin tocar nada.

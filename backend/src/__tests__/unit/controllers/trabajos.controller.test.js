@@ -131,9 +131,22 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await listTrabajosCalendario(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
-      // hasta should be 2027-01-01
+      // `hasta` es el 1 de enero de 2027 a las 00:00 de España, que en UTC
+      // (que es como se guarda) son las 23:00 del 31 de diciembre.
       const params = query.mock.calls[0][1];
-      expect(params[0]).toContain('2027');
+      expect(params[0].toISOString()).toBe('2026-12-31T23:00:00.000Z');
+    });
+
+    it('acota el mes por la medianoche española, no por la UTC', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+
+      const req = mockReq({ query: { year: '2026', month: '7' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await listTrabajosCalendario(req, res, mockNext());
+      const [hasta, desde] = query.mock.calls[0][1];
+      // Julio: horario de verano, +02:00
+      expect(desde.toISOString()).toBe('2026-06-30T22:00:00.000Z');
+      expect(hasta.toISOString()).toBe('2026-07-31T22:00:00.000Z');
     });
   });
 

@@ -143,18 +143,25 @@ async function startServer() {
 
   // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
   const { query: dbQuery } = require('./src/config/database');
+  const { ahora } = require('./src/utils/fecha.utils');
   const autoActivar = async () => {
     try {
+      // El instante lo pone Node, no MySQL: fecha_inicio está en UTC y NOW()
+      // devolvía la hora del servidor, así que los programados se activaban
+      // una o dos horas antes de tiempo.
+      const ahoraUtc = ahora();
       const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
-         WHERE estado = 'programado' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+         WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+        [ahoraUtc]
       );
       if (trab.affectedRows > 0) {
         logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) programados`);
       }
       const [asig] = await dbQuery(
         `UPDATE asignaciones_libres SET estado = 'activa'
-         WHERE estado = 'programada' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+         WHERE estado = 'programada' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+        [ahoraUtc]
       );
       if (asig.affectedRows > 0) {
         logger.info(`Auto-activadas ${asig.affectedRows} asignación(es) programadas`);

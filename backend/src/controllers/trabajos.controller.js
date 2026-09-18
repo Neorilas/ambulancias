@@ -14,6 +14,8 @@ const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX,
 const { isAdmin, isOperacional }      = require('../middleware/roles.middleware');
 const logger                          = require('../utils/logger.utils');
 const { logAudit }                    = require('./admin.controller');
+const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana } =
+  require('../utils/fecha.utils');
 
 // ============================================================
 // Helpers
@@ -21,7 +23,7 @@ const { logAudit }                    = require('./admin.controller');
 
 /** Genera identificador único: TRB-2024-0001 */
 async function generateIdentificador() {
-  const year = new Date().getFullYear();
+  const year = anioMesEnEspana().anio;
   const [rows] = await query(
     `SELECT identificador FROM trabajos
      WHERE identificador LIKE ? ORDER BY id DESC LIMIT 1`,
@@ -180,14 +182,17 @@ async function listTrabajos(req, res, next) {
 async function listTrabajosCalendario(req, res, next) {
   try {
     const { year, month } = req.query;
-    const y = parseInt(year)  || new Date().getFullYear();
-    const m = parseInt(month) || new Date().getMonth() + 1;
+    const hoy = anioMesEnEspana();
+    const y = parseInt(year)  || hoy.anio;
+    const m = parseInt(month) || hoy.mes;
 
-    const desde = `${y}-${String(m).padStart(2,'0')}-01 00:00:00`;
+    // Los límites del mes son medianoches ESPAÑOLAS convertidas al UTC que se
+    // guarda en fecha_inicio/fecha_fin; si no, el día 1 empezaría a las 02:00.
+    const desde = instanteEnEspana(y, m, 1);
     // Primer día del mes siguiente
     const mSig = m === 12 ? 1 : m + 1;
     const ySig = m === 12 ? y + 1 : y;
-    const hasta = `${ySig}-${String(mSig).padStart(2,'0')}-01 00:00:00`;
+    const hasta = instanteEnEspana(ySig, mSig, 1);
 
     let sql    = `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado,
                          t.fecha_inicio, t.fecha_fin
@@ -378,7 +383,7 @@ async function deleteTrabajo(req, res, next) {
       return error(res, 'No se puede eliminar un trabajo activo', 400);
     }
 
-    await query('UPDATE trabajos SET deleted_at = NOW() WHERE id = ?', [id]);
+    await query('UPDATE trabajos SET deleted_at = ? WHERE id = ?', [ahora(), id]);
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
@@ -422,7 +427,7 @@ async function finalizeTrabajo(req, res, next) {
     }
 
     const { motivo_finalizacion_anticipada, vehiculos_km = [] } = req.body;
-    const isAnticipado = new Date() < new Date(trabajo.fecha_fin);
+    const isAnticipado = ahora() < new Date(trabajo.fecha_fin);
 
     if (isAnticipado && !motivo_finalizacion_anticipada?.trim()) {
       return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
@@ -483,9 +488,9 @@ async function finalizeTrabajo(req, res, next) {
         );
         await conn.execute(
           `UPDATE vehicles SET kilometros_actuales = ?,
-                               fecha_ultimo_servicio = CURDATE()
+                               fecha_ultimo_servicio = ?
            WHERE id = ? AND kilometros_actuales < ?`,
-          [vkm.kilometros_fin, vkm.vehicle_id, vkm.kilometros_fin]
+          [vkm.kilometros_fin, fechaEnEspana(), vkm.vehicle_id, vkm.kilometros_fin]
         );
       }
 
