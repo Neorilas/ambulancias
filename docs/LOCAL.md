@@ -48,8 +48,17 @@ instalado en la máquina.
 
 ## 2. Puesta en marcha (la primera vez)
 
-Hace falta Node 22 y **Docker Desktop arrancado desde su icono del escritorio**
-(lanzarlo por línea de comandos da problemas en esta máquina).
+Hace falta Node 22 y Docker Desktop arrancado. Si está cerrado, cualquier
+comando `docker` falla con `open //./pipe/dockerDesktopLinuxEngine`: abre Docker
+Desktop y espera unos 10 segundos a que el motor conteste. **Después hay que
+volver a levantar la base**, porque al cerrar Docker los contenedores mueren y
+no vuelven solos:
+
+```bash
+cd backend && npm run local:db
+```
+
+Los datos no se pierden: están en el volumen `ambulancia-local_mysql_local_data`.
 
 ```bash
 cd backend && cp .env.local.example .env
