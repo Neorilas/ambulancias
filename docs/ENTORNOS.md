@@ -28,9 +28,13 @@ secretos JWT y carpeta web son independientes.
 ## 2. Flujo de trabajo
 
 ```
-feature/lo-que-sea  ──PR──>  develop  ──PR──>  master
-                              (PRE)            (PRODUCCIÓN, con aprobación)
+local  ──>  feature/lo-que-sea  ──PR──>  develop  ──PR──>  master
+(LOCAL.md)                               (PRE)            (PRODUCCIÓN, con aprobación)
 ```
+
+**Mientras PRE no esté montado** (§5), el escalón que de verdad filtra es el
+entorno local: ver [LOCAL.md](LOCAL.md). El flujo en uso es
+`cambio en local → /verifica → /a-pro`.
 
 1. Se trabaja en ramas cortas que salen de `develop`.
 2. Al mergear en `develop`, PRE se despliega solo. Ahí se prueba.

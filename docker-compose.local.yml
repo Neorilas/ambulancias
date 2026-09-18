@@ -1,0 +1,49 @@
+# Entorno LOCAL — solo la base de datos.
+#
+# El backend y el frontend se ejecutan en el host (`npm run dev`) para tener
+# recarga en caliente y poder depurar; lo único que hace falta en Docker es un
+# MySQL 8 igual que el de PRE y producción, arrancado desde cero con
+# schema.sql + seed.sql. Las migraciones las aplica el backend al arrancar,
+# exactamente como en los otros entornos.
+#
+#   docker compose -f docker-compose.local.yml up -d     (levantar)
+#   docker compose -f docker-compose.local.yml down -v   (borrar y empezar de cero)
+#
+# `name:` aísla volúmenes y contenedores: esto no comparte NADA con el stack de
+# producción del docker-compose.yml principal.
+
+name: ambulancia-local
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: ambulancia-local-mysql
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Madrid
+      MYSQL_ROOT_PASSWORD: local_root
+      MYSQL_DATABASE: ambulancia_local
+      MYSQL_USER: ambulancia_local
+      MYSQL_PASSWORD: local_dev
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --event-scheduler=ON
+    # 3307 en el host a propósito: si algún día hay un MySQL instalado en la
+    # máquina ocupando el 3306, esto sigue funcionando sin tocar nada.
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_local_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ambulancia_local", "-plocal_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mysql_local_data:
