@@ -141,6 +141,29 @@ describe('VehicleHistory · hora de cada foto', () => {
     expect(screen.getByText('Fin')).toBeInTheDocument();
   });
 
+  // Una tanda de noche cruza la medianoche española antes que la UTC: 22:15Z
+  // del 17 ya son las 00:15 del 18 en España. Por eso la miniatura lleva el día
+  // y no solo la hora.
+  it('pasa de día cuando la foto cruza la medianoche española', async () => {
+    const user = userEvent.setup();
+    vehiclesService.getHistory.mockResolvedValue({
+      vehicle: VEHICULO,
+      trabajos: [{
+        ...GRUPO_CON_FOTOS,
+        fotos: [
+          { ...GRUPO_CON_FOTOS.fotos[0], fecha: '2026-09-17T21:50:00.000Z' },
+          { ...GRUPO_CON_FOTOS.fotos[1], fecha: '2026-09-17T22:15:00.000Z' },
+        ],
+      }],
+    });
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: 'Fotos' }));
+
+    expect(await screen.findByText('17/09 23:50')).toBeInTheDocument();
+    expect(screen.getByText('18/09 00:15')).toBeInTheDocument();
+  });
+
   it('el visor grande da la fecha completa con la hora', async () => {
     const user = userEvent.setup();
     montar();

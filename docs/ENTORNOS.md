@@ -36,12 +36,30 @@ local  ──>  feature/lo-que-sea  ──PR──>  develop  ──PR──>  m
 entorno local: ver [LOCAL.md](LOCAL.md). El flujo en uso es
 `cambio en local → /verifica → /a-pro`.
 
+> ### Los deploys de `develop` salen en ROJO, y es lo esperado
+>
+> Todo push a `develop` deja dos workflows en rojo. **No los investigues: no es
+> el código, es que PRE no está montado** (§5, pendiente). Comprobado el
+> 2026-09-19:
+>
+> - **Deploy Frontend** muere en el paso «Comprobar destino FTP»: el secret
+>   `FTP_REMOTE_DIR` del Environment `pre` no existe, y el workflow se niega a
+>   publicar antes que escribir PRE encima de la carpeta de producción. La
+>   salvaguarda funcionando.
+> - **Deploy Backend** muere con `No existe /root/ambulancia-pre/.env`: falta
+>   el fichero del §5.3 en el servidor.
+>
+> Ninguno de los dos llega a tocar nada. Lo que valida un cambio es `/verifica`
+> en local, no estos workflows. Se arreglará cuando se monte PRE.
+
 1. Se trabaja en ramas cortas que salen de `develop`.
 2. Al mergear en `develop`, PRE se despliega solo. Ahí se prueba.
 3. Cuando lo de PRE está validado, PR de `develop` a `master`.
-4. Al mergear en `master`, el workflow **se queda esperando aprobación**. Sale
-   un botón «Review deployments» en la pestaña Actions y en el correo. Hasta que
-   alguien lo aprueba, producción no se toca.
+4. Al mergear en `master`, el deploy sale **en el acto**. El Environment
+   `produccion` está creado pero **sin required reviewers**, así que no hay
+   botón «Review deployments» que valga: el push ES el despliegue. (Comprobado
+   el 2026-09-19.) Si se quiere la puerta de aprobación, hay que añadir los
+   reviewers en Settings → Environments → produccion.
 
 Un hotfix urgente puede salir de `master` directamente, pero hay que
 retro-mergearlo a `develop` para que PRE no se quede atrás.
