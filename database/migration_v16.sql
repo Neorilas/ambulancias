@@ -33,11 +33,19 @@
 -- devuelve NULL, usa el runner del backend, que hace la conversión en Node.
 -- ============================================================
 
+-- OJO: corregir o no se decide COLUMNA A COLUMNA, no por fila. Una asignación
+-- que se inició antes del corte (esa hora ya está bien) y se finalizó después
+-- (esa está mal) solo debe mover la segunda: de ahí los CASE WHEN.
+
 SET @corte = '2026-08-25 15:00:00';
 
 UPDATE asignaciones_libres
-   SET inicio_real_at = COALESCE(CONVERT_TZ(inicio_real_at, 'Europe/Madrid', 'UTC'), inicio_real_at),
-       finalizado_at  = COALESCE(CONVERT_TZ(finalizado_at,  'Europe/Madrid', 'UTC'), finalizado_at)
+   SET inicio_real_at = CASE WHEN inicio_real_at >= @corte
+         THEN COALESCE(CONVERT_TZ(inicio_real_at, 'Europe/Madrid', 'UTC'), inicio_real_at)
+         ELSE inicio_real_at END,
+       finalizado_at  = CASE WHEN finalizado_at >= @corte
+         THEN COALESCE(CONVERT_TZ(finalizado_at,  'Europe/Madrid', 'UTC'), finalizado_at)
+         ELSE finalizado_at END
  WHERE inicio_real_at >= @corte OR finalizado_at >= @corte;
 
 UPDATE audit_logs
@@ -52,17 +60,27 @@ UPDATE incidencia_comentarios
    SET created_at = COALESCE(CONVERT_TZ(created_at, 'Europe/Madrid', 'UTC'), created_at)
  WHERE created_at >= @corte;
 
--- updated_at entra en el SET aunque no lo escriba nadie a mano: si se dejara
+-- updated_at entra en el SET aunque su rama ELSE lo deje igual: si se quedara
 -- fuera, el ON UPDATE CURRENT_TIMESTAMP lo machacaría con la hora actual.
 UPDATE vehicle_incidencias
-   SET created_at  = COALESCE(CONVERT_TZ(created_at,  'Europe/Madrid', 'UTC'), created_at),
-       updated_at  = COALESCE(CONVERT_TZ(updated_at,  'Europe/Madrid', 'UTC'), updated_at),
-       resuelto_at = COALESCE(CONVERT_TZ(resuelto_at, 'Europe/Madrid', 'UTC'), resuelto_at)
+   SET created_at  = CASE WHEN created_at >= @corte
+         THEN COALESCE(CONVERT_TZ(created_at,  'Europe/Madrid', 'UTC'), created_at)
+         ELSE created_at END,
+       updated_at  = CASE WHEN updated_at >= @corte
+         THEN COALESCE(CONVERT_TZ(updated_at,  'Europe/Madrid', 'UTC'), updated_at)
+         ELSE updated_at END,
+       resuelto_at = CASE WHEN resuelto_at >= @corte
+         THEN COALESCE(CONVERT_TZ(resuelto_at, 'Europe/Madrid', 'UTC'), resuelto_at)
+         ELSE resuelto_at END
  WHERE created_at >= @corte OR updated_at >= @corte OR resuelto_at >= @corte;
 
 UPDATE vehicle_revisiones
-   SET created_at = COALESCE(CONVERT_TZ(created_at, 'Europe/Madrid', 'UTC'), created_at),
-       updated_at = COALESCE(CONVERT_TZ(updated_at, 'Europe/Madrid', 'UTC'), updated_at)
+   SET created_at = CASE WHEN created_at >= @corte
+         THEN COALESCE(CONVERT_TZ(created_at, 'Europe/Madrid', 'UTC'), created_at)
+         ELSE created_at END,
+       updated_at = CASE WHEN updated_at >= @corte
+         THEN COALESCE(CONVERT_TZ(updated_at, 'Europe/Madrid', 'UTC'), updated_at)
+         ELSE updated_at END
  WHERE created_at >= @corte OR updated_at >= @corte;
 
 INSERT IGNORE INTO schema_migrations (name) VALUES ('v16_horas_a_utc');

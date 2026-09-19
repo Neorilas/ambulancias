@@ -77,8 +77,22 @@ pool.on('connection', (conn) => {
  */
 async function testConnection() {
   const conn = await pool.getConnection();
-  await conn.ping();
-  conn.release();
+  try {
+    await conn.ping();
+    // Todo el contrato de fechas se apoya en que la sesión va en UTC. Si el SET
+    // de arriba no hubiera entrado, las horas volverían a guardarse desplazadas
+    // y en silencio, así que al menos que se vea en el log del arranque.
+    const [[tz]] = await conn.query('SELECT @@session.time_zone AS zona');
+    if (tz.zona !== '+00:00') {
+      logger.error(
+        `La sesión de MySQL no está en UTC (time_zone = ${tz.zona}). ` +
+        'Las fechas que escriba el servidor saldrán desplazadas: revisa ' +
+        'config/database.js y --default-time-zone del contenedor.'
+      );
+    }
+  } finally {
+    conn.release();
+  }
 }
 
 /**

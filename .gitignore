@@ -71,6 +71,7 @@ backend/logs/
 # ============================================================
 backend/uploads/vehicles/
 backend/uploads/trabajos/
+backend/uploads/asignaciones/
 !backend/uploads/.gitkeep
 
 # ============================================================

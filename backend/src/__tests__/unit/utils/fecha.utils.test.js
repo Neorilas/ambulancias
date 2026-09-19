@@ -55,6 +55,21 @@ describe('fecha.utils', () => {
       expect(instanteEnEspana(2026, 3, 29, 1).toISOString()).toBe('2026-03-29T00:00:00.000Z');
       expect(instanteEnEspana(2026, 3, 29, 3).toISOString()).toBe('2026-03-29T01:00:00.000Z');
     });
+
+    // Las dos horas raras del año. No son alcanzables desde la app (nadie
+    // teclea las 02:30 del último domingo de marzo), pero conviene dejar por
+    // escrito que no revientan y qué devuelven.
+    it('la hora que no existe (02:30 del 29 de marzo) cae en la siguiente', () => {
+      // Esa hora se la salta el reloj: se resuelve como las 03:30 CEST
+      expect(instanteEnEspana(2026, 3, 29, 2, 30).toISOString()).toBe('2026-03-29T01:30:00.000Z');
+    });
+
+    it('la hora repetida (02:30 del 25 de octubre) se resuelve a la segunda pasada', () => {
+      // Ese día las 02:30 ocurren dos veces, una en CEST y otra en CET. Se
+      // devuelve siempre la segunda, la de invierno. Es una elección, no una
+      // casualidad: lo que importa es que sea estable y no lance.
+      expect(instanteEnEspana(2026, 10, 25, 2, 30).toISOString()).toBe('2026-10-25T01:30:00.000Z');
+    });
   });
 
   describe('inicioDelDiaEnEspana', () => {

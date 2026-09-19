@@ -42,8 +42,11 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      TZ: Europe/Madrid   # solo para leer los logs en hora local: las fechas de
-                          # la app no dependen de esto (utils/fecha.utils.js)
+      # Solo para leer los logs en hora local. Las fechas de la app no dependen
+      # de esto porque pasan por utils/fecha.utils.js — pero ojo: con esta TZ,
+      # un `new Date('2026-09-18T20:00')` sin Z SÍ se interpretaría como hora
+      # española. En el backend, fechas siempre vía fecha.utils.js.
+      TZ: Europe/Madrid
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-produccion}   # produccion | pre — solo informativo (/health)
       GIT_COMMIT: ${GIT_COMMIT:-}       # lo escribe el workflow de deploy; se ve en /health

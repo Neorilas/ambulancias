@@ -82,6 +82,10 @@ async function markApplied(name) {
 // contra los datos: el último registro coherente con UTC es de ese mismo día a
 // las 13:54 y el contenedor arrancó a las 15:09. Todo lo anterior ya está bien
 // y no se toca. Se puede ajustar por entorno con FIX_TZ_DESDE.
+//
+// Sobre una base creada DESPUÉS de este fix esto es siempre un no-op: v16 corre
+// en el primer arranque, cuando todavía no hay filas. La única forma de hacerle
+// daño sería restaurar un `schema_migrations` ajeno sobre datos ya en UTC.
 const CORTE_HORA_LOCAL = process.env.FIX_TZ_DESDE || '2026-08-25 15:00:00';
 
 // Columnas DATETIME cuyo valor lo ponía el servidor MySQL (NOW() o
@@ -114,17 +118,29 @@ async function existeTabla(tabla) {
  * reescribe en UTC. La conversión se hace en Node con instanteEnEspana(), que
  * ya conoce los cambios de hora, en vez de con CONVERT_TZ: así no depende de
  * que MySQL tenga cargadas las tablas de zonas horarias.
+ *
+ * La decisión de corregir o no se toma COLUMNA A COLUMNA, no por fila: una
+ * asignación que se inició antes del corte (esa hora ya está bien) y se
+ * finalizó después (esa está mal) solo debe mover la segunda.
  */
 async function reescribirHorasLocalesComoUtc(tabla, columnas) {
   if (!await existeTabla(tabla)) return 0;
 
   const [cols] = await query(
-    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+    `SELECT COLUMN_NAME, EXTRA FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND DATA_TYPE = 'datetime'`,
     [tabla]
   );
   const presentes = columnas.filter(c => cols.some(r => r.COLUMN_NAME === c));
   if (!presentes.length) return 0;
+
+  // Las columnas con ON UPDATE CURRENT_TIMESTAMP (updated_at de incidencias y
+  // revisiones) se cuelan en todo UPDATE: si no van en el SET, MySQL las pisa
+  // con la hora actual. Así que siempre se escriben, aunque sea con su propio
+  // valor, para congelarlas.
+  const seAutoActualizan = presentes.filter(c => cols.some(
+    r => r.COLUMN_NAME === c && /on update CURRENT_TIMESTAMP/i.test(r.EXTRA || '')
+  ));
 
   const condicion = presentes.map(c => `${c} >= ?`).join(' OR ');
   const [filas] = await query(
@@ -136,18 +152,34 @@ async function reescribirHorasLocalesComoUtc(tabla, columnas) {
   // El Date que devuelve mysql2 lleva el literal guardado en sus campos UTC
   // (el pool declara timezone '+00:00'); ese literal ES la hora de pared
   // española, así que se vuelve a convertir en instante con instanteEnEspana.
-  const aUtc = (d) => (d == null ? null : instanteEnEspana(
+  const aUtc = (d) => instanteEnEspana(
     d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(),
     d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()
-  ));
+  );
+  // El corte se compara contra el literal guardado, que es lo que vive en los
+  // campos UTC del Date: mismo criterio que el WHERE de arriba.
+  const corte = new Date(`${CORTE_HORA_LOCAL.replace(' ', 'T')}Z`);
+  const hayQueCorregir = (d) => d != null && d.getTime() >= corte.getTime();
 
-  for (const fila of filas) {
-    const sets = presentes.map(c => `${c} = ?`).join(', ');
-    const vals = presentes.map(c => aUtc(fila[c]));
-    await query(`UPDATE ${tabla} SET ${sets} WHERE id = ?`, [...vals, fila.id]);
-  }
-  logger.info(`  · ${tabla}: ${filas.length} fila(s) con la hora corregida`);
-  return filas.length;
+  let corregidas = 0;
+  await transaction(async (conn) => {
+    for (const fila of filas) {
+      const afectadas = presentes.filter(c => hayQueCorregir(fila[c]));
+      // Puede no haber ninguna: la fila entró por otra columna que sí lo está,
+      // y las columnas con NULL o anteriores al corte se quedan como están.
+      if (!afectadas.length) continue;
+
+      const escribir = [...afectadas];
+      for (const c of seAutoActualizan) if (!escribir.includes(c)) escribir.push(c);
+
+      const sets = escribir.map(c => `${c} = ?`).join(', ');
+      const vals = escribir.map(c => (afectadas.includes(c) ? aUtc(fila[c]) : fila[c]));
+      await conn.execute(`UPDATE ${tabla} SET ${sets} WHERE id = ?`, [...vals, fila.id]);
+      corregidas++;
+    }
+  });
+  if (corregidas) logger.info(`  · ${tabla}: ${corregidas} fila(s) con la hora corregida`);
+  return corregidas;
 }
 
 // ============================================================

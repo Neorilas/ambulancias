@@ -17,12 +17,14 @@ function hasta(nombre) {
  * @param {string[]} indices    índices existentes, en formato "tabla.indice"
  * @param {string[]} tablas     tablas existentes (para v16)
  * @param {object}   filas      filas por tabla que devuelve el SELECT de v16
+ * @param {string[]} autoActualizan  columnas con ON UPDATE CURRENT_TIMESTAMP
  * @param {number}   permisosSembrados  filas en role_permissions
  * @param {boolean}  existeUser1 si users tiene el id 1
  * @param {string}   fallarEn   fragmento de SQL que debe lanzar error
  */
 function mockDb({
   aplicadas = [], columnas = [], indices = [], tablas = [], filas = {},
+  autoActualizan = [],
   permisosSembrados = 0, existeUser1 = false, fallarEn = null,
 } = {}) {
   const ejecutadas = [];
@@ -43,10 +45,13 @@ function mockDb({
     }
     if (sql.includes('information_schema.COLUMNS') && sql.includes("DATA_TYPE = 'datetime'")) {
       const tabla = params[0];
-      const nombres = columnas
+      return [columnas
         .filter(c => c.startsWith(`${tabla}.`))
-        .map(c => c.split('.')[1]);
-      return [nombres.map(COLUMN_NAME => ({ COLUMN_NAME }))];
+        .map(c => ({
+          COLUMN_NAME: c.split('.')[1],
+          EXTRA: autoActualizan.includes(c)
+            ? 'DEFAULT_GENERATED on update CURRENT_TIMESTAMP' : 'DEFAULT_GENERATED',
+        }))];
     }
     if (/^SELECT id, .* FROM \w+ WHERE/.test(sql)) {
       const tabla = sql.match(/FROM (\w+) WHERE/)[1];
@@ -84,6 +89,14 @@ function mockDb({
     }
     return [[]];
   });
+
+  // v16 hace sus UPDATE dentro de una transacción; el conn simulado reenvía
+  // al mismo manejador para que `updates` los recoja igual.
+  transaction.mockReset();
+  transaction.mockImplementation(async (cb) => cb({
+    execute: (sql, params) => query(sql, params),
+    query:   (sql, params) => query(sql, params),
+  }));
 
   return { ejecutadas, ledger, updates };
 }
@@ -393,7 +406,87 @@ describe('v16_horas_a_utc', () => {
     });
     await runMigrations();
 
-    expect(updates[0].params[0].toISOString()).toBe('2026-09-18T09:46:38.000Z');
-    expect(updates[0].params[1]).toBeNull();
+    const { sql, params } = updates[0];
+    expect(sql).toContain('inicio_real_at = ?');
+    expect(sql).not.toContain('finalizado_at');   // un NULL ni se lee ni se escribe
+    expect(params[0].toISOString()).toBe('2026-09-18T09:46:38.000Z');
+    expect(params[1]).toBe(6);
+  });
+});
+
+// El caso que se escapaba: la fila entra porque UNA de sus columnas está por
+// encima del corte, pero las demás pueden estar ya bien y no hay que tocarlas.
+describe('v16_horas_a_utc · filas a caballo del corte', () => {
+  const literal = (s) => new Date(`${s}Z`);
+
+  it('corrige solo la columna que está por encima del corte', async () => {
+    const { updates } = mockDb({
+      aplicadas: hasta('v15_descruzar_vehiculos_restantes'),
+      tablas:    ['asignaciones_libres'],
+      columnas:  ['asignaciones_libres.inicio_real_at', 'asignaciones_libres.finalizado_at'],
+      filas: {
+        asignaciones_libres: [{
+          id: 9,
+          inicio_real_at: literal('2026-08-20 09:00:00'),  // anterior al corte: ya está en UTC
+          finalizado_at:  literal('2026-08-26 09:00:00'),  // posterior: escrito en hora española
+        }],
+      },
+    });
+    await runMigrations();
+
+    expect(updates).toHaveLength(1);
+    const { sql, params } = updates[0];
+    expect(sql).toContain('finalizado_at = ?');
+    expect(sql).not.toContain('inicio_real_at');          // no se toca la que ya estaba bien
+    expect(params[0].toISOString()).toBe('2026-08-26T07:00:00.000Z');
+    expect(params[1]).toBe(9);
+  });
+
+  it('no escribe nada si todas las columnas de la fila son anteriores al corte', async () => {
+    const { updates } = mockDb({
+      aplicadas: hasta('v15_descruzar_vehiculos_restantes'),
+      tablas:    ['asignaciones_libres'],
+      columnas:  ['asignaciones_libres.inicio_real_at', 'asignaciones_libres.finalizado_at'],
+      filas: {
+        asignaciones_libres: [{
+          id: 10,
+          inicio_real_at: literal('2026-08-20 09:00:00'),
+          finalizado_at:  literal('2026-08-20 10:00:00'),
+        }],
+      },
+    });
+    await runMigrations();
+
+    expect(updates).toEqual([]);
+  });
+
+  it('congela updated_at para que el ON UPDATE no lo pise con la hora actual', async () => {
+    const { updates } = mockDb({
+      aplicadas: hasta('v15_descruzar_vehiculos_restantes'),
+      tablas:    ['vehicle_incidencias'],
+      columnas:  [
+        'vehicle_incidencias.created_at',
+        'vehicle_incidencias.updated_at',
+        'vehicle_incidencias.resuelto_at',
+      ],
+      autoActualizan: ['vehicle_incidencias.updated_at'],
+      filas: {
+        vehicle_incidencias: [{
+          id: 4,
+          created_at:  literal('2026-08-20 09:00:00'),   // anterior al corte
+          updated_at:  literal('2026-08-20 09:00:00'),   // anterior al corte
+          resuelto_at: literal('2026-09-10 12:00:00'),   // posterior
+        }],
+      },
+    });
+    await runMigrations();
+
+    const { sql, params } = updates[0];
+    expect(sql).toContain('resuelto_at = ?');
+    expect(sql).toContain('updated_at = ?');              // va en el SET aunque no cambie
+    expect(sql).not.toContain('created_at');
+    expect(params[0].toISOString()).toBe('2026-09-10T10:00:00.000Z');  // resuelto_at corregido
+    expect(params[1].toISOString()).toBe('2026-08-20T09:00:00.000Z');  // updated_at, tal cual
+    expect(params[2]).toBe(4);
   });
 });
