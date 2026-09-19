@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { EstadoBadge, TipoBadge, RolBadge } from '../../components/common/StatusBadge.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
-import { formatDateTime, duration } from '../../utils/dateUtils.js';
+import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
 import { TRABAJO_ESTADOS } from '../../utils/constants.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import Finalizacion from './Finalizacion.jsx';
@@ -72,6 +72,7 @@ function Lightbox({ img, allImgs, onClose }) {
             {current.matricula && (
               <p className="text-neutral-400 text-xs font-mono">{current.matricula}</p>
             )}
+            <p className="text-neutral-400 text-xs font-mono">{formatDateTime(current.created_at)}</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-neutral-400 text-xs">{idx + 1} / {allImgs.length}</span>
@@ -345,6 +346,9 @@ export default function TrabajoDetail() {
                 </button>
                 <p className="text-xs text-center text-neutral-500 capitalize">
                   {(TIPO_LABELS[img.tipo_imagen] || img.tipo_imagen)} · {img.matricula}
+                </p>
+                <p className="text-[11px] text-center text-neutral-400 font-mono">
+                  {formatDateTimeShort(img.created_at)}
                 </p>
               </div>
             ))}

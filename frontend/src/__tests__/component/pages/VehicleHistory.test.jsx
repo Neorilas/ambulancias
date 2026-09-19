@@ -96,3 +96,61 @@ describe('VehicleHistory · peticiones de la ficha', () => {
     expect(usersService.list).toHaveBeenCalledTimes(1);
   });
 });
+
+// Sin la hora no se puede seguir el estado del vehículo: dos fotos del mismo
+// tipo (la frontal del inicio y la del fin) se ven iguales.
+describe('VehicleHistory · hora de cada foto', () => {
+  const GRUPO_CON_FOTOS = {
+    tipo: 'asignacion', asignacion_id: 4, trabajo_id: null, referencia: null,
+    nombre: null, estado: 'finalizada',
+    fecha_inicio: '2026-09-18T05:00:00.000Z', fecha_fin: '2026-09-18T18:00:00.000Z',
+    km_inicio: 120000, km_fin: 120240, responsable_nombre: 'Jose Lopez',
+    fotos: [
+      {
+        id: 1, tipo_imagen: 'frontal', momento: 'inicio', image_url: '/u/i.jpg',
+        fecha: '2026-09-18T06:10:00.000Z',
+        subido_por: { id: 3, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' },
+      },
+      {
+        id: 2, tipo_imagen: 'frontal', momento: 'fin', image_url: '/u/f.jpg',
+        fecha: '2026-09-18T17:40:00.000Z',
+        subido_por: { id: 3, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' },
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [GRUPO_CON_FOTOS] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('pone día, hora española y momento en cada miniatura', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: 'Fotos' }));
+
+    // 06:10 UTC de septiembre son las 08:10 en España (CEST, +02:00)
+    expect(await screen.findByText('18/09 08:10')).toBeInTheDocument();
+    expect(screen.getByText('18/09 19:40')).toBeInTheDocument();
+    expect(screen.getByText('Inicio')).toBeInTheDocument();
+    expect(screen.getByText('Fin')).toBeInTheDocument();
+  });
+
+  it('el visor grande da la fecha completa con la hora', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: 'Fotos' }));
+
+    const miniaturas = await screen.findAllByRole('button', { name: /Frontal/ });
+    await user.click(miniaturas[0]);
+
+    expect(await screen.findByText(/Jose Lopez · 18\/09\/2026 08:10/)).toBeInTheDocument();
+    expect(screen.getByText('Inicio · Frontal')).toBeInTheDocument();
+  });
+});

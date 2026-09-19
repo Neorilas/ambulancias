@@ -567,6 +567,10 @@ async function uploadEvidencia(req, res, next) {
       [vehicleId, trabajoId, tipoImagen, momento]
     );
 
+    // El instante lo pone Node (contrato de fechas), y al rehacer una foto se
+    // vuelve a sellar: la hora que se ve es la de la imagen que se conserva.
+    const tomadaEn = ahora();
+
     let imageId;
     if (existing.length) {
       // Eliminar archivo viejo
@@ -574,15 +578,15 @@ async function uploadEvidencia(req, res, next) {
       deleteFile(existing[0].image_url);
 
       await query(
-        'UPDATE vehicle_images SET image_url = ?, uploaded_by = ? WHERE id = ?',
-        [req.processedFile.url, req.user.id, existing[0].id]
+        'UPDATE vehicle_images SET image_url = ?, uploaded_by = ?, created_at = ? WHERE id = ?',
+        [req.processedFile.url, req.user.id, tomadaEn, existing[0].id]
       );
       imageId = existing[0].id;
     } else {
       const [result] = await query(
-        `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, momento, image_url, trabajo_id, uploaded_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [vehicleId, tipoImagen, momento, req.processedFile.url, trabajoId, req.user.id]
+        `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, momento, image_url, trabajo_id, uploaded_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [vehicleId, tipoImagen, momento, req.processedFile.url, trabajoId, req.user.id, tomadaEn]
       );
       imageId = result.insertId;
     }
@@ -603,6 +607,7 @@ async function uploadEvidencia(req, res, next) {
       momento,
       vehicle_id:  vehicleId,
       trabajo_id:  trabajoId,
+      created_at:  tomadaEn,
       progreso: {
         completado: tiposSubidos.length,
         total:      listaValida.length,

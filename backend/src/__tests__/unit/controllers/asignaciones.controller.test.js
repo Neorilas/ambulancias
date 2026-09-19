@@ -612,6 +612,45 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(deleteFile).toHaveBeenCalledWith('/uploads/old.jpg');
     });
+
+    it('sella la hora al insertar, en lugar de dejarla a la BD', async () => {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+      query.mockResolvedValueOnce([[]]);                // no hay foto previa
+      query.mockResolvedValueOnce([{ insertId: 50 }]);  // INSERT
+      query.mockResolvedValueOnce([allTiposRow()]);     // getProgreso
+
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' }, body: { tipo_imagen: 'frontal', momento: 'inicio' },
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      const insert = query.mock.calls.find(c => /INSERT INTO vehicle_images/.test(c[0]));
+      expect(insert[0]).toMatch(/created_at/);
+      expect(insert[1][insert[1].length - 1]).toBeInstanceOf(Date);
+      expect(res.json.mock.calls[0][0].data.uploaded_at).toBeInstanceOf(Date);
+    });
+
+    it('al rehacer una foto pone la hora al día (no deja la de la primera)', async () => {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+      query.mockResolvedValueOnce([[{ id: 50, image_url: '/uploads/old.jpg' }]]);
+      query.mockResolvedValueOnce([]);              // UPDATE
+      query.mockResolvedValueOnce([allTiposRow()]); // getProgreso
+
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' }, body: { tipo_imagen: 'frontal', momento: 'inicio' },
+        processedFile: { url: '/uploads/new.jpg' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      const update = query.mock.calls.find(c => /UPDATE vehicle_images/.test(c[0]));
+      expect(update[0]).toMatch(/created_at = \?/);
+      // [image_url, uploaded_by, created_at, id]
+      expect(update[1][2]).toBeInstanceOf(Date);
+      expect(update[1][3]).toBe(50);
+    });
   });
 
   // ── crearIncidenciaDesdeAsignacion ─────────────────────

@@ -524,6 +524,36 @@ describe('vehicles.controller', () => {
       expect(grupos[0].estado).toBe('finalizada');
       expect(grupos[1].tipo).toBe('trabajo');
     });
+
+    it('cada foto lleva momento y hora, y el SQL las pide en orden cronológico', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234', alias: 'AMB-1', kilometros_actuales: 50000 }]]);
+      const inicio = new Date('2026-06-01T06:10:00Z');
+      const fin    = new Date('2026-06-01T17:40:00Z');
+      query.mockResolvedValueOnce([[
+        {
+          id: 30, tipo_imagen: 'frontal', momento: 'inicio', image_url: '/i.jpg', foto_fecha: inicio,
+          trabajo_id: null, asignacion_id: 7, asig_estado: 'finalizada',
+          uploader_id: 3, uploader_nombre: 'Jose', uploader_apellidos: 'Lopez', uploader_username: 'jlopez',
+        },
+        {
+          id: 31, tipo_imagen: 'frontal', momento: 'fin', image_url: '/f.jpg', foto_fecha: fin,
+          trabajo_id: null, asignacion_id: 7, asig_estado: 'finalizada',
+          uploader_id: 3, uploader_nombre: 'Jose', uploader_apellidos: 'Lopez', uploader_username: 'jlopez',
+        },
+      ]]);
+
+      const res = mockRes();
+      await getVehicleHistorial(mockReq({ params: { id: '1' } }), res, mockNext());
+
+      const sqlFotos = query.mock.calls[1][0];
+      expect(sqlFotos).toMatch(/vi\.momento/);
+      expect(sqlFotos).toMatch(/ORDER BY FIELD\(vi\.momento,'inicio','fin','general'\), vi\.created_at ASC/);
+
+      const [fotoInicio, fotoFin] = res._json.data.trabajos[0].fotos;
+      // Misma foto ('frontal') dos veces: sin `momento` no se distinguirían.
+      expect(fotoInicio).toMatchObject({ momento: 'inicio', fecha: inicio });
+      expect(fotoFin).toMatchObject({ momento: 'fin', fecha: fin });
+    });
   });
 
   // ── listIncidencias ────────────────────────────────────

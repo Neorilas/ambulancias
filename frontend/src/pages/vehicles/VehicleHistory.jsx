@@ -15,7 +15,7 @@ import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
-import { formatDate, formatDateTime } from '../../utils/dateUtils.js';
+import { formatDate, formatDateTime, formatDateTimeShort } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
@@ -64,6 +64,18 @@ const TIPO_REV_LABELS = {
   otro:              'Otro',
 };
 
+const MOMENTO_LABEL = {
+  inicio:  'Inicio',
+  fin:     'Fin',
+  general: 'Suelta',
+};
+
+const MOMENTO_BADGE = {
+  inicio:  'bg-blue-100 text-blue-700',
+  fin:     'bg-ok-50 text-ok-600',
+  general: 'bg-neutral-200 text-neutral-600',
+};
+
 const RESULTADO_BADGE = {
   aprobado:    'bg-ok-50 text-ok-600',
   rechazado:   'bg-bad-50 text-bad-600',
@@ -100,7 +112,10 @@ function Lightbox({ foto, fotos, onClose }) {
             className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full w-10 h-10 flex items-center justify-center text-xl hover:bg-black/80">›</button>
         )}
         <div className="mt-3 text-center text-white space-y-1">
-          <p className="font-medium">{TIPO_FOTO_LABELS[f.tipo_imagen] || f.tipo_imagen}</p>
+          <p className="font-medium">
+            {f.momento && f.momento !== 'general' ? `${MOMENTO_LABEL[f.momento]} · ` : ''}
+            {TIPO_FOTO_LABELS[f.tipo_imagen] || f.tipo_imagen}
+          </p>
           <p className="text-sm text-neutral-300">
             {f.subido_por?.nombre} {f.subido_por?.apellidos} · {formatDateTime(f.fecha)}
           </p>
@@ -199,8 +214,14 @@ function TrabajoCard({ trabajo }) {
                   onClick={() => setLightboxFoto(foto)}>
                   <img src={getImageUrl(foto.image_url)} alt={TIPO_FOTO_LABELS[foto.tipo_imagen] || foto.tipo_imagen}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" loading="lazy" />
+                  {foto.momento && foto.momento !== 'general' && (
+                    <span className={`absolute top-1 left-1 text-[9px] font-semibold px-1 py-0.5 rounded ${MOMENTO_BADGE[foto.momento]}`}>
+                      {MOMENTO_LABEL[foto.momento]}
+                    </span>
+                  )}
                   <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] text-center py-0.5 leading-tight">
-                    {TIPO_FOTO_LABELS[foto.tipo_imagen] || foto.tipo_imagen}
+                    <span className="block truncate px-0.5">{TIPO_FOTO_LABELS[foto.tipo_imagen] || foto.tipo_imagen}</span>
+                    <span className="block font-mono text-[9px] text-neutral-200">{formatDateTimeShort(foto.fecha)}</span>
                   </div>
                 </button>
               ))}
