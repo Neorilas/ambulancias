@@ -97,7 +97,6 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
       const payload = {
         alias:                    form.alias.trim(),
         matricula:                normalizarMatricula(form.matricula),
-        kilometros_actuales:      form.kilometros_actuales !== '' ? parseInt(form.kilometros_actuales) : 0,
         fecha_matriculacion:      form.fecha_matriculacion      || null,
         fecha_itv:                form.fecha_itv                || null,
         fecha_its:                form.fecha_its                || null,
@@ -105,6 +104,13 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
         fecha_ultima_revision:    form.fecha_ultima_revision    || null,
         fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
       };
+
+      // Km en blanco es «no hay lectura», no «cero». Al editar, mandarlo como 0
+      // borraba el cuentakilómetros real del vehículo; omitido, el controlador
+      // deja el campo como estaba. Al crear, la columna ya entra a 0 por defecto.
+      if (form.kilometros_actuales !== '') {
+        payload.kilometros_actuales = parseInt(form.kilometros_actuales, 10);
+      }
 
       if (isEdit) await vehiclesService.update(vehicle.id, payload);
       else        await vehiclesService.create(payload);

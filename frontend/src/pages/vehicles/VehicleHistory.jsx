@@ -823,21 +823,32 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
     if (!form.matricula.trim())            e.matricula = 'Matrícula requerida';
     else if (!esMatricula(form.matricula)) e.matricula = MENSAJE_FORMATO;
     setErrores(e);
-    if (Object.keys(e).length) return false;
+    if (Object.keys(e).length) {
+      // El aviso de cambios sin guardar tapa el formulario: sin este toast,
+      // pulsar «Guardar y continuar» con un campo mal no daba señal ninguna.
+      notify.error('Revisa los datos: hay campos sin rellenar o mal escritos');
+      return false;
+    }
 
     setGuardando(true);
     try {
-      await vehiclesService.update(vehicle.id, {
+      const payload = {
         alias:                    form.alias.trim(),
         matricula:                normalizarMatricula(form.matricula),
-        kilometros_actuales:      form.kilometros_actuales !== '' ? parseInt(form.kilometros_actuales) : 0,
         fecha_matriculacion:      form.fecha_matriculacion      || null,
         fecha_itv:                form.fecha_itv                || null,
         fecha_its:                form.fecha_its                || null,
         fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
         fecha_ultima_revision:    form.fecha_ultima_revision    || null,
         fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
-      });
+      };
+      // Km en blanco es «no hay lectura nueva», no «cero»: mandándolo como 0 el
+      // UPDATE borraba el cuentakilómetros real del vehículo. Si no se toca, el
+      // campo no viaja y el controlador lo deja como estaba.
+      if (form.kilometros_actuales !== '') {
+        payload.kilometros_actuales = parseInt(form.kilometros_actuales, 10);
+      }
+      await vehiclesService.update(vehicle.id, payload);
       notify.success('Vehículo actualizado');
       setForm(null);
       await recargarVehiculo();
@@ -849,6 +860,15 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
       setGuardando(false);
     }
   };
+
+  // El aviso de las pestañas no cubre recargar ni cerrar la pestaña del
+  // navegador; para eso solo queda el diálogo nativo.
+  useEffect(() => {
+    if (!sucio) return;
+    const avisar = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', avisar);
+    return () => window.removeEventListener('beforeunload', avisar);
+  }, [sucio]);
 
   return { form, editando, sucio, errores, guardando, abrir, descartar, guardar, set };
 }
@@ -1189,7 +1209,12 @@ export default function VehicleHistory() {
 
   const guardarYSeguir = async () => {
     const guardado = await edicion.guardar();
-    if (!guardado) return;          // si falla la validación, el aviso sigue abierto
+    if (!guardado) {
+      // El aviso tapa el formulario: si no se cierra, los campos en rojo
+      // quedan detrás y no hay forma de ver qué está mal.
+      setDestino(null);
+      return;
+    }
     const dest = destino;
     setDestino(null);
     aplicarDestino(dest);

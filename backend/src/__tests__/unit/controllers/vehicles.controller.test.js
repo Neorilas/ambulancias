@@ -175,14 +175,26 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
       // images query
       query.mockResolvedValueOnce([[{ id: 10, tipo_imagen: 'frontal', image_url: '/img.jpg' }]]);
-      // resumen de asignaciones
-      query.mockResolvedValueOnce([[{ total: 0 }]]);
-      query.mockResolvedValueOnce([[]]);
 
       const req = mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'] } });
       const res = mockRes();
       await getVehicle(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    // El resumen lleva el nombre de quien tiene el vehiculo ahora mismo y lo
+    // pinta una ficha que es de admin/gestor: al operacional no se le sirve.
+    it('omits the assignment summary for operacional', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);   // canOperacionalAccess
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
+      query.mockResolvedValueOnce([[]]);            // images
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'] } });
+      const res = mockRes();
+      await getVehicle(req, res, mockNext());
+
+      expect(res._json.data.asignaciones).toBeUndefined();
+      expect(query).toHaveBeenCalledTimes(3);       // no hay consultas de asignaciones
     });
 
     it('returns 403 for operacional without access', async () => {

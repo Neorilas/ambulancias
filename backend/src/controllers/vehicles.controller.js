@@ -136,6 +136,14 @@ async function getVehicle(req, res, next) {
     // Resumen de asignaciones: cuántas veces ha salido el vehículo y si ahora
     // mismo lo lleva alguien. El historial fotográfico no sirve para esto,
     // porque solo recoge las asignaciones que llegaron a tener fotos.
+    //
+    // Solo para quien gestiona: lo pinta la ficha, que es de admin/gestor, y
+    // lleva el nombre de quién tiene el vehículo ahora mismo. Un operacional
+    // llega aquí por su propio vehículo y no tiene por qué ver eso.
+    if (isOperacional(req.user)) {
+      return success(res, { ...rows[0], images });
+    }
+
     const [asigTotal] = await query(
       `SELECT COUNT(*) AS total FROM asignaciones_libres
        WHERE vehicle_id = ? AND deleted_at IS NULL`,

@@ -363,3 +363,85 @@ describe('VehicleHistory · edicion desde el resumen', () => {
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 });
+
+// Vaciar los kilometros y guardar mandaba `kilometros_actuales: 0`, que el
+// UPDATE escribia encima de la lectura real del cuentakilometros. Un campo en
+// blanco es «no hay lectura nueva»: no debe viajar.
+describe('VehicleHistory · el km en blanco no borra el contador', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesionConPermiso();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.update.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('omite el campo del payload si se deja vacio', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    await user.clear(screen.getByDisplayValue('120000'));
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    const payload = vehiclesService.update.mock.calls[0][1];
+    expect(payload).not.toHaveProperty('kilometros_actuales');
+  });
+
+  it('manda el numero cuando si hay lectura', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    const km = screen.getByDisplayValue('120000');
+    await user.clear(km);
+    await user.type(km, '121500');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.update.mock.calls[0][1].kilometros_actuales).toBe(121500);
+  });
+});
+
+// El aviso de cambios sin guardar es un modal a pantalla completa: si la
+// validacion falla por detras, los campos en rojo quedan tapados y parece que
+// el boton no hace nada.
+describe('VehicleHistory · validacion con el aviso abierto', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesionConPermiso();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.update.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('cierra el aviso y ensena el error en vez de no hacer nada', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    // Nombre vacio: la validacion de cliente no deja guardar
+    await user.clear(screen.getByDisplayValue('Ambulancia 3'));
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    await user.click(await screen.findByRole('button', { name: 'Guardar y continuar' }));
+
+    expect(vehiclesService.update).not.toHaveBeenCalled();
+    // El aviso se quita y queda a la vista el campo marcado
+    await waitFor(() => expect(screen.queryByText('Cambios sin guardar')).not.toBeInTheDocument());
+    expect(await screen.findByText('Nombre requerido')).toBeInTheDocument();
+    // Y sigue en el resumen, editando
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeInTheDocument();
+  });
+});
