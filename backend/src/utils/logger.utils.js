@@ -9,8 +9,17 @@ const winston = require('winston');
 const path    = require('path');
 const fs      = require('fs');
 
-const LOG_DIR   = process.env.LOG_DIR || path.join(__dirname, '../../logs');
-const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, '../../logs');
+
+// Winston ordena los niveles npm: error 0, warn 1, info 2, http 3, verbose 4,
+// debug 5, silly 6 — y solo escribe lo que quede POR DEBAJO del nivel elegido.
+// Con `info` (2), las peticiones de morgan (nivel `http`, 3) no se escribían en
+// ningún sitio: por eso no había ni una línea de tráfico con la que diagnosticar
+// nada. El suelo es `http` para que el registro de peticiones exista siempre;
+// quien quiera más detalle sube a verbose/debug.
+const NIVELES   = { error: 0, warn: 1, info: 2, http: 3, verbose: 4, debug: 5, silly: 6 };
+const pedido    = process.env.LOG_LEVEL || 'http';
+const LOG_LEVEL = (NIVELES[pedido] ?? NIVELES.http) < NIVELES.http ? 'http' : pedido;
 
 // Crear directorio de logs si no existe
 if (!fs.existsSync(LOG_DIR)) {
@@ -54,7 +63,11 @@ const logger = winston.createLogger({
   exitOnError: false,
 });
 
-// Nivel custom para HTTP (morgan)
-logger.http = (msg) => logger.verbose(msg);
+// `logger.http()` es el de Winston tal cual (nivel 3). Antes se reasignaba a
+// `verbose` (4), que con cualquier nivel razonable queda fuera del corte.
+
+if (pedido !== LOG_LEVEL) {
+  logger.warn(`LOG_LEVEL="${pedido}" dejaría las peticiones HTTP sin registrar; se usa "${LOG_LEVEL}".`);
+}
 
 module.exports = logger;

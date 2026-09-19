@@ -87,7 +87,7 @@ services:
       ACCOUNT_LOCKOUT_DURATION_MINUTES: 30
 
       # ── Logging ──────────────────────────────────────────────────────────────
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-http}
       LOG_DIR: ./logs
       BCRYPT_ROUNDS: 12
 
