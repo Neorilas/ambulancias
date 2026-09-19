@@ -10,7 +10,7 @@ const multer = require('multer');
 const sharp  = require('sharp');
 const path   = require('path');
 const fs     = require('fs');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const { UPLOAD }     = require('../config/constants');
 const logger         = require('../utils/logger.utils');
 
@@ -52,7 +52,7 @@ function processAndSave(subdir) {
       const dir = path.join(UPLOADS_BASE, subdir);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-      const filename = `${uuidv4()}.jpg`;
+      const filename = `${randomUUID()}.jpg`;
       const filepath = path.join(dir, filename);
 
       // Redimensionar y comprimir con Sharp
@@ -97,7 +97,7 @@ function processAndSaveMultiple(subdir) {
       req.processedFiles = [];
 
       for (const file of req.files) {
-        const filename = `${uuidv4()}.jpg`;
+        const filename = `${randomUUID()}.jpg`;
         const filepath = path.join(dir, filename);
 
         await sharp(file.buffer)
