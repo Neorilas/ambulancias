@@ -28,6 +28,10 @@ passwords.txt
 secrets.txt
 copys.txt
 accesos.html
+# Informes de auditoria de seguridad: detallan fallos explotables. El repo es publico.
+docs/AUDITORIA_SEGURIDAD.md
+AUDITORIA_SEGURIDAD.md
+docs/auditoria-seguridad*.md
 
 # Scripts ad-hoc de inspeccion/despliegue (suelen acabar con credenciales dentro)
 deploy_helper.py

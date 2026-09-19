@@ -7,7 +7,7 @@ import { ROLES } from '../../utils/constants.js';
 
 export default function UserForm({ user, onSaved, onClose }) {
   const isEdit = !!user;
-  const { isAdmin, isGestor } = useAuth();
+  const { isAdmin, isGestor, isSuperAdmin } = useAuth();
   const { notify } = useNotification();
 
   const [roles,     setRoles]     = useState([]);
@@ -38,9 +38,16 @@ export default function UserForm({ user, onSaved, onClose }) {
     setErrors(e => ({ ...e, [field]: '' }));
   };
 
+  // Mismas reglas que el backend (users.controller.js): el rol superadmin solo
+  // lo reparte otro superadmin, y un gestor no llega al rol administrador.
+  const rolBloqueado = (roleName) => {
+    if (roleName === ROLES.SUPERADMIN)    return !isSuperAdmin();
+    if (roleName === ROLES.ADMINISTRADOR) return isGestor() && !isAdmin() && !isSuperAdmin();
+    return false;
+  };
+
   const toggleRole = (roleName) => {
-    // Gestor no puede asignar administrador
-    if (isGestor() && !isAdmin() && roleName === ROLES.ADMINISTRADOR) return;
+    if (rolBloqueado(roleName)) return;
 
     setForm(f => ({
       ...f,
@@ -192,7 +199,7 @@ export default function UserForm({ user, onSaved, onClose }) {
           <div className="flex flex-wrap gap-2 mt-1">
             {roles.map(r => {
               const selected = form.roles.includes(r.nombre);
-              const disabled = isGestor() && !isAdmin() && r.nombre === ROLES.ADMINISTRADOR;
+              const disabled = rolBloqueado(r.nombre);
               return (
                 <button
                   key={r.id}
