@@ -52,6 +52,24 @@ describe('vehicles.controller', () => {
       expect(firstCallArgs[1]).toContain(5);
     });
 
+    // Un administrador que ademas sale de servicio lleva el rol `tecnico`. Si
+    // se le aplica el recorte de operacional se queda sin flota: sin trabajos
+    // activos la lista sale vacia y no hay nada que asignar.
+    it('no recorta la flota a un administrador que ademas es tecnico', async () => {
+      query.mockResolvedValueOnce([[{ total: 2 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234', alias: 'AMB-1' },
+                                    { id: 2, matricula: 'XYZ9999', alias: 'AMB-2' }]]);
+
+      const req = mockReq({ query: {}, user: { id: 7, roles: ['administrador', 'tecnico'] } });
+      const res = mockRes();
+      await listVehicles(req, res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toHaveLength(2);
+      expect(query.mock.calls[0][0]).not.toContain('trabajo_vehiculos');
+      expect(query.mock.calls[0][1]).not.toContain(7);
+    });
+
     it('applies LIKE filter when search param provided', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'AMB1234', alias: 'AMB-1' }]]);
