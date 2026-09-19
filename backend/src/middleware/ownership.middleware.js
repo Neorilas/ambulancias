@@ -19,7 +19,7 @@
 
 const { query }       = require('../config/database');
 const { forbidden }   = require('../utils/response.utils');
-const { hasPermission, isOperacional } = require('./roles.middleware');
+const { hasPermission, tieneRolDeCampo } = require('./roles.middleware');
 const { PERMISSIONS } = require('../config/constants');
 
 /**
@@ -57,7 +57,9 @@ async function requireVehicleUploadAccess(req, res, next) {
 
     if (hasPermission(req.user, PERMISSIONS.MANAGE_VEHICLES)) return next();
 
-    if (isOperacional(req.user) && await tieneElVehiculoAsignado(req.user.id, vehicleId)) {
+    // Aquí se *concede*, no se recorta: vale el rol operativo a secas. Un jefe
+    // de flota que además sea técnico ya ha pasado por el permiso de arriba.
+    if (tieneRolDeCampo(req.user) && await tieneElVehiculoAsignado(req.user.id, vehicleId)) {
       return next();
     }
 

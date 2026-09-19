@@ -57,6 +57,19 @@ describe('ownership.middleware', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
+    // Aqui se concede acceso por llevar el vehiculo encima, asi que vale el rol
+    // operativo a secas: el jefe de flota que ademas sale de servicio no puede
+    // perder la subida de fotos por el hecho de tener mando.
+    it('deja pasar al gestor que ademas es tecnico y tiene el vehiculo asignado', async () => {
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);
+      const next = mockNext();
+      await requireVehicleUploadAccess(mockReq({
+        params: { id: '3' },
+        user: { id: 11, roles: ['gestor', 'tecnico'], permissions: [] },
+      }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith();
+    });
+
     it('403 a un usuario sin roles operacionales ni permisos', async () => {
       const res = mockRes();
       const next = mockNext();

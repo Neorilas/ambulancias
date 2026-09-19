@@ -78,22 +78,28 @@ const isSuperAdmin  = (user) => hasRole(user, ROLES.SUPERADMIN);
 const isAdmin       = (user) => hasRole(user, ROLES.ADMINISTRADOR);
 const isGestor      = (user) => hasRole(user, ROLES.GESTOR);
 
+/** ¿Lleva un rol operativo? Literal, sin mirar si además tiene mando. */
+const tieneRolDeCampo = (user) =>
+  hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) || hasRole(user, ROLES.MEDICO);
+
 /**
  * ¿Es personal de campo **sin mando**?
  *
  * Los roles no son excluyentes: un administrador o un gestor pueden llevar
- * además el rol `tecnico` porque también salen de servicio. Quien pregunta
- * por esto siempre quiere *recortar* lo que se ve (la flota se reduce a los
- * vehículos que uno lleva ahora mismo, los trabajos a los propios), y ese
- * recorte no debe caerle a quien gestiona: se quedaba sin un solo vehículo en
- * el desplegable de «Nueva asignación» y sin lista de flota.
+ * además el rol `tecnico` porque también salen de servicio.
  *
- * Para saber solo si alguien lleva un rol operativo, sin mirar el mando, usa
- * `hasRole(user, ROLES.TECNICO)` y compañía.
+ * La regla, y conviene respetarla al añadir comprobaciones nuevas:
+ *
+ * - para **recortar** lo que se ve o se puede hacer → `isOperacional`. Ese
+ *   recorte (la flota reducida a los vehículos de un trabajo activo, los
+ *   trabajos a los propios) no debe caerle a quien gestiona: dejaba al
+ *   administrador sin un solo vehículo en el desplegable de «Nueva
+ *   asignación» y sin lista de flota;
+ * - para **conceder** algo por llevar el vehículo encima → `tieneRolDeCampo`,
+ *   que no le quita nada a nadie.
  */
 const isOperacional = (user) =>
-  (hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) || hasRole(user, ROLES.MEDICO))
-  && !isSuperAdmin(user) && !isAdmin(user) && !isGestor(user);
+  tieneRolDeCampo(user) && !isSuperAdmin(user) && !isAdmin(user) && !isGestor(user);
 
 module.exports = {
   requireRole,
@@ -107,5 +113,6 @@ module.exports = {
   isSuperAdmin,
   isAdmin,
   isGestor,
+  tieneRolDeCampo,
   isOperacional,
 };

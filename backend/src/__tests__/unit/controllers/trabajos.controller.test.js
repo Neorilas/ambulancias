@@ -390,6 +390,26 @@ describe('trabajos.controller', () => {
       expect(res.status).toHaveBeenCalledWith(404);
     });
 
+    // Los roles no son excluyentes: el jefe que ademas sale de servicio lleva
+    // `tecnico`, y eso no puede convertirlo en un operacional cualquiera.
+    it('un administrador que ademas es tecnico finaliza sin ser responsable', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 99 },
+      ]]);
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      transaction.mockImplementation(async (cb) => cb({ execute: jest.fn().mockResolvedValue([]) }));
+      mockGetTrabajoCompleto({ estado: 'finalizado' });
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] },
+        user: { id: 5, roles: ['administrador', 'tecnico'], username: 'jefe' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
     it('returns 403 for operacional who is not responsable', async () => {
       query.mockResolvedValueOnce([[
         { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() + 86400000), vehicle_id: 1, responsable_user_id: 99 },
@@ -657,6 +677,20 @@ describe('trabajos.controller', () => {
         ip: '1.1.1.1',
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('un administrador que ademas es tecnico activa sin ser responsable y sin la ventana de 24h', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado', fecha_inicio: new Date(Date.now() + 48 * 3600000) }]]);
+      query.mockResolvedValueOnce([[]]); // UPDATE; no se llega a consultar responsable_user_id
+      mockGetTrabajoCompleto({ estado: 'activo' });
+
+      const res = mockRes();
+      await activarTrabajo(mockReq({
+        params: { id: '1' },
+        user: { id: 5, roles: ['administrador', 'tecnico'], username: 'jefe' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
     });
 
     it('returns 400 for operacional activating >24h before start', async () => {

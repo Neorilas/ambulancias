@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  hasRole, hasPermission, isSuperAdmin, isAdmin, isOperacional,
+  hasRole, hasPermission, isSuperAdmin, isAdmin, isOperacional, tieneRolDeCampo,
   requireRole, requirePermission, requireAnyRole,
 } = require('../../../middleware/roles.middleware');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
@@ -57,6 +57,14 @@ describe('roles.middleware', () => {
       expect(isOperacional({ roles: ['administrador', 'tecnico'] })).toBe(false);
       expect(isOperacional({ roles: ['gestor', 'enfermero'] })).toBe(false);
       expect(isOperacional({ roles: ['superadmin', 'medico'] })).toBe(false);
+    });
+
+    // El literal, en cambio, no mira el mando: se usa donde se *concede*
+    // algo por llevar el vehiculo encima, no donde se recorta.
+    it('tieneRolDeCampo no mira el mando', () => {
+      expect(tieneRolDeCampo({ roles: ['tecnico'] })).toBe(true);
+      expect(tieneRolDeCampo({ roles: ['administrador', 'tecnico'] })).toBe(true);
+      expect(tieneRolDeCampo({ roles: ['administrador'] })).toBe(false);
     });
   });
 
