@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import Modal from '../../components/common/Modal.jsx';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDate } from '../../utils/dateUtils.js';
+import { toInputDate, sumarMeses, diasHasta, formatDiaCalendario }
+  from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
 
 /**
@@ -10,28 +11,24 @@ import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/m
  * - Menos de 5 años desde matriculación: revisión anual
  * - 5 o más años: revisión semestral (cada 6 meses)
  */
+// Las caducidades son fechas SIN hora: se trabaja con 'yyyy-MM-dd' y aritmética
+// de calendario, nunca convirtiendo de zona. Así un dispositivo al oeste de UTC
+// no muestra el día anterior. Ver el contrato en utils/dateUtils.js.
 function calcProximaITV(fechaMatriculacion, fechaUltimaITV) {
   if (!fechaUltimaITV) return null;
-  const matricula = fechaMatriculacion ? new Date(fechaMatriculacion) : null;
-  const ultimaITV = new Date(fechaUltimaITV);
-  const hoy = new Date();
 
   let mesesIntervalo = 12;
-  if (matricula) {
-    const edadAnios = (hoy - matricula) / (1000 * 60 * 60 * 24 * 365.25);
-    if (edadAnios >= 5) mesesIntervalo = 6;
+  if (fechaMatriculacion) {
+    const diasDeVida = -diasHasta(fechaMatriculacion);
+    if (diasDeVida / 365.25 >= 5) mesesIntervalo = 6;
   }
 
-  const proxima = new Date(ultimaITV);
-  proxima.setMonth(proxima.getMonth() + mesesIntervalo);
-  return proxima;
+  return sumarMeses(fechaUltimaITV, mesesIntervalo);
 }
 
 function calcProximaITS(fechaUltimaITS) {
   if (!fechaUltimaITS) return null;
-  const proxima = new Date(fechaUltimaITS);
-  proxima.setFullYear(proxima.getFullYear() + 1);
-  return proxima;
+  return sumarMeses(fechaUltimaITS, 12);
 }
 
 /**
@@ -40,8 +37,8 @@ function calcProximaITS(fechaUltimaITS) {
  */
 function RevisionBadge({ label, proxima, umbralAviso = 30 }) {
   if (!proxima) return null;
-  const hoy = new Date();
-  const diasRestantes = Math.ceil((proxima - hoy) / (1000 * 60 * 60 * 24));
+  const diasRestantes = diasHasta(proxima);
+  if (diasRestantes === null) return null;
   const vencida  = diasRestantes < 0;
   const proximo  = diasRestantes >= 0 && diasRestantes <= umbralAviso;
 
@@ -55,7 +52,7 @@ function RevisionBadge({ label, proxima, umbralAviso = 30 }) {
       <span className="font-semibold">{label}:</span>{' '}
       {vencida
         ? `Vencida hace ${Math.abs(diasRestantes)} días`
-        : `Vence en ${diasRestantes} días (${proxima.toLocaleDateString('es-ES')})`}
+        : `Vence en ${diasRestantes} días (${formatDiaCalendario(proxima)})`}
     </div>
   );
 }
@@ -123,10 +120,9 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
 
   const proximaITV = calcProximaITV(form.fecha_matriculacion, form.fecha_itv);
   const proximaITS = calcProximaITS(form.fecha_its);
-  // Tarjeta de transporte: vence exactamente en la fecha indicada
-  const proximaTarjeta = form.fecha_tarjeta_transporte
-    ? new Date(form.fecha_tarjeta_transporte)
-    : null;
+  // Tarjeta de transporte: vence exactamente en la fecha indicada. Como las
+  // otras dos, viaja como 'yyyy-MM-dd' y no como Date: es una fecha sin hora.
+  const proximaTarjeta = form.fecha_tarjeta_transporte || null;
 
   return (
     <Modal

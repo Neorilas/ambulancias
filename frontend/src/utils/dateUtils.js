@@ -72,6 +72,92 @@ export function formatDateTimeShort(date) {
 }
 
 /**
+ * Día del calendario español ('yyyy-MM-dd') en que cae un instante.
+ * Para agrupar por días sin que la zona del dispositivo mueva la frontera.
+ */
+export function diaEnEspana(date) {
+  const d = aInstante(date);
+  if (!d) return '';
+  return format(aHoraEspanola(d), 'yyyy-MM-dd');
+}
+
+/**
+ * Formatea un valor que es una FECHA SOLA, sin hora: una caducidad de ITV, un
+ * día de servicio. No lleva instante asociado, así que no se convierte de zona
+ * — se lee tal cual. Pasarlo por `new Date(...).toLocaleDateString()` hacía que
+ * un dispositivo al oeste de UTC mostrara el día anterior.
+ */
+export function formatFechaSola(valor) {
+  const s = aDiaCalendario(valor);
+  if (!s) return '—';
+  return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
+}
+
+/**
+ * Normaliza a 'yyyy-MM-dd' lo que llegue: la propia cadena, un ISO completo o
+ * un Date (del que se toma su día español). Devuelve null si no hay nada
+ * aprovechable — así un valor inesperado no tumba la página entera, que es lo
+ * que pasa si `parseISO` recibe algo que no es una cadena.
+ */
+function aDiaCalendario(valor) {
+  if (!valor) return null;
+  if (valor instanceof Date) return isValid(valor) ? diaEnEspana(valor) : null;
+  if (typeof valor !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(valor);
+  return m ? m[1] : null;
+}
+
+/**
+ * Formatea un 'yyyy-MM-dd' (día del calendario, sin hora) con un patrón de
+ * date-fns. No convierte de zona: parseISO deja ese mismo día en el reloj
+ * local, así que el nombre del día siempre es el que toca.
+ */
+export function formatDiaCalendario(dia, fmt = 'dd/MM/yyyy') {
+  const s = aDiaCalendario(dia);
+  if (!s) return '—';
+  const d = parseISO(s);
+  if (!isValid(d)) return '—';
+  return format(d, fmt, { locale: es });
+}
+
+/** Suma días a un 'yyyy-MM-dd' y devuelve otro 'yyyy-MM-dd'. */
+export function sumarDias(dia, n) {
+  const s = aDiaCalendario(dia);
+  if (!s) return dia;
+  const d = parseISO(s);
+  d.setDate(d.getDate() + n);
+  return format(d, 'yyyy-MM-dd');
+}
+
+/** Suma meses a un 'yyyy-MM-dd' y devuelve otro 'yyyy-MM-dd'. */
+export function sumarMeses(dia, n) {
+  const s = aDiaCalendario(dia);
+  if (!s) return dia;
+  const d = parseISO(s);
+  d.setMonth(d.getMonth() + n);
+  return format(d, 'yyyy-MM-dd');
+}
+
+/**
+ * Días de calendario que faltan hasta `dia` ('yyyy-MM-dd') contando desde hoy
+ * en España. Negativo si ya pasó. Al ser aritmética de calendario, no la
+ * descoloca ni la zona del dispositivo ni el cambio de hora.
+ */
+export function diasHasta(dia, desde = diaEnEspana(new Date())) {
+  const sa = aDiaCalendario(desde);
+  const sb = aDiaCalendario(dia);
+  if (!sa || !sb) return null;
+  const a = parseISO(sa);
+  const b = parseISO(sb);
+  if (!isValid(a) || !isValid(b)) return null;
+  const MS_DIA = 24 * 60 * 60 * 1000;
+  return Math.round(
+    (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+     Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / MS_DIA
+  );
+}
+
+/**
  * Convierte el "yyyy-MM-ddTHH:mm" de un input datetime-local a UTC ISO sin
  * segundos, que es como lo guarda la API. Lo que el usuario teclea se
  * interpreta como hora ESPAÑOLA, no como la del dispositivo.

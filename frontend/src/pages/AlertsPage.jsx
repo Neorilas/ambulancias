@@ -20,6 +20,7 @@ import { vehiclesService }   from '../services/vehicles.service.js';
 import { useNotification }   from '../context/NotificationContext.jsx';
 import { PageLoading }       from '../components/common/LoadingSpinner.jsx';
 import ConfirmDialog         from '../components/common/ConfirmDialog.jsx';
+import { formatFechaSola, formatDate } from '../utils/dateUtils.js';
 import {
   TIPO_LABEL,
   thresholdStyle,
@@ -157,7 +158,7 @@ export default function AlertsPage() {
           <p className="text-neutral-500 text-sm">
             ITV, ITS y tarjeta de transporte · {kpis.total} alertas en los próximos {horizonte} días
             {lastFetch && (
-              <span className="text-neutral-400"> · actualizado {lastFetch.toLocaleTimeString('es-ES')}</span>
+              <span className="text-neutral-400"> · actualizado {formatDate(lastFetch, 'HH:mm:ss')}</span>
             )}
           </p>
         </div>
@@ -262,7 +263,7 @@ export default function AlertsPage() {
             <div className="grid grid-cols-1 sm:hidden gap-2">
               {visibles.map(a => {
                 const descartada = isDismissed(a);
-                const fechaStr = new Date(a.fecha_caducidad).toLocaleDateString('es-ES');
+                const fechaStr = formatFechaSola(a.fecha_caducidad);
                 return (
                   <div key={`${a.vehicle_id}:${a.tipo}:${a.threshold}`}
                     className={`card space-y-2 ${descartada ? 'opacity-60' : ''}`}>
@@ -307,7 +308,7 @@ export default function AlertsPage() {
                   <tbody className="divide-y divide-neutral-100">
                     {visibles.map(a => {
                       const descartada = isDismissed(a);
-                      const fechaStr = new Date(a.fecha_caducidad).toLocaleDateString('es-ES');
+                      const fechaStr = formatFechaSola(a.fecha_caducidad);
                       return (
                         <tr
                           key={`${a.vehicle_id}:${a.tipo}:${a.threshold}`}

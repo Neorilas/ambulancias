@@ -3,6 +3,7 @@ import {
   formatDate, formatDateTime, formatDateTimeShort,
   toUtcIso, toInputDatetime, toInputDate,
   isWorkActive, isOverdue, duration,
+  diaEnEspana, formatFechaSola, formatDiaCalendario, sumarDias, sumarMeses, diasHasta,
 } from '../../../utils/dateUtils';
 
 describe('dateUtils', () => {
@@ -54,6 +55,65 @@ describe('dateUtils', () => {
     it('no se salta el día al cruzar la medianoche española', () => {
       // 22:30 UTC del 30 de junio son ya las 00:30 del 1 de julio en España
       expect(formatDateTime('2026-06-30T22:30:00.000Z')).toBe('01/07/2026 00:30');
+    });
+  });
+
+  // Una caducidad de ITV o un día de servicio no llevan hora: no son un
+  // instante, así que no se convierten de zona. Convertirlos hacía que un
+  // dispositivo al oeste de UTC mostrara el día anterior.
+  describe('fechas sin hora', () => {
+    it('formatFechaSola lee el día tal cual', () => {
+      expect(formatFechaSola('2026-09-30')).toBe('30/09/2026');
+      expect(formatFechaSola('2026-09-30T00:00:00.000Z')).toBe('30/09/2026');
+      expect(formatFechaSola(null)).toBe('—');
+      expect(formatFechaSola('vaya')).toBe('—');
+    });
+
+    it('formatDiaCalendario da el nombre del día correcto', () => {
+      expect(formatDiaCalendario('2026-09-19', 'EEE')).toBe('sáb');
+      expect(formatDiaCalendario('2026-09-19')).toBe('19/09/2026');
+      expect(formatDiaCalendario('nada')).toBe('—');
+    });
+
+    it('sumarDias cruza bien el fin de mes', () => {
+      expect(sumarDias('2026-09-30', 2)).toBe('2026-10-02');
+      expect(sumarDias('2026-12-31', 1)).toBe('2027-01-01');
+    });
+
+    it('sumarMeses sirve para las caducidades de ITV e ITS', () => {
+      expect(sumarMeses('2026-04-12', 12)).toBe('2027-04-12');
+      expect(sumarMeses('2026-04-12', 6)).toBe('2026-10-12');
+    });
+
+    // Un valor inesperado tumbaba la página entera: parseISO explota si no
+    // recibe una cadena, y eso dejó el formulario de vehículo en blanco.
+    it('aguanta un Date, un ISO completo o directamente basura', () => {
+      const comoDate = new Date('2026-09-30T10:00:00.000Z');
+      expect(formatFechaSola(comoDate)).toBe('30/09/2026');
+      expect(formatDiaCalendario(comoDate)).toBe('30/09/2026');
+      expect(diasHasta(comoDate, '2026-09-19')).toBe(11);
+
+      for (const basura of [null, undefined, 42, 'basura', {}, new Date('x')]) {
+        expect(formatFechaSola(basura)).toBe('—');
+        expect(formatDiaCalendario(basura)).toBe('—');
+        expect(diasHasta(basura, '2026-09-19')).toBeNull();
+      }
+    });
+
+    it('diasHasta cuenta días de calendario, también cruzando el cambio de hora', () => {
+      expect(diasHasta('2026-09-30', '2026-09-19')).toBe(11);
+      expect(diasHasta('2026-09-10', '2026-09-19')).toBe(-9);   // ya vencida
+      // El último domingo de octubre el día dura 25 horas: aun así son 12 días
+      expect(diasHasta('2026-11-01', '2026-10-20')).toBe(12);
+      expect(diasHasta('nada', '2026-09-19')).toBeNull();
+    });
+  });
+
+  describe('diaEnEspana', () => {
+    it('agrupa por el día español, no por el de UTC', () => {
+      // 22:30 UTC del 30 de junio ya es 1 de julio en España
+      expect(diaEnEspana('2026-06-30T22:30:00.000Z')).toBe('2026-07-01');
+      expect(diaEnEspana('2026-09-19T06:45:59.000Z')).toBe('2026-09-19');
     });
   });
 

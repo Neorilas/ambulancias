@@ -14,7 +14,7 @@ const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
-const { ahora }                  = require('../utils/fecha.utils');
+const { ahora, fechaEnEspana }   = require('../utils/fecha.utils');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -441,23 +441,43 @@ async function finalizarAsignacion(req, res, next) {
       );
     }
 
-    await query(
-      `UPDATE asignaciones_libres SET
-         estado         = 'finalizada',
-         km_fin         = ?,
-         motivo_fin     = ?,
-         finalizado_por = ?,
-         finalizado_at  = ?
-       WHERE id = ?`,
-      [km_fin || null, motivo_fin || null, req.user.id, ahora(), asig.id]
-    );
+    // Cerrar la asignación y poner al día el vehículo van juntos: si el
+    // kilometraje de la flota no avanzara, la ficha del vehículo se quedaría
+    // congelada aunque la ambulancia lleve meses saliendo.
+    await transaction(async (conn) => {
+      await conn.execute(
+        `UPDATE asignaciones_libres SET
+           estado         = 'finalizada',
+           km_fin         = ?,
+           motivo_fin     = ?,
+           finalizado_por = ?,
+           finalizado_at  = ?
+         WHERE id = ?`,
+        [km_fin ?? null, motivo_fin || null, req.user.id, ahora(), asig.id]
+      );
+
+      // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
+      // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
+      // propagar. El guard `kilometros_actuales < ?` evita que el contador
+      // retroceda por una anotación equivocada; es el mismo criterio que usa
+      // finalizeTrabajo, y por eso la fecha de último servicio tampoco se toca
+      // cuando la lectura no supera a la que ya había.
+      if (km_fin != null) {
+        await conn.execute(
+          `UPDATE vehicles SET kilometros_actuales   = ?,
+                               fecha_ultimo_servicio = ?
+           WHERE id = ? AND kilometros_actuales < ?`,
+          [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
+        );
+      }
+    });
 
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
       action:   'finalize_asignacion',
       entityType: 'asignacion', entityId: asig.id,
-      details:  { vehiculo: asig.matricula, km_fin: km_fin || null, anticipada: esAnticipada, motivo_fin: motivo_fin || null },
+      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: motivo_fin || null },
       ip: req.ip,
     });
     const updated = await getAsignacionCompleta(asig.id);

@@ -14,6 +14,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth }         from '../../context/AuthContext.jsx';
 import { vehiclesService } from '../../services/vehicles.service.js';
+import { formatFechaSola } from '../../utils/dateUtils.js';
 import {
   TIPO_LABEL,
   thresholdStyle,
@@ -30,7 +31,7 @@ function AlertCard({ alerta, onDismiss }) {
   const vencida = threshold === 'vencida';
   const style = thresholdStyle(threshold);
 
-  const fechaStr = new Date(fecha_caducidad).toLocaleDateString('es-ES');
+  const fechaStr = formatFechaSola(fecha_caducidad);
 
   return (
     <div
