@@ -152,6 +152,13 @@ describe('AuthContext', () => {
       const { result } = setupUser([ROLES.ADMINISTRADOR]);
       expect(result.current.isOperacional()).toBe(false);
     });
+
+    // Los roles no son excluyentes: el jefe de flota también sale de servicio.
+    it('isOperacional false si al rol de campo se le suma uno de mando', () => {
+      expect(setupUser([ROLES.ADMINISTRADOR, ROLES.TECNICO]).result.current.isOperacional()).toBe(false);
+      expect(setupUser([ROLES.GESTOR, ROLES.ENFERMERO]).result.current.isOperacional()).toBe(false);
+      expect(setupUser([ROLES.SUPERADMIN, ROLES.MEDICO]).result.current.isOperacional()).toBe(false);
+    });
   });
 
   describe('permission helpers', () => {

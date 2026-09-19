@@ -224,6 +224,13 @@ manage_incidencias, access_admin`. Backend: `requirePermission(...)` /
 `requireRole`. Frontend: `hasPermission(...)` y `allowedRoles` en
 `ProtectedRoute`. El usuario normal queda acotado a **Mis Asignaciones**.
 
+**Los roles no son excluyentes.** Un administrador o un gestor pueden llevar
+además `tecnico` porque también salen de servicio. Por eso `isOperacional()`
+(back y front) significa «personal de campo **sin mando**» y devuelve `false`
+en cuanto hay un rol de gestión: es el predicado que *recorta* lo que se ve
+(flota y trabajos), y ese recorte dejaba al administrador sin un solo vehículo
+que asignar. Para preguntar por el rol a secas, `hasRole(user, ROLES.TECNICO)`.
+
 ## 7. Feature flags
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.

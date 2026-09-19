@@ -51,6 +51,13 @@ describe('roles.middleware', () => {
       expect(isOperacional({ roles: ['medico'] })).toBe(true);
       expect(isOperacional({ roles: ['gestor'] })).toBe(false);
     });
+    // Un jefe de flota que ademas sale de servicio lleva los dos roles: manda
+    // el de gestion, o se queda sin ver un solo vehiculo que asignar.
+    it('isOperacional ignora el rol de campo si ademas hay mando', () => {
+      expect(isOperacional({ roles: ['administrador', 'tecnico'] })).toBe(false);
+      expect(isOperacional({ roles: ['gestor', 'enfermero'] })).toBe(false);
+      expect(isOperacional({ roles: ['superadmin', 'medico'] })).toBe(false);
+    });
   });
 
   describe('requireRole', () => {

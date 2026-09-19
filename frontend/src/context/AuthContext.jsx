@@ -68,9 +68,14 @@ export function AuthProvider({ children }) {
   const isSuperAdmin = useCallback(() => hasRole(ROLES.SUPERADMIN),    [hasRole]);
   const isAdmin      = useCallback(() => hasRole(ROLES.ADMINISTRADOR), [hasRole]);
   const isGestor     = useCallback(() => hasRole(ROLES.GESTOR),        [hasRole]);
+  // Personal de campo **sin mando**: los roles no son excluyentes y un
+  // administrador o un gestor pueden llevar además el rol `tecnico` porque
+  // también salen de servicio. Manda entonces el rol de gestión, igual que en
+  // el `isOperacional` del backend (middleware/roles.middleware.js).
   const isOperacional = useCallback(() =>
-    hasRole(ROLES.TECNICO) || hasRole(ROLES.ENFERMERO) || hasRole(ROLES.MEDICO),
-    [hasRole]
+    (hasRole(ROLES.TECNICO) || hasRole(ROLES.ENFERMERO) || hasRole(ROLES.MEDICO))
+    && !isSuperAdmin() && !isAdmin() && !isGestor(),
+    [hasRole, isSuperAdmin, isAdmin, isGestor]
   );
 
   // ── Helper de permiso ─────────────────────────────────────────

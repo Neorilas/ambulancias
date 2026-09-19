@@ -76,8 +76,24 @@ const requireAnyRole = (req, res, next) => {
 
 const isSuperAdmin  = (user) => hasRole(user, ROLES.SUPERADMIN);
 const isAdmin       = (user) => hasRole(user, ROLES.ADMINISTRADOR);
+const isGestor      = (user) => hasRole(user, ROLES.GESTOR);
+
+/**
+ * ¿Es personal de campo **sin mando**?
+ *
+ * Los roles no son excluyentes: un administrador o un gestor pueden llevar
+ * además el rol `tecnico` porque también salen de servicio. Quien pregunta
+ * por esto siempre quiere *recortar* lo que se ve (la flota se reduce a los
+ * vehículos que uno lleva ahora mismo, los trabajos a los propios), y ese
+ * recorte no debe caerle a quien gestiona: se quedaba sin un solo vehículo en
+ * el desplegable de «Nueva asignación» y sin lista de flota.
+ *
+ * Para saber solo si alguien lleva un rol operativo, sin mirar el mando, usa
+ * `hasRole(user, ROLES.TECNICO)` y compañía.
+ */
 const isOperacional = (user) =>
-  hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) || hasRole(user, ROLES.MEDICO);
+  (hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) || hasRole(user, ROLES.MEDICO))
+  && !isSuperAdmin(user) && !isAdmin(user) && !isGestor(user);
 
 module.exports = {
   requireRole,
@@ -90,5 +106,6 @@ module.exports = {
   hasPermission,
   isSuperAdmin,
   isAdmin,
+  isGestor,
   isOperacional,
 };
