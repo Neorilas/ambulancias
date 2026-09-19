@@ -15,6 +15,63 @@ const { logAudit }                    = require('./admin.controller');
 const { ahora }                       = require('../utils/fecha.utils');
 
 // ============================================================
+// Reglas de quién puede tocar qué roles
+//
+// El rol `superadmin` está por encima de todo (`hasPermission()` le hace
+// bypass de permisos y le abre el panel /admin), así que solo un superadmin
+// puede concederlo, retirarlo o editar a quien ya lo tiene. Un gestor, como
+// hasta ahora, tampoco llega a los administradores.
+// Devuelve el mensaje del 403 a devolver, o null si la operación es legítima.
+// ============================================================
+function motivoRolProhibido(caller, targetRoles = [], newRoles) {
+  const superadmin = isSuperAdmin(caller);
+  const gestor     = (caller.roles || []).includes(ROLES.GESTOR)
+                     && !isAdmin(caller) && !superadmin;
+
+  if (!superadmin) {
+    if (targetRoles.includes(ROLES.SUPERADMIN)) {
+      return 'Solo un superadministrador puede modificar a otro superadministrador';
+    }
+    if (newRoles?.includes(ROLES.SUPERADMIN)) {
+      return 'Solo un superadministrador puede asignar el rol de superadministrador';
+    }
+  }
+
+  if (gestor) {
+    if (targetRoles.includes(ROLES.ADMINISTRADOR)) {
+      return 'No tienes permiso para modificar un administrador';
+    }
+    if (newRoles?.includes(ROLES.ADMINISTRADOR)) {
+      return 'No tienes permiso para asignar el rol de administrador';
+    }
+  }
+
+  return null;
+}
+
+// Resuelve los nombres de rol contra el catálogo real de la tabla `roles`.
+// Antes se hacía un `IN (...)` y los nombres inventados se ignoraban en
+// silencio; ahora la petición falla y se dice cuál no existe.
+async function resolverRoles(conn, nombres) {
+  const unicos = [...new Set(nombres)];
+  if (!unicos.length) return [];
+
+  const [rows] = await conn.execute(
+    `SELECT id, nombre FROM roles WHERE nombre IN (${unicos.map(() => '?').join(',')})`,
+    unicos
+  );
+  const encontrados = new Set(rows.map(r => r.nombre));
+  const faltan = unicos.filter(n => !encontrados.has(n));
+  if (faltan.length) {
+    throw Object.assign(new Error('Rol inexistente'), {
+      type: 'validation',
+      errors: faltan.map(n => `El rol "${n}" no existe`),
+    });
+  }
+  return rows;
+}
+
+// ============================================================
 // GET /users
 // ============================================================
 async function listUsers(req, res, next) {
@@ -110,6 +167,10 @@ async function createUser(req, res, next) {
     const { username, password, email, nombre, apellidos, dni,
             direccion, telefono, roles: roleNames = [] } = req.body;
 
+    // Un administrador no puede fabricar un superadmin: solo otro superadmin
+    const rolProhibido = motivoRolProhibido(req.user, [], roleNames);
+    if (rolProhibido) return forbidden(res, rolProhibido);
+
     // Validar fortaleza de contraseña
     const { valid, errors: pwErrors } = validatePasswordStrength(password);
     if (!valid) return validationError(res, pwErrors.map(e => ({ field: 'password', message: e })));
@@ -134,10 +195,7 @@ async function createUser(req, res, next) {
 
       // Asignar roles si se proporcionaron
       if (roleNames.length > 0) {
-        const [roleRows] = await conn.execute(
-          `SELECT id, nombre FROM roles WHERE nombre IN (${roleNames.map(() => '?').join(',')})`,
-          roleNames
-        );
+        const roleRows = await resolverRoles(conn, roleNames);
         for (const role of roleRows) {
           await conn.execute(
             'INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)',
@@ -200,20 +258,16 @@ async function updateUser(req, res, next) {
     if (!existing.length) return notFound(res, 'Usuario');
 
     const targetRoles = existing[0].roles ? existing[0].roles.split(',') : [];
-    const isGestor    = caller.roles.includes(ROLES.GESTOR) && !isAdmin(caller);
-
-    // Gestor no puede modificar a un administrador
-    if (isGestor && targetRoles.includes(ROLES.ADMINISTRADOR)) {
-      return forbidden(res, 'No tienes permiso para modificar un administrador');
-    }
 
     const { email, nombre, apellidos, dni, direccion, telefono, activo,
             roles: newRoles, password } = req.body;
 
-    // Gestor no puede asignar rol administrador
-    if (isGestor && newRoles?.includes(ROLES.ADMINISTRADOR)) {
-      return forbidden(res, 'No tienes permiso para asignar el rol de administrador');
-    }
+    // Quién puede tocar a quién, y qué roles puede repartir
+    const rolProhibido = motivoRolProhibido(caller, targetRoles, newRoles);
+    if (rolProhibido) return forbidden(res, rolProhibido);
+
+    // `activo` y `password` los toca un administrador (o un superadmin)
+    const puedeCamposSensibles = isAdmin(caller) || isSuperAdmin(caller);
 
     await transaction(async (conn) => {
       // Actualizar campos básicos (solo los que lleguen)
@@ -225,11 +279,11 @@ async function updateUser(req, res, next) {
       if (dni       !== undefined) { updates.push('dni = ?');       vals.push(dni); }
       if (direccion !== undefined) { updates.push('direccion = ?'); vals.push(direccion || null); }
       if (telefono  !== undefined) { updates.push('telefono = ?');  vals.push(telefono || null); }
-      if (activo    !== undefined && isAdmin(caller)) {
+      if (activo    !== undefined && puedeCamposSensibles) {
         updates.push('activo = ?'); vals.push(activo ? 1 : 0);
       }
 
-      if (password !== undefined && isAdmin(caller)) {
+      if (password !== undefined && puedeCamposSensibles) {
         const { valid, errors: pwErrors } = validatePasswordStrength(password);
         if (!valid) throw Object.assign(new Error('Password débil'), { type: 'validation', errors: pwErrors });
         updates.push('password_hash = ?');
@@ -248,10 +302,7 @@ async function updateUser(req, res, next) {
         // Borrar roles actuales
         await conn.execute('DELETE FROM user_roles WHERE user_id = ?', [targetId]);
         if (newRoles.length > 0) {
-          const [roleRows] = await conn.execute(
-            `SELECT id FROM roles WHERE nombre IN (${newRoles.map(() => '?').join(',')})`,
-            newRoles
-          );
+          const roleRows = await resolverRoles(conn, newRoles);
           for (const role of roleRows) {
             await conn.execute(
               'INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)',
@@ -371,9 +422,21 @@ async function deleteUser(req, res, next) {
     }
 
     const [existing] = await query(
-      'SELECT id FROM users WHERE id = ? AND deleted_at IS NULL', [targetId]
+      `SELECT u.id, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id
+       LEFT JOIN roles r ON ur.role_id = r.id
+       WHERE u.id = ? AND u.deleted_at IS NULL
+       GROUP BY u.id`,
+      [targetId]
     );
     if (!existing.length) return notFound(res, 'Usuario');
+
+    // Borrar a un superadmin es cosa de otro superadmin
+    const targetRoles = existing[0].roles ? existing[0].roles.split(',') : [];
+    if (targetRoles.includes(ROLES.SUPERADMIN) && !isSuperAdmin(req.user)) {
+      return forbidden(res, 'Solo un superadministrador puede eliminar a otro superadministrador');
+    }
 
     await transaction(async (conn) => {
       // Soft delete — sufijamos username y dni para liberar los UNIQUE KEYs de MySQL

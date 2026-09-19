@@ -8,11 +8,18 @@ const express  = require('express');
 const { body, param, query } = require('express-validator');
 const ctrl     = require('../controllers/users.controller');
 const { authenticate }       = require('../middleware/auth.middleware');
-const { requireAdminOrGestor, requireAdmin, requireRole } = require('../middleware/roles.middleware');
+const { requireRole }        = require('../middleware/roles.middleware');
 const { ROLES }              = require('../config/constants');
 const { handleValidation }   = require('../middleware/validate.middleware');
 
 const router = express.Router();
+
+// El superadmin es el rol por encima de todo, pero no está incluido en los
+// alias `requireAdmin`/`requireAdminOrGestor` del middleware: aquí se añade
+// explícitamente para que una cuenta solo-superadmin pueda gestionar usuarios
+// (y, sobre todo, repartir el rol `superadmin`, que ya solo puede dar ella).
+const soloAdmin     = requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN);
+const adminOGestor  = requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR);
 
 // Todas las rutas requieren autenticación
 router.use(authenticate);
@@ -22,7 +29,7 @@ router.get('/roles', ctrl.listRoles);
 
 // POST /users/roles  - crear rol (solo admin)
 router.post('/roles',
-  requireAdmin,
+  soloAdmin,
   [
     body('nombre').trim().notEmpty().withMessage('Nombre de rol requerido')
       .isLength({ max: 50 }).withMessage('Máximo 50 caracteres')
@@ -34,13 +41,13 @@ router.post('/roles',
 
 // GET /users  - listar usuarios (admin o gestor)
 router.get('/',
-  requireAdminOrGestor,
+  adminOGestor,
   ctrl.listUsers
 );
 
 // GET /users/:id  - obtener usuario (admin o gestor)
 router.get('/:id',
-  requireAdminOrGestor,
+  adminOGestor,
   [param('id').isInt({ min: 1 }).withMessage('ID inválido')],
   handleValidation,
   ctrl.getUser
@@ -48,7 +55,7 @@ router.get('/:id',
 
 // POST /users  - crear usuario (solo admin)
 router.post('/',
-  requireAdmin,
+  soloAdmin,
   [
     body('username').trim().notEmpty().withMessage('Username requerido')
       .isLength({ min: 3, max: 50 }).withMessage('Username: entre 3 y 50 caracteres')
@@ -68,12 +75,13 @@ router.post('/',
 
 // PUT /users/:id  - actualizar usuario (admin o gestor)
 router.put('/:id',
-  requireAdminOrGestor,
+  adminOGestor,
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),
     body('email').optional({ nullable: true }).isEmail().withMessage('Email inválido').normalizeEmail(),
     body('telefono').optional({ nullable: true }).isLength({ max: 20 }),
-    body('roles').optional().isArray(),
+    body('roles').optional().isArray().withMessage('roles debe ser un array'),
+    body('roles.*').optional().isString().withMessage('Cada rol debe ser un string'),
   ],
   handleValidation,
   ctrl.updateUser
@@ -81,7 +89,7 @@ router.put('/:id',
 
 // POST /users/:id/reset-password  - resetear contraseña (admin o superadmin)
 router.post('/:id/reset-password',
-  requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN),
+  soloAdmin,
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),
     body('password').optional({ nullable: true }).isString()
@@ -93,7 +101,7 @@ router.post('/:id/reset-password',
 
 // DELETE /users/:id  - soft delete (solo admin)
 router.delete('/:id',
-  requireAdmin,
+  soloAdmin,
   [param('id').isInt({ min: 1 }).withMessage('ID inválido')],
   handleValidation,
   ctrl.deleteUser

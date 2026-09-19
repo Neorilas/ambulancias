@@ -129,6 +129,17 @@ describe('users.controller', () => {
       expect(res.status).toHaveBeenCalledWith(422);
     });
 
+    it('returns 403 when an administrador tries to create a superadmin', async () => {
+      const res = mockRes();
+      await createUser(mockReq({
+        body: { username: 'nuevo', password: 'Test1234!', nombre: 'N', apellidos: 'U',
+                dni: '44444444D', roles: ['superadmin'] },
+        user: { id: 1, username: 'admin', roles: ['administrador'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(query).not.toHaveBeenCalled();
+    });
+
     it('creates user without roles (empty roleNames branch)', async () => {
       query.mockResolvedValueOnce([[]]); // no duplicate
       transaction.mockImplementation(async (cb) => {
@@ -207,6 +218,88 @@ describe('users.controller', () => {
       expect(res.status).toHaveBeenCalledWith(403);
     });
 
+    it('returns 403 when gestor tries to assign superadmin role (SEC-01)', async () => {
+      query.mockResolvedValueOnce([[{ id: 4, activo: 1, roles: 'gestor' }]]);
+
+      const req = mockReq({
+        params: { id: '4' },
+        body: { roles: ['gestor', 'superadmin'] },
+        user: { id: 4, roles: ['gestor'], username: 'gestor1' },
+      });
+      const res = mockRes();
+      await updateUser(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 when an administrador tries to assign superadmin role', async () => {
+      query.mockResolvedValueOnce([[{ id: 2, activo: 1, roles: 'tecnico' }]]);
+
+      const req = mockReq({
+        params: { id: '2' },
+        body: { roles: ['superadmin'] },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      });
+      const res = mockRes();
+      await updateUser(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 when a non-superadmin tries to modify a superadmin', async () => {
+      query.mockResolvedValueOnce([[{ id: 9, activo: 1, roles: 'administrador,superadmin' }]]);
+
+      const req = mockReq({
+        params: { id: '9' },
+        body: { nombre: 'Secuestrado' },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      });
+      const res = mockRes();
+      await updateUser(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('lets a superadmin assign the superadmin role', async () => {
+      query.mockResolvedValueOnce([[{ id: 2, activo: 1, roles: 'tecnico' }]]);
+      transaction.mockImplementation(async (cb) => cb({
+        execute: jest.fn()
+          .mockResolvedValueOnce([])                                  // DELETE user_roles
+          .mockResolvedValueOnce([[{ id: 1, nombre: 'superadmin' }]]) // SELECT roles
+          .mockResolvedValueOnce([]),                                 // INSERT user_roles
+      }));
+      query.mockResolvedValueOnce([[{ id: 2, username: 'tec', email: null, nombre: 'Tec', apellidos: 'U', activo: 1, roles: 'superadmin' }]]);
+
+      const req = mockReq({
+        params: { id: '2' },
+        body: { roles: ['superadmin'] },
+        user: { id: 1, roles: ['superadmin'], username: 'root' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await updateUser(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('rejects a role that does not exist in the catalogue', async () => {
+      query.mockResolvedValueOnce([[{ id: 2, activo: 1, roles: 'tecnico' }]]);
+      transaction.mockImplementation(async (cb) => cb({
+        execute: jest.fn()
+          .mockResolvedValueOnce([])      // DELETE user_roles
+          .mockResolvedValueOnce([[]]),   // SELECT roles → el rol no existe
+      }));
+
+      const req = mockReq({
+        params: { id: '2' },
+        body: { roles: ['rol_inventado'] },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      });
+      const res = mockRes();
+      const next = mockNext();
+      await updateUser(req, res, next);
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ type: 'validation' }));
+    });
+
     it('updates user password (admin caller)', async () => {
       query.mockResolvedValueOnce([[{ id: 2, activo: 1, roles: 'tecnico' }]]);
       transaction.mockImplementation(async (cb) => {
@@ -257,7 +350,7 @@ describe('users.controller', () => {
         // Call 3: INSERT user_roles → []
         executeMock
           .mockResolvedValueOnce([])                        // DELETE user_roles
-          .mockResolvedValueOnce([[{ id: 3 }]])             // SELECT roles
+          .mockResolvedValueOnce([[{ id: 3, nombre: 'enfermero' }]]) // SELECT roles
           .mockResolvedValueOnce([]);                       // INSERT user_roles
         const conn = { execute: executeMock };
         return cb(conn);
@@ -308,6 +401,18 @@ describe('users.controller', () => {
       const res = mockRes();
       await deleteUser(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 403 when a non-superadmin deletes a superadmin', async () => {
+      query.mockResolvedValueOnce([[{ id: 9, roles: 'superadmin' }]]);
+
+      const res = mockRes();
+      await deleteUser(mockReq({
+        params: { id: '9' },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
     });
 
     it('returns 400 for self-deletion', async () => {
