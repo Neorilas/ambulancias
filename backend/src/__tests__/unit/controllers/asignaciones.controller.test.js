@@ -1,6 +1,6 @@
 'use strict';
 
-const { query } = require('../../../config/database');
+const { query, transaction } = require('../../../config/database');
 
 jest.mock('../../../controllers/admin.controller', () => ({
   logAudit: jest.fn(),
@@ -51,7 +51,18 @@ describe('asignaciones.controller', () => {
   // clearAllMocks NO vacía la cola de mockResolvedValueOnce; mockReset sí.
   // Sin esto, los valores encolados y no consumidos por un test se filtran al
   // siguiente y corrompen sus resultados de `query`.
-  beforeEach(() => { jest.clearAllMocks(); query.mockReset(); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    query.mockReset();
+    // finalizarAsignacion cierra la asignación y pone al día el vehículo en
+    // una transacción; el conn simulado reenvía a `query` para que los tests
+    // sigan viendo las sentencias en query.mock.calls.
+    transaction.mockReset();
+    transaction.mockImplementation(async (cb) => cb({
+      execute: (sql, params) => query(sql, params),
+      query:   (sql, params) => query(sql, params),
+    }));
+  });
 
   // ── listAsignaciones ───────────────────────────────────
   describe('listAsignaciones', () => {
@@ -398,6 +409,53 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await finalizarAsignacion(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    // El kilometraje de la flota solo avanza por aquí: el producto se usa por
+    // asignaciones, no por trabajos.
+    it('sube los km del vehículo y la fecha de último servicio al cerrar', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', vehicle_id: 7, km_inicio: 50000,
+        fecha_fin: new Date(Date.now() - 3600000),
+      });
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      query.mockResolvedValueOnce([]); // UPDATE vehicles
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100 },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), mockRes(), mockNext());
+
+      const updVehiculo = query.mock.calls.find(([sql]) => sql.includes('UPDATE vehicles'));
+      expect(updVehiculo).toBeDefined();
+      // No deja retroceder el cuentakilómetros
+      expect(updVehiculo[0]).toContain('kilometros_actuales < ?');
+      const [km, fecha, vehicleId, guard] = updVehiculo[1];
+      expect(km).toBe(50100);
+      expect(fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);   // día español, columna DATE
+      expect(vehicleId).toBe(7);
+      expect(guard).toBe(50100);
+    });
+
+    it('no toca el vehículo si el técnico no anotó los km', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', vehicle_id: 7, km_inicio: 50000,
+        fecha_fin: new Date(Date.now() - 3600000),
+      });
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: {},   // sin km_fin
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE vehicles'))).toBe(false);
     });
 
     it('returns 400 for already finalizada', async () => {

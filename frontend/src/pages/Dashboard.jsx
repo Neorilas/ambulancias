@@ -6,7 +6,8 @@ import { asignacionesService } from '../services/asignaciones.service.js';
 import { vehiclesService } from '../services/vehicles.service.js';
 import { usersService } from '../services/users.service.js';
 import { EstadoBadge } from '../components/common/StatusBadge.jsx';
-import { formatDate, formatDateTime } from '../utils/dateUtils.js';
+import { formatDate, formatDateTime, diaEnEspana, sumarDias, formatDiaCalendario }
+  from '../utils/dateUtils.js';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import { useNotification } from '../context/NotificationContext.jsx';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../utils/constants.js';
@@ -33,26 +34,17 @@ function StatCard({ label, value, to, tone = 'text-neutral-900' }) {
 
 // Tira semanal: 7 días con puntos de color por estado de trabajo
 function WeekStrip({ trabajos }) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Los días son 'yyyy-MM-dd' del calendario ESPAÑOL, no del dispositivo: así
+  // un trabajo que empieza a las 00:30 cae en su día y no en el anterior.
+  const hoy  = diaEnEspana(new Date());
+  const days = Array.from({ length: 7 }, (_, i) => sumarDias(hoy, i));
 
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
+  const labelDay = (day) => formatDiaCalendario(day, 'EEE');
+  const labelNum = (day) => Number(day.slice(8, 10));
+  const isToday  = (day) => day === hoy;
 
-  const labelDay = (d) => d.toLocaleDateString('es-ES', { weekday: 'short' });
-  const labelNum  = (d) => d.getDate();
-  const isToday   = (d) => d.toDateString() === today.toDateString();
-
-  const inDay = (trabajo, day) => {
-    const ini = new Date(trabajo.fecha_inicio);
-    const fin = new Date(trabajo.fecha_fin);
-    ini.setHours(0, 0, 0, 0);
-    fin.setHours(23, 59, 59, 999);
-    return day >= ini && day <= fin;
-  };
+  const inDay = (trabajo, day) =>
+    diaEnEspana(trabajo.fecha_inicio) <= day && day <= diaEnEspana(trabajo.fecha_fin);
 
   const dotColor = (estado) => ({
     activo:                'bg-primary-600',
@@ -350,7 +342,7 @@ function DashboardOperacional({ user }) {
           {saludo}, {user?.nombre}
         </h1>
         <p className="text-neutral-400 text-sm">
-          {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+          {formatDiaCalendario(diaEnEspana(new Date()), "EEEE, d 'de' MMMM")}
         </p>
       </div>
 
@@ -464,7 +456,7 @@ function DashboardAdmin({ user }) {
           {saludo}, {user?.nombre}
         </h1>
         <p className="text-neutral-500 text-sm mt-1">
-          {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {formatDiaCalendario(diaEnEspana(new Date()), "EEEE, d 'de' MMMM 'de' yyyy")}
         </p>
       </div>
 

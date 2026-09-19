@@ -4,7 +4,8 @@ import { trabajosService } from '../services/trabajos.service.js';
 import { useNotification } from '../context/NotificationContext.jsx';
 import { EstadoBadge } from '../components/common/StatusBadge.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
-import { formatDate, formatDateTime, isWorkActive, isOverdue } from '../utils/dateUtils.js';
+import { formatDate, formatDateTime, isWorkActive, isOverdue, diaEnEspana }
+  from '../utils/dateUtils.js';
 import { TRABAJO_ESTADOS } from '../utils/constants.js';
 import Finalizacion from './trabajos/Finalizacion.jsx';
 
@@ -41,16 +42,31 @@ function addDays(date, n) {
   return d;
 }
 
+/** Hoy segun el calendario espanol, como Date a medianoche local. */
+function hoyEnEspana() {
+  const [a, m, d] = diaEnEspana(new Date()).split('-').map(Number);
+  return new Date(a, m - 1, d);
+}
+
 function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 }
 
+/** 'yyyy-MM-dd' de una celda del calendario (un Date construido a medianoche
+ *  local, así que sus getters locales ya dan el día correcto). */
+function diaDeCelda(day) {
+  const dd = (n) => String(n).padStart(2, '0');
+  return `${day.getFullYear()}-${dd(day.getMonth() + 1)}-${dd(day.getDate())}`;
+}
+
+// El reparto por días se hace con el calendario ESPAÑOL, no con el del
+// dispositivo: si no, un trabajo que empieza a las 00:30 caería en la casilla
+// del día anterior para quien tenga el móvil en otra zona.
 function trabajoInDay(t, day) {
-  const ini = new Date(t.fecha_inicio); ini.setHours(0, 0, 0, 0);
-  const fin = new Date(t.fecha_fin);    fin.setHours(23, 59, 59, 999);
-  return day >= ini && day <= fin;
+  const celda = diaDeCelda(day);
+  return diaEnEspana(t.fecha_inicio) <= celda && celda <= diaEnEspana(t.fecha_fin);
 }
 
 // ── Subcomponentes ────────────────────────────────────────────────────────────
@@ -71,15 +87,15 @@ function TrabajoPill({ trabajo, onClick }) {
 
 // Vista de semana: lun-dom
 function VistaCalendarioSemana({ trabajos, onSelectTrabajo }) {
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(hoyEnEspana()));
+  const today = hoyEnEspana();
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const weekEnd = days[6];
 
   const prev = () => setWeekStart(d => addDays(d, -7));
   const next = () => setWeekStart(d => addDays(d, 7));
-  const goToday = () => setWeekStart(startOfWeek(new Date()));
+  const goToday = () => setWeekStart(startOfWeek(hoyEnEspana()));
 
   const fmt = (d) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 
@@ -139,7 +155,7 @@ function VistaCalendarioSemana({ trabajos, onSelectTrabajo }) {
 
 // Vista de mes
 function VistaCalendarioMes({ trabajos, onSelectTrabajo }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = hoyEnEspana();
   const [refDate, setRefDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
 
   const year  = refDate.getFullYear();
