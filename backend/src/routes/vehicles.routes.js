@@ -13,6 +13,7 @@ const { ROLES } = require('../config/constants');
 const { handleValidation }      = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
+const { requireVehicleUploadAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS }          = require('../config/constants');
 const { esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 
@@ -119,8 +120,11 @@ router.post('/:id/images',
     param('id').isInt({ min: 1 }),
     body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)
       .withMessage(`tipo_imagen debe ser uno de: ${IMAGEN_TIPOS.join(', ')}`),
+    body('trabajo_id').optional({ nullable: true }).isInt({ min: 1 }),
   ],
   handleValidation,
+  // Quién puede subir fotos de este vehículo — antes de tocar disco
+  requireVehicleUploadAccess,
   async (req, res, next) => {
     return processAndSave(`vehicles/${req.params.id}`)(req, res, next);
   },
