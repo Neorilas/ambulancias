@@ -87,14 +87,16 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `config/constants.js` | `ROLES`, estados/tipos de trabajo, `IMAGEN_TIPOS*` (inicio/fin/general), `UPLOAD`, `PAGINATION`, `LOCKOUT`. **Espejo de** `frontend/src/utils/constants.js` |
 | `config/database.js` | Pool mysql2, `query`, transacciones; sesión en UTC |
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
-| `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()` |
+| `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local` |
 
 Tests backend: `backend/src/__tests__/unit/{config,controllers,middleware,utils}`
 (un `*.test.js` por fichero; espejo de la estructura). Helpers en
 `__tests__/helpers/`. Gotcha: `clearAllMocks` no drena `mockResolvedValueOnce`,
-usar `query.mockReset()`.
+usar `query.mockReset()`. `config/database.test.js` fija el contrato de fechas
+(pool y sesión en UTC) y para eso hace `jest.unmock` del módulo, que `setup.js`
+mockea para todos los demás.
 
 ---
 
@@ -153,7 +155,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | Fichero | Contenido |
 |---|---|
 | `utils/constants.js` | `ROLES`, `PERMISSIONS`, estados/colores/etiquetas, definición de cada tipo de foto (`IMAGEN_TIPOS_INICIO/FIN/GENERAL`, labels, instrucciones). **Espejo de** `backend/src/config/constants.js` |
-| `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
+| `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
 | `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage` |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
@@ -249,6 +251,7 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → `VehicleForm`/`VehicleList`/`VehicleHistory` → `vehicleAlerts.js` si es fecha de caducidad |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
+| La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación |
 | Menú / nueva pantalla | `App.jsx` (ruta + `requiredFeature`) + `Sidebar.jsx` + feature en `migrations.js` |

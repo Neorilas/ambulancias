@@ -4,7 +4,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { formatDateTime } from '../../utils/dateUtils.js';
+import { formatDateTime, formatHora } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import {
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
@@ -264,6 +264,21 @@ export default function AsignacionDetalle({ id, onClose }) {
     else evGeneral.push(e);
   });
 
+  // Cuándo se tomó cada tanda de fotos. Las miniaturas solo llevan la hora, así
+  // que el día tiene que salir aquí: una tanda puede no caer en la fecha
+  // prevista de la asignación.
+  const rangoFotos = (evs) => {
+    const fechas = evs.map(e => e.uploaded_at).filter(Boolean).sort();
+    if (!fechas.length) return null;
+    const desde = formatDateTime(fechas[0]);
+    const hasta = formatHora(fechas[fechas.length - 1]);
+    // La comparación va sobre lo que se pinta, no sobre el instante: una tanda
+    // de siete fotos seguidas cae en el mismo minuto y «23:22 – 23:22» sobra.
+    return { desde, hasta: hasta === desde.slice(-5) ? null : hasta };
+  };
+  const rangoInicio = rangoFotos(Object.values(evInicio));
+  const rangoFin    = rangoFotos(Object.values(evFin));
+
   const incidencias = asig?.incidencias || [];
 
   const soyResponsable = asig?.user_id === user?.id || canManageTrabajos();
@@ -410,7 +425,11 @@ export default function AsignacionDetalle({ id, onClose }) {
                             src={getImageUrl(ev.image_url)}
                             alt="Foto de incidencia"
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
+                            onClick={() => setLightbox({
+                              url:    getImageUrl(ev.image_url),
+                              titulo: 'Foto de la incidencia',
+                              fecha:  ev.uploaded_at,
+                            })}
                           />
                           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
                             {formatDateTime(ev.uploaded_at)}
@@ -505,6 +524,11 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}
                 </span>
               </div>
+              {rangoInicio && (
+                <p className="text-xs text-neutral-500 -mt-2 mb-3 font-mono">
+                  {rangoInicio.desde}{rangoInicio.hasta ? ` – ${rangoInicio.hasta}` : ''}
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {IMAGEN_TIPOS_INICIO.map(tipo => {
                   const ev = evInicio[tipo.key];
@@ -516,10 +540,15 @@ export default function AsignacionDetalle({ id, onClose }) {
                             src={getImageUrl(ev.image_url)}
                             alt={tipo.label}
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
+                            onClick={() => setLightbox({
+                              url:    getImageUrl(ev.image_url),
+                              titulo: `Inicio · ${tipo.label}`,
+                              fecha:  ev.uploaded_at,
+                            })}
                           />
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
-                            {tipo.label}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 flex items-center justify-between gap-1">
+                            <span className="truncate">{tipo.label}</span>
+                            <span className="font-mono text-[10px] flex-shrink-0">{formatHora(ev.uploaded_at)}</span>
                           </div>
                         </>
                       ) : (
@@ -547,6 +576,11 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {asig.progreso?.fin?.completado || 0}/{asig.progreso?.fin?.total || 5}
                 </span>
               </div>
+              {rangoFin && (
+                <p className="text-xs text-neutral-500 -mt-2 mb-3 font-mono">
+                  {rangoFin.desde}{rangoFin.hasta ? ` – ${rangoFin.hasta}` : ''}
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {IMAGEN_TIPOS_FIN.map(tipo => {
                   const ev = evFin[tipo.key];
@@ -558,10 +592,15 @@ export default function AsignacionDetalle({ id, onClose }) {
                             src={getImageUrl(ev.image_url)}
                             alt={tipo.label}
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setLightbox(getImageUrl(ev.image_url))}
+                            onClick={() => setLightbox({
+                              url:    getImageUrl(ev.image_url),
+                              titulo: `Fin · ${tipo.label}`,
+                              fecha:  ev.uploaded_at,
+                            })}
                           />
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 truncate">
-                            {tipo.label}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 flex items-center justify-between gap-1">
+                            <span className="truncate">{tipo.label}</span>
+                            <span className="font-mono text-[10px] flex-shrink-0">{formatHora(ev.uploaded_at)}</span>
                           </div>
                         </>
                       ) : (
@@ -604,10 +643,14 @@ export default function AsignacionDetalle({ id, onClose }) {
       {/* Lightbox */}
       {lightbox && (
         <div
-          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] pr-[var(--safe-right)]"
+          className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center gap-3 pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] pr-[var(--safe-right)]"
           onClick={() => setLightbox(null)}
         >
-          <img src={lightbox} alt="Evidencia" className="max-h-[90dvh] max-w-[90vw] object-contain rounded-lg" />
+          <img src={lightbox.url} alt={lightbox.titulo} className="max-h-[80dvh] max-w-[90vw] object-contain rounded-lg" />
+          <div className="text-center text-white">
+            <p className="text-sm font-medium">{lightbox.titulo}</p>
+            <p className="text-xs text-neutral-300 font-mono">{formatDateTime(lightbox.fecha)}</p>
+          </div>
         </div>
       )}
     </div>

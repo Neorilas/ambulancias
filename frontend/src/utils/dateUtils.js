@@ -72,6 +72,14 @@ export function formatDateTimeShort(date) {
 }
 
 /**
+ * Solo la hora ('HH:mm'), en hora española. Para los pies de las fotos de
+ * evidencia, donde el día ya lo da el grupo y solo falta a qué hora se tomó.
+ */
+export function formatHora(date) {
+  return formatDate(date, 'HH:mm');
+}
+
+/**
  * Día del calendario español ('yyyy-MM-dd') en que cae un instante.
  * Para agrupar por días sin que la zona del dispositivo mueva la frontera.
  */

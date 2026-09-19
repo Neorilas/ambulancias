@@ -534,20 +534,24 @@ async function uploadEvidencia(req, res, next) {
       [asig.id, tipo_imagen, momento]
     );
 
+    // El instante lo pone Node (contrato de fechas), y al rehacer una foto se
+    // vuelve a sellar: la hora que se ve es la de la imagen que se conserva.
+    const tomadaEn = ahora();
+
     let imageId;
     if (existing.length) {
       // Borrar el archivo anterior
       deleteFile(existing[0].image_url);
       await query(
-        'UPDATE vehicle_images SET image_url = ?, uploaded_by = ? WHERE id = ?',
-        [imageUrl, req.user.id, existing[0].id]
+        'UPDATE vehicle_images SET image_url = ?, uploaded_by = ?, created_at = ? WHERE id = ?',
+        [imageUrl, req.user.id, tomadaEn, existing[0].id]
       );
       imageId = existing[0].id;
     } else {
       const [result] = await query(
-        `INSERT INTO vehicle_images (vehicle_id, asignacion_id, tipo_imagen, momento, image_url, uploaded_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [asig.vehicle_id, asig.id, tipo_imagen, momento, imageUrl, req.user.id]
+        `INSERT INTO vehicle_images (vehicle_id, asignacion_id, tipo_imagen, momento, image_url, uploaded_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [asig.vehicle_id, asig.id, tipo_imagen, momento, imageUrl, req.user.id, tomadaEn]
       );
       imageId = result.insertId;
     }
@@ -560,6 +564,7 @@ async function uploadEvidencia(req, res, next) {
       tipo_imagen,
       momento,
       asignacion_id: asig.id,
+      uploaded_at:   tomadaEn,
       progreso,
     }, 'Evidencia subida correctamente');
   } catch (err) {

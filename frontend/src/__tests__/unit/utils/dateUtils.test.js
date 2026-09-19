@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  formatDate, formatDateTime, formatDateTimeShort,
+  formatDate, formatDateTime, formatDateTimeShort, formatHora,
   toUtcIso, toInputDatetime, toInputDate,
   isWorkActive, isOverdue, duration,
   diaEnEspana, formatFechaSola, formatDiaCalendario, sumarDias, sumarMeses, diasHasta,
@@ -31,6 +31,16 @@ describe('dateUtils', () => {
     it('formats short datetime', () => {
       const result = formatDateTimeShort('2026-04-13T14:30:00');
       expect(result).toContain('13/04');
+    });
+  });
+
+  describe('formatHora', () => {
+    it('da solo la hora, en hora española', () => {
+      expect(formatHora('2026-09-18T18:08:50.000Z')).toBe('20:08');
+      expect(formatHora('2026-01-15T10:00:00.000Z')).toBe('11:00');
+    });
+    it('devuelve — si no hay fecha', () => {
+      expect(formatHora(null)).toBe('—');
     });
   });
 

@@ -369,10 +369,13 @@ async function uploadImages(req, res, next) {
       }
     }
 
+    // El instante lo pone Node, no la BD (contrato de fechas).
+    const tomadaEn = ahora();
+
     const [result] = await query(
-      `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, image_url, trabajo_id, uploaded_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [vehicleId, tipoImagen, req.processedFile.url, trabajoId, req.user.id]
+      `INSERT INTO vehicle_images (vehicle_id, tipo_imagen, image_url, trabajo_id, uploaded_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [vehicleId, tipoImagen, req.processedFile.url, trabajoId, req.user.id, tomadaEn]
     );
 
     return created(res, {
@@ -381,6 +384,7 @@ async function uploadImages(req, res, next) {
       tipo_imagen: tipoImagen,
       image_url:   req.processedFile.url,
       trabajo_id:  trabajoId,
+      created_at:  tomadaEn,
     }, 'Imagen subida correctamente');
 
   } catch (err) {
@@ -405,6 +409,7 @@ async function getVehicleHistorial(req, res, next) {
       SELECT
         vi.id,
         vi.tipo_imagen,
+        vi.momento,
         vi.image_url,
         vi.created_at               AS foto_fecha,
         vi.trabajo_id,
@@ -441,7 +446,7 @@ async function getVehicleHistorial(req, res, next) {
       LEFT JOIN users au             ON al.user_id = au.id
       LEFT JOIN users u              ON vi.uploaded_by = u.id
       WHERE vi.vehicle_id = ?
-      ORDER BY vi.tipo_imagen ASC
+      ORDER BY FIELD(vi.momento,'inicio','fin','general'), vi.created_at ASC, vi.id ASC
     `, [vehicleId]);
 
     const gruposMap = new Map();
@@ -505,6 +510,7 @@ async function getVehicleHistorial(req, res, next) {
       g.fotos.push({
         id:          row.id,
         tipo_imagen: row.tipo_imagen,
+        momento:     row.momento,
         image_url:   row.image_url,
         fecha:       row.foto_fecha,
         subido_por: {
