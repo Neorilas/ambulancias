@@ -9,6 +9,7 @@
 const { query }    = require('../config/database');
 const { success, paginated } = require('../utils/response.utils');
 const { PAGINATION } = require('../config/constants');
+const { inicioDelDiaEnEspana, haceHoras } = require('../utils/fecha.utils');
 
 // ── Helper: log de auditoría ──────────────────────────────────────────────────
 // Exportamos para que otros controladores puedan llamarlo.
@@ -141,10 +142,12 @@ async function getAdminStats(req, res, next) {
     const [[totalAudit]] = await query('SELECT COUNT(*) AS n FROM audit_logs');
     const [[totalErrors]] = await query('SELECT COUNT(*) AS n FROM error_logs');
     const [[errorsHoy]]   = await query(
-      "SELECT COUNT(*) AS n FROM error_logs WHERE created_at >= CURDATE()"
+      'SELECT COUNT(*) AS n FROM error_logs WHERE created_at >= ?',
+      [inicioDelDiaEnEspana()]
     );
     const [[loginsFallidos]] = await query(
-      "SELECT COUNT(*) AS n FROM login_attempts WHERE success = 0 AND attempted_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+      'SELECT COUNT(*) AS n FROM login_attempts WHERE success = 0 AND attempted_at >= ?',
+      [haceHoras(24)]
     );
     const [topActions] = await query(
       `SELECT action, COUNT(*) AS total

@@ -22,6 +22,7 @@
 
 const { query, transaction } = require('./database');
 const logger    = require('../utils/logger.utils');
+const { instanteEnEspana } = require('../utils/fecha.utils');
 
 // ============================================================
 // Helpers idempotentes
@@ -70,6 +71,115 @@ async function isApplied(name) {
 
 async function markApplied(name) {
   await query(`INSERT IGNORE INTO schema_migrations (name) VALUES (?)`, [name]);
+}
+
+// ============================================================
+// Reparación de horas escritas en hora española (ver v16)
+// ============================================================
+
+// Instante a partir del cual MySQL dejó de escribir en UTC: es cuando el
+// contenedor de producción se recreó ya con TZ=Europe/Madrid. Está contrastado
+// contra los datos: el último registro coherente con UTC es de ese mismo día a
+// las 13:54 y el contenedor arrancó a las 15:09. Todo lo anterior ya está bien
+// y no se toca. Se puede ajustar por entorno con FIX_TZ_DESDE.
+//
+// Sobre una base creada DESPUÉS de este fix esto es siempre un no-op: v16 corre
+// en el primer arranque, cuando todavía no hay filas. La única forma de hacerle
+// daño sería restaurar un `schema_migrations` ajeno sobre datos ya en UTC.
+const CORTE_HORA_LOCAL = process.env.FIX_TZ_DESDE || '2026-08-25 15:00:00';
+
+// Columnas DATETIME cuyo valor lo ponía el servidor MySQL (NOW() o
+// CURRENT_TIMESTAMP). NO entran fecha_inicio/fecha_fin de trabajos ni de
+// asignaciones: esas las manda el navegador ya en UTC y siempre fueron
+// correctas. Las columnas TIMESTAMP tampoco: MySQL las guarda internamente en
+// UTC, así que se arreglan solas al fijar la sesión del pool en UTC.
+const COLUMNAS_EN_HORA_LOCAL = [
+  ['asignaciones_libres',    ['inicio_real_at', 'finalizado_at']],
+  ['audit_logs',             ['created_at']],
+  ['error_logs',             ['created_at']],
+  ['incidencia_comentarios', ['created_at']],
+  // updated_at va en la lista aunque no lo escriba nadie a mano: si no se
+  // incluyera en el UPDATE, el ON UPDATE CURRENT_TIMESTAMP lo machacaría.
+  ['vehicle_incidencias',    ['created_at', 'updated_at', 'resuelto_at']],
+  ['vehicle_revisiones',     ['created_at', 'updated_at']],
+];
+
+/** ¿Existe la tabla en esta base de datos? */
+async function existeTabla(tabla) {
+  const [rows] = await query(
+    `SELECT COUNT(*) AS c FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [tabla]
+  );
+  return rows[0].c > 0;
+}
+
+/**
+ * Reinterpreta como hora española los DATETIME que escribió el servidor y los
+ * reescribe en UTC. La conversión se hace en Node con instanteEnEspana(), que
+ * ya conoce los cambios de hora, en vez de con CONVERT_TZ: así no depende de
+ * que MySQL tenga cargadas las tablas de zonas horarias.
+ *
+ * La decisión de corregir o no se toma COLUMNA A COLUMNA, no por fila: una
+ * asignación que se inició antes del corte (esa hora ya está bien) y se
+ * finalizó después (esa está mal) solo debe mover la segunda.
+ */
+async function reescribirHorasLocalesComoUtc(tabla, columnas) {
+  if (!await existeTabla(tabla)) return 0;
+
+  const [cols] = await query(
+    `SELECT COLUMN_NAME, EXTRA FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND DATA_TYPE = 'datetime'`,
+    [tabla]
+  );
+  const presentes = columnas.filter(c => cols.some(r => r.COLUMN_NAME === c));
+  if (!presentes.length) return 0;
+
+  // Las columnas con ON UPDATE CURRENT_TIMESTAMP (updated_at de incidencias y
+  // revisiones) se cuelan en todo UPDATE: si no van en el SET, MySQL las pisa
+  // con la hora actual. Así que siempre se escriben, aunque sea con su propio
+  // valor, para congelarlas.
+  const seAutoActualizan = presentes.filter(c => cols.some(
+    r => r.COLUMN_NAME === c && /on update CURRENT_TIMESTAMP/i.test(r.EXTRA || '')
+  ));
+
+  const condicion = presentes.map(c => `${c} >= ?`).join(' OR ');
+  const [filas] = await query(
+    `SELECT id, ${presentes.join(', ')} FROM ${tabla} WHERE ${condicion}`,
+    presentes.map(() => CORTE_HORA_LOCAL)
+  );
+  if (!filas.length) return 0;
+
+  // El Date que devuelve mysql2 lleva el literal guardado en sus campos UTC
+  // (el pool declara timezone '+00:00'); ese literal ES la hora de pared
+  // española, así que se vuelve a convertir en instante con instanteEnEspana.
+  const aUtc = (d) => instanteEnEspana(
+    d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(),
+    d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()
+  );
+  // El corte se compara contra el literal guardado, que es lo que vive en los
+  // campos UTC del Date: mismo criterio que el WHERE de arriba.
+  const corte = new Date(`${CORTE_HORA_LOCAL.replace(' ', 'T')}Z`);
+  const hayQueCorregir = (d) => d != null && d.getTime() >= corte.getTime();
+
+  let corregidas = 0;
+  await transaction(async (conn) => {
+    for (const fila of filas) {
+      const afectadas = presentes.filter(c => hayQueCorregir(fila[c]));
+      // Puede no haber ninguna: la fila entró por otra columna que sí lo está,
+      // y las columnas con NULL o anteriores al corte se quedan como están.
+      if (!afectadas.length) continue;
+
+      const escribir = [...afectadas];
+      for (const c of seAutoActualizan) if (!escribir.includes(c)) escribir.push(c);
+
+      const sets = escribir.map(c => `${c} = ?`).join(', ');
+      const vals = escribir.map(c => (afectadas.includes(c) ? aUtc(fila[c]) : fila[c]));
+      await conn.execute(`UPDATE ${tabla} SET ${sets} WHERE id = ?`, [...vals, fila.id]);
+      corregidas++;
+    }
+  });
+  if (corregidas) logger.info(`  · ${tabla}: ${corregidas} fila(s) con la hora corregida`);
+  return corregidas;
 }
 
 // ============================================================
@@ -548,6 +658,24 @@ const MIGRATIONS = [
       // __del_<id>, asi que las filas borradas no deben competir por ella.
       // Sobre una base donde v14 ya hizo bien el trabajo, esto es un no-op.
       await descruzarFlota();
+    },
+  },
+
+  {
+    name: 'v16_horas_a_utc',
+    description: 'Pasa a UTC las horas que MySQL escribió en hora española',
+    async run() {
+      // El servidor MySQL corría en Europe/Madrid mientras el resto del
+      // sistema daba por hecho que hablaba UTC, así que todo lo que puso
+      // NOW()/CURRENT_TIMESTAMP en una columna DATETIME quedó una o dos horas
+      // por delante. Se notaba sobre todo en la hora de inicio y de fin de las
+      // asignaciones. A partir de ahora el instante lo calcula Node
+      // (utils/fecha.utils.js) y las sesiones del pool van fijadas a UTC.
+      let total = 0;
+      for (const [tabla, columnas] of COLUMNAS_EN_HORA_LOCAL) {
+        total += await reescribirHorasLocalesComoUtc(tabla, columnas);
+      }
+      logger.info(`v16: ${total} fila(s) reinterpretadas de hora española a UTC`);
     },
   },
 ];

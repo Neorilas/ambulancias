@@ -41,6 +41,12 @@ app.use(cors({
   methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
+  // El frontend vive en vapss.net y la API en api.vapss.net, así que toda
+  // llamada con Authorization lleva antes su preflight. Sin maxAge el
+  // navegador apenas lo cachea (5 s en Chrome) y en el 4G de un técnico eso
+  // es un ida y vuelta de más en casi cada petición. 24 h es el techo que
+  // respetan Chrome y Firefox; pedir más no da más.
+  maxAge: 86400,
 }));
 
 // Compresión gzip
@@ -137,18 +143,25 @@ async function startServer() {
 
   // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
   const { query: dbQuery } = require('./src/config/database');
+  const { ahora } = require('./src/utils/fecha.utils');
   const autoActivar = async () => {
     try {
+      // El instante lo pone Node, no MySQL: fecha_inicio está en UTC y NOW()
+      // devolvía la hora del servidor, así que los programados se activaban
+      // una o dos horas antes de tiempo.
+      const ahoraUtc = ahora();
       const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
-         WHERE estado = 'programado' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+         WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+        [ahoraUtc]
       );
       if (trab.affectedRows > 0) {
         logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) programados`);
       }
       const [asig] = await dbQuery(
         `UPDATE asignaciones_libres SET estado = 'activa'
-         WHERE estado = 'programada' AND fecha_inicio <= NOW() AND deleted_at IS NULL`
+         WHERE estado = 'programada' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+        [ahoraUtc]
       );
       if (asig.affectedRows > 0) {
         logger.info(`Auto-activadas ${asig.affectedRows} asignación(es) programadas`);

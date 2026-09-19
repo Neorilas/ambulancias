@@ -12,6 +12,7 @@ const { success, created, error, notFound, forbidden, paginated, validationError
 const { ROLES, PAGINATION }           = require('../config/constants');
 const { isAdmin, isSuperAdmin }       = require('../middleware/roles.middleware');
 const { logAudit }                    = require('./admin.controller');
+const { ahora }                       = require('../utils/fecha.utils');
 
 // ============================================================
 // GET /users
@@ -336,8 +337,8 @@ async function resetPassword(req, res, next) {
       await conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, targetId]);
       // Revocar tokens activos: el usuario tendrá que volver a iniciar sesión
       await conn.execute(
-        'UPDATE refresh_tokens SET revoked = 1, revoked_at = NOW() WHERE user_id = ? AND revoked = 0',
-        [targetId]
+        'UPDATE refresh_tokens SET revoked = 1, revoked_at = ? WHERE user_id = ? AND revoked = 0',
+        [ahora(), targetId]
       );
     });
 
@@ -378,13 +379,13 @@ async function deleteUser(req, res, next) {
       // Soft delete — sufijamos username y dni para liberar los UNIQUE KEYs de MySQL
       // y permitir que se cree un nuevo usuario con los mismos datos si fuera necesario.
       await conn.execute(
-        "UPDATE users SET deleted_at = NOW(), activo = 0, username = CONCAT(username,'__del_',id), dni = CONCAT(dni,'__del_',id) WHERE id = ?",
-        [targetId]
+        "UPDATE users SET deleted_at = ?, activo = 0, username = CONCAT(username,'__del_',id), dni = CONCAT(dni,'__del_',id) WHERE id = ?",
+        [ahora(), targetId]
       );
       // Revocar tokens activos
       await conn.execute(
-        'UPDATE refresh_tokens SET revoked = 1, revoked_at = NOW() WHERE user_id = ? AND revoked = 0',
-        [targetId]
+        'UPDATE refresh_tokens SET revoked = 1, revoked_at = ? WHERE user_id = ? AND revoked = 0',
+        [ahora(), targetId]
       );
     });
 

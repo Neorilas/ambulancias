@@ -33,6 +33,30 @@ describe('dateUtils', () => {
     });
   });
 
+  // La app se usa en España: se pinte donde se pinte, la hora que sale por
+  // pantalla es la española, no la del dispositivo. Y lo que se teclea en un
+  // datetime-local se interpreta también como hora española.
+  describe('siempre en hora española', () => {
+    it('pinta en CEST (+02:00) una fecha de verano', () => {
+      expect(formatDateTime('2026-09-18T18:08:50.000Z')).toBe('18/09/2026 20:08');
+    });
+    it('pinta en CET (+01:00) una fecha de invierno', () => {
+      expect(formatDateTime('2026-01-15T10:00:00.000Z')).toBe('15/01/2026 11:00');
+    });
+    it('lee el input como hora española y lo manda en UTC', () => {
+      expect(toUtcIso('2026-09-18T20:08')).toBe('2026-09-18T18:08');
+      expect(toUtcIso('2026-01-15T11:00')).toBe('2026-01-15T10:00');
+    });
+    it('toInputDatetime es el inverso exacto de toUtcIso', () => {
+      expect(toInputDatetime(`${toUtcIso('2026-09-18T20:08')}:00.000Z`)).toBe('2026-09-18T20:08');
+      expect(toInputDatetime(`${toUtcIso('2026-01-15T11:00')}:00.000Z`)).toBe('2026-01-15T11:00');
+    });
+    it('no se salta el día al cruzar la medianoche española', () => {
+      // 22:30 UTC del 30 de junio son ya las 00:30 del 1 de julio en España
+      expect(formatDateTime('2026-06-30T22:30:00.000Z')).toBe('01/07/2026 00:30');
+    });
+  });
+
   describe('toUtcIso', () => {
     it('converts local datetime to UTC ISO', () => {
       const result = toUtcIso('2026-04-13T14:00');

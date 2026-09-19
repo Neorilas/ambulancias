@@ -32,6 +32,9 @@ accesos.html
 # Scripts ad-hoc de inspeccion/despliegue (suelen acabar con credenciales dentro)
 deploy_helper.py
 .env.test
+# Copias de seguridad de .env: llevan credenciales dentro
+*.env.bak
+.env.*.bak
 
 # ============================================================
 # Certificados y claves privadas
@@ -68,6 +71,7 @@ backend/logs/
 # ============================================================
 backend/uploads/vehicles/
 backend/uploads/trabajos/
+backend/uploads/asignaciones/
 !backend/uploads/.gitkeep
 
 # ============================================================
@@ -90,7 +94,13 @@ desktop.ini
 # ============================================================
 # Claude Code
 # ============================================================
-.claude/
+# Los comandos y agentes SI se versionan: son el flujo de trabajo del proyecto
+# (/local, /verifica, /a-pro). Lo demas es local de cada maquina.
+# Ojo: tiene que ser `.claude/*` y no `.claude/`; si se excluye el directorio
+# entero, git no desciende y las negaciones de abajo no sirven de nada.
+.claude/*
+!.claude/commands/
+!.claude/agents/
 
 # ============================================================
 # Vite / PWA dev

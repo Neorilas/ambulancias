@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDebounce } from '../../hooks/useDebounce.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -148,17 +149,24 @@ export default function VehicleList() {
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
 
+  // Buscar sobre el texto ya reposado: si no, cada tecla era una petición.
+  const busqueda = useDebounce(search, 400);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await vehiclesService.list({ page, search: search || undefined, limit: 25 });
+      const resp = await vehiclesService.list({ page, search: busqueda || undefined, limit: 25 });
       setVehicles(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar vehículos'); }
     finally { setLoading(false); }
-  }, [page, search]);
+  }, [page, busqueda]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Al cambiar la búsqueda hay que volver a la primera página, o se pide una
+  // página que el nuevo filtro ya no tiene y la lista sale vacía.
+  useEffect(() => { setPage(1); }, [busqueda]);
 
   const handleDelete = async () => {
     setDeleting(true);

@@ -6,14 +6,17 @@ services:
     container_name: ${STACK_NAME:-ambulancia}-mysql
     restart: unless-stopped
     environment:
-      TZ: Europe/Madrid
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
+    # MySQL habla UTC. Tenía TZ=Europe/Madrid y NOW() escribía hora local en
+    # columnas que el backend lee como UTC: las horas salían 1-2h adelantadas.
+    # La hora española se calcula al pintar, no al guardar (utils/fecha.utils.js).
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+00:00
       --event-scheduler=ON
     volumes:
       - mysql_data:/var/lib/mysql
@@ -39,6 +42,10 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      # Solo para leer los logs en hora local. Las fechas de la app no dependen
+      # de esto porque pasan por utils/fecha.utils.js — pero ojo: con esta TZ,
+      # un `new Date('2026-09-18T20:00')` sin Z SÍ se interpretaría como hora
+      # española. En el backend, fechas siempre vía fecha.utils.js.
       TZ: Europe/Madrid
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-produccion}   # produccion | pre — solo informativo (/health)
@@ -71,7 +78,9 @@ services:
 
       # ── Rate Limiting ────────────────────────────────────────────────────────
       RATE_LIMIT_WINDOW_MS: 900000
-      RATE_LIMIT_MAX_REQUESTS: 100
+      RATE_LIMIT_MAX_REQUESTS: 600   # por USUARIO autenticado
+      RATE_LIMIT_MAX_ANON: 100       # por IP cuando no hay token válido
+      UPLOAD_RATE_LIMIT_MAX: 60      # fotos por minuto y usuario
       LOGIN_RATE_LIMIT_MAX: 5
       LOGIN_RATE_LIMIT_WINDOW_MS: 900000
       ACCOUNT_LOCKOUT_ATTEMPTS: 5

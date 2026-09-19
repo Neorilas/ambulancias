@@ -17,6 +17,10 @@ function buildPoolConfig() {
     queueLimit:            0,
     enableKeepAlive:       true,
     keepAliveInitialDelay: 0,
+    // mysql2 interpreta y serializa todas las fechas como UTC. Es la mitad del
+    // contrato: la otra mitad es fijar la zona de la SESIÓN (ver más abajo),
+    // porque si no CURRENT_TIMESTAMP escribiría la hora local del servidor
+    // MySQL y se leería como si fuera UTC. Ver utils/fecha.utils.js.
     timezone:              '+00:00',
     charset:               'utf8mb4',
   };
@@ -59,13 +63,36 @@ function buildPoolConfigWithLog() {
 
 const pool = mysql.createPool(buildPoolConfigWithLog());
 
+// Cada conexión nueva del pool arranca en UTC, pase lo que pase con la zona
+// horaria del contenedor de MySQL. mysql2 encola esta sentencia en la conexión
+// antes de entregarla, así que se aplica antes que cualquier query de negocio.
+pool.on('connection', (conn) => {
+  conn.query("SET time_zone = '+00:00'", (err) => {
+    if (err) logger.error(`No se pudo fijar time_zone=UTC en la conexión: ${err.message}`);
+  });
+});
+
 /**
  * Verifica la conexión al arrancar el servidor
  */
 async function testConnection() {
   const conn = await pool.getConnection();
-  await conn.ping();
-  conn.release();
+  try {
+    await conn.ping();
+    // Todo el contrato de fechas se apoya en que la sesión va en UTC. Si el SET
+    // de arriba no hubiera entrado, las horas volverían a guardarse desplazadas
+    // y en silencio, así que al menos que se vea en el log del arranque.
+    const [[tz]] = await conn.query('SELECT @@session.time_zone AS zona');
+    if (tz.zona !== '+00:00') {
+      logger.error(
+        `La sesión de MySQL no está en UTC (time_zone = ${tz.zona}). ` +
+        'Las fechas que escriba el servidor saldrán desplazadas: revisa ' +
+        'config/database.js y --default-time-zone del contenedor.'
+      );
+    }
+  } finally {
+    conn.release();
+  }
 }
 
 /**

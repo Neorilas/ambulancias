@@ -9,7 +9,11 @@
     "setup-db": "node scripts/setup-db.js",
     "create-admin": "node scripts/create-admin.js",
     "test": "jest --forceExit --detectOpenHandles",
-    "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles",
+    "local:db": "docker compose -f ../docker-compose.local.yml up -d",
+    "local:db:stop": "docker compose -f ../docker-compose.local.yml stop",
+    "local:reset": "docker compose -f ../docker-compose.local.yml down -v && docker compose -f ../docker-compose.local.yml up -d",
+    "seed:local": "node scripts/seed-local.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

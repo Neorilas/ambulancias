@@ -18,6 +18,7 @@ const { isAdmin, isOperacional, hasPermission } = require('../middleware/roles.m
 const { normalizarMatricula, esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const { deleteFile }               = require('../middleware/upload.middleware');
 const { logAudit }                 = require('./admin.controller');
+const { ahora, fechaEnEspana, diaCalendarioEnEspana } = require('../utils/fecha.utils');
 
 // ── Orden de la flota: por nombre de la ambulancia ────────────
 // Alfabético simple dejaría "Ambulancia 10" antes que "Ambulancia 2", que es
@@ -272,8 +273,8 @@ async function deleteVehicle(req, res, next) {
     // Al hacer soft-delete, liberar la matrícula añadiendo sufijo __del_ID
     // para que el UNIQUE KEY de MySQL no bloquee futuras matrículas iguales.
     await query(
-      "UPDATE vehicles SET deleted_at = NOW(), matricula = CONCAT(matricula, '__del_', id) WHERE id = ?",
-      [id]
+      "UPDATE vehicles SET deleted_at = ?, matricula = CONCAT(matricula, '__del_', id) WHERE id = ?",
+      [ahora(), id]
     );
     logAudit({
       userId:   req.user.id,
@@ -783,7 +784,8 @@ async function updateIncidencia(req, res, next) {
       if (estado === 'resuelto' && existing[0].estado !== 'resuelto') {
         updates.push('resuelto_by = ?');
         vals.push(req.user.id);
-        updates.push('resuelto_at = NOW()');
+        updates.push('resuelto_at = ?');
+        vals.push(ahora());
       }
     }
 
@@ -976,14 +978,17 @@ async function listAlertasVehiculos(req, res, next) {
     );
 
     const MS_DAY = 1000 * 60 * 60 * 24;
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
+    // El día español en curso. Toda la aritmética de abajo es de calendario y
+    // se hace con getters UTC: así no depende de la zona del contenedor ni se
+    // descoloca un día al cruzar el cambio de hora.
+    const hoy = diaCalendarioEnEspana();
 
-    const diffDias = (fechaStr) => {
-      if (!fechaStr) return null;
-      const d = new Date(fechaStr);
-      d.setHours(0, 0, 0, 0);
-      return Math.round((d - hoy) / MS_DAY);
+    const diffDias = (fecha) => {
+      if (!fecha) return null;
+      const d = new Date(fecha);
+      if (Number.isNaN(d.getTime())) return null;
+      const soloDia = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+      return Math.round((soloDia - hoy.getTime()) / MS_DAY);
     };
 
     const alertas = [];
@@ -998,7 +1003,7 @@ async function listAlertasVehiculos(req, res, next) {
           if (edadAnios >= 5) mesesIntervalo = 6;
         }
         const proxima = new Date(v.fecha_itv);
-        proxima.setMonth(proxima.getMonth() + mesesIntervalo);
+        proxima.setUTCMonth(proxima.getUTCMonth() + mesesIntervalo);
         const dias = diffDias(proxima);
         if (dias !== null && dias <= umbralMax) {
           alertas.push({
@@ -1015,7 +1020,7 @@ async function listAlertasVehiculos(req, res, next) {
       // ── ITS: siempre anual ──────────────────────────────────
       if (v.fecha_its) {
         const proxima = new Date(v.fecha_its);
-        proxima.setFullYear(proxima.getFullYear() + 1);
+        proxima.setUTCFullYear(proxima.getUTCFullYear() + 1);
         const dias = diffDias(proxima);
         if (dias !== null && dias <= umbralMax) {
           alertas.push({
@@ -1063,16 +1068,17 @@ async function listAlertasVehiculos(req, res, next) {
 async function listTarjetaTransporteProximas(req, res, next) {
   try {
     const dias = Math.min(Math.max(parseInt(req.query.dias) || 60, 1), 365);
+    const hoy  = fechaEnEspana();
 
     const [rows] = await query(
       `SELECT id, matricula, alias, fecha_tarjeta_transporte,
-              DATEDIFF(fecha_tarjeta_transporte, CURDATE()) AS dias_restantes
+              DATEDIFF(fecha_tarjeta_transporte, ?) AS dias_restantes
        FROM vehicles
        WHERE deleted_at IS NULL
          AND fecha_tarjeta_transporte IS NOT NULL
-         AND fecha_tarjeta_transporte <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+         AND fecha_tarjeta_transporte <= DATE_ADD(?, INTERVAL ? DAY)
        ORDER BY fecha_tarjeta_transporte ASC`,
-      [dias]
+      [hoy, hoy, dias]
     );
 
     return success(res, rows);

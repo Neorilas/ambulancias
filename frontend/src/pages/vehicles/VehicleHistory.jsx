@@ -8,7 +8,7 @@
  *
  * Solo accesible para administradores y gestores.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
@@ -216,35 +216,22 @@ function TrabajoCard({ trabajo }) {
 }
 
 // ── Tab Incidencias ───────────────────────────────────────────────────────────
-function TabIncidencias({ vehicleId }) {
+// Las incidencias, los empleados y las revisiones los carga la ficha una sola
+// vez (ver useDatosFicha): las pestañas se desmontan al cambiar de una a otra,
+// así que si cada una pidiera lo suyo, pasearse por ellas repetiría peticiones
+// de datos que ya estaban en pantalla hace dos segundos.
+function TabIncidencias({ vehicleId, incidencias, users, recargar, pedirUsuarios }) {
   const { notify } = useNotification();
-  const [incidencias, setIncidencias] = useState([]);
-  const [loading,     setLoading]     = useState(true);
   const [showForm,    setShowForm]    = useState(false);
   const [form,        setForm]        = useState({ tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', trabajo_id: '' });
   const [saving,      setSaving]      = useState(false);
   const [updatingId,  setUpdatingId]  = useState(null);
-  const [users,       setUsers]       = useState([]);
   const [reasignId,   setReasignId]   = useState(null);
   const [reasignVal,  setReasignVal]  = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await vehiclesService.listIncidencias(vehicleId);
-      setIncidencias(data);
-    } catch { notify.error('Error al cargar incidencias'); }
-    finally { setLoading(false); }
-  }, [vehicleId]);
+  const load = recargar;
 
-  useEffect(() => { load(); }, [load]);
-
-  // Empleados a los que se puede atribuir una incidencia
-  useEffect(() => {
-    usersService.list({ limit: 300 })
-      .then(r => setUsers(r.data || []))
-      .catch(() => {/* el selector queda vacío; no bloquea la lista */});
-  }, []);
+  useEffect(() => { pedirUsuarios(); }, [pedirUsuarios]);
 
   const abrirReasignar = (inc) => {
     setReasignId(inc.id);
@@ -293,8 +280,6 @@ function TabIncidencias({ vehicleId }) {
     } catch { notify.error('Error al actualizar'); }
     finally { setUpdatingId(null); }
   };
-
-  if (loading) return <PageLoading />;
 
   const pendientes = incidencias.filter(i => i.estado !== 'resuelto');
   const resueltas  = incidencias.filter(i => i.estado === 'resuelto');
@@ -473,10 +458,8 @@ function TabIncidencias({ vehicleId }) {
 }
 
 // ── Tab Revisiones ────────────────────────────────────────────────────────────
-function TabRevisiones({ vehicleId }) {
+function TabRevisiones({ vehicleId, revisiones, recargar }) {
   const { notify } = useNotification();
-  const [revisiones, setRevisiones] = useState([]);
-  const [loading,    setLoading]    = useState(true);
   const [showForm,   setShowForm]   = useState(false);
   const [editRev,    setEditRev]    = useState(null);
   const [saving,     setSaving]     = useState(false);
@@ -485,16 +468,7 @@ function TabRevisiones({ vehicleId }) {
   const emptyForm = { tipo: 'mantenimiento', fecha_revision: '', fecha_proxima: '', resultado: 'realizado', descripcion: '', coste: '', realizado_por: '' };
   const [form, setForm] = useState(emptyForm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await vehiclesService.listRevisiones(vehicleId);
-      setRevisiones(data);
-    } catch { notify.error('Error al cargar revisiones'); }
-    finally { setLoading(false); }
-  }, [vehicleId]);
-
-  useEffect(() => { load(); }, [load]);
+  const load = recargar;
 
   const openCreate = () => { setEditRev(null); setForm(emptyForm); setShowForm(true); };
   const openEdit   = (rev) => {
@@ -549,8 +523,6 @@ function TabRevisiones({ vehicleId }) {
     } catch { notify.error('Error al eliminar'); }
     finally { setDeletingId(null); }
   };
-
-  if (loading) return <PageLoading />;
 
   // Próximas revisiones con fecha_proxima en ≤ 30 días
   const hoy       = new Date();
@@ -756,34 +728,8 @@ function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   );
 }
 
-function TabResumen({ vehicleId, historial, onVerIncidencias, onVerRevisiones, onVerFotos }) {
-  const { notify } = useNotification();
-  const [vehicle,     setVehicle]     = useState(null);
-  const [incidencias, setIncidencias] = useState([]);
-  const [revisiones,  setRevisiones]  = useState([]);
-  const [loading,     setLoading]     = useState(true);
-
-  useEffect(() => {
-    let cancelado = false;
-    setLoading(true);
-    Promise.all([
-      vehiclesService.get(vehicleId),
-      vehiclesService.listIncidencias(vehicleId),
-      vehiclesService.listRevisiones(vehicleId),
-    ])
-      .then(([veh, incs, revs]) => {
-        if (cancelado) return;
-        setVehicle(veh);
-        setIncidencias(incs || []);
-        setRevisiones(revs || []);
-      })
-      .catch(() => { if (!cancelado) notify.error('Error al cargar la ficha del vehículo'); })
-      .finally(() => { if (!cancelado) setLoading(false); });
-    return () => { cancelado = true; };
-  }, [vehicleId]);
-
-  if (loading) return <PageLoading />;
-  if (!vehicle) return null;
+function TabResumen({ vehicle, historial, incidencias, revisiones, onVerIncidencias, onVerRevisiones, onVerFotos }) {
+  if (!vehicle) return <PageLoading />;
 
   const proximaITV     = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
   const proximaITS     = calcProximaITS(vehicle.fecha_its);
@@ -921,6 +867,66 @@ const TABS = [
   { key: 'revisiones',  label: 'Revisiones' },
 ];
 
+/**
+ * Datos que comparten las pestañas de la ficha.
+ *
+ * Viven aquí y no dentro de cada pestaña porque las pestañas se montan y se
+ * desmontan al cambiar de una a otra: con la carga en cada una, dar una vuelta
+ * por las cuatro y volver al resumen eran diez peticiones para cuatro juegos de
+ * datos. Cada una se pide por separado y con su propio catch para que un fallo
+ * en las incidencias no deje la ficha entera en blanco.
+ */
+function useDatosFicha(vehicleId) {
+  const { notify } = useNotification();
+  const [vehicle,     setVehicle]     = useState(null);
+  const [incidencias, setIncidencias] = useState([]);
+  const [revisiones,  setRevisiones]  = useState([]);
+  const [users,       setUsers]       = useState([]);
+  const usuariosPedidos = useRef(false);
+
+  const cargarIncidencias = useCallback(() => (
+    vehiclesService.listIncidencias(vehicleId)
+      .then(d => setIncidencias(d || []))
+      .catch(() => notify.error('Error al cargar incidencias'))
+  ), [vehicleId]);
+
+  const cargarRevisiones = useCallback(() => (
+    vehiclesService.listRevisiones(vehicleId)
+      .then(d => setRevisiones(d || []))
+      .catch(() => notify.error('Error al cargar revisiones'))
+  ), [vehicleId]);
+
+  /**
+   * Empleados a los que se puede atribuir una incidencia: son 300 registros
+   * que sólo usa el selector de la pestaña de incidencias, así que se piden
+   * cuando esa pestaña se abre por primera vez y no al entrar en la ficha.
+   */
+  const asegurarUsuarios = useCallback(() => {
+    if (usuariosPedidos.current) return;
+    usuariosPedidos.current = true;
+    usersService.list({ limit: 300 })
+      .then(r => setUsers(r.data || []))
+      .catch(() => { usuariosPedidos.current = false; /* el selector queda vacío */ });
+  }, []);
+
+  useEffect(() => {
+    // /vehicles/:id/historial devuelve el vehículo recortado (id, matrícula,
+    // alias y km); la ficha necesita además ITV, ITS, tarjeta y matriculación.
+    let cancelado = false;
+    vehiclesService.get(vehicleId)
+      .then(v => { if (!cancelado) setVehicle(v); })
+      .catch(() => { if (!cancelado) notify.error('Error al cargar la ficha del vehículo'); });
+    cargarIncidencias();
+    cargarRevisiones();
+    return () => { cancelado = true; };
+  }, [vehicleId, cargarIncidencias, cargarRevisiones]);
+
+  return {
+    vehicle, incidencias, revisiones, users,
+    cargarIncidencias, cargarRevisiones, asegurarUsuarios,
+  };
+}
+
 export default function VehicleHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -931,6 +937,8 @@ export default function VehicleHistory() {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+
+  const ficha = useDatosFicha(id);
 
   useEffect(() => {
     vehiclesService.getHistory(id)
@@ -994,8 +1002,10 @@ export default function VehicleHistory() {
       {/* Contenido de cada tab */}
       {tab === 'resumen' && (
         <TabResumen
-          vehicleId={id}
+          vehicle={ficha.vehicle}
           historial={data}
+          incidencias={ficha.incidencias}
+          revisiones={ficha.revisiones}
           onVerIncidencias={() => setTab('incidencias')}
           onVerRevisiones={() => setTab('revisiones')}
           onVerFotos={() => setTab('fotos')}
@@ -1017,9 +1027,23 @@ export default function VehicleHistory() {
         )
       )}
 
-      {tab === 'incidencias' && <TabIncidencias vehicleId={id} />}
+      {tab === 'incidencias' && (
+        <TabIncidencias
+          vehicleId={id}
+          incidencias={ficha.incidencias}
+          users={ficha.users}
+          recargar={ficha.cargarIncidencias}
+          pedirUsuarios={ficha.asegurarUsuarios}
+        />
+      )}
 
-      {tab === 'revisiones' && <TabRevisiones vehicleId={id} />}
+      {tab === 'revisiones' && (
+        <TabRevisiones
+          vehicleId={id}
+          revisiones={ficha.revisiones}
+          recargar={ficha.cargarRevisiones}
+        />
+      )}
     </div>
   );
 }

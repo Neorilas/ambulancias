@@ -14,6 +14,7 @@ const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
+const { ahora }                  = require('../utils/fecha.utils');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -331,8 +332,8 @@ async function deleteAsignacion(req, res, next) {
     if (!rows.length) return notFound(res, 'Asignación');
 
     await query(
-      'UPDATE asignaciones_libres SET deleted_at = NOW() WHERE id = ?',
-      [rows[0].id]
+      'UPDATE asignaciones_libres SET deleted_at = ? WHERE id = ?',
+      [ahora(), rows[0].id]
     );
 
     logAudit({
@@ -370,8 +371,8 @@ async function activarAsignacion(req, res, next) {
     }
 
     await query(
-      'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, NOW()) WHERE id = ?',
-      ['activa', asig.id]
+      'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?) WHERE id = ?',
+      ['activa', ahora(), asig.id]
     );
 
     logAudit({
@@ -413,7 +414,7 @@ async function finalizarAsignacion(req, res, next) {
     const { km_fin, motivo_fin } = req.body;
 
     // Si es anticipada (ahora < fecha_fin), el motivo es obligatorio
-    const esAnticipada = new Date() < new Date(asig.fecha_fin);
+    const esAnticipada = ahora() < new Date(asig.fecha_fin);
     if (esAnticipada && (!motivo_fin || !motivo_fin.trim())) {
       return error(res, 'motivo_fin es obligatorio cuando la finalización es anticipada', 400);
     }
@@ -446,9 +447,9 @@ async function finalizarAsignacion(req, res, next) {
          km_fin         = ?,
          motivo_fin     = ?,
          finalizado_por = ?,
-         finalizado_at  = NOW()
+         finalizado_at  = ?
        WHERE id = ?`,
-      [km_fin || null, motivo_fin || null, req.user.id, asig.id]
+      [km_fin || null, motivo_fin || null, req.user.id, ahora(), asig.id]
     );
 
     logAudit({

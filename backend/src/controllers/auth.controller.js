@@ -17,6 +17,7 @@ const {
 const { success, error, unauthorized } = require('../utils/response.utils');
 const { LOCKOUT }                     = require('../config/constants');
 const logger                          = require('../utils/logger.utils');
+const { ahora }                       = require('../utils/fecha.utils');
 
 // ============================================================
 // Helpers internos
@@ -193,7 +194,7 @@ async function refresh(req, res, next) {
     const rt = rows[0];
 
     if (rt.revoked)                              return unauthorized(res, 'Refresh token revocado');
-    if (new Date(rt.expires_at) < new Date())    return unauthorized(res, 'Refresh token expirado');
+    if (new Date(rt.expires_at) < ahora())       return unauthorized(res, 'Refresh token expirado');
     if (!rt.activo || rt.deleted_at)             return unauthorized(res, 'Cuenta inactiva');
 
     const roles       = rt.roles ? rt.roles.split(',') : [];
@@ -205,8 +206,8 @@ async function refresh(req, res, next) {
 
     await transaction(async (conn) => {
       await conn.execute(
-        'UPDATE refresh_tokens SET revoked = 1, revoked_at = NOW() WHERE id = ?',
-        [rt.id]
+        'UPDATE refresh_tokens SET revoked = 1, revoked_at = ? WHERE id = ?',
+        [ahora(), rt.id]
       );
       await conn.execute(
         'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address) VALUES (?, ?, ?, ?)',
@@ -237,8 +238,8 @@ async function logout(req, res, next) {
     if (refreshToken) {
       const tokenHash = hashRefreshToken(refreshToken);
       await query(
-        'UPDATE refresh_tokens SET revoked = 1, revoked_at = NOW() WHERE token_hash = ?',
-        [tokenHash]
+        'UPDATE refresh_tokens SET revoked = 1, revoked_at = ? WHERE token_hash = ?',
+        [ahora(), tokenHash]
       );
     }
     return success(res, null, 'Sesión cerrada correctamente');
