@@ -326,20 +326,47 @@ async function getVehicleImages(req, res, next) {
 async function uploadImages(req, res, next) {
   try {
     const vehicleId = parseInt(req.params.id);
-    const trabajoId = req.body.trabajo_id ? parseInt(req.body.trabajo_id) : null;
+    const trabajoIdRaw = req.body.trabajo_id;
+    const trabajoId = (trabajoIdRaw === undefined || trabajoIdRaw === null || trabajoIdRaw === '')
+      ? null
+      : parseInt(trabajoIdRaw);
     const tipoImagen = req.body.tipo_imagen;
 
     const [veh] = await query(
       'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
     );
-    if (!veh.length) return notFound(res, 'Vehículo');
+    if (!veh.length) {
+      // La imagen ya está en disco a estas alturas: si la petición no sigue
+      // adelante hay que barrerla, o el directorio se llena de huérfanos.
+      if (req.processedFile) deleteFile(req.processedFile.url);
+      return notFound(res, 'Vehículo');
+    }
 
     if (!IMAGEN_TIPOS.includes(tipoImagen)) {
+      if (req.processedFile) deleteFile(req.processedFile.url);
       return error(res, `tipo_imagen debe ser uno de: ${IMAGEN_TIPOS.join(', ')}`, 400);
     }
 
     if (!req.processedFile) {
       return error(res, 'No se recibió ninguna imagen', 400);
+    }
+
+    // El `trabajo_id` llega del cliente: si viene, tiene que ser un trabajo de
+    // verdad y de este vehículo. Si no, la foto acabaría colgando de un
+    // trabajo ajeno en el historial, que es lo que mira el admin para dar por
+    // buena la evidencia.
+    if (trabajoId !== null) {
+      const [rel] = await query(
+        `SELECT 1 AS ok
+         FROM trabajo_vehiculos tv
+         JOIN trabajos t ON tv.trabajo_id = t.id
+         WHERE tv.trabajo_id = ? AND tv.vehicle_id = ? AND t.deleted_at IS NULL`,
+        [trabajoId, vehicleId]
+      );
+      if (!rel.length) {
+        deleteFile(req.processedFile.url);
+        return error(res, 'El vehículo no está asignado a ese trabajo', 400);
+      }
     }
 
     const [result] = await query(

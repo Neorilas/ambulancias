@@ -12,6 +12,7 @@ const { requireAdminOrGestor }     = require('../middleware/roles.middleware');
 const { handleValidation }         = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
+const { requireTrabajoEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { TRABAJO_TIPOS, IMAGEN_TIPOS, IMAGEN_MOMENTOS } = require('../config/constants');
 
 const router = express.Router();
@@ -108,6 +109,9 @@ router.post('/:id/evidencias',
       .withMessage('momento debe ser "inicio" o "fin"'),
   ],
   handleValidation,
+  // Solo el responsable del vehículo en este trabajo (o quien gestiona
+  // trabajos) puede escribir estas fotos: se sobrescriben entre sí
+  requireTrabajoEvidenciaAccess,
   async (req, res, next) => {
     return processAndSave(`trabajos/${req.params.id}`)(req, res, next);
   },

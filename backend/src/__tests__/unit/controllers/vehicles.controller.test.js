@@ -322,13 +322,46 @@ describe('vehicles.controller', () => {
   // ── uploadImages ───────────────────────────────────────
   describe('uploadImages', () => {
     it('uploads image for vehicle', async () => {
-      query.mockResolvedValueOnce([[{ id: 1 }]]); // vehicle exists
+      query.mockResolvedValueOnce([[{ id: 1 }]]);      // vehicle exists
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);      // el trabajo es de este vehiculo
       query.mockResolvedValueOnce([{ insertId: 20 }]); // insert image
 
       const req = mockReq({
         params: { id: '1' },
         body: { trabajo_id: 5, tipo_imagen: 'frontal' },
         processedFile: { url: '/uploads/test.jpg' },
+        user: { id: 1 },
+      });
+      const res = mockRes();
+      await uploadImages(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('returns 400 when trabajo_id belongs to another vehicle (SEC-02)', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);  // vehicle exists
+      query.mockResolvedValueOnce([[]]);           // ese trabajo no lleva este vehiculo
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { trabajo_id: 999, tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/test.jpg' },
+        user: { id: 1 },
+      });
+      const res = mockRes();
+      await uploadImages(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      // no debe insertar nada
+      expect(query).toHaveBeenCalledTimes(2);
+    });
+
+    it('uploads image without trabajo_id (foto suelta)', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);      // vehicle exists
+      query.mockResolvedValueOnce([{ insertId: 21 }]); // insert image, sin comprobar trabajo
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { tipo_imagen: 'danos' },
+        processedFile: { url: '/uploads/test2.jpg' },
         user: { id: 1 },
       });
       const res = mockRes();
