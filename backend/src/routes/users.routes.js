@@ -93,7 +93,7 @@ router.post('/:id/reset-password',
   [
     param('id').isInt({ min: 1 }).withMessage('ID inválido'),
     body('password').optional({ nullable: true }).isString()
-      .isLength({ min: 8 }).withMessage('Mínimo 8 caracteres'),
+      .isLength({ min: 10 }).withMessage('Mínimo 10 caracteres'),
   ],
   handleValidation,
   ctrl.resetPassword

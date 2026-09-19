@@ -15,9 +15,15 @@ export default function ResetPasswordModal({ user, onClose }) {
 
   const handleReset = async () => {
     setError('');
-    if (mode === 'manual' && manual.trim().length < 8) {
-      setError('Mínimo 8 caracteres');
-      return;
+    // Mismas reglas que el backend (password.utils.js): que el aviso salga
+    // aquí y no como un 422 a medio camino.
+    if (mode === 'manual') {
+      const pw = manual.trim();
+      const clases = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter(re => re.test(pw)).length;
+      if (pw.length < 10 || clases < 2) {
+        setError('Mínimo 10 caracteres y al menos dos tipos (minúsculas, mayúsculas, números o símbolos)');
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -130,7 +136,7 @@ export default function ResetPasswordModal({ user, onClose }) {
                 type="text"
                 autoComplete="off"
                 className={`input ${error ? 'input-error' : ''}`}
-                placeholder="Nueva contraseña (mín. 8 caracteres)"
+                placeholder="Nueva contraseña (mín. 10 caracteres)"
                 value={manual}
                 onChange={e => { setManual(e.target.value); setError(''); }}
               />
