@@ -120,12 +120,45 @@ describe('vehicles.controller', () => {
     it('returns vehicle with images', async () => {
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
       query.mockResolvedValueOnce([[{ id: 10, tipo_imagen: 'frontal', image_url: '/img.jpg' }]]);
+      query.mockResolvedValueOnce([[{ total: 0 }]]);   // asignaciones historicas
+      query.mockResolvedValueOnce([[]]);               // ninguna activa
 
       const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
       const res = mockRes();
       await getVehicle(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res._json.data.images).toHaveLength(1);
+    });
+
+    // El resumen de la ficha dice cuantas veces ha salido el vehiculo y si
+    // ahora mismo lo lleva alguien: son dos consultas aparte porque el
+    // historial fotografico solo ve las asignaciones que tuvieron fotos.
+    it('returns assignment summary (total and current)', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([[{ total: 12 }]]);
+      query.mockResolvedValueOnce([[{
+        id: 44, fecha_inicio: '2026-09-18T06:00:00.000Z', fecha_fin: '2026-09-19T06:00:00.000Z',
+        inicio_real_at: '2026-09-18T06:05:00.000Z', responsable_nombre: 'Jose Lopez',
+      }]]);
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await getVehicle(req, res, mockNext());
+      expect(res._json.data.asignaciones.total).toBe(12);
+      expect(res._json.data.asignaciones.activa.responsable_nombre).toBe('Jose Lopez');
+    });
+
+    it('reports no current assignment when none is active', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([[{ total: 3 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await getVehicle(req, res, mockNext());
+      expect(res._json.data.asignaciones).toEqual({ total: 3, activa: null });
     });
 
     it('returns 404 when not found', async () => {
@@ -142,6 +175,9 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234' }]]);
       // images query
       query.mockResolvedValueOnce([[{ id: 10, tipo_imagen: 'frontal', image_url: '/img.jpg' }]]);
+      // resumen de asignaciones
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
 
       const req = mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'] } });
       const res = mockRes();

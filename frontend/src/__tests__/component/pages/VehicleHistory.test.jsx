@@ -7,6 +7,7 @@ vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: {
     getHistory:      vi.fn(),
     get:             vi.fn(),
+    update:          vi.fn(),
     listIncidencias: vi.fn(),
     listRevisiones:  vi.fn(),
   },
@@ -14,19 +15,32 @@ vi.mock('../../../services/vehicles.service.js', () => ({
 vi.mock('../../../services/users.service.js', () => ({
   usersService: { list: vi.fn() },
 }));
+vi.mock('../../../services/auth.service.js', () => ({
+  authService: { login: vi.fn(), logout: vi.fn(), me: vi.fn() },
+}));
 
 import { vehiclesService } from '../../../services/vehicles.service.js';
 import { usersService }    from '../../../services/users.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import { AuthProvider }         from '../../../context/AuthContext.jsx';
+import { PREFIJO }              from '../../../utils/sessionStorage.js';
 import VehicleHistory           from '../../../pages/vehicles/VehicleHistory.jsx';
 
+/** Deja en sesion un administrador con permiso para editar la flota. */
+function sesionConPermiso() {
+  localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+  localStorage.setItem(PREFIJO + 'user', JSON.stringify({
+    id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_vehicles'],
+  }));
+}
+
 const VEHICULO = {
-  id: 7, matricula: '1234ABC', alias: 'Ambulancia 3',
+  id: 7, matricula: '1234BCD', alias: 'Ambulancia 3',
   kilometros_actuales: 120000, fecha_matriculacion: '2019-01-10',
   fecha_itv: '2026-01-10', fecha_its: '2026-03-01',
   fecha_tarjeta_transporte: '2027-01-01', fecha_ultimo_servicio: '2026-09-01',
   images: [],
+  asignaciones: { total: 12, activa: null },
 };
 
 function montar() {
@@ -152,5 +166,177 @@ describe('VehicleHistory · hora de cada foto', () => {
 
     expect(await screen.findByText(/Jose Lopez · 18\/09\/2026 08:10/)).toBeInTheDocument();
     expect(screen.getByText('Inicio · Frontal')).toBeInTheDocument();
+  });
+});
+
+// El resumen habla de uso del vehiculo, no de cuantas fotos se subieron: el
+// numero de fotos y el de trabajos con foto no le dicen nada a quien gestiona
+// la flota. Lo que importa es cuantas veces ha salido y si ahora esta libre.
+describe('VehicleHistory · resumen de asignaciones', () => {
+  const GRUPO_CON_FOTOS = {
+    tipo: 'asignacion', asignacion_id: 4, trabajo_id: null, estado: 'finalizada',
+    fecha_inicio: '2026-09-18T05:00:00.000Z', fecha_fin: '2026-09-18T18:00:00.000Z',
+    fotos: [{
+      id: 1, tipo_imagen: 'frontal', momento: 'inicio', image_url: '/u/i.jpg',
+      fecha: '2026-09-18T06:10:00.000Z', subido_por: { id: 3, nombre: 'Jose', apellidos: 'Lopez' },
+    }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [GRUPO_CON_FOTOS] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('cuenta las asignaciones historicas y no las fotos', async () => {
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+
+    // Sale dos veces: en el vistazo de arriba y en la tarjeta de asignaciones.
+    expect((await screen.findAllByText('Asignaciones históricas')).length).toBe(2);
+    expect(screen.getAllByText('12').length).toBeGreaterThan(0);
+
+    expect(screen.queryByText('Fotos totales')).not.toBeInTheDocument();
+    expect(screen.queryByText('Trabajos con fotos')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fotos registradas')).not.toBeInTheDocument();
+  });
+
+  it('dice que esta libre cuando no hay asignacion activa', async () => {
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+
+    expect((await screen.findAllByText('Libre')).length).toBeGreaterThan(0);
+  });
+
+  it('dice quien la lleva cuando esta asignada ahora mismo', async () => {
+    vehiclesService.get.mockResolvedValue({
+      ...VEHICULO,
+      asignaciones: {
+        total: 13,
+        activa: {
+          id: 44, fecha_inicio: '2026-09-19T05:00:00.000Z', fecha_fin: '2026-09-20T05:00:00.000Z',
+          inicio_real_at: '2026-09-19T05:10:00.000Z', responsable_nombre: 'Jose Lopez',
+        },
+      },
+    });
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+
+    expect((await screen.findAllByText('Asignada')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Jose Lopez/).length).toBeGreaterThan(0);
+  });
+});
+
+// Los datos del vehiculo se editan en el propio resumen. Cambiar de pestana a
+// medias perdia lo escrito sin avisar: ahora se pregunta antes.
+describe('VehicleHistory · edicion desde el resumen', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesionConPermiso();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.update.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  async function abrirEdicion(user) {
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+    return screen.getByDisplayValue('Ambulancia 3');
+  }
+
+  it('guarda los cambios al pulsar Guardar cambios', async () => {
+    const user = userEvent.setup();
+    const nombre = await abrirEdicion(user);
+
+    await user.clear(nombre);
+    await user.type(nombre, 'Ambulancia 4');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.update.mock.calls[0][1]).toMatchObject({
+      alias: 'Ambulancia 4', matricula: '1234BCD',
+    });
+    // Tras guardar se recarga la ficha: la cabecera tiene que reflejarlo.
+    expect(vehiclesService.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('descarta lo escrito sin llamar al servidor', async () => {
+    const user = userEvent.setup();
+    const nombre = await abrirEdicion(user);
+
+    await user.clear(nombre);
+    await user.type(nombre, 'Ambulancia 4');
+    await user.click(screen.getByRole('button', { name: 'Descartar' }));
+
+    expect(vehiclesService.update).not.toHaveBeenCalled();
+    expect(screen.queryByDisplayValue('Ambulancia 4')).not.toBeInTheDocument();
+  });
+
+  it('avisa al cambiar de pestana con cambios sin guardar', async () => {
+    const user = userEvent.setup();
+    const nombre = await abrirEdicion(user);
+
+    await user.clear(nombre);
+    await user.type(nombre, 'Ambulancia 4');
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+
+    expect(await screen.findByText('Cambios sin guardar')).toBeInTheDocument();
+    // Sigue en el resumen hasta que se decida
+    expect(screen.getByDisplayValue('Ambulancia 4')).toBeInTheDocument();
+  });
+
+  it('no avisa si no se ha tocado nada', async () => {
+    const user = userEvent.setup();
+    await abrirEdicion(user);
+
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+
+    expect(screen.queryByText('Cambios sin guardar')).not.toBeInTheDocument();
+    expect(await screen.findByText('Sin revisiones registradas')).toBeInTheDocument();
+  });
+
+  it('descartar en el aviso cambia de pestana y pierde lo escrito', async () => {
+    const user = userEvent.setup();
+    const nombre = await abrirEdicion(user);
+
+    await user.clear(nombre);
+    await user.type(nombre, 'Ambulancia 4');
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    await user.click(await screen.findByRole('button', { name: 'Descartar cambios' }));
+
+    expect(vehiclesService.update).not.toHaveBeenCalled();
+    expect(await screen.findByText('Sin revisiones registradas')).toBeInTheDocument();
+  });
+
+  it('guardar en el aviso guarda y luego cambia de pestana', async () => {
+    const user = userEvent.setup();
+    const nombre = await abrirEdicion(user);
+
+    await user.clear(nombre);
+    await user.type(nombre, 'Ambulancia 4');
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    await user.click(await screen.findByRole('button', { name: 'Guardar y continuar' }));
+
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.update.mock.calls[0][1]).toMatchObject({ alias: 'Ambulancia 4' });
+    expect(await screen.findByText('Sin revisiones registradas')).toBeInTheDocument();
+  });
+
+  it('sin permiso para gestionar la flota no hay boton de editar', async () => {
+    localStorage.clear();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await waitFor(() => expect(vehiclesService.get).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 });
