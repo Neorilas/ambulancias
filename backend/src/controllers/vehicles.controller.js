@@ -133,7 +133,33 @@ async function getVehicle(req, res, next) {
       [vehicleId]
     );
 
-    return success(res, { ...rows[0], images });
+    // Resumen de asignaciones: cuántas veces ha salido el vehículo y si ahora
+    // mismo lo lleva alguien. El historial fotográfico no sirve para esto,
+    // porque solo recoge las asignaciones que llegaron a tener fotos.
+    const [asigTotal] = await query(
+      `SELECT COUNT(*) AS total FROM asignaciones_libres
+       WHERE vehicle_id = ? AND deleted_at IS NULL`,
+      [vehicleId]
+    );
+    const [asigActiva] = await query(
+      `SELECT al.id, al.fecha_inicio, al.fecha_fin, al.inicio_real_at,
+              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
+       FROM asignaciones_libres al
+       JOIN users u ON al.user_id = u.id
+       WHERE al.vehicle_id = ? AND al.deleted_at IS NULL AND al.estado = 'activa'
+       ORDER BY al.fecha_inicio DESC
+       LIMIT 1`,
+      [vehicleId]
+    );
+
+    return success(res, {
+      ...rows[0],
+      images,
+      asignaciones: {
+        total:  asigTotal[0]?.total || 0,
+        activa: asigActiva[0] || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

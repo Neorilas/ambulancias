@@ -1,7 +1,9 @@
 /**
  * VehicleHistory.jsx
  * Ficha de un vehículo con cuatro pestañas:
- *   Resumen     — datos del vehículo, documentación y estado de incidencias
+ *   Resumen     — datos del vehículo (editables en línea), documentación,
+ *                 incidencias y uso: cuántas asignaciones ha tenido y si ahora
+ *                 mismo la lleva alguien
  *   Fotos       — historial fotográfico agrupado por trabajo
  *   Incidencias — daños/averías registradas con responsable
  *   Revisiones  — ITV, ITS, mantenimiento, etc.
@@ -13,9 +15,12 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
-import { formatDate, formatDateTime, formatDateTimeShort } from '../../utils/dateUtils.js';
+import Modal from '../../components/common/Modal.jsx';
+import { formatDate, formatDateTime, formatDateTimeShort, toInputDate } from '../../utils/dateUtils.js';
+import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
@@ -731,6 +736,19 @@ function Dato({ label, children }) {
   );
 }
 
+/** El mismo hueco que `Dato`, con un campo editable en lugar del valor. */
+function Campo({ label, error, hint, children }) {
+  return (
+    <div>
+      <p className="text-neutral-400 text-xs mb-0.5">{label}</p>
+      {children}
+      {error
+        ? <p className="field-error">{error}</p>
+        : hint ? <p className="text-xs text-neutral-400 mt-1">{hint}</p> : null}
+    </div>
+  );
+}
+
 /** Fecha de caducidad con aviso de vencida / próxima. */
 function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   if (!proxima) return <span className="text-neutral-400">—</span>;
@@ -749,12 +767,104 @@ function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   );
 }
 
-function TabResumen({ vehicle, historial, incidencias, revisiones, onVerIncidencias, onVerRevisiones, onVerFotos }) {
+// Campos que se editan desde el resumen. La lista se usa para saber si quedan
+// cambios sin guardar, así que tiene que ser exactamente la del formulario.
+const CAMPOS_FICHA = [
+  'alias', 'matricula', 'kilometros_actuales', 'fecha_matriculacion',
+  'fecha_itv', 'fecha_its', 'fecha_tarjeta_transporte',
+  'fecha_ultima_revision', 'fecha_ultimo_servicio',
+];
+
+function formDesdeVehiculo(v) {
+  return {
+    alias:                    v?.alias || '',
+    matricula:                v?.matricula || '',
+    kilometros_actuales:      v?.kilometros_actuales ?? '',
+    fecha_matriculacion:      toInputDate(v?.fecha_matriculacion),
+    fecha_itv:                toInputDate(v?.fecha_itv),
+    fecha_its:                toInputDate(v?.fecha_its),
+    fecha_tarjeta_transporte: toInputDate(v?.fecha_tarjeta_transporte),
+    fecha_ultima_revision:    toInputDate(v?.fecha_ultima_revision),
+    fecha_ultimo_servicio:    toInputDate(v?.fecha_ultimo_servicio),
+  };
+}
+
+/**
+ * Edición en línea de los datos del vehículo.
+ *
+ * Vive en la página y no dentro de la pestaña de Resumen porque quien tiene
+ * que saber si quedan cambios sin guardar es quien cambia de pestaña: el
+ * Resumen se desmonta al salir de él y se llevaría por delante lo escrito.
+ */
+function useEdicionVehiculo(vehicle, recargarVehiculo) {
+  const { notify } = useNotification();
+  const [form,      setForm]      = useState(null);   // null = no se está editando
+  const [errores,   setErrores]   = useState({});
+  const [guardando, setGuardando] = useState(false);
+
+  const editando = form !== null;
+  const original = vehicle ? formDesdeVehiculo(vehicle) : null;
+  const sucio = editando && !!original &&
+    CAMPOS_FICHA.some(c => String(form[c] ?? '') !== String(original[c] ?? ''));
+
+  const abrir     = () => { setErrores({}); setForm(formDesdeVehiculo(vehicle)); };
+  const descartar = () => { setErrores({}); setForm(null); };
+
+  const set = (campo) => (e) => {
+    const { value } = e.target;
+    setForm(f => ({ ...f, [campo]: value }));
+    setErrores(er => ({ ...er, [campo]: '' }));
+  };
+
+  /** Devuelve true si se guardó; false si falló la validación o el servidor. */
+  const guardar = async () => {
+    const e = {};
+    if (!form.alias.trim())                e.alias     = 'Nombre requerido';
+    if (!form.matricula.trim())            e.matricula = 'Matrícula requerida';
+    else if (!esMatricula(form.matricula)) e.matricula = MENSAJE_FORMATO;
+    setErrores(e);
+    if (Object.keys(e).length) return false;
+
+    setGuardando(true);
+    try {
+      await vehiclesService.update(vehicle.id, {
+        alias:                    form.alias.trim(),
+        matricula:                normalizarMatricula(form.matricula),
+        kilometros_actuales:      form.kilometros_actuales !== '' ? parseInt(form.kilometros_actuales) : 0,
+        fecha_matriculacion:      form.fecha_matriculacion      || null,
+        fecha_itv:                form.fecha_itv                || null,
+        fecha_its:                form.fecha_its                || null,
+        fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
+        fecha_ultima_revision:    form.fecha_ultima_revision    || null,
+        fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
+      });
+      notify.success('Vehículo actualizado');
+      setForm(null);
+      await recargarVehiculo();
+      return true;
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al guardar');
+      return false;
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return { form, editando, sucio, errores, guardando, abrir, descartar, guardar, set };
+}
+
+function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar,
+                      onVerIncidencias, onVerRevisiones }) {
   if (!vehicle) return <PageLoading />;
 
-  const proximaITV     = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
-  const proximaITS     = calcProximaITS(vehicle.fecha_its);
-  const proximaTarjeta = vehicle.fecha_tarjeta_transporte ? new Date(vehicle.fecha_tarjeta_transporte) : null;
+  const { form, editando, errores, guardando } = edicion;
+  // Editando, los avisos se recalculan con lo que hay escrito: así se ve a
+  // dónde mueve la próxima ITV el cambio antes de guardarlo.
+  const datos = editando ? form : vehicle;
+
+  const proximaITV     = calcProximaITV(datos.fecha_matriculacion, datos.fecha_itv);
+  const proximaITS     = calcProximaITS(datos.fecha_its);
+  const proximaTarjeta = datos.fecha_tarjeta_transporte ? new Date(datos.fecha_tarjeta_transporte) : null;
 
   const pendientes  = incidencias.filter(i => i.estado === 'pendiente');
   const enRevision  = incidencias.filter(i => i.estado === 'en_revision');
@@ -763,56 +873,135 @@ function TabResumen({ vehicle, historial, incidencias, revisiones, onVerIncidenc
   const ultimasInc  = incidencias.slice(0, 5);
 
   const ultimaRevision = revisiones[0] || null;
-  const totalFotos = (historial?.trabajos || []).reduce((s, t) => s + t.fotos.length, 0);
-  const totalServicios = (historial?.trabajos || []).length;
 
-  const antiguedad = vehicle.fecha_matriculacion
-    ? Math.floor((new Date() - new Date(vehicle.fecha_matriculacion)) / (1000 * 60 * 60 * 24 * 365.25))
+  const asignaciones = vehicle.asignaciones || null;
+  const activa       = asignaciones?.activa || null;
+
+  const antiguedad = datos.fecha_matriculacion
+    ? Math.floor((new Date() - new Date(datos.fecha_matriculacion)) / (1000 * 60 * 60 * 24 * 365.25))
     : null;
 
   return (
     <div className="space-y-4">
+      {/* Barra de edición: mientras está abierta, los datos son campos */}
+      {editando && (
+        <div className="card border-primary-200 bg-primary-50/40 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm text-neutral-600 flex-1">
+            {edicion.sucio
+              ? 'Tienes cambios sin guardar.'
+              : 'Editando los datos del vehículo.'}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={edicion.descartar} disabled={guardando} className="btn-secondary btn-sm">
+              Descartar
+            </button>
+            <button onClick={edicion.guardar} disabled={guardando} className="btn-primary btn-sm">
+              {guardando ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Datos generales */}
       <div className="card space-y-3">
-        <h3 className="font-medium text-neutral-900 text-sm">Datos del vehículo</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Dato label="Matrícula"><span className="font-mono">{vehicle.matricula}</span></Dato>
-          <Dato label="Alias">{vehicle.alias}</Dato>
-          <Dato label="Kilómetros actuales">
-            {vehicle.kilometros_actuales != null ? `${vehicle.kilometros_actuales.toLocaleString()} km` : null}
-          </Dato>
-          <Dato label="Fecha de matriculación">
-            {vehicle.fecha_matriculacion ? formatDate(vehicle.fecha_matriculacion) : null}
-          </Dato>
-          <Dato label="Antigüedad">
-            {antiguedad != null ? `${antiguedad} año${antiguedad !== 1 ? 's' : ''}` : null}
-          </Dato>
-          <Dato label="Último servicio">
-            {vehicle.fecha_ultimo_servicio ? formatDate(vehicle.fecha_ultimo_servicio) : null}
-          </Dato>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-medium text-neutral-900 text-sm">Datos del vehículo</h3>
+          {puedeEditar && !editando && (
+            <button onClick={edicion.abrir} className="btn-secondary btn-sm">Editar</button>
+          )}
         </div>
+
+        {editando ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Campo label="Nombre de la ambulancia *" error={errores.alias}
+              hint="Como se conoce el vehículo en el día a día">
+              <input type="text" className={`input ${errores.alias ? 'input-error' : ''}`}
+                value={form.alias} onChange={edicion.set('alias')} autoFocus />
+            </Campo>
+            <Campo label="Matrícula *" error={errores.matricula}>
+              <input type="text" className={`input uppercase ${errores.matricula ? 'input-error' : ''}`}
+                value={form.matricula} onChange={edicion.set('matricula')} placeholder="Ej: 1234BCD" />
+            </Campo>
+            <Campo label="Kilómetros actuales">
+              <input type="number" min={0} step={1} className="input"
+                value={form.kilometros_actuales} onChange={edicion.set('kilometros_actuales')} />
+            </Campo>
+            <Campo label="Fecha de matriculación" hint="Determina la frecuencia de ITV">
+              <input type="date" className="input"
+                value={form.fecha_matriculacion} onChange={edicion.set('fecha_matriculacion')} />
+            </Campo>
+            <Campo label="Último servicio">
+              <input type="date" className="input"
+                value={form.fecha_ultimo_servicio} onChange={edicion.set('fecha_ultimo_servicio')} />
+            </Campo>
+            <Dato label="Antigüedad">
+              {antiguedad != null ? `${antiguedad} año${antiguedad !== 1 ? 's' : ''}` : null}
+            </Dato>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <Dato label="Matrícula"><span className="font-mono">{vehicle.matricula}</span></Dato>
+            <Dato label="Alias">{vehicle.alias}</Dato>
+            <Dato label="Kilómetros actuales">
+              {vehicle.kilometros_actuales != null ? `${vehicle.kilometros_actuales.toLocaleString()} km` : null}
+            </Dato>
+            <Dato label="Fecha de matriculación">
+              {vehicle.fecha_matriculacion ? formatDate(vehicle.fecha_matriculacion) : null}
+            </Dato>
+            <Dato label="Antigüedad">
+              {antiguedad != null ? `${antiguedad} año${antiguedad !== 1 ? 's' : ''}` : null}
+            </Dato>
+            <Dato label="Último servicio">
+              {vehicle.fecha_ultimo_servicio ? formatDate(vehicle.fecha_ultimo_servicio) : null}
+            </Dato>
+          </div>
+        )}
       </div>
 
       {/* Documentación y vencimientos */}
       <div className="card space-y-3">
         <h3 className="font-medium text-neutral-900 text-sm">Documentación y vencimientos</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Dato label="Última ITV">{vehicle.fecha_itv ? formatDate(vehicle.fecha_itv) : null}</Dato>
-          <Dato label="Próxima ITV"><FechaVencimiento proxima={proximaITV} /></Dato>
-          <Dato label="Última ITS">{vehicle.fecha_its ? formatDate(vehicle.fecha_its) : null}</Dato>
-          <Dato label="Próxima ITS"><FechaVencimiento proxima={proximaITS} /></Dato>
-          <Dato label="Tarjeta de transporte">
-            <FechaVencimiento proxima={proximaTarjeta} umbralAviso={60} />
-          </Dato>
-          <Dato label="Última revisión registrada">
-            {ultimaRevision
-              ? `${TIPO_REV_LABELS[ultimaRevision.tipo] || ultimaRevision.tipo} · ${formatDate(ultimaRevision.fecha_revision)}`
-              : (vehicle.fecha_ultima_revision ? formatDate(vehicle.fecha_ultima_revision) : null)}
-          </Dato>
-        </div>
-        <button onClick={onVerRevisiones} className="btn-secondary text-xs">
-          Ver todas las revisiones ({revisiones.length})
-        </button>
+
+        {editando ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Campo label="Última ITV">
+              <input type="date" className="input" value={form.fecha_itv} onChange={edicion.set('fecha_itv')} />
+            </Campo>
+            <Dato label="Próxima ITV"><FechaVencimiento proxima={proximaITV} /></Dato>
+            <Campo label="Última ITS">
+              <input type="date" className="input" value={form.fecha_its} onChange={edicion.set('fecha_its')} />
+            </Campo>
+            <Dato label="Próxima ITS"><FechaVencimiento proxima={proximaITS} /></Dato>
+            <Campo label="Tarjeta de transporte" hint="Vigencia 2 años · aviso 2 meses antes">
+              <input type="date" className="input"
+                value={form.fecha_tarjeta_transporte} onChange={edicion.set('fecha_tarjeta_transporte')} />
+            </Campo>
+            <Campo label="Última revisión general">
+              <input type="date" className="input"
+                value={form.fecha_ultima_revision} onChange={edicion.set('fecha_ultima_revision')} />
+            </Campo>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <Dato label="Última ITV">{vehicle.fecha_itv ? formatDate(vehicle.fecha_itv) : null}</Dato>
+              <Dato label="Próxima ITV"><FechaVencimiento proxima={proximaITV} /></Dato>
+              <Dato label="Última ITS">{vehicle.fecha_its ? formatDate(vehicle.fecha_its) : null}</Dato>
+              <Dato label="Próxima ITS"><FechaVencimiento proxima={proximaITS} /></Dato>
+              <Dato label="Tarjeta de transporte">
+                <FechaVencimiento proxima={proximaTarjeta} umbralAviso={60} />
+              </Dato>
+              <Dato label="Última revisión registrada">
+                {ultimaRevision
+                  ? `${TIPO_REV_LABELS[ultimaRevision.tipo] || ultimaRevision.tipo} · ${formatDate(ultimaRevision.fecha_revision)}`
+                  : (vehicle.fecha_ultima_revision ? formatDate(vehicle.fecha_ultima_revision) : null)}
+              </Dato>
+            </div>
+            <button onClick={onVerRevisiones} className="btn-secondary text-xs">
+              Ver todas las revisiones ({revisiones.length})
+            </button>
+          </>
+        )}
       </div>
 
       {/* Incidencias históricas */}
@@ -865,16 +1054,23 @@ function TabResumen({ vehicle, historial, incidencias, revisiones, onVerIncidenc
         )}
       </div>
 
-      {/* Actividad documentada */}
+      {/* Uso del vehículo */}
       <div className="card space-y-3">
-        <h3 className="font-medium text-neutral-900 text-sm">Actividad documentada</h3>
+        <h3 className="font-medium text-neutral-900 text-sm">Asignaciones</h3>
         <div className="grid grid-cols-2 gap-4">
-          <Dato label="Trabajos y asignaciones con fotos">{totalServicios}</Dato>
-          <Dato label="Fotos registradas">{totalFotos}</Dato>
+          <Dato label="Asignaciones históricas">{asignaciones ? asignaciones.total : null}</Dato>
+          <Dato label="Ahora mismo">
+            {activa
+              ? <span className="text-ok-600 font-medium">Asignada a {activa.responsable_nombre}</span>
+              : 'Libre'}
+          </Dato>
+          {activa && (
+            <Dato label="Desde">
+              {formatDateTime(activa.inicio_real_at || activa.fecha_inicio)}
+            </Dato>
+          )}
+          {activa && <Dato label="Prevista hasta">{formatDateTime(activa.fecha_fin)}</Dato>}
         </div>
-        <button onClick={onVerFotos} className="btn-secondary text-xs">
-          Ver historial fotográfico
-        </button>
       </div>
     </div>
   );
@@ -905,6 +1101,15 @@ function useDatosFicha(vehicleId) {
   const [users,       setUsers]       = useState([]);
   const usuariosPedidos = useRef(false);
 
+  // /vehicles/:id/historial devuelve el vehículo recortado (id, matrícula,
+  // alias y km); la ficha necesita además ITV, ITS, tarjeta, matriculación y
+  // el resumen de asignaciones. Se vuelve a pedir tras guardar una edición.
+  const cargarVehiculo = useCallback(() => (
+    vehiclesService.get(vehicleId)
+      .then(v => setVehicle(v))
+      .catch(() => notify.error('Error al cargar la ficha del vehículo'))
+  ), [vehicleId]);
+
   const cargarIncidencias = useCallback(() => (
     vehiclesService.listIncidencias(vehicleId)
       .then(d => setIncidencias(d || []))
@@ -931,20 +1136,14 @@ function useDatosFicha(vehicleId) {
   }, []);
 
   useEffect(() => {
-    // /vehicles/:id/historial devuelve el vehículo recortado (id, matrícula,
-    // alias y km); la ficha necesita además ITV, ITS, tarjeta y matriculación.
-    let cancelado = false;
-    vehiclesService.get(vehicleId)
-      .then(v => { if (!cancelado) setVehicle(v); })
-      .catch(() => { if (!cancelado) notify.error('Error al cargar la ficha del vehículo'); });
+    cargarVehiculo();
     cargarIncidencias();
     cargarRevisiones();
-    return () => { cancelado = true; };
-  }, [vehicleId, cargarIncidencias, cargarRevisiones]);
+  }, [cargarVehiculo, cargarIncidencias, cargarRevisiones]);
 
   return {
     vehicle, incidencias, revisiones, users,
-    cargarIncidencias, cargarRevisiones, asegurarUsuarios,
+    cargarVehiculo, cargarIncidencias, cargarRevisiones, asegurarUsuarios,
   };
 }
 
@@ -952,14 +1151,18 @@ export default function VehicleHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { canManageVehicles } = useAuth();
 
   // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos
   const [tab,     setTab]     = useState(pathname.endsWith('/historial') ? 'fotos' : 'resumen');
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+  // A dónde quería ir quien se topó con el aviso de cambios sin guardar.
+  const [destino, setDestino] = useState(null);
 
-  const ficha = useDatosFicha(id);
+  const ficha   = useDatosFicha(id);
+  const edicion = useEdicionVehiculo(ficha.vehicle, ficha.cargarVehiculo);
 
   useEffect(() => {
     vehiclesService.getHistory(id)
@@ -967,6 +1170,37 @@ export default function VehicleHistory() {
       .catch(err => setError(err.response?.data?.message || err.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const aplicarDestino = (dest) => {
+    if (dest.volver) navigate('/vehiculos');
+    else setTab(dest.tab);
+  };
+
+  /**
+   * Salir del resumen con una edición a medias no se lleva por delante lo
+   * escrito: primero se pregunta si guardar o descartar.
+   */
+  const ir = (dest) => {
+    if (dest.tab && dest.tab === tab) return;
+    if (edicion.sucio) { setDestino(dest); return; }
+    edicion.descartar();
+    aplicarDestino(dest);
+  };
+
+  const guardarYSeguir = async () => {
+    const guardado = await edicion.guardar();
+    if (!guardado) return;          // si falla la validación, el aviso sigue abierto
+    const dest = destino;
+    setDestino(null);
+    aplicarDestino(dest);
+  };
+
+  const descartarYSeguir = () => {
+    edicion.descartar();
+    const dest = destino;
+    setDestino(null);
+    aplicarDestino(dest);
+  };
 
   if (loading) return <PageLoading />;
 
@@ -977,32 +1211,44 @@ export default function VehicleHistory() {
     </div>
   );
 
-  const { vehicle, trabajos } = data;
-  const totalFotos = trabajos.reduce((s, t) => s + t.fotos.length, 0);
+  const { trabajos } = data;
+  // La ficha completa llega un instante después que el historial; hasta
+  // entonces la cabecera se pinta con el vehículo recortado de éste.
+  const vehicle      = ficha.vehicle || data.vehicle;
+  const asignaciones = ficha.vehicle?.asignaciones || null;
+  const activa       = asignaciones?.activa || null;
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
       {/* Cabecera */}
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/vehiculos')} className="btn-ghost text-neutral-500">← Volver</button>
+        <button onClick={() => ir({ volver: true })} className="btn-ghost text-neutral-500">← Volver</button>
         <div>
           <h1 className="text-[19px] font-semibold text-neutral-900">{vehicle.alias}</h1>
           <p className="text-sm text-neutral-500 font-mono">{vehicle.matricula}</p>
         </div>
       </div>
 
-      {/* Resumen */}
+      {/* De un vistazo: uso del vehículo, no fotos */}
       <div className="grid grid-cols-3 gap-3">
         <div className="card text-center py-3">
-          <p className="text-[19px] font-semibold text-neutral-900">{trabajos.length}</p>
-          <p className="text-xs text-neutral-500 mt-1">Trabajos con fotos</p>
+          <p className="text-[19px] font-semibold text-neutral-900">
+            {asignaciones ? asignaciones.total : '—'}
+          </p>
+          <p className="text-xs text-neutral-500 mt-1">Asignaciones históricas</p>
         </div>
         <div className="card text-center py-3">
-          <p className="text-[19px] font-semibold text-neutral-900">{totalFotos}</p>
-          <p className="text-xs text-neutral-500 mt-1">Fotos totales</p>
+          <p className={`text-[19px] font-semibold ${activa ? 'text-ok-600' : 'text-neutral-900'}`}>
+            {!asignaciones ? '—' : activa ? 'Asignada' : 'Libre'}
+          </p>
+          <p className="text-xs text-neutral-500 mt-1 truncate">
+            {activa ? activa.responsable_nombre : 'Ahora mismo'}
+          </p>
         </div>
         <div className="card text-center py-3">
-          <p className="text-[19px] font-semibold text-neutral-900">{vehicle.kilometros_actuales?.toLocaleString()}</p>
+          <p className="text-[19px] font-semibold text-neutral-900">
+            {vehicle.kilometros_actuales != null ? vehicle.kilometros_actuales.toLocaleString() : '—'}
+          </p>
           <p className="text-xs text-neutral-500 mt-1">Km actuales</p>
         </div>
       </div>
@@ -1012,7 +1258,7 @@ export default function VehicleHistory() {
         {TABS.map(t => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => ir({ tab: t.key })}
             className={tab === t.key ? 'tab-active' : 'tab'}
           >
             {t.label}
@@ -1024,12 +1270,12 @@ export default function VehicleHistory() {
       {tab === 'resumen' && (
         <TabResumen
           vehicle={ficha.vehicle}
-          historial={data}
           incidencias={ficha.incidencias}
           revisiones={ficha.revisiones}
-          onVerIncidencias={() => setTab('incidencias')}
-          onVerRevisiones={() => setTab('revisiones')}
-          onVerFotos={() => setTab('fotos')}
+          edicion={edicion}
+          puedeEditar={canManageVehicles()}
+          onVerIncidencias={() => ir({ tab: 'incidencias' })}
+          onVerRevisiones={() => ir({ tab: 'revisiones' })}
         />
       )}
 
@@ -1064,6 +1310,33 @@ export default function VehicleHistory() {
           revisiones={ficha.revisiones}
           recargar={ficha.cargarRevisiones}
         />
+      )}
+
+      {/* Aviso de cambios sin guardar. Cerrarlo (Escape o la ×) es seguir editando. */}
+      {destino && (
+        <Modal
+          isOpen
+          onClose={() => setDestino(null)}
+          title="Cambios sin guardar"
+          size="sm"
+          footer={
+            <>
+              <button className="btn-secondary w-full sm:w-auto" onClick={descartarYSeguir}
+                disabled={edicion.guardando}>
+                Descartar cambios
+              </button>
+              <button className="btn-primary w-full sm:w-auto" onClick={guardarYSeguir}
+                disabled={edicion.guardando}>
+                {edicion.guardando ? 'Guardando…' : 'Guardar y continuar'}
+              </button>
+            </>
+          }
+        >
+          <p className="text-neutral-600 text-sm">
+            Has modificado los datos del vehículo y todavía no los has guardado.
+            Si sales del resumen ahora se perderán.
+          </p>
+        </Modal>
       )}
     </div>
   );

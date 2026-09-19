@@ -28,8 +28,9 @@ function Due({ proxima, umbralAviso = 30 }) {
   return <span className="data text-[12.5px] text-neutral-600">{fecha}</span>;
 }
 
-/** Fila de la tabla (escritorio) */
+/** Fila de la tabla (escritorio). Toda la fila abre la ficha del vehículo. */
 function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
+  const navigate = useNavigate();
   const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
   const proximaITS = calcProximaITS(vehicle.fecha_its);
   const proximaTarjeta = vehicle.fecha_tarjeta_transporte
@@ -37,9 +38,11 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
     : null;
 
   return (
-    <tr>
+    <tr className="cursor-pointer hover:bg-neutral-50" onClick={() => navigate(`/vehiculos/${vehicle.id}`)}>
       <td className="name">
-        <Link to={`/vehiculos/${vehicle.id}`} className="hover:text-primary-700">
+        {/* Sigue siendo un enlace para poder abrirlo en otra pestaña */}
+        <Link to={`/vehiculos/${vehicle.id}`} className="hover:text-primary-700"
+          onClick={e => e.stopPropagation()}>
           {vehicle.alias}
         </Link>
       </td>
@@ -51,7 +54,8 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
       <td><Due proxima={proximaITS} /></td>
       <td><Due proxima={proximaTarjeta} umbralAviso={60} /></td>
       <td>
-        <div className="flex justify-end gap-1">
+        {/* Los botones hacen lo suyo, no abren la ficha */}
+        <div className="flex justify-end gap-1" onClick={e => e.stopPropagation()}>
           <Link to={`/vehiculos/${vehicle.id}/historial`} className="btn-ghost btn-sm">Historial</Link>
           {canEdit && (
             <button onClick={() => onEdit(vehicle)} className="btn-ghost btn-sm">Editar</button>
@@ -70,7 +74,7 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
   );
 }
 
-/** Tarjeta (móvil): los mismos datos, apilados */
+/** Tarjeta (móvil): los mismos datos, apilados. Toda la tarjeta abre la ficha. */
 function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
   const navigate = useNavigate();
   const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
@@ -80,11 +84,12 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
     : null;
 
   return (
-    <div className="card">
+    <div className="card cursor-pointer" onClick={() => navigate(`/vehiculos/${vehicle.id}`)}>
       <div className="flex items-baseline gap-2.5 flex-wrap">
         <Link
           to={`/vehiculos/${vehicle.id}`}
           className="veh-name hover:text-primary-700"
+          onClick={e => e.stopPropagation()}
         >
           {vehicle.alias}
         </Link>
@@ -112,7 +117,8 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
         </span>
       </div>
 
-      <div className="flex gap-2 mt-3.5 pt-3 border-t border-neutral-100">
+      <div className="flex gap-2 mt-3.5 pt-3 border-t border-neutral-100"
+        onClick={e => e.stopPropagation()}>
         <button
           onClick={() => navigate(`/vehiculos/${vehicle.id}/historial`)}
           className="btn-secondary btn-sm flex-1"

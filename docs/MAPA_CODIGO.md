@@ -56,7 +56,7 @@ llegó.
 |---|---|---|---|
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
-| `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
+| `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/activar` · POST `/:id/finalize` · POST `/:id/evidencias` |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
@@ -119,7 +119,7 @@ auto-actualización de la PWA. Config en `vite.config.js` (`VITE_BASE_PATH`,
 | `/mis-asignaciones` | `asignaciones/MisAsignaciones.jsx` | cualquiera | `menu_mis_asignaciones` |
 | `/asignaciones` | `asignaciones/AsignacionList.jsx` | admin, gestor, super | `menu_asignaciones` |
 | `/vehiculos` | `vehicles/VehicleList.jsx` | admin, gestor, super | `menu_vehiculos` |
-| `/vehiculos/:id` y `/vehiculos/:id/historial` | `vehicles/VehicleHistory.jsx` (**el mismo componente**, con pestañas) | ídem | `menu_vehiculos` |
+| `/vehiculos/:id` y `/vehiculos/:id/historial` | `vehicles/VehicleHistory.jsx` (**el mismo componente**, con pestañas; desde el listado se llega pinchando la fila entera) | ídem | `menu_vehiculos` |
 | `/usuarios` | `users/UserList.jsx` | admin, gestor, super | `menu_usuarios` |
 | `/alertas` | `AlertsPage.jsx` | admin, super | `menu_alertas` |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
@@ -139,7 +139,7 @@ Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 | `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia` | `/asignaciones/:id/{activar,finalizar,evidencias}` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
 | `VehicleList`, `VehicleForm` | `vehicles.service` | `/vehicles` |
-| `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `getHistory`, incidencias, revisiones, imágenes | `/vehicles/:id/*` |
+| `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
 | `AlertsPage`, `VehicleExpirationAlerts` | `vehicles.service.listAlertas / listTarjetaTransporteProximas` + `utils/vehicleAlerts.js` | `/vehicles/alertas`, `/vehicles/tarjeta-transporte/proximas` |
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
@@ -248,7 +248,7 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
-| Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → `VehicleForm`/`VehicleList`/`VehicleHistory` → `vehicleAlerts.js` si es fecha de caducidad |
+| Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
