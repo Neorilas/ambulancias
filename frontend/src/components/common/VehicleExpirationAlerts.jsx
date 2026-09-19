@@ -111,7 +111,8 @@ export default function VehicleExpirationAlerts() {
     <div
       className="
         fixed z-40 pointer-events-none
-        bottom-4 right-4 left-4 sm:left-auto sm:w-80
+        bottom-[max(1rem,calc(var(--safe-bottom)+0.5rem))] right-[max(1rem,var(--safe-right))]
+        left-[max(1rem,var(--safe-left))] sm:left-auto sm:w-80
       "
     >
       <div className="pointer-events-auto space-y-2">

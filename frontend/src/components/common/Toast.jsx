@@ -13,7 +13,7 @@ export default function ToastContainer() {
   const { toasts, removeToast } = useNotification();
 
   return (
-    <div className="fixed top-4 left-4 right-4 z-50 flex flex-col items-center gap-2 pointer-events-none">
+    <div className="fixed top-[max(1rem,calc(var(--safe-top)+0.5rem))] left-[max(1rem,var(--safe-left))] right-[max(1rem,var(--safe-right))] z-50 flex flex-col items-center gap-2 pointer-events-none">
       {toasts.map(toast => (
         <div
           key={toast.id}

@@ -157,8 +157,10 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black"
           style={{
-            paddingTop:    'env(safe-area-inset-top)',
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            paddingTop:    'var(--safe-top)',
+            paddingBottom: 'var(--safe-bottom)',
+            paddingLeft:   'var(--safe-left)',
+            paddingRight:  'var(--safe-right)',
           }}
         >
           <img
@@ -241,10 +243,10 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                 */}
                 <div
                   className="absolute top-0 left-0 right-0 z-10"
-                  style={{ paddingTop: 'env(safe-area-inset-top)' }}
+                  style={{ paddingTop: 'var(--safe-top)' }}
                 >
                   {/* Barra superior */}
-                  <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                  <div className="flex items-center justify-between pt-3 pb-2 pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))]">
                     <button onClick={onCancel} className="p-2 rounded-full bg-black/40 text-white">✕</button>
 
                     <div className="text-white text-center">
@@ -286,7 +288,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                 {cameraReady && !preview && currentTipo.landscape && !isLandscape && (
                   <div
                     className="absolute left-0 right-0 flex justify-center z-10 px-4"
-                    style={{ top: 'calc(env(safe-area-inset-top) + 7rem)' }}
+                    style={{ top: 'calc(var(--safe-top) + 7rem)' }}
                   >
                     <div className="bg-warn-500 text-black text-sm font-semibold
                                     px-4 py-2 rounded-full shadow-lg">
@@ -311,8 +313,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                   }
                   style={
                     isLandscape
-                      ? { paddingRight: 'max(1.5rem, calc(env(safe-area-inset-right) + 1rem))' }
-                      : { paddingBottom: 'max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem))' }
+                      ? { paddingRight: 'max(1.5rem, calc(var(--safe-right) + 1rem))' }
+                      : { paddingBottom: 'max(1.75rem, calc(var(--safe-bottom) + 1rem))' }
                   }
                 >
                   <button

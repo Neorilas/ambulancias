@@ -25,7 +25,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', f
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center pt-[var(--safe-top)]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
@@ -36,6 +36,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', f
       <div
         className={`relative w-full ${sizeClasses[size]} bg-white
                     rounded-t-2xl sm:rounded-2xl shadow-2xl animate-slide-up
+                    pb-[var(--safe-bottom)] sm:pb-0
                     max-h-[90dvh] flex flex-col`}
       >
         {/* Header */}

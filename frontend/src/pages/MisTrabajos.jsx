@@ -327,7 +327,7 @@ function QuickModal({ trabajo, onClose, onFinalizar }) {
     (activo || vencido);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))] pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm space-y-4 p-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-2">
           <div>

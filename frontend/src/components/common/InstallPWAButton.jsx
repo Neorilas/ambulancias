@@ -24,7 +24,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
       <>
         <button
           onClick={handleClick}
-          className="fixed bottom-20 right-4 z-50
+          className="fixed bottom-[calc(5rem+var(--safe-bottom))] right-[max(1rem,var(--safe-right))] z-50
                      flex items-center gap-2
                      bg-primary-600 hover:bg-primary-700 text-white
                      rounded-full shadow-xl px-4 py-3 text-sm font-semibold
@@ -72,7 +72,7 @@ export default function InstallPWAButton({ variant = 'banner' }) {
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
                onClick={() => setShowModal(false)}>
-            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-10 shadow-2xl"
+            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 pb-[max(2.5rem,calc(var(--safe-bottom)+1.5rem))] shadow-2xl"
                  onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 bg-neutral-300 rounded-full mx-auto mb-5" />
               <h3 className="text-[19px] font-semibold text-neutral-900 text-center mb-1">Instalar VAPSS</h3>
