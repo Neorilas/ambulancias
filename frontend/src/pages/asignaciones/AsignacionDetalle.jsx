@@ -278,9 +278,9 @@ export default function AsignacionDetalle({ id, onClose }) {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel derecho */}
-      <div className="relative ml-auto w-full max-w-xl bg-white h-full shadow-2xl flex flex-col overflow-y-auto animate-slide-up">
+      <div className="relative ml-auto w-full max-w-xl bg-white h-full shadow-2xl flex flex-col overflow-y-auto animate-slide-up pb-[var(--safe-bottom)] safe-x">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-neutral-100 px-5 py-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-white border-b border-neutral-100 px-5 pt-[calc(1rem+var(--safe-top))] pb-4 flex items-center justify-between z-10">
           <div>
             <h2 className="font-semibold text-neutral-900">Detalle de asignación #{id}</h2>
             {asig && (
@@ -580,7 +580,7 @@ export default function AsignacionDetalle({ id, onClose }) {
 
             {/* Modales inicio / fin */}
             {showInicio && (
-              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto p-5">
+              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <InicioAsignacion
                   asignacion={asig}
                   onDone={() => { setShowInicio(false); load(); }}
@@ -589,7 +589,7 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
             )}
             {showFin && (
-              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto p-5">
+              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <FinalizacionAsignacion
                   asignacion={asig}
                   onDone={() => { setShowFin(false); load(); }}
@@ -604,7 +604,7 @@ export default function AsignacionDetalle({ id, onClose }) {
       {/* Lightbox */}
       {lightbox && (
         <div
-          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center"
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] pr-[var(--safe-right)]"
           onClick={() => setLightbox(null)}
         >
           <img src={lightbox} alt="Evidencia" className="max-h-[90dvh] max-w-[90vw] object-contain rounded-lg" />

@@ -172,7 +172,7 @@ async function createUser(req, res, next) {
     if (rolProhibido) return forbidden(res, rolProhibido);
 
     // Validar fortaleza de contraseña
-    const { valid, errors: pwErrors } = validatePasswordStrength(password);
+    const { valid, errors: pwErrors } = validatePasswordStrength(password, { username, dni });
     if (!valid) return validationError(res, pwErrors.map(e => ({ field: 'password', message: e })));
 
     // Verificar username único
@@ -247,7 +247,7 @@ async function updateUser(req, res, next) {
     const caller   = req.user;
 
     const [existing] = await query(
-      `SELECT u.id, u.activo, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
+      `SELECT u.id, u.activo, u.username, u.dni, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        LEFT JOIN roles r ON ur.role_id = r.id
@@ -284,7 +284,10 @@ async function updateUser(req, res, next) {
       }
 
       if (password !== undefined && puedeCamposSensibles) {
-        const { valid, errors: pwErrors } = validatePasswordStrength(password);
+        const { valid, errors: pwErrors } = validatePasswordStrength(password, {
+          username: existing[0].username,
+          dni:      dni !== undefined ? dni : existing[0].dni,
+        });
         if (!valid) throw Object.assign(new Error('Password débil'), { type: 'validation', errors: pwErrors });
         updates.push('password_hash = ?');
         vals.push(await hashPassword(password));
@@ -356,7 +359,7 @@ async function resetPassword(req, res, next) {
     const caller   = req.user;
 
     const [existing] = await query(
-      `SELECT u.id, u.username, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
+      `SELECT u.id, u.username, u.dni, GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        LEFT JOIN roles r ON ur.role_id = r.id
@@ -378,7 +381,10 @@ async function resetPassword(req, res, next) {
       ? req.body.password
       : null;
     if (provided) {
-      const { valid, errors: pwErrors } = validatePasswordStrength(provided);
+      const { valid, errors: pwErrors } = validatePasswordStrength(provided, {
+        username: existing[0].username,
+        dni:      existing[0].dni,
+      });
       if (!valid) return validationError(res, pwErrors.map(e => ({ field: 'password', message: e })));
     }
     const newPassword = provided || generatePassword();

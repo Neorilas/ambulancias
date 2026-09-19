@@ -87,7 +87,7 @@ function Lightbox({ foto, fotos, onClose }) {
 
   const f = fotos[current];
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))] pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]" onClick={onClose}>
       <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
         <img src={getImageUrl(f.image_url)} alt={TIPO_FOTO_LABELS[f.tipo_imagen] || f.tipo_imagen}
           className="w-full max-h-[70vh] object-contain rounded-lg" />

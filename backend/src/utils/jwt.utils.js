@@ -7,7 +7,6 @@
 
 const jwt    = require('jsonwebtoken');
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 
 const ACCESS_SECRET  = process.env.JWT_ACCESS_SECRET;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
@@ -29,7 +28,7 @@ function generateAccessToken(payload) {
       sub:      payload.id,
       username: payload.username,
       roles:    payload.roles || [],
-      jti:      uuidv4(),
+      jti:      crypto.randomUUID(),
       type:     'access',
     },
     ACCESS_SECRET,
@@ -42,7 +41,7 @@ function generateAccessToken(payload) {
  * @returns {{ token: string, tokenHash: string }}
  */
 function generateRefreshToken() {
-  const token     = uuidv4() + '-' + crypto.randomBytes(32).toString('hex');
+  const token     = crypto.randomUUID() + '-' + crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   return { token, tokenHash };
 }

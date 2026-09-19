@@ -22,7 +22,7 @@ export default function Navbar({ onMenuToggle }) {
     : '?';
 
   return (
-    <header className="bg-primary-600 text-white shadow-lg sticky top-0 z-30 safe-top">
+    <header className="bg-primary-600 text-white shadow-lg sticky top-0 z-30 safe-top safe-x">
       <div className="flex items-center h-12 px-4 gap-3">
         {/* Hamburger (móvil) */}
         <button

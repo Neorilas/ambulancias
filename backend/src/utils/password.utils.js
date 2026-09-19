@@ -30,22 +30,54 @@ async function comparePassword(plainPassword, hash) {
   return bcrypt.compare(plainPassword, hash);
 }
 
+const LONGITUD_MINIMA = 10;
+
 /**
- * Valida que la contraseña cumpla los requisitos mínimos:
- * - Mínimo 8 caracteres
+ * Valida la contraseña.
+ *
+ * Antes solo se miraba la longitud (8), así que "aaaaaaaa" pasaba. El bloqueo
+ * de cuenta y el rate limit frenan el fuerza-bruta contra la API, pero no
+ * sirven de nada si la contraseña se reutiliza en otro sitio y ese sitio se
+ * filtra. Se pide algo de variedad sin llegar a lo impracticable: la plantilla
+ * es personal de campo y quien reparte las contraseñas es un administrador.
+ *
+ * `contexto` permite rechazar lo más obvio (la propia contraseña es el
+ * username o el DNI) cuando quien llama tiene esos datos a mano.
+ *
  * @param {string} password
+ * @param {{ username?: string, dni?: string }} [contexto]
  * @returns {{ valid: boolean, errors: string[] }}
  */
-function validatePasswordStrength(password) {
+function validatePasswordStrength(password, contexto = {}) {
   const errors = [];
-  if (!password || password.length < 8)   errors.push('Mínimo 8 caracteres');
+
+  if (!password || password.length < LONGITUD_MINIMA) {
+    errors.push(`Mínimo ${LONGITUD_MINIMA} caracteres`);
+  }
+
+  if (password) {
+    const clases = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/]
+      .filter(re => re.test(password)).length;
+    if (clases < 2) {
+      errors.push('Combina al menos dos tipos: minúsculas, mayúsculas, números o símbolos');
+    }
+
+    const enMinusculas = password.toLowerCase();
+    for (const [campo, valor] of [['usuario', contexto.username], ['DNI', contexto.dni]]) {
+      if (valor && String(valor).trim() && enMinusculas.includes(String(valor).trim().toLowerCase())) {
+        errors.push(`No puede contener el ${campo}`);
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
 /**
  * Genera una contraseña aleatoria segura (mayúscula, minúscula, dígito y
  * carácter especial garantizados). Se excluyen caracteres ambiguos (0/O, 1/l/I)
- * para facilitar su lectura/comunicación. Cumple validatePasswordStrength.
+ * para facilitar su lectura/comunicación. Son 12 caracteres con las cuatro
+ * clases, así que siempre cumple validatePasswordStrength.
  * @returns {string}
  */
 function generatePassword() {

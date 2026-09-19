@@ -92,7 +92,8 @@ export default function Sidebar({ isOpen, onClose }) {
       {/* Panel lateral */}
       <aside
         className={`fixed top-0 left-0 h-full w-56 bg-white border-r border-neutral-200 z-30
-                    flex flex-col pt-12 transition-transform duration-300 ease-out
+                    flex flex-col pl-[var(--safe-left)] transition-transform duration-300 ease-out
+                    pt-[calc(3rem+var(--safe-top))]
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'}
                     lg:translate-x-0 lg:static lg:z-auto lg:pt-0`}
       >
@@ -116,7 +117,7 @@ export default function Sidebar({ isOpen, onClose }) {
         </nav>
 
         {/* Footer del sidebar */}
-        <div className="px-[18px] py-3.5 border-t border-neutral-100">
+        <div className="px-[18px] py-3.5 pb-[max(0.875rem,var(--safe-bottom))] border-t border-neutral-100">
           <p className="text-[11px] leading-relaxed text-neutral-400">
             V.A.P Servicios Sanitarios<br />v1.0.0
           </p>

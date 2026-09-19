@@ -55,7 +55,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center bg-primary-600 p-4">
+    <div className="min-h-dvh flex flex-col items-center justify-center bg-primary-600 pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))] pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]">
       {/* Logo / Hero */}
       <div className="text-center mb-8">
         <img

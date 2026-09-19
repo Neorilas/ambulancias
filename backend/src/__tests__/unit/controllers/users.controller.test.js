@@ -98,7 +98,7 @@ describe('users.controller', () => {
       query.mockResolvedValueOnce([[{ id: 5, username: 'nuevo', nombre: 'Nuevo', apellidos: 'User', email: null, activo: 1, roles: 'tecnico' }]]);
 
       const req = mockReq({
-        body: { username: 'nuevo', password: 'Test1234!', nombre: 'Nuevo', apellidos: 'User', dni: '11111111A', roles: ['tecnico'] },
+        body: { username: 'nuevo', password: 'Test1234!x', nombre: 'Nuevo', apellidos: 'User', dni: '11111111A', roles: ['tecnico'] },
         user: { id: 1, username: 'admin' },
         ip: '1.1.1.1',
       });
@@ -112,7 +112,7 @@ describe('users.controller', () => {
       query.mockResolvedValueOnce([[{ id: 3 }]]);  // duplicate exists
 
       const req = mockReq({
-        body: { username: 'dup', password: 'Test1234!', nombre: 'X', apellidos: 'Y', dni: '11111111A' },
+        body: { username: 'dup', password: 'Test1234!x', nombre: 'X', apellidos: 'Y', dni: '11111111A' },
         user: { id: 1 },
       });
       const res = mockRes();
@@ -132,7 +132,7 @@ describe('users.controller', () => {
     it('returns 403 when an administrador tries to create a superadmin', async () => {
       const res = mockRes();
       await createUser(mockReq({
-        body: { username: 'nuevo', password: 'Test1234!', nombre: 'N', apellidos: 'U',
+        body: { username: 'nuevo', password: 'Test1234!x', nombre: 'N', apellidos: 'U',
                 dni: '44444444D', roles: ['superadmin'] },
         user: { id: 1, username: 'admin', roles: ['administrador'] },
       }), res, mockNext());
@@ -152,7 +152,7 @@ describe('users.controller', () => {
       query.mockResolvedValueOnce([[{ id: 6, username: 'noroles', nombre: 'No', apellidos: 'Roles', email: null, activo: 1, roles: null }]]);
 
       const req = mockReq({
-        body: { username: 'noroles', password: 'Test1234!', nombre: 'No', apellidos: 'Roles', dni: '33333333C', roles: [] },
+        body: { username: 'noroles', password: 'Test1234!x', nombre: 'No', apellidos: 'Roles', dni: '33333333C', roles: [] },
         user: { id: 1, username: 'admin' },
         ip: '1.1.1.1',
       });

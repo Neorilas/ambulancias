@@ -40,7 +40,7 @@ function Lightbox({ img, allImgs, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/92 flex flex-col items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/92 flex flex-col items-center justify-center pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))] pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]"
       onClick={onClose}
     >
       {/* Imagen */}
