@@ -201,8 +201,18 @@ async function startServer() {
     // Segunda pasada del mismo tick: asignaciones a las que se les pasó la
     // hora y nadie ha iniciado. Va DESPUÉS de activar a propósito — son las
     // mismas filas, y así el aviso mira el estado ya actualizado en vez del
-    // del minuto anterior. Tiene su propio try/catch dentro.
-    await vigilancia.revisarAsignacionesSinIniciar();
+    // del minuto anterior.
+    //
+    // Lleva su propio try/catch aunque la función ya no lance nunca: el día
+    // que alguien meta ahí dentro algo que sí pueda lanzar, el rechazo no
+    // tendría dueño y `unhandledRejection` se lleva por delante TODA la API
+    // por un fallo de los avisos, que son lo secundario. El reparto de daños
+    // no compensa dejarlo al descubierto.
+    try {
+      await vigilancia.revisarAsignacionesSinIniciar();
+    } catch (err) {
+      logger.error('Error en vigilancia de asignaciones sin iniciar:', err.message);
+    }
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto

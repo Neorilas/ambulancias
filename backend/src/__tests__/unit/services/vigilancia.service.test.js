@@ -108,6 +108,9 @@ describe('vigilancia.service · asignaciones sin iniciar', () => {
     const [sql] = query.mock.calls[1];
     expect(sql).toMatch(/aviso_sin_iniciar_at IS NULL/);
     expect(sql).toMatch(/inicio_real_at IS NULL/);
+    // También lo borrado: en el hueco entre el SELECT y el UPDATE cabe un
+    // borrado, y avisar de una asignación que ya no existe confunde igual.
+    expect(sql).toMatch(/deleted_at IS NULL/);
   });
 
   it('un fallo de BD no tumba el cron', async () => {

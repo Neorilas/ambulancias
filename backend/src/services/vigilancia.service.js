@@ -38,7 +38,9 @@ const { AVISO_SIN_INICIAR_MINUTOS } = require('../config/constants');
  * `aviso_sin_iniciar_at` (v19) es ese candado, y las condiciones que importan
  * —que no se haya avisado ya y que siga sin iniciarse— van DENTRO del UPDATE:
  * si en el hueco entre el SELECT y el UPDATE el responsable pulsa el botón, la
- * fila no se reclama y no se avisa de algo que ya está en marcha.
+ * fila no se reclama y no se avisa de algo que ya está en marcha. Por lo mismo
+ * se repite ahí el `deleted_at IS NULL`: en ese hueco también cabe que alguien
+ * borre la asignación, y avisar de algo que ya no existe confunde igual.
  *
  * Nunca lanza: devuelve un resumen, igual que `push.notificarAdmins`.
  */
@@ -73,6 +75,7 @@ async function revisarAsignacionesSinIniciar() {
           WHERE id = ?
             AND inicio_real_at IS NULL
             AND estado IN ('programada', 'activa')
+            AND deleted_at IS NULL
             AND aviso_sin_iniciar_at IS NULL`,
         [ahora(), asignacion.id]
       );
