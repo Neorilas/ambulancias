@@ -142,9 +142,10 @@ const TTL_SEGUNDOS = 60 * 60;
  * encolarse detrás. Así el admin que enciende el móvil no se come tres avisos
  * seguidos de la misma asignación.
  *
- * El RFC lo limita a 32 caracteres base64url. Un topic inválido hace que
- * `sendNotification` lance, así que lo que no encaje se descarta y el aviso
- * sale sin topic, que es peor pero sale.
+ * El RFC lo limita a 32 caracteres base64url y un topic inválido hace que
+ * `sendNotification` lance, así que el tag se sanea en vez de pasarse tal cual:
+ * cada carácter que no encaje se sustituye por un guión y se recorta a 32. No
+ * se descarta nada, solo se transforma; sin tag no hay topic y punto.
  */
 function normalizarTopic(tag) {
   if (!tag) return undefined;
