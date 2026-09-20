@@ -46,7 +46,7 @@ oculto por feature flags (§7).
 
 `server.js` → helmet/cors/compress/morgan/json → `/uploads` estático →
 `routes/index.js` (aplica `apiLimiter`, monta `/auth /users /vehicles /trabajos
-/asignaciones /admin /features /push`) → `routes/*.routes.js` (middleware por ruta) →
+/asignaciones /admin /features /push /flota`) → `routes/*.routes.js` (middleware por ruta) →
 `controllers/*.controller.js` → `config/database.js` (`query`) → MySQL.
 Errores: `middleware/error.middleware.js` (5xx van a `error_logs`).
 `/health` en `server.js` devuelve `commit` (`GIT_COMMIT`) y `appEnv`.
@@ -71,6 +71,7 @@ saber cuáles ha cambiado de verdad (§2.5).
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Todo el grupo exige `MANAGE_TRABAJOS` |
+| `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta`, `crearIncidenciaDesdeAsignacion`;
@@ -87,6 +88,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess` | Quién puede subir fotos a qué |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
 | `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
+| `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
 | `validate.middleware.js` | wrapper de express-validator | |
 | `error.middleware.js` | `notFound`, `errorHandler` | 5xx → `error_logs` |
 
@@ -102,7 +104,9 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarAsignacionesSinIniciar` |
-| `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local` |
+| `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
+| `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
+| `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
 
 ### 2.5 Avisos push (Web Push / VAPID)
 
@@ -148,6 +152,116 @@ huérfano. `config/database.test.js` fija el contrato de fechas
 (pool y sesión en UTC) y para eso hace `jest.unmock` del módulo, que `setup.js`
 mockea para todos los demás.
 
+**Umbrales de cobertura** (`jest.config.js`): 85 % sentencias/líneas/funciones
+y 80 % ramas, globales. Fallar el umbral **rompe el build**, así que un fichero
+nuevo sin tests no se cuela. Quedan fuera del cómputo `routes/`, `logger.utils`
+y `config/database`. Los tests de `vehicles.controller.listAlertasVehiculos`
+congelan el reloj (`jest.setSystemTime`): el cálculo es de calendario y sin
+fecha fija el resultado cambiaría cada día.
+
+Como el umbral es **global**, un fichero grande sin tests puede tumbar el build
+aunque no se haya tocado nada más: los porcentajes de todos los demás no lo
+compensan. Si al añadir un servicio nuevo la cobertura cae de golpe, mirar
+primero qué fichero entró, no qué test se rompió.
+
+
+### 2.6 Mapa de flota (Cartrack)
+
+Dónde está cada ambulancia según el GPS que llevan puesto, cruzado con lo que
+el GPS no sabe: el alias, la ficha y quién la lleva hoy.
+
+| Pieza | Dónde |
+|---|---|
+| Credenciales | `CARTRACK_USER` / `CARTRACK_KEY`, **solo en el entorno**. Nunca en el repo, que es público. Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = mapa apagado y el resto de la app igual. Es una cuenta de **usuario estándar**, no de administrador: lo recomienda la propia documentación de Cartrack para integraciones |
+| Región | `CARTRACK_BASE_URL`, por defecto `https://fleetapi-es.cartrack.com/rest`. **Con la URL de otro país las credenciales buenas dan 401**: es lo primero que mirar ante un 401 |
+| Servicio | `services/cartrack.service.js`. Igual que `push.service`, **nunca lanza**: devuelve un resumen con `origen` (`api`/`cache`/`cache-vieja`/`ninguno`) y `error` |
+| Cruce | `utils/flota.utils.js` → `cruzarFlota`. Por **matrícula normalizada** |
+| Endpoint | `GET /api/v1/flota/ubicaciones`. Devuelve `{flota, resumen, fuente, minutosSinSenal}` |
+| Quién lo ve | Superadmin siempre. Administradores **solo si `menu_flota` está encendido** en `/admin`. Gestores y personal de campo, nunca |
+| Pantalla | `/flota` → `pages/flota/MapaFlota.jsx` + `components/flota/MapaLeaflet.jsx` |
+| Sin tabla propia | **No se guarda ninguna posición.** Un rastro de dónde ha estado cada trabajador no es un dato cualquiera; si algún día hace falta histórico, es una decisión aparte con su migración y su política de retención |
+
+**Por qué el acceso va más cerrado que el resto de la flota.** `/vehicles` lo
+ven admin y gestor sin más; esto no, y es deliberado: enseña dónde está un
+vehículo en tiempo casi real y, con él, la persona que lo conduce. Por defecto
+es solo del superadmin, y **ampliarlo a los administradores es un acto
+deliberado** — el toggle `menu_flota` en `/admin`, que queda registrado en
+`audit_logs` como `toggle_feature`. La migración lo crea **apagado** por eso
+mismo: que se abra al desplegar sería justo lo contrario de lo que se busca.
+
+**Qué hace el flag, que no es lo que parece.** `menu_flota` NO sirve para
+esconderle el mapa al superadmin: no puede, porque tanto `isFeatureEnabled`
+(frontend) como `requireFeature` (backend) le dan paso siempre, igual que
+`hasPermission`. Sirve para **abrírselo a los administradores**. Leído así, la
+condición `isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin())` que
+hay en el menú y en `ProtectedRoute` se entiende sola: «yo siempre, los admins
+si está abierto».
+
+**Y el flag se comprueba en el BACKEND, no solo en el menú.** Es la primera vez
+que un feature flag hace de control de acceso: hasta ahora solo vivían en el
+frontend, y para esconder pantallas de trabajos que nadie usa bastaba. Aquí no
+—ocultar una entrada del menú no impide llamar a `GET /flota/ubicaciones` a
+mano—, así que `requireFeature('menu_flota')` (`features.middleware.js`) lo
+mira en `app_features` en cada petición. En cada petición y no en el token,
+para que apagarlo surta efecto ya y no en el siguiente login de cada uno. Si la
+consulta falla, **deniega**: ante la duda no se enseña dónde está la flota.
+
+Para apagar el mapa del todo, incluido el superadmin, se vacía `CARTRACK_USER`
+en el `.env` del servidor.
+
+**La trampa gorda: `registration` NO es la matrícula.** Cartrack devuelve ahí
+el nombre del vehículo con la matrícula pegada detrás — `UVI-3-7740MZB`,
+`VIR-01-7950KGG`, `VAL- 2066JSC` (con guion Y espacio). Normalizando el texto
+entero sale `UVI37740MZB`, que no cruza con el `7740MZB` de nuestra ficha: la
+sonda cruzó **0 de 10** vehículos por esto exactamente. Lo resuelve
+`matricula.utils.extraerMatricula`, que busca la matrícula dentro del texto
+(entero → por trozos de derecha a izquierda → pegada al final). No tiene espejo
+en el frontend: el navegador nunca ve el texto crudo de Cartrack.
+
+**Otras dos que costaron lo mismo de encontrar:** `driver` es un OBJETO
+(`{driver_id, first_name, last_name, …}`), no una cadena — devolverlo tal cual
+metía el objeto entero en el campo y React revienta al pintarlo; y el
+`odometer` viene en **metros** salvo que se pida `odometer_in_km=true`, que el
+servicio ya manda. La red de seguridad que divide por mil corta en un millón y
+no más abajo porque 235.400 es un kilometraje de lo más normal en una
+ambulancia y dividirlo daría 235 km.
+
+**La caché es lo que mantiene el consumo bajo control.** Cartrack limita
+`/vehicles/status` a 60 llamadas/min y el límite es de la CUENTA, no de cada
+usuario: si cada admin con el mapa abierto disparara la suya, varias pestañas
+refrescando cada 30 s se irían acercando al tope. Con la caché compartida de
+30 s son ~2 llamadas/min haya quien haya mirando, más el *single-flight* para
+que tres pestañas que abren el mapa a la vez no hagan tres llamadas. Cuando
+Cartrack falla se sigue sirviendo la última foto conocida hasta 10 minutos
+(`origen: 'cache-vieja'`), porque un corte de medio minuto no debería vaciar el
+mapa; pasados esos 10 minutos ya no es «la última posición», es historia. En el
+navegador, el refresco de 30 s **se pausa con la pestaña oculta**: si no, un
+portátil con el mapa abierto de fondo gastaría cupo toda la noche para nadie.
+
+**Fase 0: `scripts/sonda-cartrack.js`.** Llama a la API de verdad, imprime los
+nombres de campo reales y cuenta cuántas matrículas cruzan con la tabla
+`vehicles`. Es lo que destapó las tres trampas de arriba, y es lo primero que
+hay que correr si el mapa empieza a salir vacío o si Cartrack cambia algo:
+
+    cd backend && node scripts/sonda-cartrack.js       # + --crudo vuelca la 1ª fila
+
+**Los estados y sus colores** los decide el backend (`estadoDeGps`) y el
+frontend solo los pinta: `movimiento` (verde) · `parado_contacto` (ámbar) ·
+`apagado` (gris) · `sin_senal` (rojo, más de 30 min sin dar señal) · `sin_gps`.
+El orden de las preguntas importa: primero si el dato sirve y solo después qué
+dice, porque un vehículo que lleva dos horas mudo puede tener guardado
+`speed: 90` de cuando se le fue la cobertura, y pintarlo «en movimiento» sería
+mentir con datos ciertos. Por lo mismo el umbral de movimiento es 3 km/h y no
+0: un GPS parado oscila él solo, y con el corte en cero media flota aparecía
+moviéndose de madrugada en su propio aparcamiento.
+
+**Una matrícula repetida no se vincula.** Si la misma matrícula normalizada
+sale dos veces (en nuestra tabla o en Cartrack), no se enlaza ninguna y se
+marca `ambigua`: elegir al azar pintaría el vehículo A con la posición del B, y
+eso es peor que no pintar nada porque parece un dato bueno. Los dos casos de
+fallo del cruce —nuestro sin GPS y GPS sin vehículo nuestro— salen en el filtro
+«Sin vincular» y en el resumen del pie: se cuentan, no se esconden.
+
 ---
 
 ## 3. Frontend
@@ -182,6 +296,7 @@ de funcionar sin cobertura.
 | `/usuarios` | `users/UserList.jsx` | admin, gestor, super | `menu_usuarios` |
 | `/alertas` | `AlertsPage.jsx` | admin, super | `menu_alertas` |
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
+| `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | ídem | `menu_mis_trabajos` (off) |
@@ -202,6 +317,7 @@ Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 | `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
 | `AlertsPage`, `VehicleExpirationAlerts` | `vehicles.service.listAlertas / listTarjetaTransporteProximas` + `utils/vehicleAlerts.js` | `/vehicles/alertas`, `/vehicles/tarjeta-transporte/proximas` |
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
+| `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (solo con `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
@@ -217,7 +333,7 @@ reintenta. Todos los servicios cuelgan de ella.
 |---|---|
 | `utils/constants.js` | `ROLES`, `PERMISSIONS`, estados/colores/etiquetas, definición de cada tipo de foto (`IMAGEN_TIPOS_INICIO/FIN/GENERAL`, labels, instrucciones). **Espejo de** `backend/src/config/constants.js` |
 | `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
-| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage` |
+| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
@@ -226,13 +342,26 @@ reintenta. Todos los servicios cuelgan de ella.
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
+| `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
 | `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` |
+| `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
 | `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
 | `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
 contextos, hooks, `VehicleHistory`). Vitest.
+
+**Umbrales de cobertura** (`vitest.config.js`): 85 % sentencias/líneas/funciones
+y 75 % ramas. `pages/`, `components/`, `App.jsx`, `main.jsx` y `sw.js` están
+**excluidos del cómputo**: lo que se mide es la lógica (servicios, utils,
+contextos, hooks), no el render. Por eso un fichero de lógica sin tests hunde el
+porcentaje de golpe — fue lo que pasó con `vehicleAlerts.js`.
+
+Gotcha en `sessionStorage.test.js`: el módulo lee `VITE_APP_ENV` y ejecuta la
+migración de claves antiguas **al importarse**, así que cada caso necesita
+`vi.resetModules()` + `vi.stubEnv()` y un `import()` dinámico; con un import
+estático arriba todos los tests compartirían el primer entorno cargado.
 
 ---
 
@@ -280,7 +409,7 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v17_push_subscriptions**.
+Última migración: **v20_feature_flota**.
 
 ---
 
@@ -307,7 +436,14 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `requiredFeature` en `ProtectedRoute` + `Sidebar`. Claves: `menu_dashboard`,
 `menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
 `menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
-`menu_usuarios`, `menu_alertas` (encendidas).
+`menu_usuarios`, `menu_alertas` (encendidas); `menu_flota` (apagada, v20).
+
+**`menu_flota` es la excepción a todo lo anterior y conviene no copiarla sin
+pensar.** Los demás flags solo deciden si una pantalla aparece en el menú, y
+viven únicamente en el frontend. Ese no **amplía quién puede entrar** (de solo
+superadmin a también administradores) y por eso se comprueba además en el
+backend con `requireFeature` (§2.3 y §2.6). Un flag que decide quién ve qué y
+solo actúa en el navegador no es un control de acceso.
 
 ## 8. Flujos transversales (qué tocar si cambias…)
 
@@ -331,6 +467,9 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
+| Algo del mapa de flota | `services/cartrack.service` (lo que se lee de Cartrack) → `utils/flota.utils` (el cruce y el estado) → `flota.controller` (lo que se junta con nuestra BD) → `frontend/utils/flota.js` (nombres y colores) → `MapaFlota` / `MapaLeaflet`. **Antes de tocar nada, correr `scripts/sonda-cartrack.js`**: dice qué manda la API hoy, que no es lo que dice su documentación (§2.6) |
+| Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + el botón «Ver en el mapa» de `VehicleHistory` (comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
+| Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
 
 ## 9. Entornos y despliegue
@@ -348,6 +487,10 @@ no está en el repo y no lo toca el workflow: se generan con `npx web-push
 generate-vapid-keys`, se pegan en el `.env` del entorno y se reinicia el
 backend. Si se pierde la privada, todas las suscripciones dejan de valer y cada
 admin tiene que volver a pulsar «Activar avisos».
+El mapa de flota necesita `CARTRACK_USER`/`CARTRACK_KEY` **en el `.env` de
+cada servidor**, igual que las claves VAPID: no están en el repo y el workflow
+no las toca. Sin ellas la pantalla se explica sola y el resto de la app
+funciona igual. En local van en `backend/.env`, que está en `.gitignore`.
 Local: `docker-compose.local.yml` (MySQL en **3307**),
 `npm run local:db`, `seed:local`, y los comandos `/local`, `/verifica`,
 `/a-pro`. Detalle en `docs/ENTORNOS.md` y `docs/LOCAL.md`.
@@ -390,5 +533,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-20** (avisos push: urgencia de entrega, y los ajustes
-de Android/iPhone en el perfil).
+Última revisión: **2026-09-20** (mapa de flota con Cartrack: §2.6, las tres
+trampas que destapó la sonda de fase 0, y el flag `menu_flota` que lo abre a
+los administradores — el primero que hace de control de acceso también en el
+backend).

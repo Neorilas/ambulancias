@@ -87,6 +87,18 @@ services:
       # del entorno para probarlo sin esperar media hora.
       AVISO_SIN_INICIAR_MINUTOS: ${AVISO_SIN_INICIAR_MINUTOS:-30}
 
+      # ── Cartrack: mapa de flota (solo superadmin) ───────────────────────────
+      # Credenciales HTTP Basic del API de la flota. Salen del .env del
+      # servidor, que NO está en el repo (es público). Vacías = el mapa se
+      # explica solo («sin GPS configurado») y el resto de la app funciona.
+      # La URL lleva la REGIÓN: con la de otro país las mismas credenciales
+      # devuelven 401, y ese es el primer sitio donde mirar.
+      CARTRACK_USER:      ${CARTRACK_USER:-}
+      CARTRACK_KEY:       ${CARTRACK_KEY:-}
+      CARTRACK_BASE_URL:  ${CARTRACK_BASE_URL:-https://fleetapi-es.cartrack.com/rest}
+      CARTRACK_CACHE_MS:  ${CARTRACK_CACHE_MS:-30000}
+      CARTRACK_TIMEOUT_MS: ${CARTRACK_TIMEOUT_MS:-8000}
+
       # ── Uploads ─────────────────────────────────────────────────────────────
       UPLOADS_DIR: ./uploads
       MAX_FILE_SIZE_MB: 10

@@ -16,6 +16,7 @@ import MisTrabajos              from './pages/MisTrabajos.jsx';
 import AdminPanel               from './pages/AdminPanel.jsx';
 import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
+import MapaFlota                from './pages/flota/MapaFlota.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
@@ -143,6 +144,30 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_alertas">
                     <AlertsPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Mapa de flota (Cartrack).
+                  Superadmin siempre; administradores solo con `menu_flota`
+                  encendido desde /admin. Aquí eso sale gratis porque
+                  `isFeatureEnabled` ya le da true al superadmin: el flag no
+                  sirve para ocultarle la pantalla, sirve para ABRÍRSELA a los
+                  administradores.
+
+                  Gestores no, aunque sí vean /vehiculos: esto enseña dónde
+                  está cada vehículo en tiempo casi real y, con él, la persona
+                  que lo conduce. Quien manda es el backend
+                  (routes/flota.routes.js, que comprueba rol Y flag); la
+                  guardia de aquí es comodidad, no seguridad. */}
+              <Route
+                path="/flota"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={[ROLES.SUPERADMIN, ROLES.ADMINISTRADOR]}
+                    requiredFeature="menu_flota"
+                  >
+                    <MapaFlota />
                   </ProtectedRoute>
                 }
               />

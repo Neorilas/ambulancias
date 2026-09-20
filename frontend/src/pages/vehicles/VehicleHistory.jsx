@@ -16,6 +16,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import Modal from '../../components/common/Modal.jsx';
@@ -873,7 +874,7 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
   return { form, editando, sucio, errores, guardando, abrir, descartar, guardar, set };
 }
 
-function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar,
+function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, puedeVerMapa,
                       onVerIncidencias, onVerRevisiones }) {
   if (!vehicle) return <PageLoading />;
 
@@ -926,9 +927,16 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar,
       <div className="card space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-medium text-neutral-900 text-sm">Datos del vehículo</h3>
-          {puedeEditar && !editando && (
-            <button onClick={edicion.abrir} className="btn-secondary btn-sm">Editar</button>
-          )}
+          <div className="flex gap-2">
+            {/* A quien no pueda entrar al mapa ni se le ofrece el enlace,
+                que acabaría en un redirect. Misma condición que el menú. */}
+            {puedeVerMapa && !editando && (
+              <Link to="/flota" className="btn-secondary btn-sm">Ver en el mapa</Link>
+            )}
+            {puedeEditar && !editando && (
+              <button onClick={edicion.abrir} className="btn-secondary btn-sm">Editar</button>
+            )}
+          </div>
         </div>
 
         {editando ? (
@@ -1171,7 +1179,8 @@ export default function VehicleHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { canManageVehicles } = useAuth();
+  const { canManageVehicles, isSuperAdmin, isAdmin } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
 
   // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos
   const [tab,     setTab]     = useState(pathname.endsWith('/historial') ? 'fotos' : 'resumen');
@@ -1299,6 +1308,7 @@ export default function VehicleHistory() {
           revisiones={ficha.revisiones}
           edicion={edicion}
           puedeEditar={canManageVehicles()}
+          puedeVerMapa={isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin())}
           onVerIncidencias={() => ir({ tab: 'incidencias' })}
           onVerRevisiones={() => ir({ tab: 'revisiones' })}
         />

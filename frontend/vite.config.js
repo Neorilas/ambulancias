@@ -131,6 +131,11 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             vendor:    ['react', 'react-dom', 'react-router-dom'],
             utils:     ['axios', 'date-fns'],
+            // Leaflet solo lo usa /flota (superadmin), pero el precache del
+            // PWA se lo lleva igual porque `globPatterns` coge todos los .js.
+            // En chunk aparte al menos no se reinvalida en el navegador cada
+            // vez que se toca código de la app, que son ~43 kB gzip.
+            mapa:      ['leaflet'],
           },
         },
       },

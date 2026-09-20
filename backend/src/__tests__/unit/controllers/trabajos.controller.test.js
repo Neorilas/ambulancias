@@ -708,4 +708,309 @@ describe('trabajos.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
   });
+
+  // ── getTrabajo: progreso de fotos por vehículo ─────────
+  // Es lo que el técnico ve en la ficha para saber qué le falta por subir.
+  describe('getTrabajo → progreso_fotos', () => {
+    const vehiculo = (vehicle_id, extra = {}) => ({
+      asignacion_id: vehicle_id, vehicle_id, responsable_user_id: 5,
+      matricula: `000${vehicle_id}ABC`, vehiculo_alias: `Ambulancia ${vehicle_id}`,
+      ...extra,
+    });
+    const foto = (vehicle_id, tipo_imagen, momento) => ({
+      id: `${vehicle_id}-${momento}-${tipo_imagen}`, vehicle_id, tipo_imagen, momento,
+    });
+
+    /** Encola las 4 consultas de getTrabajoCompleto con vehículos y fotos reales. */
+    function mockFicha(vehicles, images) {
+      query.mockResolvedValueOnce([[{
+        id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+        estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+        creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+      }]]);
+      query.mockResolvedValueOnce([vehicles]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([images]);
+    }
+
+    const admin = { id: 1, roles: ['administrador'] };
+
+    it('sin ninguna foto, el progreso arranca a cero y lista todo lo que falta', async () => {
+      mockFicha([vehiculo(7)], []);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { progreso_fotos } = res._json.data.vehiculos[0];
+      expect(progreso_fotos.inicio).toEqual({
+        completado: 0,
+        total: IMAGEN_TIPOS_INICIO.length,
+        faltantes: IMAGEN_TIPOS_INICIO,
+        completo: false,
+      });
+      expect(progreso_fotos.fin).toEqual({
+        completado: 0,
+        total: IMAGEN_TIPOS_FIN.length,
+        faltantes: IMAGEN_TIPOS_FIN,
+        completo: false,
+      });
+    });
+
+    it('cuenta solo las fotos del momento que toca', async () => {
+      // Todas las de inicio subidas; de fin, ninguna.
+      mockFicha(
+        [vehiculo(7)],
+        IMAGEN_TIPOS_INICIO.map(t => foto(7, t, 'inicio'))
+      );
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { progreso_fotos } = res._json.data.vehiculos[0];
+      expect(progreso_fotos.inicio.completo).toBe(true);
+      expect(progreso_fotos.inicio.faltantes).toEqual([]);
+      expect(progreso_fotos.fin.completo).toBe(false);
+      expect(progreso_fotos.fin.completado).toBe(0);
+    });
+
+    it('una tanda a medias dice exactamente qué tipos faltan', async () => {
+      mockFicha([vehiculo(7)], [
+        foto(7, 'frontal', 'fin'),
+        foto(7, 'trasera', 'fin'),
+      ]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completado).toBe(2);
+      expect(fin.faltantes).toEqual(
+        IMAGEN_TIPOS_FIN.filter(t => !['frontal', 'trasera'].includes(t)));
+      expect(fin.completo).toBe(false);
+    });
+
+    it('las fotos de un vehículo no cuentan para el de al lado', async () => {
+      mockFicha(
+        [vehiculo(7), vehiculo(8)],
+        IMAGEN_TIPOS_INICIO.map(t => foto(7, t, 'inicio'))
+      );
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const [v7, v8] = res._json.data.vehiculos;
+      expect(v7.progreso_fotos.inicio.completo).toBe(true);
+      expect(v8.progreso_fotos.inicio.completo).toBe(false);
+      expect(v8.progreso_fotos.inicio.completado).toBe(0);
+    });
+
+    it('las fotos "general" (daños) no cuentan para el progreso: no bloquean', async () => {
+      mockFicha([vehiculo(7)], [
+        ...IMAGEN_TIPOS_FIN.map(t => foto(7, t, 'fin')),
+        foto(7, 'danos', 'general'),
+      ]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completo).toBe(true);
+      expect(fin.completado).toBe(IMAGEN_TIPOS_FIN.length);
+    });
+
+    it('una foto repetida no infla el contador por encima del total', async () => {
+      mockFicha([vehiculo(7)], [
+        foto(7, 'frontal', 'fin'),
+        { ...foto(7, 'frontal', 'fin'), id: 'repetida' },
+      ]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completado).toBe(1);
+      expect(fin.completado).toBeLessThanOrEqual(fin.total);
+    });
+
+    it('los roles del personal llegan como array, no como el GROUP_CONCAT crudo', async () => {
+      query.mockResolvedValueOnce([[{
+        id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+        estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+        creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+      }]]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([[
+        { user_id: 5, username: 'tec', roles: 'tecnico,enfermero' },
+        { user_id: 6, username: 'sinrol', roles: null },
+      ]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      expect(res._json.data.usuarios[0].roles).toEqual(['tecnico', 'enfermero']);
+      expect(res._json.data.usuarios[1].roles).toEqual([]);
+    });
+  });
+
+  // ── updateTrabajo: cambio de estado ────────────────────
+  describe('updateTrabajo → estado', () => {
+    /** Encola el SELECT previo y captura los execute de la transacción. */
+    function prepararUpdate() {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado' }]]);
+      const execute = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      transaction.mockImplementation(async (cb) => cb({ execute }));
+      return execute;
+    }
+
+    it('acepta volver a programado o pasar a activo', async () => {
+      for (const estado of ['programado', 'activo']) {
+        query.mockReset(); transaction.mockReset();
+        const execute = prepararUpdate();
+        mockGetTrabajoCompleto();
+
+        await updateTrabajo(mockReq({
+          params: { id: '1' }, body: { estado }, user: { id: 1, roles: ['administrador'], username: 'admin' },
+        }), mockRes(), mockNext());
+
+        const [sql, vals] = execute.mock.calls[0];
+        expect(sql).toContain('estado = ?');
+        expect(vals).toContain(estado);
+      }
+    });
+
+    it('ignora un estado que no se puede poner a mano', async () => {
+      // Finalizar tiene su propio endpoint, con las validaciones de evidencias.
+      const execute = prepararUpdate();
+      mockGetTrabajoCompleto();
+
+      await updateTrabajo(mockReq({
+        params: { id: '1' }, body: { estado: 'finalizado', nombre: 'Otro' },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      }), mockRes(), mockNext());
+
+      const [sql, vals] = execute.mock.calls[0];
+      expect(sql).not.toContain('estado = ?');
+      expect(vals).not.toContain('finalizado');
+      expect(sql).toContain('nombre = ?'); // el resto del update sí se aplica
+    });
+  });
+
+  // ── finalizeTrabajo: alcance por responsable ───────────
+  describe('finalizeTrabajo → qué vehículos debe documentar cada uno', () => {
+    const trabajoAbierto = (vehiculos) => {
+      query.mockResolvedValueOnce([vehiculos.map(v => ({
+        id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), // ya pasó: no es anticipado
+        ...v,
+      }))]);
+    };
+
+    it('un operacional solo responde de los vehículos en los que es responsable', async () => {
+      trabajoAbierto([
+        { vehicle_id: 7, responsable_user_id: 5 },
+        { vehicle_id: 8, responsable_user_id: 99 }, // de otro técnico
+      ]);
+      // Solo se comprueban las evidencias del 7: una sola consulta de fotos.
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      const execute = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      transaction.mockImplementation(async (cb) => cb({ execute }));
+      mockGetTrabajoCompleto();
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 7, kilometros_fin: 120500 }] },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+      }), res, mockNext());
+
+      // La comprobación de evidencias se hizo para el 7 y no para el 8.
+      // (se filtra por esta consulta concreta: getTrabajoCompleto lee
+      // vehicle_images otra vez al recomponer la ficha de respuesta)
+      const consultasFotos = query.mock.calls.filter(
+        ([sql]) => sql.includes('SELECT tipo_imagen, momento FROM vehicle_images'));
+      expect(consultasFotos).toHaveLength(1);
+      expect(consultasFotos[0][1]).toEqual([7, 1]);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('sin las fotos de INICIO no se puede finalizar, y lo dice', async () => {
+      trabajoAbierto([{ vehicle_id: 7, responsable_user_id: 5 }]);
+      // Solo hay fotos de fin: faltan todas las de inicio.
+      query.mockResolvedValueOnce([IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }))]);
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 7, kilometros_fin: 120500 }] },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('fotos de INICIO');
+      expect(res._json.message).toContain('nivel_aceite'); // nombra lo que falta
+      expect(transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── uploadEvidencia: validación de `momento` ───────────
+  describe('uploadEvidencia → momento', () => {
+    it('rechaza un momento que no sea inicio o fin', async () => {
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'durante' },
+        user: { id: 5, roles: ['tecnico'] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toBe('momento debe ser "inicio" o "fin"');
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('sin momento asume "fin", que es el flujo de cierre', async () => {
+      // `nivel_aceite` solo vale para inicio: si el default fuera 'inicio'
+      // esto pasaría, y debe fallar.
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '7', tipo_imagen: 'nivel_aceite' },
+        user: { id: 5, roles: ['tecnico'] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('momento="fin"');
+    });
+  });
+
+  // ── Errores de BD: todos los endpoints delegan en next ─
+  // Sin esto, un fallo de la BD se convertiría en una promesa rechazada sin
+  // capturar y el cliente se quedaría colgado en vez de recibir un 500.
+  describe('un fallo de BD siempre va a next(err)', () => {
+    const admin = { id: 1, roles: ['administrador'], username: 'admin' };
+
+    const casos = [
+      ['listTrabajos',           () => listTrabajos(mockReq({ query: {}, user: admin }), mockRes(), next)],
+      ['listTrabajosCalendario', () => listTrabajosCalendario(mockReq({ query: {}, user: admin }), mockRes(), next)],
+      ['getTrabajo',             () => getTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
+      ['createTrabajo',          () => createTrabajo(mockReq({ body: { nombre: 'T', tipo: 'programado', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02' }, user: admin }), mockRes(), next)],
+      ['updateTrabajo',          () => updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'T' }, user: admin }), mockRes(), next)],
+      ['deleteTrabajo',          () => deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
+      ['finalizeTrabajo',        () => finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), mockRes(), next)],
+      ['uploadEvidencia',        () => uploadEvidencia(mockReq({ params: { id: '1' }, body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'fin' }, user: admin }), mockRes(), next)],
+      ['misTrab',                () => misTrab(mockReq({ query: {}, user: admin }), mockRes(), next)],
+      ['activarTrabajo',         () => activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
+    ];
+
+    let next;
+    it.each(casos)('%s', async (_nombre, ejecutar) => {
+      next = mockNext();
+      query.mockRejectedValue(new Error('DB down'));
+      transaction.mockRejectedValue(new Error('DB down'));
+
+      await ejecutar();
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+      expect(next.mock.calls[0][0].message).toBe('DB down');
+    });
+  });
 });

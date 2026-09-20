@@ -184,7 +184,7 @@ describe('runMigrations', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v18_aviso_fotos_inicio_pendientes', 'v19_aviso_sin_iniciar']);
+    expect(aplicadas).toEqual(TODAS.slice(TODAS.indexOf('v18_aviso_fotos_inicio_pendientes')));
     expect(ledger).toContain('v19_aviso_sin_iniciar');
     expect(ejecutadas.some(sql =>
       sql.includes('RENAME COLUMN aviso_fotos_pendientes_at TO aviso_sin_iniciar_at')
@@ -209,6 +209,26 @@ describe('runMigrations', () => {
     expect(ejecutadas.some(sql =>
       sql.includes('SET aviso_sin_iniciar_at = NULL')
     )).toBe(true);
+  });
+
+  it('v20 da de alta el flag del mapa de flota APAGADO', async () => {
+    // Apagado a propósito: el flag no esconde el mapa al superadmin (no puede,
+    // `isFeatureEnabled` y `requireFeature` le dan paso siempre), sino que lo
+    // ABRE a los administradores. Ampliar quién ve dónde está cada vehículo
+    // tiene que ser un acto deliberado de alguien, no el efecto de aplicar una
+    // migración al desplegar.
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v19_aviso_sin_iniciar') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v20_feature_flota']);
+
+    const sql = ejecutadas.find(q => q.includes("'menu_flota'"));
+    expect(sql).toBeDefined();
+    expect(sql).toMatch(/'menu',\s*0,\s*90/);      // enabled = 0
+    // INSERT IGNORE: si el superadmin ya lo encendió, reiniciar el backend no
+    // puede volver a apagárselo.
+    expect(sql).toContain('INSERT IGNORE');
   });
 
   it('no resiembra role_permissions si ya tiene filas', async () => {

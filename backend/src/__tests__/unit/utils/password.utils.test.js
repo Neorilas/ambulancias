@@ -1,6 +1,6 @@
 'use strict';
 
-const { hashPassword, comparePassword, validatePasswordStrength } = require('../../../utils/password.utils');
+const { hashPassword, comparePassword, validatePasswordStrength, generatePassword } = require('../../../utils/password.utils');
 
 describe('password.utils', () => {
   describe('hashPassword', () => {
@@ -64,6 +64,48 @@ describe('password.utils', () => {
     it('returns invalid for null/empty', () => {
       expect(validatePasswordStrength(null).valid).toBe(false);
       expect(validatePasswordStrength('').valid).toBe(false);
+    });
+  });
+
+  describe('generatePassword', () => {
+    it('devuelve 12 caracteres', () => {
+      expect(generatePassword()).toHaveLength(12);
+    });
+
+    it('garantiza las cuatro clases de carácter', () => {
+      // Con 50 intentos, una clase que faltase por azar saldría aquí.
+      for (let i = 0; i < 50; i++) {
+        const pw = generatePassword();
+        expect(pw).toMatch(/[A-Z]/);
+        expect(pw).toMatch(/[a-z]/);
+        expect(pw).toMatch(/[0-9]/);
+        expect(pw).toMatch(/[!@#$%&*.]/);
+      }
+    });
+
+    it('excluye los caracteres ambiguos: quien la dicta por teléfono no se equivoca', () => {
+      for (let i = 0; i < 50; i++) {
+        expect(generatePassword()).not.toMatch(/[0O1lI]/);
+      }
+    });
+
+    it('lo que genera siempre pasa su propio validador', () => {
+      for (let i = 0; i < 50; i++) {
+        expect(validatePasswordStrength(generatePassword()).valid).toBe(true);
+      }
+    });
+
+    it('no repite: dos llamadas seguidas dan contraseñas distintas', () => {
+      const generadas = new Set(Array.from({ length: 50 }, () => generatePassword()));
+      expect(generadas.size).toBe(50);
+    });
+
+    it('las clases garantizadas no quedan siempre en las mismas posiciones', () => {
+      // El sort de mezcla existe justo para esto: si no barajara, las cuatro
+      // primeras posiciones serían siempre mayúscula-minúscula-dígito-símbolo.
+      const enOrden = Array.from({ length: 50 }, () => generatePassword())
+        .filter(pw => /^[A-Z][a-z][0-9][!@#$%&*.]/.test(pw));
+      expect(enOrden.length).toBeLessThan(50);
     });
   });
 });

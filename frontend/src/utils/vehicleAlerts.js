@@ -57,8 +57,15 @@ export const TIPO_LABEL = {
 /**
  * Dado `dias_restantes`, devuelve el umbral "activo":
  *   vencida | 15 | 30 | 45 | 60 | null
+ *
+ * La guarda de arriba no es defensiva porque sí: en JS `null < 0` es falso
+ * pero `null <= 15` es cierto, así que un `dias_restantes` nulo caía en la
+ * primera rama numérica y pintaba una alerta fantasma de «quedan 15 días»
+ * sobre un documento del que no sabemos la fecha. Sin número de días no hay
+ * umbral, y la entrada se filtra en `withThresholds`.
  */
 export function thresholdFor(dias) {
+  if (typeof dias !== 'number' || !Number.isFinite(dias)) return null;
   if (dias < 0)   return 'vencida';
   if (dias <= 15) return 15;
   if (dias <= 30) return 30;

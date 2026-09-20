@@ -17,6 +17,7 @@ const {
   uploadImages, getVehicleImages, getVehicleHistorial,
   listIncidencias, createIncidencia, updateIncidencia, addIncidenciaComentario,
   listRevisiones, createRevision, updateRevision, deleteRevision,
+  listAlertasVehiculos, listTarjetaTransporteProximas,
 } = require('../../../controllers/vehicles.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
@@ -1005,6 +1006,237 @@ describe('vehicles.controller', () => {
       const res = mockRes();
       await deleteRevision(mockReq({ params: { vehicleId: '1', revId: '999' }, user: { id: 1 } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  // ── listAlertasVehiculos ───────────────────────────────
+  // Las fechas se congelan: el cálculo es de calendario y sin reloj fijo
+  // el test cambiaría de resultado cada día.
+  describe('listAlertasVehiculos', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-09-20T10:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    const vehiculo = (extra) => ({
+      id: 1, matricula: '1234ABC', alias: 'Ambulancia 1',
+      fecha_matriculacion: null, fecha_itv: null, fecha_its: null,
+      fecha_tarjeta_transporte: null,
+      ...extra,
+    });
+
+    it('ITV de un vehículo de 5 años o más: semestral', async () => {
+      query.mockResolvedValueOnce([[vehiculo({
+        fecha_matriculacion: '2018-01-01', fecha_itv: '2026-04-10',
+      })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data).toEqual([{
+        vehicle_id: 1, matricula: '1234ABC', alias: 'Ambulancia 1',
+        tipo: 'itv', fecha_caducidad: '2026-10-10', dias_restantes: 20,
+      }]);
+    });
+
+    it('ITV de un vehículo nuevo es anual, así que aún no entra en el umbral', async () => {
+      query.mockResolvedValueOnce([[vehiculo({
+        fecha_matriculacion: '2024-01-01', fecha_itv: '2026-04-10',
+      })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data).toEqual([]);
+    });
+
+    it('sin fecha de matriculación asume el intervalo anual', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_itv: '2025-10-05' })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data[0]).toMatchObject({
+        tipo: 'itv', fecha_caducidad: '2026-10-05', dias_restantes: 15,
+      });
+    });
+
+    it('la ITS es anual desde la última', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2025-10-01' })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data[0]).toMatchObject({
+        tipo: 'its', fecha_caducidad: '2026-10-01', dias_restantes: 11,
+      });
+    });
+
+    it('la fecha de la tarjeta de transporte ES la caducidad, no se le suma nada', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_tarjeta_transporte: '2026-10-15' })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data[0]).toMatchObject({
+        tipo: 'tarjeta_transporte', fecha_caducidad: '2026-10-15', dias_restantes: 25,
+      });
+    });
+
+    it('lo vencido sale con días negativos y va primero', async () => {
+      query.mockResolvedValueOnce([[vehiculo({
+        fecha_matriculacion: '2018-01-01',
+        fecha_itv: '2026-04-10',              // +20 días
+        fecha_its: '2025-10-01',              // +11 días
+        fecha_tarjeta_transporte: '2026-09-10', // vencida hace 10
+      })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data.map(a => [a.tipo, a.dias_restantes])).toEqual([
+        ['tarjeta_transporte', -10],
+        ['its', 11],
+        ['itv', 20],
+      ]);
+    });
+
+    it('ordena por días entre vehículos distintos, no solo dentro de uno', async () => {
+      query.mockResolvedValueOnce([[
+        vehiculo({ id: 1, fecha_its: '2025-10-15' }),   // +25
+        vehiculo({ id: 2, fecha_its: '2025-09-25' }),   // +5
+      ]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data.map(a => a.vehicle_id)).toEqual([2, 1]);
+    });
+
+    it('lo que caduca más allá del umbral no se devuelve', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2026-01-01' })]]); // +103 días
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data).toEqual([]);
+    });
+
+    it('el umbral se puede ampliar por query', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2026-01-01' })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: { dias: '120' } }), res, mockNext());
+
+      expect(res._json.data).toHaveLength(1);
+    });
+
+    it('el umbral se recorta a 365 días como máximo', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2026-06-01' })]]); // +254
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: { dias: '9999' } }), res, mockNext());
+      expect(res._json.data).toHaveLength(1);
+
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2026-09-25' })]]); // +370
+      const res2 = mockRes();
+      await listAlertasVehiculos(mockReq({ query: { dias: '9999' } }), res2, mockNext());
+      expect(res2._json.data).toEqual([]);
+    });
+
+    it('un umbral basura o negativo cae en un valor seguro', async () => {
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2025-09-25' })]]); // +5
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: { dias: 'muchos' } }), res, mockNext());
+      expect(res._json.data).toHaveLength(1); // cae al default de 60
+
+      query.mockResolvedValueOnce([[vehiculo({ fecha_its: '2025-09-25' })]]);
+      const res2 = mockRes();
+      await listAlertasVehiculos(mockReq({ query: { dias: '-30' } }), res2, mockNext());
+      expect(res2._json.data).toEqual([]); // se recorta a 1 día
+    });
+
+    it('una fecha corrupta en BD se ignora en vez de tumbar el listado', async () => {
+      query.mockResolvedValueOnce([[vehiculo({
+        fecha_its: 'no-es-una-fecha',
+        fecha_tarjeta_transporte: '2026-09-25',
+      })]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res._json.data.map(a => a.tipo)).toEqual(['tarjeta_transporte']);
+    });
+
+    it('sin vehículos devuelve una lista vacía', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toEqual([]);
+    });
+
+    it('un fallo de BD va a next', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await listAlertasVehiculos(mockReq({ query: {} }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  // ── listTarjetaTransporteProximas ──────────────────────
+  describe('listTarjetaTransporteProximas', () => {
+    it('devuelve las tarjetas próximas a caducar con sus días restantes', async () => {
+      const filas = [{ id: 1, matricula: '1234ABC', alias: 'A1', dias_restantes: 12 }];
+      query.mockResolvedValueOnce([filas]);
+
+      const res = mockRes();
+      await listTarjetaTransporteProximas(mockReq({ query: {} }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toEqual(filas);
+    });
+
+    it('el día lo pone Node, no NOW() de MySQL', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      await listTarjetaTransporteProximas(mockReq({ query: {} }), mockRes(), mockNext());
+
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).not.toMatch(/NOW\(\)|CURDATE\(\)/);
+      expect(params[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(params[1]).toBe(params[0]);
+      expect(params[2]).toBe(60); // ventana por defecto
+    });
+
+    it('acepta una ventana distinta', async () => {
+      query.mockResolvedValueOnce([[]]);
+      await listTarjetaTransporteProximas(mockReq({ query: { dias: '30' } }), mockRes(), mockNext());
+      expect(query.mock.calls[0][1][2]).toBe(30);
+    });
+
+    it('recorta la ventana al rango 1..365', async () => {
+      query.mockResolvedValueOnce([[]]);
+      await listTarjetaTransporteProximas(mockReq({ query: { dias: '9999' } }), mockRes(), mockNext());
+      expect(query.mock.calls[0][1][2]).toBe(365);
+
+      query.mockReset();
+      query.mockResolvedValueOnce([[]]);
+      await listTarjetaTransporteProximas(mockReq({ query: { dias: '-10' } }), mockRes(), mockNext());
+      expect(query.mock.calls[0][1][2]).toBe(1);
+    });
+
+    it('un fallo de BD va a next', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await listTarjetaTransporteProximas(mockReq({ query: {} }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });
 });
