@@ -198,18 +198,18 @@ async function startServer() {
       logger.error('Error en cron auto-activar:', err.message);
     }
 
-    // Segunda pasada del mismo tick: asignaciones que llevan ya un rato en
-    // servicio sin subir las fotos de inicio. Va DESPUÉS de activar para que
-    // una asignación recién activada empiece a contar desde este momento y no
-    // desde el minuto que viene. Tiene su propio try/catch dentro.
-    await vigilancia.revisarFotosInicioPendientes();
+    // Segunda pasada del mismo tick: asignaciones a las que se les pasó la
+    // hora y nadie ha iniciado. Va DESPUÉS de activar a propósito — son las
+    // mismas filas, y así el aviso mira el estado ya actualizado en vez del
+    // del minuto anterior. Tiene su propio try/catch dentro.
+    await vigilancia.revisarAsignacionesSinIniciar();
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto
   logger.info('Cron auto-activación de trabajos y asignaciones iniciado (cada 1 min)');
   logger.info(
-    `Vigilancia de fotos de inicio: aviso a los admins a los ` +
-    `${require('./src/config/constants').AVISO_FOTOS_INICIO_MINUTOS} min`
+    `Vigilancia de asignaciones sin iniciar: aviso a los admins a los ` +
+    `${require('./src/config/constants').AVISO_SIN_INICIAR_MINUTOS} min`
   );
 }
 

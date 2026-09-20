@@ -101,7 +101,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
-| `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarFotosInicioPendientes` |
+| `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarAsignacionesSinIniciar` |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local` |
 
 ### 2.5 Avisos push (Web Push / VAPID)
@@ -114,8 +114,8 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único |
 | Destinatarios | Se calculan en CADA envío: permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo. El responsable de la asignación se excluye |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **fotos de inicio pendientes a los 30 min** · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
-| Aviso de fotos pendientes | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. Cuenta desde `inicio_real_at` y, si el responsable nunca pulsó el botón, desde la `fecha_inicio` con la que lo activó el cron — que es justo el caso que más interesa vigilar. El umbral es `AVISO_FOTOS_INICIO_MINUTOS` (30 por defecto; bajarlo por entorno es la forma de probarlo sin esperar media hora). Se manda **una vez por asignación**: el candado es la columna `aviso_fotos_pendientes_at` (v18) |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **asignación sin iniciar 30 min después de su hora** · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
+| Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de servicio»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; bajarlo por entorno es la forma de probarlo sin esperar media hora). Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
 | Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
 | Entrega | Todo envío va con `urgency: 'high'` y `TTL` de 1 h. Con la urgencia `normal` que pone `web-push` por defecto, Android APARCA el aviso mientras el móvil está en reposo (Doze) y lo suelta en la siguiente ventana de mantenimiento: es el «el primero llegó y los demás no» |
 | `topic` | Derivado del tag (`normalizarTopic`, 32 caracteres base64url). Sustituye el aviso del mismo suceso que siga sin entregar, en vez de encolarlo detrás |
@@ -130,12 +130,12 @@ alertar de las siguientes del montón.
 **Qué NO debe volver a sonar** (es lo que más fácil se rompe): un segundo
 `POST /:id/activar` sobre algo ya activo, una foto de inicio rehecha con la
 tanda ya completa, y una asignación que el cron intenta activar justo después
-de que el responsable pulsara el botón. El aviso de fotos pendientes es el más
+de que el responsable pulsara el botón. El aviso de «sin iniciar» es el más
 expuesto de todos, porque el cron vuelve a mirar cada minuto: sin la marca en
-BD sonaría sesenta veces por hora. Por eso las dos condiciones que lo evitan
-—que no se haya avisado ya y que la tanda siga incompleta— van **dentro del
-UPDATE** que reclama la fila, no solo en el SELECT que la eligió: entre uno y
-otro caben las fotos que el técnico está subiendo en ese momento.
+BD sonaría sesenta veces por hora. Por eso las condiciones que lo evitan —que
+no se haya avisado ya y que siga sin iniciarse— van **dentro del UPDATE** que
+reclama la fila, no solo en el SELECT que la eligió: en el hueco entre uno y
+otro cabe el botón que el responsable está pulsando en ese momento.
 
 Tests backend: `backend/src/__tests__/unit/{config,controllers,middleware,services,utils}`
 (un `*.test.js` por fichero; espejo de la estructura). Helpers en
@@ -245,7 +245,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `vehicle_incidencias` (v2), `audit_logs`, `error_logs` (v3), `permissions`,
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
-`asignaciones_libres.aviso_fotos_pendientes_at` (v18),
+`asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `schema_migrations` (control).
 
 Relaciones clave:
@@ -326,8 +326,8 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL |
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel` |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
-| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarFotosInicioPendientes()` — ese orden es a propósito: una asignación recién activada empieza a contar desde ya, no desde el minuto siguiente |
-| El plazo para subir las fotos de inicio | `AVISO_FOTOS_INICIO_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte |
+| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |

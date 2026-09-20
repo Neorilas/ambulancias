@@ -9,9 +9,10 @@
  *
  * Todos excluyen al responsable de la asignación: quien acaba de pulsar el
  * botón no necesita que su propio teléfono le avise de lo que acaba de hacer.
- * También el de fotos pendientes, aunque ahí el responsable sea justo quien no
- * las ha subido: el aviso es para quien tiene que reaccionar desde fuera, y al
- * técnico ya se lo está pidiendo la propia pantalla de la asignación.
+ * También el de «sin iniciar», aunque ahí el responsable sea justo quien no ha
+ * hecho lo que se espera: lo pedido fue avisar a los administradores, que son
+ * quienes pueden reaccionar desde fuera. Si algún día se quiere avisar también
+ * al técnico, es quitar ese `excluirUserId` — pero es otra decisión.
  *
  * Se invocan SIN await: el técnico no tiene por qué esperar a que el servicio
  * de push del fabricante conteste para ver cerrado su servicio. Por eso
@@ -88,27 +89,24 @@ function avisarFotosInicioCompletas(asig) {
 }
 
 /**
- * Han pasado los minutos de gracia desde el inicio del servicio y la tanda de
- * fotos de inicio sigue incompleta.
+ * Ha pasado la hora prevista y nadie ha iniciado la asignación.
  *
  * Es el único de los avisos que no cuenta algo que alguien acaba de hacer,
  * sino algo que NO ha pasado, así que no lo dispara ninguna petición: lo saca
  * el cron (`services/vigilancia.service.js`). Por eso importa tanto que se
  * mande una sola vez — el cron vuelve a mirar cada minuto.
  *
- * `faltan` viene de la misma consulta que decide avisar. Puede quedarse corto
- * por una foto que entre en ese mismo instante; lo que no puede es avisar de
- * una tanda ya completa, porque de eso se ocupa el UPDATE que reclama la fila.
+ * «Iniciada» es `inicio_real_at`, o sea que el responsable haya pulsado
+ * «Inicio de servicio». Que el cron la haya puesto en `activa` al llegar la
+ * hora no cuenta: eso lo hace el reloj, no una persona, y la asignación
+ * activada sola a la que nadie entra es exactamente el caso a vigilar.
  */
-function avisarFotosInicioPendientes(asig, { minutos, faltan } = {}) {
-  const cuantas = Number.isFinite(Number(faltan)) && Number(faltan) > 0
-    ? `faltan ${Number(faltan)} fotos de inicio`
-    : 'faltan fotos de inicio';
+function avisarAsignacionSinIniciar(asig, { minutos } = {}) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · sin fotos de inicio`,
-    cuerpo:        `${etiquetaResponsable(asig)} lleva ${minutos} min en servicio y ${cuantas}.`,
+    titulo:        `${etiquetaVehiculo(asig)} · servicio sin iniciar`,
+    cuerpo:        `${etiquetaResponsable(asig)} no ha iniciado el servicio y ya han pasado ${minutos} min de la hora prevista.`,
     url:           urlAsignacion(asig),
-    tag:           `asig-${asig.id}-fotos-pendientes`,
+    tag:           `asig-${asig.id}-sin-iniciar`,
     excluirUserId: asig.user_id,
   }));
 }
@@ -139,7 +137,7 @@ function avisarAsignacionFinalizada(asig, { km_fin } = {}) {
 module.exports = {
   avisarAsignacionActivada,
   avisarFotosInicioCompletas,
-  avisarFotosInicioPendientes,
+  avisarAsignacionSinIniciar,
   avisarAsignacionFinalizada,
   etiquetaVehiculo,
   etiquetaResponsable,

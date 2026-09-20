@@ -728,6 +728,43 @@ const MIGRATIONS = [
              AFTER inicio_real_at`);
     },
   },
+
+  {
+    name: 'v19_aviso_sin_iniciar',
+    description: 'El candado del aviso pasa a ser «nadie ha iniciado la asignación», no «faltan fotos»',
+    async run() {
+      // v18 nació con el criterio equivocado: avisaba de un servicio ya
+      // iniciado al que le faltaban fotos. Lo que hace falta vigilar es lo
+      // anterior — la asignación a la que NADIE ha entrado pasada la hora.
+      // Se renombra en vez de añadir otra columna porque el dato es el mismo
+      // (cuándo se avisó de esta asignación) y dejar la vieja al lado sería
+      // dejar una mentira en el esquema.
+      //
+      // v18 ya corrió en local y puede haber corrido en PRE, así que no vale
+      // con corregirla en su sitio: el runner no la repetiría y esas bases se
+      // quedarían con la columna vieja y el código buscando la nueva.
+      const yaRenombrada = await ensureColumn('asignaciones_libres', 'aviso_sin_iniciar_at',
+        `ALTER TABLE asignaciones_libres
+           RENAME COLUMN aviso_fotos_pendientes_at TO aviso_sin_iniciar_at`);
+
+      if (yaRenombrada) {
+        await query(
+          `ALTER TABLE asignaciones_libres
+             MODIFY COLUMN aviso_sin_iniciar_at DATETIME NULL DEFAULT NULL
+               COMMENT 'Instante en que se avisó a los admins de que la asignación seguía sin iniciar'`
+        );
+      }
+
+      // Las marcas que dejó v18 querían decir otra cosa, y una de ellas
+      // TAPARÍA el aviso bueno: una asignación avisada «por fotos» puede
+      // seguir sin iniciar, que es justo de lo que hay que avisar ahora. Se
+      // borran todas — el aviso viejo no llegó a producción, así que aquí no
+      // se pierde nada, y errar por avisar de más es preferible a que el
+      // primer aviso con el criterio nuevo no salga nunca.
+      await query(`UPDATE asignaciones_libres SET aviso_sin_iniciar_at = NULL
+                    WHERE aviso_sin_iniciar_at IS NOT NULL`);
+    },
+  },
 ];
 
 // ============================================================

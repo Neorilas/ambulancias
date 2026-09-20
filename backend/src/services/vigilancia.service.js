@@ -19,37 +19,31 @@ const { query }  = require('../config/database');
 const logger     = require('../utils/logger.utils');
 const { ahora }  = require('../utils/fecha.utils');
 const avisos     = require('./avisosAsignacion.service');
-const { IMAGEN_TIPOS_INICIO, AVISO_FOTOS_INICIO_MINUTOS } = require('../config/constants');
-
-/** Fotos de inicio distintas que hay subidas para una asignación. */
-const SUBQ_FOTOS_INICIO = `
-  (SELECT COUNT(DISTINCT vi.tipo_imagen)
-     FROM vehicle_images vi
-    WHERE vi.asignacion_id = al.id AND vi.momento = 'inicio')`;
+const { AVISO_SIN_INICIAR_MINUTOS } = require('../config/constants');
 
 /**
- * Asignaciones en servicio que llevan más de los minutos de gracia sin tener
- * completa la tanda de fotos de inicio. Avisa a los administradores UNA vez.
+ * Asignaciones cuya hora prevista pasó hace más del margen y que siguen sin
+ * iniciar. Avisa a los administradores UNA vez.
  *
- * Qué instante cuenta como «ha iniciado el servicio»: `inicio_real_at` si el
- * responsable pulsó el botón, y si no la `fecha_inicio` programada, que es
- * cuando la activó el cron. El segundo caso es justo el que más interesa
- * vigilar — es el de la asignación que arrancó sola y a la que nadie ha
- * entrado.
+ * Qué cuenta como iniciada: `inicio_real_at`, que lo sella el responsable al
+ * pulsar «Inicio de servicio». El `estado` NO sirve para esto — el cron pone
+ * en `activa` todo lo que llega a su hora, así que una asignación activa con
+ * `inicio_real_at` a NULL es justo la que hay que vigilar: arrancó sola y
+ * nadie ha entrado. Por eso el filtro mira `inicio_real_at` y usa el estado
+ * solo para descartar lo que ya se cerró o se canceló.
  *
  * Por qué el aviso se reclama con un UPDATE condicional y no basta con haber
  * filtrado en el SELECT: el cron vuelve a pasar cada minuto, así que sin una
  * marca persistente los teléfonos sonarían sesenta veces por hora. La columna
- * `aviso_fotos_pendientes_at` (v18) es ese candado, y las dos condiciones que
- * importan —que siga sin avisarse y que la tanda siga incompleta— van DENTRO
- * del UPDATE: si en el hueco entre el SELECT y el UPDATE el técnico completa
- * las fotos, la fila no se reclama y no se avisa de una tanda ya completa.
+ * `aviso_sin_iniciar_at` (v19) es ese candado, y las condiciones que importan
+ * —que no se haya avisado ya y que siga sin iniciarse— van DENTRO del UPDATE:
+ * si en el hueco entre el SELECT y el UPDATE el responsable pulsa el botón, la
+ * fila no se reclama y no se avisa de algo que ya está en marcha.
  *
  * Nunca lanza: devuelve un resumen, igual que `push.notificarAdmins`.
  */
-async function revisarFotosInicioPendientes() {
-  const minutos = AVISO_FOTOS_INICIO_MINUTOS;
-  const total   = IMAGEN_TIPOS_INICIO.length;
+async function revisarAsignacionesSinIniciar() {
+  const minutos = AVISO_SIN_INICIAR_MINUTOS;
   const resumen = { candidatas: 0, avisadas: 0 };
 
   try {
@@ -59,50 +53,46 @@ async function revisarFotosInicioPendientes() {
     const [candidatas] = await query(
       `SELECT al.id, al.user_id,
               v.alias AS vehiculo_alias, v.matricula,
-              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
-              ${SUBQ_FOTOS_INICIO} AS fotos_inicio
+              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
          FROM asignaciones_libres al
          JOIN vehicles v ON v.id = al.vehicle_id
          JOIN users u    ON u.id = al.user_id
-        WHERE al.estado = 'activa'
+        WHERE al.inicio_real_at IS NULL
+          AND al.estado IN ('programada', 'activa')
           AND al.deleted_at IS NULL
-          AND al.aviso_fotos_pendientes_at IS NULL
-          AND COALESCE(al.inicio_real_at, al.fecha_inicio) <= ?
-          AND ${SUBQ_FOTOS_INICIO} < ?`,
-      [limite, total]
+          AND al.aviso_sin_iniciar_at IS NULL
+          AND al.fecha_inicio <= ?`,
+      [limite]
     );
     resumen.candidatas = candidatas.length;
 
     for (const asignacion of candidatas) {
       const [res] = await query(
-        `UPDATE asignaciones_libres al
-            SET al.aviso_fotos_pendientes_at = ?
-          WHERE al.id = ?
-            AND al.estado = 'activa'
-            AND al.aviso_fotos_pendientes_at IS NULL
-            AND ${SUBQ_FOTOS_INICIO} < ?`,
-        [ahora(), asignacion.id, total]
+        `UPDATE asignaciones_libres
+            SET aviso_sin_iniciar_at = ?
+          WHERE id = ?
+            AND inicio_real_at IS NULL
+            AND estado IN ('programada', 'activa')
+            AND aviso_sin_iniciar_at IS NULL`,
+        [ahora(), asignacion.id]
       );
-      if (res.affectedRows === 0) continue;   // ya avisado, cerrado o completado
+      if (res.affectedRows === 0) continue;   // ya avisada, iniciada o cerrada
 
       resumen.avisadas++;
-      avisos.avisarFotosInicioPendientes(asignacion, {
-        minutos,
-        faltan: total - Number(asignacion.fotos_inicio || 0),
-      });
+      avisos.avisarAsignacionSinIniciar(asignacion, { minutos });
     }
 
     if (resumen.avisadas > 0) {
       logger.info(
-        `Avisadas ${resumen.avisadas} asignación(es) con fotos de inicio pendientes ` +
-        `tras ${minutos} min`
+        `Avisadas ${resumen.avisadas} asignación(es) sin iniciar ${minutos} min ` +
+        `después de su hora prevista`
       );
     }
   } catch (err) {
-    logger.error(`Error vigilando fotos de inicio pendientes: ${err.message}`);
+    logger.error(`Error vigilando asignaciones sin iniciar: ${err.message}`);
   }
 
   return resumen;
 }
 
-module.exports = { revisarFotosInicioPendientes };
+module.exports = { revisarAsignacionesSinIniciar };
