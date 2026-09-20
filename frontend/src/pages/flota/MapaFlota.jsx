@@ -21,10 +21,12 @@ import {
  * Dónde está cada ambulancia, según el GPS de Cartrack, con lo que el GPS no
  * sabe: el alias de la ambulancia, su ficha y quién la lleva hoy.
  *
- * **Solo superadmin** (`App.jsx` y `routes/flota.routes.js`). Es una pantalla
- * que enseña dónde está un vehículo en tiempo casi real, y por tanto dónde
- * está la persona que lo conduce: se abre a menos gente que el resto de la
- * flota, no a más.
+ * **Superadmin siempre; administradores solo si el superadmin ha encendido
+ * `menu_flota`** en /admin (`App.jsx` para el menú, `routes/flota.routes.js`
+ * para lo que manda de verdad). Es una pantalla que enseña dónde está un
+ * vehículo en tiempo casi real, y por tanto dónde está la persona que lo
+ * conduce: por eso quién la ve se amplía a mano y queda en `audit_logs`, en
+ * vez de venir abierta de fábrica como el resto de la flota.
  */
 
 /** Cada cuánto se vuelve a preguntar. Lo marca la caché del backend (30 s). */

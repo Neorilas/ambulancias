@@ -765,6 +765,30 @@ const MIGRATIONS = [
                     WHERE aviso_sin_iniciar_at IS NOT NULL`);
     },
   },
+
+  // ----------------------------------------------------------
+  {
+    name: 'v20_feature_flota',
+    description: 'Flag menu_flota: abre el mapa de flota a los administradores',
+    async run() {
+      // Este flag NO sirve para esconderle el mapa al superadmin —
+      // `isFeatureEnabled` y `requireFeature` le dan paso siempre, igual que
+      // `hasPermission`. Lo que hace es ABRIRLO a los administradores: con el
+      // flag apagado, el mapa es solo del superadmin; encendido, lo ven
+      // también los administradores.
+      //
+      // Nace APAGADO a propósito. La pantalla enseña dónde está cada vehículo
+      // en tiempo casi real y, con él, quién lo conduce: ampliar quién lo ve
+      // tiene que ser un acto deliberado de alguien, no el efecto de aplicar
+      // una migración.
+      await query(`INSERT IGNORE INTO app_features
+                     (feature_key, label, description, category, enabled, display_order)
+                   VALUES
+                     ('menu_flota', 'Mapa de flota',
+                      'Posición de las ambulancias en tiempo casi real (Cartrack). Apagado = solo superadmin; encendido = también administradores',
+                      'menu', 0, 90)`);
+    },
+  },
 ];
 
 // ============================================================

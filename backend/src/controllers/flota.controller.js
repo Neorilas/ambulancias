@@ -8,7 +8,9 @@
  * su política de retención — que un rastro de dónde ha estado cada trabajador
  * no es un dato cualquiera.
  *
- * Acceso: **solo superadmin** (ver `routes/flota.routes.js`).
+ * Acceso: **superadmin siempre; administradores solo con el flag
+ * `menu_flota` encendido** desde el panel de superadmin. El control está en
+ * `routes/flota.routes.js`, no aquí.
  */
 
 'use strict';

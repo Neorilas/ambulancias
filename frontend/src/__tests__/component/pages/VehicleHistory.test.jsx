@@ -18,11 +18,18 @@ vi.mock('../../../services/users.service.js', () => ({
 vi.mock('../../../services/auth.service.js', () => ({
   authService: { login: vi.fn(), logout: vi.fn(), me: vi.fn() },
 }));
+// La ficha consulta los feature flags para decidir si ofrece «Ver en el mapa».
+// Sin flags activos el botón no sale, que es lo que le toca a un administrador
+// con `menu_flota` apagado.
+vi.mock('../../../services/features.service.js', () => ({
+  featuresService: { getActive: vi.fn().mockResolvedValue([]) },
+}));
 
 import { vehiclesService } from '../../../services/vehicles.service.js';
 import { usersService }    from '../../../services/users.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import { AuthProvider }         from '../../../context/AuthContext.jsx';
+import { FeaturesProvider }     from '../../../context/FeaturesContext.jsx';
 import { PREFIJO }              from '../../../utils/sessionStorage.js';
 import VehicleHistory           from '../../../pages/vehicles/VehicleHistory.jsx';
 
@@ -47,11 +54,13 @@ function montar() {
   return render(
     <NotificationProvider>
       <AuthProvider>
-        <MemoryRouter initialEntries={['/vehiculos/7']}>
-          <Routes>
-            <Route path="/vehiculos/:id" element={<VehicleHistory />} />
-          </Routes>
-        </MemoryRouter>
+        <FeaturesProvider>
+          <MemoryRouter initialEntries={['/vehiculos/7']}>
+            <Routes>
+              <Route path="/vehiculos/:id" element={<VehicleHistory />} />
+            </Routes>
+          </MemoryRouter>
+        </FeaturesProvider>
       </AuthProvider>
     </NotificationProvider>
   );

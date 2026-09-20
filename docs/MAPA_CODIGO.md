@@ -71,7 +71,7 @@ saber cuáles ha cambiado de verdad (§2.5).
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Todo el grupo exige `MANAGE_TRABAJOS` |
-| `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Solo superadmin** (§2.6) |
+| `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta`, `crearIncidenciaDesdeAsignacion`;
@@ -88,6 +88,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess` | Quién puede subir fotos a qué |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
 | `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
+| `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
 | `validate.middleware.js` | wrapper de express-validator | |
 | `error.middleware.js` | `notFound`, `errorHandler` | 5xx → `error_logs` |
 
@@ -175,19 +176,38 @@ el GPS no sabe: el alias, la ficha y quién la lleva hoy.
 | Región | `CARTRACK_BASE_URL`, por defecto `https://fleetapi-es.cartrack.com/rest`. **Con la URL de otro país las credenciales buenas dan 401**: es lo primero que mirar ante un 401 |
 | Servicio | `services/cartrack.service.js`. Igual que `push.service`, **nunca lanza**: devuelve un resumen con `origen` (`api`/`cache`/`cache-vieja`/`ninguno`) y `error` |
 | Cruce | `utils/flota.utils.js` → `cruzarFlota`. Por **matrícula normalizada** |
-| Endpoint | `GET /api/v1/flota/ubicaciones`, solo superadmin. Devuelve `{flota, resumen, fuente, minutosSinSenal}` |
+| Endpoint | `GET /api/v1/flota/ubicaciones`. Devuelve `{flota, resumen, fuente, minutosSinSenal}` |
+| Quién lo ve | Superadmin siempre. Administradores **solo si `menu_flota` está encendido** en `/admin`. Gestores y personal de campo, nunca |
 | Pantalla | `/flota` → `pages/flota/MapaFlota.jsx` + `components/flota/MapaLeaflet.jsx` |
 | Sin tabla propia | **No se guarda ninguna posición.** Un rastro de dónde ha estado cada trabajador no es un dato cualquiera; si algún día hace falta histórico, es una decisión aparte con su migración y su política de retención |
 
-**Por qué solo superadmin.** No es el criterio del resto de la flota
-(`/vehicles` lo ven admin y gestor) y es deliberado: esto enseña dónde está un
-vehículo en tiempo casi real y, con él, la persona que lo conduce. Se abre a
-menos gente, no a más; ampliarlo tiene que ser una decisión consciente, no el
-efecto de copiar el middleware de al lado. **Sin feature flag**, también a
-propósito: `isFeatureEnabled` devuelve `true` para el superadmin SIEMPRE, así
-que un flag aquí sería un interruptor en `/admin` que no apaga nada justo para
-el único rol que ve la pantalla. Mismo criterio que `/admin`. Para apagar el
-mapa de verdad se vacía `CARTRACK_USER` en el `.env`.
+**Por qué el acceso va más cerrado que el resto de la flota.** `/vehicles` lo
+ven admin y gestor sin más; esto no, y es deliberado: enseña dónde está un
+vehículo en tiempo casi real y, con él, la persona que lo conduce. Por defecto
+es solo del superadmin, y **ampliarlo a los administradores es un acto
+deliberado** — el toggle `menu_flota` en `/admin`, que queda registrado en
+`audit_logs` como `toggle_feature`. La migración lo crea **apagado** por eso
+mismo: que se abra al desplegar sería justo lo contrario de lo que se busca.
+
+**Qué hace el flag, que no es lo que parece.** `menu_flota` NO sirve para
+esconderle el mapa al superadmin: no puede, porque tanto `isFeatureEnabled`
+(frontend) como `requireFeature` (backend) le dan paso siempre, igual que
+`hasPermission`. Sirve para **abrírselo a los administradores**. Leído así, la
+condición `isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin())` que
+hay en el menú y en `ProtectedRoute` se entiende sola: «yo siempre, los admins
+si está abierto».
+
+**Y el flag se comprueba en el BACKEND, no solo en el menú.** Es la primera vez
+que un feature flag hace de control de acceso: hasta ahora solo vivían en el
+frontend, y para esconder pantallas de trabajos que nadie usa bastaba. Aquí no
+—ocultar una entrada del menú no impide llamar a `GET /flota/ubicaciones` a
+mano—, así que `requireFeature('menu_flota')` (`features.middleware.js`) lo
+mira en `app_features` en cada petición. En cada petición y no en el token,
+para que apagarlo surta efecto ya y no en el siguiente login de cada uno. Si la
+consulta falla, **deniega**: ante la duda no se enseña dónde está la flota.
+
+Para apagar el mapa del todo, incluido el superadmin, se vacía `CARTRACK_USER`
+en el `.env` del servidor.
 
 **La trampa gorda: `registration` NO es la matrícula.** Cartrack devuelve ahí
 el nombre del vehículo con la matrícula pegada detrás — `UVI-3-7740MZB`,
@@ -276,7 +296,7 @@ de funcionar sin cobertura.
 | `/usuarios` | `users/UserList.jsx` | admin, gestor, super | `menu_usuarios` |
 | `/alertas` | `AlertsPage.jsx` | admin, super | `menu_alertas` |
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
-| `/flota` | `flota/MapaFlota.jsx` | **solo super** | — (y a propósito, §2.6) |
+| `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | ídem | `menu_mis_trabajos` (off) |
@@ -389,7 +409,7 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v17_push_subscriptions**.
+Última migración: **v20_feature_flota**.
 
 ---
 
@@ -416,7 +436,14 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `requiredFeature` en `ProtectedRoute` + `Sidebar`. Claves: `menu_dashboard`,
 `menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
 `menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
-`menu_usuarios`, `menu_alertas` (encendidas).
+`menu_usuarios`, `menu_alertas` (encendidas); `menu_flota` (apagada, v20).
+
+**`menu_flota` es la excepción a todo lo anterior y conviene no copiarla sin
+pensar.** Los demás flags solo deciden si una pantalla aparece en el menú, y
+viven únicamente en el frontend. Ese no **amplía quién puede entrar** (de solo
+superadmin a también administradores) y por eso se comprueba además en el
+backend con `requireFeature` (§2.3 y §2.6). Un flag que decide quién ve qué y
+solo actúa en el navegador no es un control de acceso.
 
 ## 8. Flujos transversales (qué tocar si cambias…)
 
@@ -441,7 +468,8 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | Algo del mapa de flota | `services/cartrack.service` (lo que se lee de Cartrack) → `utils/flota.utils` (el cruce y el estado) → `flota.controller` (lo que se junta con nuestra BD) → `frontend/utils/flota.js` (nombres y colores) → `MapaFlota` / `MapaLeaflet`. **Antes de tocar nada, correr `scripts/sonda-cartrack.js`**: dice qué manda la API hoy, que no es lo que dice su documentación (§2.6) |
-| Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda) **y** `App.jsx` + `Sidebar.jsx` (comodidad). Hoy solo superadmin, por lo que enseña — §2.6 antes de ampliarlo |
+| Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + el botón «Ver en el mapa» de `VehicleHistory` (comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
+| Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
 
 ## 9. Entornos y despliegue
@@ -505,5 +533,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-20** (mapa de flota con Cartrack: §2.6, solo
-superadmin, y las tres trampas que destapó la sonda de fase 0).
+Última revisión: **2026-09-20** (mapa de flota con Cartrack: §2.6, las tres
+trampas que destapó la sonda de fase 0, y el flag `menu_flota` que lo abre a
+los administradores — el primero que hace de control de acceso también en el
+backend).

@@ -149,23 +149,24 @@ export default function App() {
               />
 
               {/* Mapa de flota (Cartrack).
-                  SOLO SUPERADMIN, y no por copiar el criterio de /vehiculos:
-                  esto enseña dónde está cada vehículo en tiempo casi real, y
-                  con él la persona que lo conduce. Ampliarlo a admin o gestor
-                  tiene que ser una decisión consciente, no un descuido. El
-                  backend lo exige igual (routes/flota.routes.js): la guardia
-                  de aquí es comodidad, no seguridad.
+                  Superadmin siempre; administradores solo con `menu_flota`
+                  encendido desde /admin. Aquí eso sale gratis porque
+                  `isFeatureEnabled` ya le da true al superadmin: el flag no
+                  sirve para ocultarle la pantalla, sirve para ABRÍRSELA a los
+                  administradores.
 
-                  Sin feature flag, y a propósito: `isFeatureEnabled` devuelve
-                  true para el superadmin SIEMPRE, así que un flag aquí sería
-                  un interruptor en /admin que no apaga nada — precisamente
-                  para el único rol que ve la pantalla. Mismo criterio que
-                  /admin, que tampoco lo lleva. Para apagar el mapa de verdad
-                  se vacía CARTRACK_USER en el .env del servidor. */}
+                  Gestores no, aunque sí vean /vehiculos: esto enseña dónde
+                  está cada vehículo en tiempo casi real y, con él, la persona
+                  que lo conduce. Quien manda es el backend
+                  (routes/flota.routes.js, que comprueba rol Y flag); la
+                  guardia de aquí es comodidad, no seguridad. */}
               <Route
                 path="/flota"
                 element={
-                  <ProtectedRoute allowedRoles={[ROLES.SUPERADMIN]}>
+                  <ProtectedRoute
+                    allowedRoles={[ROLES.SUPERADMIN, ROLES.ADMINISTRADOR]}
+                    requiredFeature="menu_flota"
+                  >
                     <MapaFlota />
                   </ProtectedRoute>
                 }
