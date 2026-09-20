@@ -173,6 +173,33 @@ describe('push.service', () => {
       expect(sellados).toHaveLength(2);
     });
 
+    it('manda urgencia alta y TTL: sin eso Android aparca el aviso hasta salir de reposo', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[SUSCRIPCION(1, 9)]]);
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      await push.notificarAdmins({ titulo: 'x', cuerpo: 'y', tag: 'asig-1-activada' });
+
+      const opciones = webpush.sendNotification.mock.calls[0][2];
+      expect(opciones).toMatchObject({
+        urgency: 'high',
+        TTL:     3600,
+        topic:   'asig-1-activada',
+      });
+    });
+
+    it('sin tag no se manda topic, que vacío sería un parámetro inválido', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[SUSCRIPCION(1, 9)]]);
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      await push.notificarAdmins({ titulo: 'x', cuerpo: 'y' });
+
+      expect(webpush.sendNotification.mock.calls[0][2].topic).toBeUndefined();
+    });
+
     it('sin suscripciones no llama a web-push', async () => {
       const push = cargarPush();
       query.mockResolvedValueOnce([[]]);
@@ -364,6 +391,32 @@ describe('push.service', () => {
       const filas = await push.contarDispositivosPorUsuario();
       expect(filas).toEqual([{ user_id: 1, dispositivos: 2 }]);
       expect(query.mock.calls[0][0]).toMatch(/GROUP BY user_id/);
+    });
+  });
+
+  // ── Topic ────────────────────────────────────────────────
+  describe('normalizarTopic', () => {
+    it('deja pasar los tags que ya son válidos', () => {
+      const push = cargarPush();
+      expect(push.normalizarTopic('asig-12-fotos-inicio')).toBe('asig-12-fotos-inicio');
+      expect(push.normalizarTopic('test-67')).toBe('test-67');
+    });
+
+    it('sustituye lo que no es base64url en vez de dejar que web-push lance', () => {
+      const push = cargarPush();
+      expect(push.normalizarTopic('asig:1 activada')).toBe('asig-1-activada');
+    });
+
+    it('recorta a los 32 caracteres que admite el RFC', () => {
+      const push = cargarPush();
+      const largo = push.normalizarTopic('a'.repeat(80));
+      expect(largo).toHaveLength(32);
+    });
+
+    it('sin tag no hay topic', () => {
+      const push = cargarPush();
+      expect(push.normalizarTopic(undefined)).toBeUndefined();
+      expect(push.normalizarTopic('')).toBeUndefined();
     });
   });
 });

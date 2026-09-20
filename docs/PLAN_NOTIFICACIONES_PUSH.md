@@ -135,3 +135,98 @@ Unos 3,5-4 días, incluidas las pruebas en móviles reales.
 
 Actualizar `docs/MAPA_CODIGO.md` (rutas `/push`, `push.service.js`, tabla nueva,
 `sw.js`, sección del perfil).
+
+---
+
+# Apéndice · «Llega tarde» y «suena flojo» (2026-09-20)
+
+Lo primero que se vio al probarlo en un Android con la PWA instalada: el primer
+aviso llegó y los siguientes no, y cuando sonaba se oía bajísimo. Son dos
+problemas distintos y se arreglan en sitios distintos.
+
+## 1. Llega tarde o no llega — sí era código
+
+`web-push` manda los avisos con `urgency: normal` si no se le dice otra cosa, y
+con esa urgencia FCM **acumula** el mensaje mientras el teléfono está en reposo
+(Doze) y lo entrega en la siguiente ventana de mantenimiento. El primer aviso
+pilla el móvil despierto y llega; los de después se quedan aparcados. Desde
+`push.service.js` ahora todo sale con:
+
+- `urgency: 'high'` — despierta el dispositivo. Es lo que corresponde a un aviso
+  que exige atención de una persona.
+- `TTL` de una hora — más allá, un aviso de servicio ya no informa de nada.
+- `topic` derivado del tag — si queda un aviso del mismo suceso sin entregar, el
+  nuevo lo sustituye en vez de encolarse detrás.
+
+Y el aviso de prueba pasa a llevar **tag fijo** (`test-<userId>`): con un tag
+distinto por envío las pruebas se apilaban en la bandeja y Android dejaba de
+alertar de las siguientes.
+
+## 2. Suena flojo — esto NO es código
+
+**Una web no puede elegir el tono ni subir el volumen.** En Android eso lo
+decide el canal de notificaciones del sistema, y sólo una app nativa puede crear
+canales con su propio sonido. `Notification.sound` no la implementa ningún
+navegador.
+
+La buena noticia es que con la PWA **instalada** (WebAPK) Android le da a VAPSS
+su propia entrada en los ajustes, con su propio canal. Ahí el usuario sí puede
+dejarla igual que WhatsApp:
+
+1. Ajustes → Aplicaciones → **VAPSS** → Notificaciones → la categoría de avisos.
+2. Comportamiento: **Urgente** («mostrar en pantalla y hacer sonido»).
+3. Sonido: el tono que se quiera, incluido el de WhatsApp.
+4. Excepción de «No molestar», si se quiere que suene siempre.
+5. Ajustes → Aplicaciones → VAPSS → Batería → **Sin restricciones**, para que
+   Android no retrase la entrega.
+
+Sin instalar, los avisos cuelgan de Chrome (Ajustes → Chrome → Notificaciones →
+Sitios) y comparten tono con todas las demás webs: ahí no hay nada que hacer.
+
+Estas instrucciones están dentro de la app, en el perfil, bajo «¿Suena demasiado
+flojo o llega tarde?» (`AvisosPush` → `AjustesDelTelefono`), que es donde las va
+a buscar quien tenga el problema.
+
+## 3. iPhone — otras reglas
+
+Apple no da las mismas palancas, así que las instrucciones son distintas y la
+app enseña unas u otras según el dispositivo (`AvisosPush` → `AjustesIPhone` /
+`AjustesAndroid`).
+
+Requisito previo: **iOS 16.4 o superior y la PWA añadida a la pantalla de
+inicio desde Safari**. En una pestaña de Safari no llega nada, por mucho que se
+pulse «Activar avisos».
+
+Que suene y se vea — Ajustes → Notificaciones → VAPSS: activar **Sonidos** y
+Globos, marcar Pantalla bloqueada + Centro de notificaciones + Tiras, y poner el
+estilo de tira en **Persistente**.
+
+Que no lleguen tarde:
+
+- Ajustes → Notificaciones → **Resumen programado**: quitar VAPSS de la lista.
+  El resumen retiene los avisos y los entrega todos juntos más tarde, que es
+  exactamente lo contrario de lo que se busca aquí.
+- Ajustes → Modos de concentración: añadir VAPSS a las apps permitidas.
+- El modo de bajo consumo también retrasa la entrega.
+
+Volumen: en iPhone el aviso suena al volumen del **timbre** (Ajustes → Sonidos y
+vibraciones), no al de multimedia. Y el interruptor físico de silencio manda.
+
+**Lo que en iPhone NO se puede hacer, ni desde el código ni desde los ajustes:**
+poner un tono propio. iOS usa siempre el sonido de aviso del sistema para las
+apps web; no hay selector de sonido como en Android. Tampoco hay avisos
+«urgentes» (time sensitive): eso requiere una app nativa.
+
+Gotcha: si se borra el icono de la pantalla de inicio y se vuelve a añadir, la
+suscripción se pierde y hay que pulsar «Activar avisos» otra vez.
+
+## Si aun así no suena
+
+Por orden, porque cada paso descarta una capa:
+
+1. El toast de «Enviar aviso de prueba» dice a cuántos dispositivos ha salido.
+   Si dice 0, el problema está en la suscripción, no en el teléfono.
+2. ¿Aparece el aviso en la bandeja aunque sea en silencio? Entonces es el canal
+   (punto 2 de arriba), no la entrega.
+3. ¿Aparece «Esta web se ha actualizado en segundo plano»? El dispositivo tiene
+   un service worker viejo: desinstalar la PWA y volver a instalarla.

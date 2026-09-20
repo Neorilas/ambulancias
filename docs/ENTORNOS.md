@@ -36,24 +36,41 @@ local  ──>  feature/lo-que-sea  ──PR──>  develop  ──PR──>  m
 entorno local: ver [LOCAL.md](LOCAL.md). El flujo en uso es
 `cambio en local → /verifica → /a-pro`.
 
-> ### Los deploys de `develop` salen en ROJO, y es lo esperado
+> ### El interruptor `PRE_ACTIVO`
 >
-> Todo push a `develop` deja dos workflows en rojo. **No los investigues: no es
-> el código, es que PRE no está montado** (§5, pendiente). Comprobado el
-> 2026-09-19:
+> Los dos workflows solo despliegan a PRE si la variable de repositorio
+> `PRE_ACTIVO` vale `true` (Settings → Variables; es una *variable*, no un
+> secret). Mientras no lo valga, el push a `develop` **no publica nada** y lo
+> dice en el resumen del run.
 >
-> - **Deploy Frontend** muere en el paso «Comprobar destino FTP»: el secret
->   `FTP_REMOTE_DIR` del Environment `pre` no existe, y el workflow se niega a
->   publicar antes que escribir PRE encima de la carpeta de producción. La
->   salvaguarda funcionando.
-> - **Deploy Backend** muere con `No existe /root/ambulancia-pre/.env`: falta
->   el fichero del §5.3 en el servidor.
+> Hasta el 2026-09-20 no había interruptor y los dos workflows morían en rojo en
+> cada push a `develop`:
 >
-> Ninguno de los dos llega a tocar nada. Lo que valida un cambio es `/verifica`
-> en local, no estos workflows. Se arreglará cuando se monte PRE.
+> - **Deploy Frontend** en «Comprobar destino FTP»: el secret `FTP_REMOTE_DIR`
+>   del Environment `pre` no existe, y el workflow se niega a publicar antes que
+>   escribir PRE encima de la carpeta de producción.
+> - **Deploy Backend** con `No existe /root/ambulancia-pre/.env`.
+>
+> Ninguno llegaba a tocar nada, pero un rojo permanente en `develop` hace que
+> deje de mirarse, y en el frontend además se perdía la señal de los tests: el
+> job entero moría antes de que se supiera si el código compilaba.
+>
+> Ahora en `develop` con PRE apagado:
+>
+> - **Deploy Frontend** corre tests y build (job `build`) y se salta la
+>   publicación. **Un rojo aquí sí es el código.**
+> - **Deploy Backend** se salta el deploy entero. No hay nada que comprobar sin
+>   servidor.
+>
+> `master` no mira `PRE_ACTIVO`: producción despliega siempre, pase lo que pase
+> con la variable.
+>
+> **Para encender PRE:** hacer el §5 y poner `PRE_ACTIVO` a `true`. No hay que
+> tocar ningún `.yml`.
 
 1. Se trabaja en ramas cortas que salen de `develop`.
-2. Al mergear en `develop`, PRE se despliega solo. Ahí se prueba.
+2. Al mergear en `develop`, PRE se despliega solo **si `PRE_ACTIVO` está a
+   `true`**. Ahí se prueba.
 3. Cuando lo de PRE está validado, PR de `develop` a `master`.
 4. Al mergear en `master`, el deploy sale **en el acto**. El Environment
    `produccion` está creado pero **sin required reviewers**, así que no hay
@@ -218,6 +235,13 @@ En `Settings → Environments` del repo, dos entornos:
 - **Required reviewers**: las personas que pueden autorizar. Esta es la puerta.
 - *Deployment branches*: limitar a `master`.
 - No necesita secrets propios: hereda los del repo.
+
+**Variable `PRE_ACTIVO` (a nivel de repositorio)**
+
+En `Settings → Secrets and variables → Actions → Variables`, crear `PRE_ACTIVO`
+con valor `true`. **Este es el último paso de todos**: hasta que exista, los
+workflows no intentan desplegar a PRE. Si algo del §5 se queda a medias, ponerla
+a cualquier otra cosa (o borrarla) vuelve a apagar PRE sin tocar código.
 
 Los secrets `HETZNER_HOST`, `HETZNER_SSH_KEY`, `FTP_HOST`, `FTP_USER`,
 `FTP_PASSWORD` y `FTP_REMOTE_DIR` siguen a nivel de repositorio y valen para los
