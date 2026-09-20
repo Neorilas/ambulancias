@@ -710,6 +710,24 @@ const MIGRATIONS = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+
+  {
+    name: 'v18_aviso_fotos_inicio_pendientes',
+    description: 'Marca de «ya se avisó de que faltaban las fotos de inicio», para no repetir el aviso',
+    async run() {
+      // La columna ES el candado del aviso, no un dato de negocio: el cron
+      // pasa cada minuto y sin una marca persistente volvería a hacer sonar
+      // los teléfonos en cada vuelta mientras las fotos siguieran sin subir.
+      // Va en la fila de la asignación (y no en una tabla aparte) porque es
+      // exactamente un dato por asignación y se reclama en el mismo UPDATE
+      // que decide si toca avisar.
+      await ensureColumn('asignaciones_libres', 'aviso_fotos_pendientes_at',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN aviso_fotos_pendientes_at DATETIME NULL DEFAULT NULL
+             COMMENT 'Instante en que se avisó a los admins de que faltaban fotos de inicio'
+             AFTER inicio_real_at`);
+    },
+  },
 ];
 
 // ============================================================

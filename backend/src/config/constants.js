@@ -54,6 +54,14 @@ module.exports = {
   ],
   // Fotos opcionales de incidencia/observación (momento = 'general'); no bloquean
   IMAGEN_TIPOS_GENERAL: ['danos'],
+
+  // Minutos que se le dan al responsable desde que empieza el servicio para
+  // subir la tanda de fotos de inicio. Pasados, los administradores reciben un
+  // aviso push (una sola vez por asignación, ver v18 y vigilancia.service.js).
+  // Se puede bajar por entorno para probarlo sin esperar media hora.
+  AVISO_FOTOS_INICIO_MINUTOS: Number(process.env.AVISO_FOTOS_INICIO_MINUTOS) > 0
+    ? Number(process.env.AVISO_FOTOS_INICIO_MINUTOS)
+    : 30,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

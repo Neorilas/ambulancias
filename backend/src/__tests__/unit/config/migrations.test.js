@@ -160,14 +160,38 @@ describe('runMigrations', () => {
     expect(sql).toMatch(/ON DELETE CASCADE/);
   });
 
-  it('v17 se aplica sola sobre una base que venía de v16', async () => {
+  it('v17 se aplica sobre una base que venía de v16', async () => {
     const { ejecutadas, ledger } = mockDb({ aplicadas: hasta('v16_horas_a_utc') });
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v17_push_subscriptions']);
+    expect(aplicadas).toEqual(TODAS.slice(TODAS.indexOf('v17_push_subscriptions')));
     expect(ledger).toContain('v17_push_subscriptions');
     expect(ejecutadas.some(q => q.includes('push_subscriptions'))).toBe(true);
+  });
+
+  it('v18 añade el candado del aviso de fotos de inicio pendientes', async () => {
+    const { ejecutadas, ledger } = mockDb({ aplicadas: hasta('v17_push_subscriptions') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v18_aviso_fotos_inicio_pendientes']);
+    expect(ledger).toContain('v18_aviso_fotos_inicio_pendientes');
+    expect(ejecutadas.some(sql =>
+      sql.includes('ALTER TABLE asignaciones_libres') && sql.includes('aviso_fotos_pendientes_at')
+    )).toBe(true);
+  });
+
+  it('v18 no repite el ALTER si la columna ya está', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v17_push_subscriptions'),
+      columnas:  ['asignaciones_libres.aviso_fotos_pendientes_at'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(sql => sql.includes('aviso_fotos_pendientes_at')
+                                  && sql.startsWith('ALTER TABLE'))).toBe(false);
   });
 
   it('no resiembra role_permissions si ya tiene filas', async () => {
@@ -202,7 +226,10 @@ describe('runMigrations', () => {
     const { fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(ejecutadas.some(sql => sql.includes('ALTER TABLE asignaciones_libres'))).toBe(false);
+    // Se mira el ADD COLUMN en concreto: sobre asignaciones_libres hay más
+    // ALTERs posteriores (v18) y uno de ellos NOMBRA a inicio_real_at en su
+    // cláusula AFTER, así que un `includes` a secas lo daría por este.
+    expect(ejecutadas.some(sql => sql.includes('ADD COLUMN inicio_real_at'))).toBe(false);
     expect(ledger).toContain('v12_inicio_real_at');
   });
 

@@ -32,6 +32,7 @@ describe('avisosAsignacion.service', () => {
     it.each([
       ['activada',   () => avisos.avisarAsignacionActivada(ASIGNACION)],
       ['fotos',      () => avisos.avisarFotosInicioCompletas(ASIGNACION)],
+      ['pendientes', () => avisos.avisarFotosInicioPendientes(ASIGNACION, { minutos: 30, faltan: 5 })],
       ['finalizada', () => avisos.avisarAsignacionFinalizada(ASIGNACION, { km_fin: 1000 })],
     ])('el aviso de %s excluye al responsable de la asignación', async (_nombre, disparar) => {
       await disparar();
@@ -43,15 +44,17 @@ describe('avisosAsignacion.service', () => {
     it('cada evento lleva su propio tag para no pisarse entre ellos', async () => {
       await avisos.avisarAsignacionActivada(ASIGNACION);
       await avisos.avisarFotosInicioCompletas(ASIGNACION);
+      await avisos.avisarFotosInicioPendientes(ASIGNACION, { minutos: 30, faltan: 5 });
       await avisos.avisarAsignacionFinalizada(ASIGNACION);
 
       const tags = push.notificarAdmins.mock.calls.map(c => c[0].tag);
       expect(tags).toEqual([
         'asig-12-activada',
         'asig-12-fotos-inicio',
+        'asig-12-fotos-pendientes',
         'asig-12-finalizada',
       ]);
-      expect(new Set(tags).size).toBe(3);
+      expect(new Set(tags).size).toBe(4);
     });
 
     it('el aviso abre la asignación concreta, no el listado a secas', async () => {
@@ -95,6 +98,25 @@ describe('avisosAsignacion.service', () => {
     it('sin segundo argumento tampoco falla', async () => {
       await avisos.avisarAsignacionFinalizada(ASIGNACION);
       expect(push.notificarAdmins).toHaveBeenCalled();
+    });
+  });
+
+  describe('texto del aviso de fotos de inicio pendientes', () => {
+    it('dice el vehículo, el responsable, el rato transcurrido y cuántas faltan', async () => {
+      await avisos.avisarFotosInicioPendientes(ASIGNACION, { minutos: 30, faltan: 5 });
+      const { titulo, cuerpo } = push.notificarAdmins.mock.calls[0][0];
+      expect(titulo).toBe('Alfa 1 · sin fotos de inicio');
+      expect(cuerpo).toBe('Juan López lleva 30 min en servicio y faltan 5 fotos de inicio.');
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['cero',      0],
+      ['no numérico', 'varias'],
+    ])('sin una cuenta válida (%s) el aviso sigue teniendo sentido', async (_caso, faltan) => {
+      await avisos.avisarFotosInicioPendientes(ASIGNACION, { minutos: 30, faltan });
+      expect(push.notificarAdmins.mock.calls[0][0].cuerpo)
+        .toBe('Juan López lleva 30 min en servicio y faltan fotos de inicio.');
     });
   });
 

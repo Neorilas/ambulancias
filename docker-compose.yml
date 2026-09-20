@@ -82,6 +82,9 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT:     ${VAPID_SUBJECT:-mailto:soporte@vapss.net}
       PUSH_RATE_LIMIT_MAX: 20
+      # Minutos en servicio sin fotos de inicio antes de avisar a los admins.
+      # Se puede bajar desde el .env del entorno para probarlo sin esperar.
+      AVISO_FOTOS_INICIO_MINUTOS: ${AVISO_FOTOS_INICIO_MINUTOS:-30}
 
       # ── Uploads ─────────────────────────────────────────────────────────────
       UPLOADS_DIR: ./uploads

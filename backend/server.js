@@ -145,6 +145,7 @@ async function startServer() {
   const { query: dbQuery } = require('./src/config/database');
   const { ahora } = require('./src/utils/fecha.utils');
   const avisosAsignacion = require('./src/services/avisosAsignacion.service');
+  const vigilancia       = require('./src/services/vigilancia.service');
   const autoActivar = async () => {
     try {
       // El instante lo pone Node, no MySQL: fecha_inicio está en UTC y NOW()
@@ -196,10 +197,20 @@ async function startServer() {
     } catch (err) {
       logger.error('Error en cron auto-activar:', err.message);
     }
+
+    // Segunda pasada del mismo tick: asignaciones que llevan ya un rato en
+    // servicio sin subir las fotos de inicio. Va DESPUÉS de activar para que
+    // una asignación recién activada empiece a contar desde este momento y no
+    // desde el minuto que viene. Tiene su propio try/catch dentro.
+    await vigilancia.revisarFotosInicioPendientes();
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto
   logger.info('Cron auto-activación de trabajos y asignaciones iniciado (cada 1 min)');
+  logger.info(
+    `Vigilancia de fotos de inicio: aviso a los admins a los ` +
+    `${require('./src/config/constants').AVISO_FOTOS_INICIO_MINUTOS} min`
+  );
 }
 
 // Manejo de errores no capturados
