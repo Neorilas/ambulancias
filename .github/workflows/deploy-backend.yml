@@ -6,6 +6,11 @@ name: Deploy Backend
 # sube por SSH. Así el servidor no necesita credenciales de GitHub (el pull
 # llevaba fallando desde el 02/09/2026) y lo desplegado es exactamente el
 # commit que disparó el workflow.
+#
+# PRE todavía no está montado (§5 de docs/ENTORNOS.md). Hasta que lo esté, el
+# push a develop NO despliega: se salta el job y lo deja dicho. Antes moría en
+# rojo por el .env que falta en el servidor, y un rojo permanente en develop
+# hacía que dejara de mirarse.
 
 on:
   push:
@@ -31,21 +36,55 @@ jobs:
       entorno:    ${{ steps.map.outputs.entorno }}
       deploy_dir: ${{ steps.map.outputs.deploy_dir }}
       api_url:    ${{ steps.map.outputs.api_url }}
+      activo:     ${{ steps.map.outputs.activo }}
     steps:
       - id: map
+        env:
+          # Variable de repositorio (Settings → Variables), no secret: no hay
+          # nada que esconder. Vale "true" solo cuando PRE está montado de
+          # verdad — el §5 de docs/ENTORNOS.md dice qué hace falta.
+          PRE_ACTIVO: ${{ vars.PRE_ACTIVO }}
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
             echo "entorno=produccion"                >> "$GITHUB_OUTPUT"
             echo "deploy_dir=/root/ambulancia"       >> "$GITHUB_OUTPUT"
             echo "api_url=https://api.vapss.net"     >> "$GITHUB_OUTPUT"
+            echo "activo=true"                       >> "$GITHUB_OUTPUT"
           else
             echo "entorno=pre"                       >> "$GITHUB_OUTPUT"
             echo "deploy_dir=/root/ambulancia-pre"   >> "$GITHUB_OUTPUT"
             echo "api_url=https://api-pre.vapss.net" >> "$GITHUB_OUTPUT"
+            if [ "$PRE_ACTIVO" = "true" ]; then
+              echo "activo=true"                     >> "$GITHUB_OUTPUT"
+            else
+              echo "activo=false"                    >> "$GITHUB_OUTPUT"
+            fi
           fi
+
+  # ── PRE sin montar: no se despliega, pero se explica ─────────────────────
+  pre-sin-montar:
+    needs: destino
+    if: needs.destino.outputs.activo != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explicar por qué no se despliega
+        run: |
+          echo "::notice title=PRE no está montado::Deploy de backend saltado. Ver el §5 de docs/ENTORNOS.md."
+          {
+            echo "### Deploy a PRE saltado"
+            echo
+            echo "No se ha desplegado nada porque **PRE no está montado**:"
+            echo 'falta `/root/ambulancia-pre/.env` en el Hetzner, entre otras cosas.'
+            echo
+            echo 'Los pasos de puesta en marcha están en el §5 de `docs/ENTORNOS.md`.'
+            echo 'Cuando estén hechos, poner la variable de repositorio `PRE_ACTIVO`'
+            echo 'a `true` en Settings → Variables y este workflow volverá a'
+            echo 'desplegar develop en PRE sin tocar nada más.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   desplegar:
     needs: destino
+    if: needs.destino.outputs.activo == 'true'
     runs-on: ubuntu-latest
 
     # Aquí está la puerta de autorización: el Environment `produccion` lleva

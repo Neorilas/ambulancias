@@ -321,8 +321,12 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `develop → PRE`, `master → PRODUCCIÓN`. Workflows:
 `.github/workflows/deploy-backend.yml` (empaqueta `backend database
 docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
-`/health`) y `deploy-frontend.yml` (tests + build + subida al hosting de
-`vapss.net/app[-pre]/`). Los avisos push necesitan claves VAPID **en el `.env` de cada servidor**, que
+`/health`) y `deploy-frontend.yml` (job `build`: tests + build; job `publicar`:
+subida por FTP al hosting de `vapss.net/app[-pre]/`).
+**El despliegue a PRE está detrás de la variable de repositorio `PRE_ACTIVO`**:
+si no vale `true`, el job `destino` marca `activo=false` y los jobs de deploy se
+saltan con un aviso en el resumen del run, en vez de morir en rojo por el
+entorno que falta. `master` no la mira. Detalle en `docs/ENTORNOS.md` §2. Los avisos push necesitan claves VAPID **en el `.env` de cada servidor**, que
 no está en el repo y no lo toca el workflow: se generan con `npx web-push
 generate-vapid-keys`, se pegan en el `.env` del entorno y se reinicia el
 backend. Si se pierde la privada, todas las suscripciones dejan de valer y cada

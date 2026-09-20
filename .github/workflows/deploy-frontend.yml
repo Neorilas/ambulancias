@@ -7,6 +7,15 @@ name: Deploy Frontend
 # configuración de cada una está en frontend/.env.pre y frontend/.env.production
 # (son URLs públicas, no secretos); aquí solo se elige el modo de build y el
 # directorio remoto.
+#
+# El workflow va en dos jobs a propósito:
+#   `build`     — tests + build. Corre SIEMPRE, también en develop, y es lo que
+#                 da la marca del push. Aquí un rojo sí es el código.
+#   `publicar`  — sube por FTP. Solo si el entorno de destino existe de verdad.
+#
+# Mientras PRE no esté montado (§5 de docs/ENTORNOS.md) `publicar` se salta en
+# develop. Antes el job entero moría en el paso «Comprobar destino FTP», así que
+# develop llevaba en rojo permanente y de paso se perdía la señal de los tests.
 
 on:
   push:
@@ -28,28 +37,36 @@ jobs:
       entorno:  ${{ steps.map.outputs.entorno }}
       modo:     ${{ steps.map.outputs.modo }}
       url:      ${{ steps.map.outputs.url }}
+      activo:   ${{ steps.map.outputs.activo }}
     steps:
       - id: map
+        env:
+          # Variable de repositorio (Settings → Variables), no secret: no hay
+          # nada que esconder. Vale "true" solo cuando PRE está montado de
+          # verdad: carpeta app-pre/ en el hosting y secret FTP_REMOTE_DIR
+          # propio del Environment `pre`.
+          PRE_ACTIVO: ${{ vars.PRE_ACTIVO }}
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
             echo "entorno=produccion"                 >> "$GITHUB_OUTPUT"
             echo "modo=production"                    >> "$GITHUB_OUTPUT"
             echo "url=https://vapss.net/app/"         >> "$GITHUB_OUTPUT"
+            echo "activo=true"                        >> "$GITHUB_OUTPUT"
           else
             echo "entorno=pre"                        >> "$GITHUB_OUTPUT"
             echo "modo=pre"                           >> "$GITHUB_OUTPUT"
             echo "url=https://vapss.net/app-pre/"     >> "$GITHUB_OUTPUT"
+            if [ "$PRE_ACTIVO" = "true" ]; then
+              echo "activo=true"                      >> "$GITHUB_OUTPUT"
+            else
+              echo "activo=false"                     >> "$GITHUB_OUTPUT"
+            fi
           fi
 
-  build-and-deploy:
+  # ── Tests y build: corre siempre, en las dos ramas ────────────────────────
+  build:
     needs: destino
     runs-on: ubuntu-latest
-
-    # El Environment `produccion` tiene required reviewers: el job espera aquí
-    # hasta que alguien autoriza. `pre` no los tiene y sigue de largo.
-    environment:
-      name: ${{ needs.destino.outputs.entorno }}
-      url:  ${{ needs.destino.outputs.url }}
 
     steps:
       - name: Checkout
@@ -89,6 +106,67 @@ jobs:
           echo "--- dist/.htaccess (RewriteBase) ---"
           grep -E "RewriteBase|Service-Worker-Allowed" dist/.htaccess
 
+      - name: Guardar el build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ needs.destino.outputs.entorno }}
+          path: frontend/dist/
+          # SIN ESTO NO VIAJA dist/.htaccess: upload-artifact excluye los
+          # dotfiles desde la v4.4, y el build llegaría al hosting sin la ruta
+          # base, que es justo lo que comprueba el paso de arriba.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 5
+
+  # ── Entorno sin montar: no se publica, pero se explica ────────────────────
+  pre-sin-montar:
+    needs: destino
+    if: needs.destino.outputs.activo != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explicar por qué no se publica
+        run: |
+          echo "::notice title=PRE no está montado::Publicación saltada; los tests y el build sí han corrido. Ver el §5 de docs/ENTORNOS.md."
+          {
+            echo "### Publicación a PRE saltada"
+            echo
+            echo "Los tests y el build **sí** han corrido: si están en verde, el"
+            echo "cambio compila. Lo que no se ha hecho es publicar, porque"
+            echo "**PRE no está montado**: el Environment 'pre' no tiene su"
+            echo "propio secret FTP_REMOTE_DIR y heredaría el del repo, que"
+            echo "apunta a la carpeta de producción."
+            echo
+            echo "Los pasos están en el §5 de docs/ENTORNOS.md. Cuando estén"
+            echo "hechos, poner la variable de repositorio PRE_ACTIVO a true"
+            echo "en Settings → Variables."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publicar:
+    needs: [destino, build]
+    if: needs.destino.outputs.activo == 'true'
+    runs-on: ubuntu-latest
+
+    # El Environment `produccion` tiene required reviewers: el job espera aquí
+    # hasta que alguien autoriza. `pre` no los tiene y sigue de largo.
+    environment:
+      name: ${{ needs.destino.outputs.entorno }}
+      url:  ${{ needs.destino.outputs.url }}
+
+    steps:
+      - name: Recuperar el build
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ needs.destino.outputs.entorno }}
+          path: dist
+
+      # El artefacto es el único sitio por donde el .htaccess puede perderse
+      # ahora (ver include-hidden-files arriba). Se comprueba otra vez porque lo
+      # que se sube por FTP es esto, no lo que salió del build.
+      - name: Comprobar el artefacto
+        run: |
+          test -f dist/.htaccess || { echo "El artefacto llegó sin .htaccess"; exit 1; }
+          test -f dist/sw.js     || { echo "El artefacto llegó sin sw.js"; exit 1; }
+
       # Dos accidentes que este paso evita:
       #   1. server-dir vacío → FTP-Deploy-Action sube el build a la raíz del
       #      hosting y se lleva por delante la web de vapss.net.
@@ -122,7 +200,7 @@ jobs:
           server:   ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: frontend/dist/
+          local-dir: dist/
           # Secret a nivel de Environment: `produccion` hereda el del repo (la
           # carpeta /app/) y `pre` define el suyo apuntando a /app-pre/.
           server-dir: ${{ secrets.FTP_REMOTE_DIR }}
