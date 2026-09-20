@@ -7,7 +7,9 @@ jest.mock('../../../controllers/admin.controller', () => ({
   logError: jest.fn(),
 }));
 
-const { listUsers, getUser, createUser, updateUser, deleteUser, listRoles, createRole } = require('../../../controllers/users.controller');
+const { listUsers, getUser, createUser, updateUser, deleteUser, resetPassword, listRoles, createRole } = require('../../../controllers/users.controller');
+const { logAudit } = require('../../../controllers/admin.controller');
+const { comparePassword, validatePasswordStrength } = require('../../../utils/password.utils');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 describe('users.controller', () => {
@@ -460,6 +462,217 @@ describe('users.controller', () => {
       const res = mockRes();
       await createRole(mockReq({ body: { nombre: 'tecnico' } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(409);
+    });
+  });
+
+  // ── resetPassword ──────────────────────────────────────
+  describe('resetPassword', () => {
+    const admin      = { id: 1, username: 'fjtamayo', roles: ['administrador'] };
+    const superAdmin = { id: 9, username: 'findelias', roles: ['superadmin'] };
+
+    /** Fila del usuario objetivo tal y como la devuelve el SELECT con GROUP_CONCAT. */
+    const objetivo = (extra = {}) => ({
+      id: 2, username: 'jlopez', dni: '12345678Z', roles: 'tecnico', ...extra,
+    });
+
+    /** Captura los execute de la transacción para poder afirmar sobre ellos. */
+    function capturarTransaccion() {
+      const execute = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      transaction.mockImplementation(async (cb) => cb({ execute }));
+      return execute;
+    }
+
+    beforeEach(() => {
+      query.mockReset();
+      transaction.mockReset();
+      logAudit.mockClear();
+    });
+
+    it('genera una contraseña si no se indica ninguna y la devuelve en claro', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      // Es la única vez que viaja en claro: el admin tiene que poder dictarla.
+      expect(res._json.data.password).toEqual(expect.any(String));
+      expect(validatePasswordStrength(res._json.data.password).valid).toBe(true);
+    });
+
+    it('la contraseña que se devuelve es la que queda guardada', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      const execute = capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), res, mockNext());
+
+      const [sql, params] = execute.mock.calls[0];
+      expect(sql).toContain('UPDATE users SET password_hash');
+      expect(params[1]).toBe(2);
+      // Lo almacenado es el hash, no el texto plano.
+      expect(params[0]).not.toBe(res._json.data.password);
+      await expect(comparePassword(res._json.data.password, params[0])).resolves.toBe(true);
+    });
+
+    it('acepta una contraseña indicada por el administrador', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      const execute = capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: { password: 'AmbulanciaSegura9' }, user: admin,
+      }), res, mockNext());
+
+      expect(res._json.data.password).toBe('AmbulanciaSegura9');
+      await expect(comparePassword('AmbulanciaSegura9', execute.mock.calls[0][1][0])).resolves.toBe(true);
+    });
+
+    it('revoca las sesiones activas: el usuario tiene que volver a entrar', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      const execute = capturarTransaccion();
+
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), mockRes(), mockNext());
+
+      const [sql, params] = execute.mock.calls[1];
+      expect(sql).toContain('UPDATE refresh_tokens SET revoked = 1');
+      expect(sql).toContain('revoked = 0');
+      expect(params[0]).toBeInstanceOf(Date); // el instante lo pone Node, no NOW()
+      expect(params[1]).toBe(2);
+    });
+
+    it('rechaza una contraseña débil sin tocar la BD', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: { password: 'corta' }, user: admin,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(422);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una contraseña que contenga el usuario o el DNI del objetivo', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: { password: 'jlopez123456' }, user: admin,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(422);
+      expect(res._json.errors[0]).toMatchObject({ field: 'password' });
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('una contraseña vacía cuenta como "genérame una"', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: { password: '' }, user: admin,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data.password.length).toBe(12);
+    });
+
+    it('un usuario que no existe es 404', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '999' }, body: {}, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('un administrador NO puede resetear a un superadmin', async () => {
+      query.mockResolvedValueOnce([[objetivo({ roles: 'superadmin,administrador' })]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('un superadmin sí puede resetear a otro superadmin', async () => {
+      query.mockResolvedValueOnce([[objetivo({ roles: 'superadmin' })]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: superAdmin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('un usuario sin ningún rol no se confunde con un superadmin', async () => {
+      query.mockResolvedValueOnce([[objetivo({ roles: null })]]);
+      capturarTransaccion();
+
+      const res = mockRes();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('queda auditado quién reseteó a quién y si la contraseña fue generada', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: {}, user: admin, ip: '10.0.0.5',
+      }), mockRes(), mockNext());
+
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        userId: 1, userInfo: 'fjtamayo',
+        action: 'reset_password', entityType: 'user', entityId: 2,
+        details: { target_username: 'jlopez', generated: true },
+        ip: '10.0.0.5',
+      }));
+      // La contraseña nunca entra en el registro de auditoría.
+      expect(JSON.stringify(logAudit.mock.calls[0][0])).not.toContain('password_hash');
+    });
+
+    it('la auditoría distingue la contraseña puesta a mano', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      capturarTransaccion();
+
+      await resetPassword(mockReq({
+        params: { id: '2' }, body: { password: 'AmbulanciaSegura9' }, user: admin,
+      }), mockRes(), mockNext());
+
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        details: { target_username: 'jlopez', generated: false },
+      }));
+    });
+
+    it('si la transacción falla, va a next y no se audita nada', async () => {
+      query.mockResolvedValueOnce([[objetivo()]]);
+      transaction.mockRejectedValueOnce(new Error('deadlock'));
+
+      const next = mockNext();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('un fallo de BD en la búsqueda va a next', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await resetPassword(mockReq({ params: { id: '2' }, body: {}, user: admin }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });
 });

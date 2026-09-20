@@ -148,6 +148,13 @@ huérfano. `config/database.test.js` fija el contrato de fechas
 (pool y sesión en UTC) y para eso hace `jest.unmock` del módulo, que `setup.js`
 mockea para todos los demás.
 
+**Umbrales de cobertura** (`jest.config.js`): 85 % sentencias/líneas/funciones
+y 80 % ramas, globales. Fallar el umbral **rompe el build**, así que un fichero
+nuevo sin tests no se cuela. Quedan fuera del cómputo `routes/`, `logger.utils`
+y `config/database`. Los tests de `vehicles.controller.listAlertasVehiculos`
+congelan el reloj (`jest.setSystemTime`): el cálculo es de calendario y sin
+fecha fija el resultado cambiaría cada día.
+
 ---
 
 ## 3. Frontend
@@ -233,6 +240,17 @@ reintenta. Todos los servicios cuelgan de ella.
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
 contextos, hooks, `VehicleHistory`). Vitest.
+
+**Umbrales de cobertura** (`vitest.config.js`): 85 % sentencias/líneas/funciones
+y 75 % ramas. `pages/`, `components/`, `App.jsx`, `main.jsx` y `sw.js` están
+**excluidos del cómputo**: lo que se mide es la lógica (servicios, utils,
+contextos, hooks), no el render. Por eso un fichero de lógica sin tests hunde el
+porcentaje de golpe — fue lo que pasó con `vehicleAlerts.js`.
+
+Gotcha en `sessionStorage.test.js`: el módulo lee `VITE_APP_ENV` y ejecuta la
+migración de claves antiguas **al importarse**, así que cada caso necesita
+`vi.resetModules()` + `vi.stubEnv()` y un `import()` dinámico; con un import
+estático arriba todos los tests compartirían el primer entorno cargado.
 
 ---
 
