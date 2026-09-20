@@ -4,7 +4,7 @@
 > Todo cambio de lógica o de funcionalidad tiene que quedar reflejado aquí
 > en el mismo commit que lo introduce. Un mapa desactualizado es peor que no
 > tenerlo: manda a buscar al sitio equivocado y se confunde con la verdad.
-> La regla, en `docs/README.md`.
+> La regla, en `docs/README.md` y en `CLAUDE.md`.
 
 Índice de «dónde está cada cosa y cómo se conecta». Se consulta **antes** de
 buscar en el repo y se actualiza **con cada cambio** que mueva, cree, borre o

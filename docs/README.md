@@ -12,9 +12,15 @@ Sistema interno PWA para gestión de servicios, flota y personal de una empresa 
 El mapa es el índice de «dónde está cada cosa y cómo se conecta», y el flujo de
 trabajo es siempre el mismo:
 
-1. **Antes** de tocar nada: leerlo, para no buscar a ciegas ni duplicar algo que
-   ya existe.
-2. **Después** de cambiar algo: actualizarlo, en el mismo commit.
+1. **Antes** de tocar nada: leer el mapa, para no buscar a ciegas ni duplicar
+   algo que ya existe.
+2. **Solo si el mapa no responde**, buscar en el repo. Y no en paralelo «por si
+   acaso»: si el mapa ya ha contestado, esa búsqueda es tiempo tirado — que es
+   justo lo que el fichero existe para evitar.
+3. **Después** de cambiar algo: actualizarlo, en el mismo commit.
+
+El orden está también en `CLAUDE.md`, en la raíz, que es lo que se carga solo al
+abrir el proyecto con Claude Code.
 
 Entra en el mapa cualquier cosa que mueva, cree, borre o reconecte piezas: una
 ruta o endpoint nuevo, un cambio de reglas de negocio o de permisos, una
