@@ -16,6 +16,7 @@ import MisTrabajos              from './pages/MisTrabajos.jsx';
 import AdminPanel               from './pages/AdminPanel.jsx';
 import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
+import MapaFlota                from './pages/flota/MapaFlota.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
@@ -143,6 +144,29 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_alertas">
                     <AlertsPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Mapa de flota (Cartrack).
+                  SOLO SUPERADMIN, y no por copiar el criterio de /vehiculos:
+                  esto enseña dónde está cada vehículo en tiempo casi real, y
+                  con él la persona que lo conduce. Ampliarlo a admin o gestor
+                  tiene que ser una decisión consciente, no un descuido. El
+                  backend lo exige igual (routes/flota.routes.js): la guardia
+                  de aquí es comodidad, no seguridad.
+
+                  Sin feature flag, y a propósito: `isFeatureEnabled` devuelve
+                  true para el superadmin SIEMPRE, así que un flag aquí sería
+                  un interruptor en /admin que no apaga nada — precisamente
+                  para el único rol que ve la pantalla. Mismo criterio que
+                  /admin, que tampoco lo lleva. Para apagar el mapa de verdad
+                  se vacía CARTRACK_USER en el .env del servidor. */}
+              <Route
+                path="/flota"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.SUPERADMIN]}>
+                    <MapaFlota />
                   </ProtectedRoute>
                 }
               />

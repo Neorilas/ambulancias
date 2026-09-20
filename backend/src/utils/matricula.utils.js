@@ -42,12 +42,51 @@ function estaCruzado(matricula, alias) {
   return esMatricula(alias) && !esMatricula(matricula);
 }
 
+/**
+ * Saca la matrícula de un texto que puede traerla pegada a otras cosas.
+ *
+ * Nació por Cartrack: su campo `registration` NO es la matrícula, es el nombre
+ * del vehículo y la matrícula juntos — `UVI-3-7740MZB`, `VIR-01-7950KGG`,
+ * `VAL- 2066JSC`. Normalizando el texto entero, `UVI-3-7740MZB` se convierte en
+ * `UVI37740MZB` y no cruza con el `7740MZB` de nuestra ficha: la sonda de fase
+ * 0 cruzó 0 de 10 vehículos por esto exactamente.
+ *
+ * El orden de los intentos importa:
+ *   1. ¿El texto entero ya es una matrícula? (`1234 BCD` → `1234BCD`).
+ *   2. Si no, se parte por los separadores y se buscan matrículas DE DERECHA A
+ *      IZQUIERDA: la matrícula va al final y el nombre delante.
+ *   3. Si tampoco (no había separador que valiera), se busca una matrícula del
+ *      formato actual pegada al final del texto ya normalizado.
+ * Si nada encaja se devuelve el texto normalizado tal cual, para que al menos
+ * se vea algo en pantalla y se pueda diagnosticar.
+ *
+ * No tiene espejo en el frontend a propósito: el navegador nunca ve el texto
+ * crudo de Cartrack, le llega ya resuelto desde el backend.
+ */
+function extraerMatricula(valor) {
+  const entero = normalizarMatricula(valor);
+  if (!entero) return '';
+  if (esMatricula(entero)) return entero;
+
+  const trozos = String(valor).split(/[\s.\-_]+/).filter(Boolean);
+  for (let i = trozos.length - 1; i >= 0; i--) {
+    const t = normalizarMatricula(trozos[i]);
+    if (esMatricula(t)) return t;
+  }
+
+  const alFinal = entero.match(new RegExp(RE_ACTUAL.source.replace(/^\^/, '').replace(/\$$/, '') + '$'));
+  if (alFinal) return alFinal[0];
+
+  return entero;
+}
+
 const MENSAJE_FORMATO =
   'Formato de matrícula no válido. Se espera 1234BCD o M1234AB. ' +
   'El nombre de la ambulancia va en el campo Nombre.';
 
 module.exports = {
   normalizarMatricula,
+  extraerMatricula,
   esMatricula,
   estaCruzado,
   MENSAJE_FORMATO,

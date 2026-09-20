@@ -57,6 +57,10 @@ export default function Sidebar({ isOpen, onClose }) {
             { to: '/vehiculos',    label: 'Vehículos',    show: isFeatureEnabled('menu_vehiculos') && canManageVehicles() },
             { to: '/asignaciones', label: 'Asignaciones', show: isFeatureEnabled('menu_asignaciones') && canManageTrabajos() },
             { to: '/trabajos',     label: 'Trabajos',     show: isFeatureEnabled('menu_trabajos') },
+            // Solo superadmin: el mapa enseña dónde está cada vehículo ahora
+            // mismo, y con él quien lo conduce. Sin feature flag, porque para
+            // el superadmin siempre daría true (ver App.jsx).
+            { to: '/flota',        label: 'Mapa de flota', show: isSuperAdmin() },
           ],
         },
         {

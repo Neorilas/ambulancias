@@ -1155,6 +1155,9 @@ async function listTarjetaTransporteProximas(req, res, next) {
 }
 
 module.exports = {
+  // El orden de la flota lo comparte el mapa (`flota.controller`): dos listas
+  // de las mismas ambulancias ordenadas distinto desconciertan.
+  ORDEN_POR_NOMBRE,
   listVehicles, getVehicle, createVehicle, updateVehicle,
   deleteVehicle, uploadImages, getVehicleImages, getVehicleHistorial,
   listIncidencias, createIncidencia, updateIncidencia, addIncidenciaComentario,
