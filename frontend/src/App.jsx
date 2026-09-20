@@ -17,6 +17,7 @@ import AdminPanel               from './pages/AdminPanel.jsx';
 import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
+import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
 import SWUpdater                from './components/common/SWUpdater.jsx';
 
@@ -122,6 +123,17 @@ export default function App() {
                 element={
                   <ProtectedRoute requiredFeature="menu_mis_asignaciones">
                     <MisAsignaciones />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Perfil propio: cualquiera autenticado, sin feature flag. Es
+                  donde se activan los avisos push del dispositivo. */}
+              <Route
+                path="/perfil"
+                element={
+                  <ProtectedRoute>
+                    <Perfil />
                   </ProtectedRoute>
                 }
               />

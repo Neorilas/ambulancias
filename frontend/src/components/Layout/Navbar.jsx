@@ -85,9 +85,16 @@ export default function Navbar({ onMenuToggle }) {
                     ))}
                   </div>
                 </div>
+                <Link
+                  to="/perfil"
+                  onClick={() => setShowUserMenu(false)}
+                  className="block w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50"
+                >
+                  Mi perfil
+                </Link>
                 <button
                   onClick={() => { setShowUserMenu(false); handleLogout(); }}
-                  className="w-full px-4 py-2.5 text-left text-sm text-bad-600 hover:bg-bad-50"
+                  className="w-full px-4 py-2.5 text-left text-sm text-bad-600 hover:bg-bad-50 border-t border-neutral-100"
                 >
                   Cerrar sesión
                 </button>

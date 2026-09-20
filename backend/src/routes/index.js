@@ -15,6 +15,7 @@ const trabajosRoutes     = require('./trabajos.routes');
 const asignacionesRoutes = require('./asignaciones.routes');
 const adminRoutes        = require('./admin.routes');
 const featuresRoutes     = require('./features.routes');
+const pushRoutes         = require('./push.routes');
 
 const router = express.Router();
 
@@ -29,13 +30,14 @@ router.use('/trabajos',     trabajosRoutes);
 router.use('/asignaciones', asignacionesRoutes);
 router.use('/admin',        adminRoutes);
 router.use('/features',     featuresRoutes);
+router.use('/push',         pushRoutes);
 
 // Ruta raíz de la API - info básica
 router.get('/', (_req, res) => {
   res.json({
     name:    'Ambulancias API',
     version: '1.0.0',
-    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin'],
+    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin', '/push'],
   });
 });
 

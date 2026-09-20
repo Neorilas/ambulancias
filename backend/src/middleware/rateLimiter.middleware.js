@@ -159,4 +159,22 @@ const uploadLimiter = rateLimit({
   handler: avisar429('upload'),
 });
 
-module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, claveCliente };
+/**
+ * Rate limiter para el alta/baja y la prueba de avisos push.
+ *
+ * Por usuario, como el resto. 20 por minuto sobra para activar los avisos y
+ * probarlos un par de veces, y pone techo a lo único que aquí tiene coste real
+ * hacia fuera: cada /push/test dispara una petición al servicio de push del
+ * fabricante del navegador.
+ */
+const pushLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minuto
+  max:      parseInt(process.env.PUSH_RATE_LIMIT_MAX) || 20,
+  keyGenerator: claveCliente,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { success: false, message: 'Demasiadas operaciones de avisos seguidas. Espera un momento.' },
+  handler: avisar429('push'),
+});
+
+module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, claveCliente };

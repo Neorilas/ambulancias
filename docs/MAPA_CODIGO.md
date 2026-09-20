@@ -5,7 +5,7 @@ buscar en el repo y se actualiza **con cada cambio** que mueva, cree, borre o
 reconecte algo (ver §11). Si algo de aquí no coincide con el código, manda el
 código: corrige el mapa.
 
-Última revisión completa: 2026-09-19.
+Última revisión completa: 2026-09-20.
 
 ---
 
@@ -40,7 +40,7 @@ oculto por feature flags (§7).
 
 `server.js` → helmet/cors/compress/morgan/json → `/uploads` estático →
 `routes/index.js` (aplica `apiLimiter`, monta `/auth /users /vehicles /trabajos
-/asignaciones /admin /features`) → `routes/*.routes.js` (middleware por ruta) →
+/asignaciones /admin /features /push`) → `routes/*.routes.js` (middleware por ruta) →
 `controllers/*.controller.js` → `config/database.js` (`query`) → MySQL.
 Errores: `middleware/error.middleware.js` (5xx van a `error_logs`).
 `/health` en `server.js` devuelve `commit` (`GIT_COMMIT`) y `appEnv`.
@@ -48,7 +48,10 @@ Errores: `middleware/error.middleware.js` (5xx van a `error_logs`).
 `server.js` además: espera la BD con reintentos, corre `config/migrations.js` al
 arrancar, y lanza el cron `autoActivar` (al arrancar y cada 60 s): pasa a
 `activo`/`activa` los trabajos/asignaciones programados cuya `fecha_inicio` ya
-llegó.
+llegó. Los trabajos van de un `UPDATE` masivo; **las asignaciones no**: se
+seleccionan primero y se actualizan una a una con el guard `estado =
+'programada'`, porque de cada una hay que mandar un aviso push y hace falta
+saber cuáles ha cambiado de verdad (§2.5).
 
 ### 2.2 Rutas → controlador (prefijo `/api`)
 
@@ -61,6 +64,7 @@ llegó.
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/activar` · POST `/:id/finalize` · POST `/:id/evidencias` |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
+| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Todo el grupo exige `MANAGE_TRABAJOS` |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta`, `crearIncidenciaDesdeAsignacion`;
@@ -76,7 +80,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess` | Quién puede subir fotos a qué |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
-| `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter` | Límite **por usuario**, no por IP |
+| `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
 | `validate.middleware.js` | wrapper de express-validator | |
 | `error.middleware.js` | `notFound`, `errorHandler` | 5xx → `error_logs` |
 
@@ -89,12 +93,37 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` |
+| `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
+| `services/avisosAsignacion.service.js` | Los tres textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local` |
 
-Tests backend: `backend/src/__tests__/unit/{config,controllers,middleware,utils}`
+### 2.5 Avisos push (Web Push / VAPID)
+
+Para que el teléfono de quien gestiona la flota suene cuando pasa algo en una
+asignación. Sin app nativa ni Firebase.
+
+| Pieza | Dónde |
+|---|---|
+| Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
+| Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único |
+| Destinatarios | Se calculan en CADA envío: permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo. El responsable de la asignación se excluye |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
+| Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
+| Alta/baja | Sección «Avisos en este dispositivo» del perfil (`components/common/AvisosPush.jsx`) |
+
+**Qué NO debe volver a sonar** (es lo que más fácil se rompe): un segundo
+`POST /:id/activar` sobre algo ya activo, una foto de inicio rehecha con la
+tanda ya completa, y una asignación que el cron intenta activar justo después
+de que el responsable pulsara el botón.
+
+Tests backend: `backend/src/__tests__/unit/{config,controllers,middleware,services,utils}`
 (un `*.test.js` por fichero; espejo de la estructura). Helpers en
 `__tests__/helpers/`. Gotcha: `clearAllMocks` no drena `mockResolvedValueOnce`,
-usar `query.mockReset()`. `config/database.test.js` fija el contrato de fechas
+usar `query.mockReset()`. Otro gotcha, en `push.service.test.js`:
+`jest.resetModules()` (necesario porque el módulo lee las claves VAPID al
+importarse) **rehace también los mocks** de `config/database` y `web-push`, así
+que hay que recapturarlos tras cada carga o las aserciones miran a un espía
+huérfano. `config/database.test.js` fija el contrato de fechas
 (pool y sesión en UTC) y para eso hace `jest.unmock` del módulo, que `setup.js`
 mockea para todos los demás.
 
@@ -110,6 +139,15 @@ InstallPWAButton + VehicleExpirationAlerts) → páginas. `SWUpdater` gestiona l
 auto-actualización de la PWA. Config en `vite.config.js` (`VITE_BASE_PATH`,
 `VITE_APP_ENV`, proxy de dev a `:3001`, plugin PWA).
 
+**El service worker lo escribimos nosotros**: `src/sw.js`, con
+`strategies: 'injectManifest'`. Antes lo generaba el plugin (`generateSW`) y se
+cambió porque los handlers `push`/`notificationclick` no se pueden declarar en
+configuración. El precio es que `skipWaiting` + `clientsClaim` (que ponía
+`registerType: 'autoUpdate'`), el fallback de navegación a `index.html`,
+`cleanupOutdatedCaches` y las dos reglas de `runtimeCaching` **ahora son código
+de `sw.js`**: si se tocan sin cuidado, la PWA deja de actualizarse sola o deja
+de funcionar sin cobertura.
+
 ### 3.2 Rutas (`App.jsx`) → página
 
 | Ruta | Página | Roles | Feature flag |
@@ -122,6 +160,7 @@ auto-actualización de la PWA. Config en `vite.config.js` (`VITE_BASE_PATH`,
 | `/vehiculos/:id` y `/vehiculos/:id/historial` | `vehicles/VehicleHistory.jsx` (**el mismo componente**, con pestañas; desde el listado se llega pinchando la fila entera) | ídem | `menu_vehiculos` |
 | `/usuarios` | `users/UserList.jsx` | admin, gestor, super | `menu_usuarios` |
 | `/alertas` | `AlertsPage.jsx` | admin, super | `menu_alertas` |
+| `/perfil` | `Perfil.jsx` | cualquiera | — |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | ídem | `menu_mis_trabajos` (off) |
@@ -144,6 +183,7 @@ Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
+| `Perfil` → `AvisosPush` (solo con `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
 | `TrabajoList/Detail/Form`, `MisTrabajos`, `InicioTrabajo`, `Finalizacion`, `CalendarioTrab` | `trabajos.service` | `/trabajos` |
 
@@ -158,13 +198,15 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
 | `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage` |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
+| `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
+| `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
 | `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission` |
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` |
-| `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts` |
+| `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
 | `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
@@ -180,7 +222,8 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 + eventos de limpieza. Migraciones → `vehicle_revisiones`,
 `vehicle_incidencias` (v2), `audit_logs`, `error_logs` (v3), `permissions`,
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
-`incidencia_comentarios` (v13), `schema_migrations` (control).
+`incidencia_comentarios` (v13), `push_subscriptions` (v17),
+`schema_migrations` (control).
 
 Relaciones clave:
 
@@ -190,6 +233,7 @@ vehicles 1─N asignaciones_libres (user_id = responsable, created_by = admin)
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
 vehicles 1─N vehicle_revisiones
+users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
 trabajos N:M vehicles (trabajo_vehiculos) · trabajos N:M users (trabajo_usuarios)
 ```
 
@@ -213,7 +257,7 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v16_horas_a_utc**.
+Última migración: **v17_push_subscriptions**.
 
 ---
 
@@ -259,7 +303,10 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL |
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel` |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
-| Cron de activación | `server.js` (`autoActivar`) |
+| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una |
+| Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
+| Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`) y el cron de `server.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso |
+| El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
 
 ## 9. Entornos y despliegue
 
@@ -267,7 +314,12 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `.github/workflows/deploy-backend.yml` (empaqueta `backend database
 docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
 `/health`) y `deploy-frontend.yml` (tests + build + subida al hosting de
-`vapss.net/app[-pre]/`). Local: `docker-compose.local.yml` (MySQL en **3307**),
+`vapss.net/app[-pre]/`). Los avisos push necesitan claves VAPID **en el `.env` de cada servidor**, que
+no está en el repo y no lo toca el workflow: se generan con `npx web-push
+generate-vapid-keys`, se pegan en el `.env` del entorno y se reinicia el
+backend. Si se pierde la privada, todas las suscripciones dejan de valer y cada
+admin tiene que volver a pulsar «Activar avisos».
+Local: `docker-compose.local.yml` (MySQL en **3307**),
 `npm run local:db`, `seed:local`, y los comandos `/local`, `/verifica`,
 `/a-pro`. Detalle en `docs/ENTORNOS.md` y `docs/LOCAL.md`.
 
@@ -280,6 +332,7 @@ docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
 | `docs/PLAN_TRABAJO.md` | Plan por bloques con verificación |
 | `docs/ENTORNOS.md`, `docs/LOCAL.md` | Despliegue y entorno local |
 | `docs/FLUJO_SERVICIO.md` | Rediseño inicio → jornada → cierre |
+| `docs/PLAN_NOTIFICACIONES_PUSH.md` | Plan de los avisos push (implementado; ver §2.5) |
 | `docs/API.md`, `docs/README.md`, `docs/DEPLOY.md` | Legado; `DEPLOY.md` está obsoleto (nginx+PM2) |
 | `docs/AUDITORIA_SEGURIDAD.md` | Informe de seguridad (no se commitea, repo público) |
 | `docs/rediseno/estilo-v2.html` | Mockup del diseño v2 |
