@@ -5,6 +5,15 @@ const { runMigrations, MIGRATIONS } = require('../../../config/migrations');
 
 const TODAS = MIGRATIONS.map(m => m.name);
 
+/**
+ * Reescrituras de FILA: las de v16 enlazan valores y un id. Las migraciones
+ * posteriores pueden lanzar sus propios UPDATE de limpieza (v19), que van sin
+ * parámetros y no tienen nada que ver con lo que miden los tests de v16.
+ */
+function reescrituras(updates) {
+  return updates.filter(u => u.params.length > 0);
+}
+
 /** Todas las migraciones hasta `nombre` incluido, en el orden real del runner. */
 function hasta(nombre) {
   return TODAS.slice(0, TODAS.indexOf(nombre) + 1);
@@ -160,14 +169,46 @@ describe('runMigrations', () => {
     expect(sql).toMatch(/ON DELETE CASCADE/);
   });
 
-  it('v17 se aplica sola sobre una base que venía de v16', async () => {
+  it('v17 se aplica sobre una base que venía de v16', async () => {
     const { ejecutadas, ledger } = mockDb({ aplicadas: hasta('v16_horas_a_utc') });
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v17_push_subscriptions']);
+    expect(aplicadas).toEqual(TODAS.slice(TODAS.indexOf('v17_push_subscriptions')));
     expect(ledger).toContain('v17_push_subscriptions');
     expect(ejecutadas.some(q => q.includes('push_subscriptions'))).toBe(true);
+  });
+
+  it('v18 + v19 dejan la columna con el nombre nuevo sobre una base que venía de v17', async () => {
+    const { ejecutadas, ledger } = mockDb({ aplicadas: hasta('v17_push_subscriptions') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v18_aviso_fotos_inicio_pendientes', 'v19_aviso_sin_iniciar']);
+    expect(ledger).toContain('v19_aviso_sin_iniciar');
+    expect(ejecutadas.some(sql =>
+      sql.includes('RENAME COLUMN aviso_fotos_pendientes_at TO aviso_sin_iniciar_at')
+    )).toBe(true);
+  });
+
+  it('v19 no renombra nada si la base ya tiene el nombre nuevo', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v18_aviso_fotos_inicio_pendientes'),
+      columnas:  ['asignaciones_libres.aviso_sin_iniciar_at'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(sql => sql.includes('RENAME COLUMN'))).toBe(false);
+  });
+
+  it('v19 borra las marcas que dejó v18, que querían decir otra cosa', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v18_aviso_fotos_inicio_pendientes') });
+    await runMigrations();
+
+    expect(ejecutadas.some(sql =>
+      sql.includes('SET aviso_sin_iniciar_at = NULL')
+    )).toBe(true);
   });
 
   it('no resiembra role_permissions si ya tiene filas', async () => {
@@ -202,7 +243,10 @@ describe('runMigrations', () => {
     const { fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(ejecutadas.some(sql => sql.includes('ALTER TABLE asignaciones_libres'))).toBe(false);
+    // Se mira el ADD COLUMN en concreto: sobre asignaciones_libres hay más
+    // ALTERs posteriores (v18) y uno de ellos NOMBRA a inicio_real_at en su
+    // cláusula AFTER, así que un `includes` a secas lo daría por este.
+    expect(ejecutadas.some(sql => sql.includes('ADD COLUMN inicio_real_at'))).toBe(false);
     expect(ledger).toContain('v12_inicio_real_at');
   });
 
@@ -412,7 +456,7 @@ describe('v16_horas_a_utc', () => {
     const { fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(updates).toEqual([]);
+    expect(reescrituras(updates)).toEqual([]);
     expect(ledger).toContain('v16_horas_a_utc');
   });
 
@@ -459,7 +503,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     });
     await runMigrations();
 
-    expect(updates).toHaveLength(1);
+    expect(reescrituras(updates)).toHaveLength(1);
     const { sql, params } = updates[0];
     expect(sql).toContain('finalizado_at = ?');
     expect(sql).not.toContain('inicio_real_at');          // no se toca la que ya estaba bien
@@ -482,7 +526,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     });
     await runMigrations();
 
-    expect(updates).toEqual([]);
+    expect(reescrituras(updates)).toEqual([]);
   });
 
   it('congela updated_at para que el ON UPDATE no lo pise con la hora actual', async () => {

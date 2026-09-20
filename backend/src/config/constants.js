@@ -54,6 +54,14 @@ module.exports = {
   ],
   // Fotos opcionales de incidencia/observación (momento = 'general'); no bloquean
   IMAGEN_TIPOS_GENERAL: ['danos'],
+
+  // Minutos de margen desde la hora prevista antes de dar por hecho que la
+  // asignación no la ha iniciado nadie. Pasados, los administradores reciben
+  // un aviso push (una sola vez por asignación, ver v19 y vigilancia.service).
+  // Se puede bajar por entorno para probarlo sin esperar media hora.
+  AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
+    ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
+    : 30,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

@@ -145,6 +145,7 @@ async function startServer() {
   const { query: dbQuery } = require('./src/config/database');
   const { ahora } = require('./src/utils/fecha.utils');
   const avisosAsignacion = require('./src/services/avisosAsignacion.service');
+  const vigilancia       = require('./src/services/vigilancia.service');
   const autoActivar = async () => {
     try {
       // El instante lo pone Node, no MySQL: fecha_inicio está en UTC y NOW()
@@ -196,10 +197,30 @@ async function startServer() {
     } catch (err) {
       logger.error('Error en cron auto-activar:', err.message);
     }
+
+    // Segunda pasada del mismo tick: asignaciones a las que se les pasó la
+    // hora y nadie ha iniciado. Va DESPUÉS de activar a propósito — son las
+    // mismas filas, y así el aviso mira el estado ya actualizado en vez del
+    // del minuto anterior.
+    //
+    // Lleva su propio try/catch aunque la función ya no lance nunca: el día
+    // que alguien meta ahí dentro algo que sí pueda lanzar, el rechazo no
+    // tendría dueño y `unhandledRejection` se lleva por delante TODA la API
+    // por un fallo de los avisos, que son lo secundario. El reparto de daños
+    // no compensa dejarlo al descubierto.
+    try {
+      await vigilancia.revisarAsignacionesSinIniciar();
+    } catch (err) {
+      logger.error('Error en vigilancia de asignaciones sin iniciar:', err.message);
+    }
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto
   logger.info('Cron auto-activación de trabajos y asignaciones iniciado (cada 1 min)');
+  logger.info(
+    `Vigilancia de asignaciones sin iniciar: aviso a los admins a los ` +
+    `${require('./src/config/constants').AVISO_SIN_INICIAR_MINUTOS} min`
+  );
 }
 
 // Manejo de errores no capturados

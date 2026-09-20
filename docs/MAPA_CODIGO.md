@@ -1,5 +1,11 @@
 # Mapa del código
 
+> **Este fichero se lee ANTES de tocar nada y se actualiza DESPUÉS.**
+> Todo cambio de lógica o de funcionalidad tiene que quedar reflejado aquí
+> en el mismo commit que lo introduce. Un mapa desactualizado es peor que no
+> tenerlo: manda a buscar al sitio equivocado y se confunde con la verdad.
+> La regla, en `docs/README.md` y en `CLAUDE.md`.
+
 Índice de «dónde está cada cosa y cómo se conecta». Se consulta **antes** de
 buscar en el repo y se actualiza **con cada cambio** que mueva, cree, borre o
 reconecte algo (ver §11). Si algo de aquí no coincide con el código, manda el
@@ -94,7 +100,8 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
-| `services/avisosAsignacion.service.js` | Los tres textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
+| `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
+| `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarAsignacionesSinIniciar` |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local` |
 
 ### 2.5 Avisos push (Web Push / VAPID)
@@ -107,7 +114,8 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único |
 | Destinatarios | Se calculan en CADA envío: permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo. El responsable de la asignación se excluye |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **asignación sin iniciar 30 min después de su hora** · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
+| Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de servicio»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; bajarlo por entorno es la forma de probarlo sin esperar media hora). Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
 | Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
 | Entrega | Todo envío va con `urgency: 'high'` y `TTL` de 1 h. Con la urgencia `normal` que pone `web-push` por defecto, Android APARCA el aviso mientras el móvil está en reposo (Doze) y lo suelta en la siguiente ventana de mantenimiento: es el «el primero llegó y los demás no» |
 | `topic` | Derivado del tag (`normalizarTopic`, 32 caracteres base64url). Sustituye el aviso del mismo suceso que siga sin entregar, en vez de encolarlo detrás |
@@ -122,7 +130,12 @@ alertar de las siguientes del montón.
 **Qué NO debe volver a sonar** (es lo que más fácil se rompe): un segundo
 `POST /:id/activar` sobre algo ya activo, una foto de inicio rehecha con la
 tanda ya completa, y una asignación que el cron intenta activar justo después
-de que el responsable pulsara el botón.
+de que el responsable pulsara el botón. El aviso de «sin iniciar» es el más
+expuesto de todos, porque el cron vuelve a mirar cada minuto: sin la marca en
+BD sonaría sesenta veces por hora. Por eso las condiciones que lo evitan —que
+no se haya avisado ya y que siga sin iniciarse— van **dentro del UPDATE** que
+reclama la fila, no solo en el SELECT que la eligió: en el hueco entre uno y
+otro cabe el botón que el responsable está pulsando en ese momento.
 
 Tests backend: `backend/src/__tests__/unit/{config,controllers,middleware,services,utils}`
 (un `*.test.js` por fichero; espejo de la estructura). Helpers en
@@ -215,6 +228,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
+| `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
 | `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
@@ -231,6 +245,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `vehicle_incidencias` (v2), `audit_logs`, `error_logs` (v3), `permissions`,
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
+`asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `schema_migrations` (control).
 
 Relaciones clave:
@@ -311,9 +326,11 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL |
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel` |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
-| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una |
+| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
-| Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`) y el cron de `server.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso |
+| Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
+| Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
 
 ## 9. Entornos y despliegue
@@ -351,8 +368,27 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 
 ## 11. Mantenimiento de este mapa
 
-Actualizar **en el mismo commit** que el cambio cuando se: añada/borre/mueva un
-fichero relevante; añada un endpoint, ruta de frontend, tabla, migración,
-feature flag, permiso o rol; cambie qué servicio usa una página; o cambie un
-flujo de §8. Al final de cada tarea, repasar las secciones afectadas y la fecha
-de «última revisión».
+La regla está en `docs/README.md` → «Regla de documentación»: **todo cambio de
+lógica o de funcionalidad se documenta aquí, en el mismo commit que lo
+introduce**. Se lee antes de tocar nada y se actualiza después.
+
+Actualizar cuando se: añada/borre/mueva un fichero relevante; añada un endpoint,
+ruta de frontend, tabla, migración, feature flag, permiso o rol; cambie qué
+servicio usa una página; cambie una regla de negocio, un criterio de
+autorización o un flujo de §8; o se tome una decisión de infraestructura o de
+despliegue.
+
+Y sobre todo, dejar escritos **los porqués y las trampas**: lo que no se deduce
+leyendo el código es justo lo que hace falta dentro de seis meses. Un cambio que
+arregla algo raro merece una línea diciendo qué era lo raro — por ejemplo, la
+urgencia de los avisos push (§2.5) es una línea de código y un párrafo de
+explicación, y el párrafo vale más.
+
+Si el cambio da para más de un par de párrafos, va en su propio fichero de
+`docs/` y aquí queda el enlace desde la sección que corresponda.
+
+Al final de cada tarea, repasar las secciones afectadas y la fecha de
+«última revisión».
+
+Última revisión: **2026-09-20** (avisos push: urgencia de entrega, y los ajustes
+de Android/iPhone en el perfil).
