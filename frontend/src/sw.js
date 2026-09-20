@@ -101,8 +101,20 @@ self.addEventListener('push', (event) => {
     // El objetivo de todo esto es que el teléfono SUENE. `silent: false` pide
     // el sonido y la vibración por defecto del dispositivo; si el móvil está
     // en silencio o en «No molestar» no hay nada que Web Push pueda hacer.
+    //
+    // Lo que NO se puede hacer desde aquí, por mucho que se intente: elegir el
+    // tono o subir el volumen. En Android eso lo decide el canal de
+    // notificaciones del sistema, y una web no puede crear canales. Con la PWA
+    // instalada, el canal es el de la propia app y se configura en los ajustes
+    // del teléfono (ver docs/PLAN_NOTIFICACIONES_PUSH.md).
     silent:  false,
-    vibrate: [200, 100, 200],
+    // Patrón más largo que un pitido corto: con el móvil en el bolsillo, dos
+    // vibraciones de 200 ms pasan desapercibidas.
+    vibrate: [300, 150, 300, 150, 300],
+    // En escritorio, el aviso se queda en pantalla hasta que alguien lo cierra
+    // en vez de desvanecerse a los pocos segundos. En Android lo ignora Chrome
+    // (allí los avisos web ya se quedan en la bandeja), pero no estorba.
+    requireInteraction: true,
     data:    { url: aviso.url },
   };
 

@@ -113,7 +113,12 @@ async function test(req, res, next) {
       titulo: 'Aviso de prueba',
       cuerpo: 'Si has oído esto, los avisos funcionan en este dispositivo.',
       url:    '/mis-asignaciones',
-      tag:    `test-${req.user.id}-${Date.now()}`,
+      // Tag FIJO, no uno por envío. Con un tag distinto cada vez las pruebas se
+      // apilan en la bandeja y Android deja de alertar de las siguientes del
+      // montón; con el mismo tag (y `renotify` en el service worker) la nueva
+      // sustituye a la anterior y vuelve a sonar, que es lo que se espera de un
+      // botón que existe justo para comprobar si suena.
+      tag:    `test-${req.user.id}`,
     });
 
     if (resumen.omitido === 'sin-suscripciones') {

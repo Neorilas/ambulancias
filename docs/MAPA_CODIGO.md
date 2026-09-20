@@ -109,7 +109,14 @@ asignación. Sin app nativa ni Firebase.
 | Destinatarios | Se calculan en CADA envío: permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo. El responsable de la asignación se excluye |
 | Eventos | Asignación activada (cron o botón) · fotos de inicio completas · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
 | Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
+| Entrega | Todo envío va con `urgency: 'high'` y `TTL` de 1 h. Con la urgencia `normal` que pone `web-push` por defecto, Android APARCA el aviso mientras el móvil está en reposo (Doze) y lo suelta en la siguiente ventana de mantenimiento: es el «el primero llegó y los demás no» |
+| `topic` | Derivado del tag (`normalizarTopic`, 32 caracteres base64url). Sustituye el aviso del mismo suceso que siga sin entregar, en vez de encolarlo detrás |
+| Volumen y tono | **No se pueden fijar desde el código.** En Android los decide el canal de notificaciones del sistema y una web no puede crear canales. Con la PWA instalada (WebAPK) la app tiene su propia entrada en los ajustes del teléfono y ahí sí se elige tono e importancia. Las instrucciones están en la UI, en `AvisosPush` → `AjustesDelTelefono` |
 | Alta/baja | Sección «Avisos en este dispositivo» del perfil (`components/common/AvisosPush.jsx`) |
+
+El aviso de prueba lleva **tag fijo** (`test-<userId>`), no uno por envío: con
+un tag distinto cada vez las pruebas se apilan en la bandeja y Android deja de
+alertar de las siguientes del montón.
 
 **Qué NO debe volver a sonar** (es lo que más fácil se rompe): un segundo
 `POST /:id/activar` sobre algo ya activo, una foto de inicio rehecha con la

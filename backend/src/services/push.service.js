@@ -114,6 +114,45 @@ async function suscripcionesDeUsuario(userId) {
 // ============================================================
 
 /**
+ * Urgencia del mensaje, y la diferencia entre sonar y no sonar en Android.
+ *
+ * `web-push` manda `normal` si no se le dice otra cosa, y con esa urgencia FCM
+ * ACUMULA el aviso mientras el teléfono está en reposo (Doze) y lo suelta en
+ * la siguiente ventana de mantenimiento, que puede tardar un buen rato. Ese es
+ * el síntoma clásico de «el primer aviso llegó y los siguientes no»: el primero
+ * pilló el móvil despierto y los demás se quedaron aparcados.
+ *
+ * `high` es lo que pide un aviso que exige atención de una persona — que es
+ * justo lo que es esto — y despierta el dispositivo.
+ */
+const URGENCIA = 'high';
+
+/**
+ * Cuánto guarda el servicio de push un aviso que no ha podido entregar
+ * (teléfono apagado, sin cobertura). Una hora: más allá, un aviso de servicio
+ * ya no informa de nada y llegaría solo para desconcertar.
+ */
+const TTL_SEGUNDOS = 60 * 60;
+
+/**
+ * `topic` para el servicio de push, derivado del tag.
+ *
+ * Hace en el servidor lo mismo que el `tag` hace en la bandeja: si hay un
+ * aviso del mismo suceso todavía sin entregar, este lo SUSTITUYE en vez de
+ * encolarse detrás. Así el admin que enciende el móvil no se come tres avisos
+ * seguidos de la misma asignación.
+ *
+ * El RFC lo limita a 32 caracteres base64url. Un topic inválido hace que
+ * `sendNotification` lance, así que lo que no encaje se descarta y el aviso
+ * sale sin topic, que es peor pero sale.
+ */
+function normalizarTopic(tag) {
+  if (!tag) return undefined;
+  const limpio = String(tag).replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 32);
+  return limpio || undefined;
+}
+
+/**
  * Manda `payload` a una lista de suscripciones.
  *
  * Una suscripción caducada devuelve 404 o 410: eso no es un fallo pasajero,
@@ -122,7 +161,12 @@ async function suscripcionesDeUsuario(userId) {
  * registra y ya: sin reintentos, que un aviso tardío molesta más que ayuda.
  */
 async function enviarA(suscripciones, payload) {
-  const cuerpo = JSON.stringify(payload);
+  const cuerpo  = JSON.stringify(payload);
+  const opciones = {
+    TTL:     TTL_SEGUNDOS,
+    urgency: URGENCIA,
+    topic:   normalizarTopic(payload?.tag),
+  };
   let enviados = 0;
   let borrados = 0;
   let fallidos = 0;
@@ -131,7 +175,8 @@ async function enviarA(suscripciones, payload) {
     try {
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-        cuerpo
+        cuerpo,
+        opciones
       );
       enviados++;
       // Marca de vida: sirve para ver qué dispositivos siguen respondiendo y
@@ -282,4 +327,5 @@ module.exports = {
   suscripcionesDeAdmins,
   suscripcionesDeUsuario,
   enviarA,
+  normalizarTopic,
 };

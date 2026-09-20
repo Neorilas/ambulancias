@@ -169,6 +169,19 @@ describe('push.controller', () => {
       }));
     });
 
+    it('usa un tag fijo por usuario, no uno por envío', async () => {
+      // Con un tag distinto cada vez, las pruebas se apilan en la bandeja del
+      // móvil y Android deja de alertar de las siguientes. Con el mismo tag, la
+      // nueva sustituye a la anterior y vuelve a sonar.
+      push.notificarUsuario.mockResolvedValue({ enviados: 1, borrados: 0, fallidos: 0 });
+
+      await enviarPrueba(mockReq({ user: ADMIN }), mockRes(), mockNext());
+      await enviarPrueba(mockReq({ user: ADMIN }), mockRes(), mockNext());
+
+      const tags = push.notificarUsuario.mock.calls.map(([, aviso]) => aviso.tag);
+      expect(tags).toEqual(['test-3', 'test-3']);
+    });
+
     it('503 si el entorno no tiene push configurado', async () => {
       push.estaConfigurado.mockReturnValue(false);
 

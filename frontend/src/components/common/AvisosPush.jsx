@@ -28,6 +28,51 @@ function Estado({ tono, children }) {
   return <span className={`badge-${tono}`}>{children}</span>;
 }
 
+/**
+ * Cómo conseguir que suene fuerte, que es lo que casi siempre se pregunta
+ * después de activarlos.
+ *
+ * Está aquí y no en un manual aparte porque el volumen y el tono NO se pueden
+ * fijar desde la app: en Android los decide el canal de notificaciones del
+ * sistema y una web no puede crear canales. Con la PWA instalada, sin embargo,
+ * Android le da a VAPSS su propia entrada en los ajustes, y ahí sí se puede
+ * poner un tono propio y subirla a urgente — exactamente igual que WhatsApp.
+ */
+function AjustesDelTelefono() {
+  return (
+    <details className="border-t border-neutral-200 pt-3 mt-1">
+      <summary className="text-[13px] font-medium text-neutral-700 cursor-pointer">
+        ¿Suena demasiado flojo o llega tarde?
+      </summary>
+      <div className="mt-2 space-y-3">
+        <div>
+          <p className="text-[12.5px] font-medium text-neutral-700">
+            Tono propio y volumen (Android, con la app instalada)
+          </p>
+          <ol className="text-[12.5px] text-neutral-500 list-decimal pl-5 space-y-1 mt-1">
+            <li>Ajustes del teléfono → Aplicaciones → <span className="font-medium text-neutral-700">VAPSS</span> → Notificaciones.</li>
+            <li>Entra en la categoría de avisos que aparezca.</li>
+            <li>Comportamiento: pon <span className="font-medium text-neutral-700">Urgente</span> («mostrar en pantalla y hacer sonido»).</li>
+            <li>Sonido: elige el tono que quieras, el mismo de WhatsApp si te vale.</li>
+            <li>Si quieres que suene también en «No molestar», activa la excepción ahí mismo.</li>
+          </ol>
+        </div>
+        <div>
+          <p className="text-[12.5px] font-medium text-neutral-700">Para que no lleguen tarde</p>
+          <p className="text-[12.5px] text-neutral-500 mt-1">
+            Ajustes → Aplicaciones → VAPSS → Batería → <span className="font-medium text-neutral-700">Sin restricciones</span>.
+            Con la batería optimizada, Android retrasa los avisos hasta que se despierta el teléfono.
+          </p>
+        </div>
+        <p className="text-[12px] text-neutral-400">
+          Sin la app instalada en la pantalla de inicio, los avisos salen bajo Chrome
+          (Ajustes → Chrome → Notificaciones → Sitios) y comparten tono con el resto de webs.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 export default function AvisosPush() {
   const { notify } = useNotification();
 
@@ -104,8 +149,11 @@ export default function AvisosPush() {
   const probar = async () => {
     setOcupado(true);
     try {
-      await pushService.test();
-      notify.info('Aviso de prueba enviado. Debería sonar en unos segundos.');
+      // El servidor responde a cuántos dispositivos ha salido. Se enseña tal
+      // cual porque es el único dato que separa «no ha salido» de «ha salido y
+      // el teléfono no lo ha pintado», que se arreglan en sitios distintos.
+      const res = await pushService.test();
+      notify.info(res?.message || 'Aviso de prueba enviado. Debería sonar en unos segundos.');
     } catch (err) {
       notify.error(err?.response?.data?.message || 'No se pudo enviar el aviso de prueba');
     } finally {
@@ -167,6 +215,7 @@ export default function AvisosPush() {
               Desactivar
             </button>
           </div>
+          <AjustesDelTelefono />
         </div>
       )}
 
