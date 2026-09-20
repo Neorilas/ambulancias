@@ -102,6 +102,7 @@ Todos con la contraseña `Local.2026`:
 | `tecnico` | técnico, con una asignación activa |
 | `tecnico2` | técnico, con una asignación programada para mañana |
 | `enfermero` | enfermero |
+| `tes` | TES conductor (`tes_conductor`) |
 
 Más 4 vehículos, uno con la tarjeta de transporte a punto de caducar (para ver
 los avisos) y dos asignaciones.

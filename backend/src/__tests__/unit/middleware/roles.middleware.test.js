@@ -49,6 +49,7 @@ describe('roles.middleware', () => {
       expect(isOperacional({ roles: ['tecnico'] })).toBe(true);
       expect(isOperacional({ roles: ['enfermero'] })).toBe(true);
       expect(isOperacional({ roles: ['medico'] })).toBe(true);
+      expect(isOperacional({ roles: ['tes_conductor'] })).toBe(true);
       expect(isOperacional({ roles: ['gestor'] })).toBe(false);
     });
     // Un jefe de flota que ademas sale de servicio lleva los dos roles: manda
@@ -65,6 +66,9 @@ describe('roles.middleware', () => {
       expect(tieneRolDeCampo({ roles: ['tecnico'] })).toBe(true);
       expect(tieneRolDeCampo({ roles: ['administrador', 'tecnico'] })).toBe(true);
       expect(tieneRolDeCampo({ roles: ['administrador'] })).toBe(false);
+      // El TES conductor sale de servicio como cualquier otro: si no entra
+      // aqui, ownership le niega subir la evidencia de su propia asignacion.
+      expect(tieneRolDeCampo({ roles: ['tes_conductor'] })).toBe(true);
     });
   });
 

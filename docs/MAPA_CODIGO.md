@@ -375,7 +375,9 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
-`schema_migrations` (control).
+`asignaciones_libres.material_usado` (v21),
+`schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22).
 
 Relaciones clave:
 
@@ -409,14 +411,14 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v20_feature_flota**.
+Última migración: **v22_rol_tes_conductor**.
 
 ---
 
 ## 6. Roles y permisos
 
-Roles: `superadmin > administrador > gestor > tecnico / enfermero / medico`
-(tabla `user_roles`, N:M). Permisos en BD (`permissions`, `role_permissions`):
+Roles: `superadmin > administrador > gestor > tecnico / enfermero / medico /
+tes_conductor` (tabla `user_roles`, N:M). Permisos en BD (`permissions`, `role_permissions`):
 `manage_vehicles, manage_users, manage_trabajos, view_all_trabajos,
 manage_incidencias, access_admin`. Backend: `requirePermission(...)` /
 `requireRole`. Frontend: `hasPermission(...)` y `allowedRoles` en
@@ -428,6 +430,19 @@ además `tecnico` porque también salen de servicio. Por eso `isOperacional()`
 en cuanto hay un rol de gestión: es el predicado que *recorta* lo que se ve
 (flota y trabajos), y ese recorte dejaba al administrador sin un solo vehículo
 que asignar. Para preguntar por el rol a secas, `hasRole(user, ROLES.TECNICO)`.
+
+**Un rol se puede crear desde la app (`POST /users/roles`), pero eso solo
+escribe la fila.** Para el código ese rol no lleva vehículo: no entra en
+`tieneRolDeCampo` y su portador se come un 403 al subir la evidencia de su
+propia asignación (`ownership.middleware`). Un rol **de campo** de verdad se
+da de alta por migración —así se llama igual en local, PRE y producción— y se
+añade a `ROLES` (back y front), a `tieneRolDeCampo` y al `isOperacional` del
+frontend. Así nació `tes_conductor` (v22), sin ningún permiso: como
+tecnico/enfermero/medico, queda acotado a **Mis Asignaciones**.
+
+En pantalla el nombre de BD no se pinta tal cual: `ROL_LABELS`/`labelRol()`
+(`frontend/utils/constants.js`) lo traducen («TES Conductor»), con respaldo al
+nombre crudo para los roles creados a mano. Lo usan `RolBadge` y `UserForm`.
 
 ## 7. Feature flags
 
@@ -452,12 +467,14 @@ solo actúa en el navegador no es un control de acceso.
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
+| El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación |
+| Un rol nuevo **de campo** (sale de servicio con la ambulancia) | Migración que lo da de alta + `ROLES` en `backend/config/constants.js` **y** `frontend/utils/constants.js` + `tieneRolDeCampo` (`roles.middleware.js`) + `isOperacional` (`AuthContext.jsx`) + `ROL_LABELS` y color en `RolBadge`. Crearlo solo desde `/usuarios` deja un rol que el código no reconoce: 403 al subir la evidencia de su propia asignación (§6) |
 | Menú / nueva pantalla | `App.jsx` (ruta + `requiredFeature`) + `Sidebar.jsx` + feature en `migrations.js` |
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL |
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel` |

@@ -210,6 +210,12 @@ function TrabajoCard({ trabajo }) {
               Ver trabajo →
             </Link>
           )}
+          {trabajo.material_usado && (
+            <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+              <p className="text-xs text-neutral-400 mb-0.5">Material utilizado</p>
+              <p className="text-sm text-neutral-700 whitespace-pre-line">{trabajo.material_usado}</p>
+            </div>
+          )}
           {trabajo.fotos.length === 0 ? (
             <p className="text-sm text-neutral-400 text-center py-4">Sin fotografías</p>
           ) : (

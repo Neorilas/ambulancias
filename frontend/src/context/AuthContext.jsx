@@ -73,7 +73,8 @@ export function AuthProvider({ children }) {
   // también salen de servicio. Manda entonces el rol de gestión, igual que en
   // el `isOperacional` del backend (middleware/roles.middleware.js).
   const isOperacional = useCallback(() =>
-    (hasRole(ROLES.TECNICO) || hasRole(ROLES.ENFERMERO) || hasRole(ROLES.MEDICO))
+    (hasRole(ROLES.TECNICO) || hasRole(ROLES.ENFERMERO) || hasRole(ROLES.MEDICO)
+     || hasRole(ROLES.TES_CONDUCTOR))
     && !isSuperAdmin() && !isAdmin() && !isGestor(),
     [hasRole, isSuperAdmin, isAdmin, isGestor]
   );

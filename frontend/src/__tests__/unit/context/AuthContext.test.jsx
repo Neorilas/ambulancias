@@ -148,6 +148,11 @@ describe('AuthContext', () => {
       expect(result.current.isOperacional()).toBe(true);
     });
 
+    it('isOperacional for tes_conductor', () => {
+      const { result } = setupUser([ROLES.TES_CONDUCTOR]);
+      expect(result.current.isOperacional()).toBe(true);
+    });
+
     it('isOperacional false for admin', () => {
       const { result } = setupUser([ROLES.ADMINISTRADOR]);
       expect(result.current.isOperacional()).toBe(false);

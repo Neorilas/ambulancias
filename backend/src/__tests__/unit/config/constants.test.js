@@ -10,6 +10,7 @@ describe('constants', () => {
     expect(constants.ROLES.TECNICO).toBe('tecnico');
     expect(constants.ROLES.ENFERMERO).toBe('enfermero');
     expect(constants.ROLES.MEDICO).toBe('medico');
+    expect(constants.ROLES.TES_CONDUCTOR).toBe('tes_conductor');
   });
 
   it('IMAGEN_TIPOS_REQUERIDOS is a non-empty subset of IMAGEN_TIPOS', () => {

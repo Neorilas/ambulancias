@@ -357,6 +357,12 @@ export default function AsignacionDetalle({ id, onClose }) {
                   <p className="text-neutral-700 italic">{asig.motivo_fin}</p>
                 </div>
               )}
+              {asig.material_usado && (
+                <div className="col-span-2">
+                  <p className="text-neutral-400 text-xs mb-0.5">Material utilizado</p>
+                  <p className="text-neutral-700 whitespace-pre-line">{asig.material_usado}</p>
+                </div>
+              )}
               {asig.notas && (
                 <div className="col-span-2">
                   <p className="text-neutral-400 text-xs mb-0.5">Notas</p>

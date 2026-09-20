@@ -13,7 +13,8 @@ INSERT INTO `roles` (`nombre`, `descripcion`) VALUES
   ('gestor',        'Modificar usuarios (sin asignar rol admin), vehículos y trabajos. Sin borrado físico.'),
   ('tecnico',       'Ver trabajos asignados. Subir evidencias al finalizar.'),
   ('enfermero',     'Ver trabajos asignados. Subir evidencias al finalizar.'),
-  ('medico',        'Ver trabajos asignados. Subir evidencias al finalizar.');
+  ('medico',        'Ver trabajos asignados. Subir evidencias al finalizar.'),
+  ('tes_conductor', 'TES Conductor. Ver sus asignaciones y subir la evidencia fotográfica del vehículo.');
 
 -- ------------------------------------------------------------
 -- El usuario administrador inicial se crea con:

@@ -221,7 +221,7 @@ describe('runMigrations', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v20_feature_flota']);
+    expect(aplicadas).toContain('v20_feature_flota');
 
     const sql = ejecutadas.find(q => q.includes("'menu_flota'"));
     expect(sql).toBeDefined();
@@ -229,6 +229,31 @@ describe('runMigrations', () => {
     // INSERT IGNORE: si el superadmin ya lo encendió, reiniciar el backend no
     // puede volver a apagárselo.
     expect(sql).toContain('INSERT IGNORE');
+  });
+
+  it('v21 añade material_usado como columna NULL-able', async () => {
+    // NULL-able a propósito: lo obligatorio es el momento del cierre, no la
+    // fila. Las asignaciones abiertas y las que se cerraron antes de esta
+    // migración no tienen material que declarar, y un NOT NULL DEFAULT ''
+    // confundiría «no se preguntó» con «no se gastó nada».
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v20_feature_flota') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toContain('v21_material_usado');
+
+    const sql = ejecutadas.find(q => q.includes('ADD COLUMN material_usado'));
+    expect(sql).toBeDefined();
+    expect(sql).toContain('TEXT NULL DEFAULT NULL');
+  });
+
+  it('v21 no repite el ALTER si la columna ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v20_feature_flota'),
+      columnas:  ['asignaciones_libres.material_usado'],
+    });
+    await runMigrations();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN material_usado'))).toBe(false);
   });
 
   it('no resiembra role_permissions si ya tiene filas', async () => {
@@ -577,5 +602,21 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     expect(params[0].toISOString()).toBe('2026-09-10T10:00:00.000Z');  // resuelto_at corregido
     expect(params[1].toISOString()).toBe('2026-08-20T09:00:00.000Z');  // updated_at, tal cual
     expect(params[2]).toBe(4);
+  });
+
+  it('v22 da de alta el rol tes_conductor y no le siembra ningun permiso', async () => {
+    // El rol entra por migracion, y no creandolo a mano desde /usuarios, para
+    // que se llame igual en local, PRE y produccion: `tieneRolDeCampo` lo
+    // busca por nombre. Y entra pelado: si apareciera en el reparto de v4, un
+    // TES conductor se encontraria con la gestion abierta.
+    const { ejecutadas } = mockDb();
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    const alta = ejecutadas.find(q =>
+      q.includes('INSERT IGNORE INTO roles') && q.includes('tes_conductor'));
+    expect(alta).toBeDefined();
+    expect(ejecutadas.some(q =>
+      q.includes('role_permissions') && q.includes('tes_conductor'))).toBe(false);
   });
 });
