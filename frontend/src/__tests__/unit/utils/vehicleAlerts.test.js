@@ -132,6 +132,24 @@ describe('vehicleAlerts', () => {
     it('todos los UMBRALES publicados se devuelven tal cual', () => {
       UMBRALES.forEach(u => expect(thresholdFor(u)).toBe(u));
     });
+
+    it('sin días no hay umbral: nada de alertas fantasma', () => {
+      // `null <= 15` es cierto en JS, así que esto devolvía 15 y pintaba
+      // «quedan 15 días» sobre un documento sin fecha conocida.
+      expect(thresholdFor(null)).toBeNull();
+      expect(thresholdFor(undefined)).toBeNull();
+    });
+
+    it('un valor que no es un número tampoco genera alerta', () => {
+      expect(thresholdFor('20')).toBeNull();
+      expect(thresholdFor('')).toBeNull();
+      expect(thresholdFor(NaN)).toBeNull();
+      expect(thresholdFor(Infinity)).toBeNull();
+      expect(thresholdFor(-Infinity)).toBeNull();
+      expect(thresholdFor({})).toBeNull();
+      expect(thresholdFor([])).toBeNull();
+      expect(thresholdFor(false)).toBeNull();
+    });
   });
 
   describe('thresholdStyle', () => {
@@ -280,6 +298,15 @@ describe('vehicleAlerts', () => {
         { vehicle_id: 3, dias_restantes: -5 },
       ]);
       expect(out.map(a => [a.vehicle_id, a.threshold])).toEqual([[2, 15], [3, 'vencida']]);
+    });
+
+    it('filtra las entradas sin días: no se cuela una alerta de un documento sin fecha', () => {
+      const out = withThresholds([
+        { vehicle_id: 1, tipo: 'itv', dias_restantes: null },
+        { vehicle_id: 2, tipo: 'its' },                       // sin el campo
+        { vehicle_id: 3, tipo: 'itv', dias_restantes: 10 },
+      ]);
+      expect(out.map(a => a.vehicle_id)).toEqual([3]);
     });
 
     it('no muta el array que llega del backend', () => {

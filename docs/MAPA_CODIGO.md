@@ -155,6 +155,11 @@ y `config/database`. Los tests de `vehicles.controller.listAlertasVehiculos`
 congelan el reloj (`jest.setSystemTime`): el cálculo es de calendario y sin
 fecha fija el resultado cambiaría cada día.
 
+Como el umbral es **global**, un fichero grande sin tests puede tumbar el build
+aunque no se haya tocado nada más: los porcentajes de todos los demás no lo
+compensan. Si al añadir un servicio nuevo la cobertura cae de golpe, mirar
+primero qué fichero entró, no qué test se rompió.
+
 ---
 
 ## 3. Frontend
@@ -224,7 +229,7 @@ reintenta. Todos los servicios cuelgan de ella.
 |---|---|
 | `utils/constants.js` | `ROLES`, `PERMISSIONS`, estados/colores/etiquetas, definición de cada tipo de foto (`IMAGEN_TIPOS_INICIO/FIN/GENERAL`, labels, instrucciones). **Espejo de** `backend/src/config/constants.js` |
 | `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
-| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage` |
+| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |

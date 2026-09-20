@@ -1,7 +1,7 @@
 'use strict';
 
 const { query } = require('../../../config/database');
-const { logAudit, logError, listAuditLogs, listErrorLogs, getAdminStats } = require('../../../controllers/admin.controller');
+const { logAudit, logError, listAuditLogs, listAuditUsers, listErrorLogs, getAdminStats } = require('../../../controllers/admin.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 describe('admin.controller', () => {
@@ -87,6 +87,101 @@ describe('admin.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res._json.data).toHaveProperty('audit_total', 100);
       expect(res._json.data).toHaveProperty('errors_hoy', 2);
+    });
+  });
+
+  // ── listAuditUsers ─────────────────────────────────────
+  // Puebla el filtro "por usuario" del historial de auditoría.
+  describe('listAuditUsers', () => {
+    it('devuelve los usuarios con actividad auditada', async () => {
+      const filas = [
+        { user_id: 1, user_info: 'findelias (Rafael Nuño)', total: 240, last_action: new Date('2026-09-20T08:00:00Z') },
+        { user_id: 67, user_info: 'fjtamayo (Francisco Javier)', total: 12, last_action: new Date('2026-09-14T10:00:00Z') },
+      ];
+      query.mockResolvedValueOnce([filas]);
+
+      const res = mockRes();
+      await listAuditUsers(mockReq(), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toEqual(filas);
+    });
+
+    it('agrupa por usuario y ordena por la última acción', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      await listAuditUsers(mockReq(), mockRes(), mockNext());
+
+      const [sql] = query.mock.calls[0];
+      expect(sql).toContain('GROUP BY user_id');
+      expect(sql).toContain('ORDER BY last_action DESC');
+    });
+
+    it('descarta las entradas sin usuario: el filtro no puede ofrecer "nadie"', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      await listAuditUsers(mockReq(), mockRes(), mockNext());
+
+      expect(query.mock.calls[0][0]).toContain('WHERE user_id IS NOT NULL');
+    });
+
+    it('se queda con el nombre más reciente de cada usuario', async () => {
+      // Un usuario renombrado aparece con varios user_info en audit_logs; el
+      // SUBSTRING_INDEX(MAX(CONCAT(created_at,...))) elige el del último apunte.
+      query.mockResolvedValueOnce([[]]);
+
+      await listAuditUsers(mockReq(), mockRes(), mockNext());
+
+      expect(query.mock.calls[0][0]).toContain('SUBSTRING_INDEX(MAX(CONCAT(created_at');
+    });
+
+    it('sin actividad devuelve una lista vacía', async () => {
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await listAuditUsers(mockReq(), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toEqual([]);
+    });
+
+    it('un fallo de BD va a next', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await listAuditUsers(mockReq(), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  // ── Errores de BD en los listados ──────────────────────
+  describe('un fallo de BD siempre va a next(err)', () => {
+    it('listAuditLogs', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await listAuditLogs(mockReq({ query: {} }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    it('listErrorLogs', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await listErrorLogs(mockReq({ query: {} }), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    it('getAdminStats', async () => {
+      query.mockRejectedValueOnce(new Error('DB down'));
+
+      const next = mockNext();
+      await getAdminStats(mockReq(), mockRes(), next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });
 });
