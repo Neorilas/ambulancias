@@ -15,6 +15,7 @@ module.exports = {
     TECNICO:       'tecnico',
     ENFERMERO:     'enfermero',
     MEDICO:        'medico',
+    TES_CONDUCTOR: 'tes_conductor',
   },
 
   // ---- Estados de trabajos ----

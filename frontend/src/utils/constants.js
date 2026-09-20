@@ -5,7 +5,25 @@ export const ROLES = {
   TECNICO:       'tecnico',
   ENFERMERO:     'enfermero',
   MEDICO:        'medico',
+  TES_CONDUCTOR: 'tes_conductor',
 };
+
+// Cómo se escribe cada rol en pantalla. En BD el nombre va en minúsculas y sin
+// espacios (lo exige el validador de POST /users/roles), así que sin esto un
+// `tes_conductor` sale tal cual, con el guion bajo a la vista. Un rol creado a
+// mano desde la app no estará aquí: se pinta con su nombre de BD, que es lo
+// razonable, y por eso esto es un mapa con respaldo y no un objeto cerrado.
+export const ROL_LABELS = {
+  superadmin:    'Superadmin',
+  administrador: 'Administrador',
+  gestor:        'Gestor',
+  tecnico:       'Técnico',
+  enfermero:     'Enfermero',
+  medico:        'Médico',
+  tes_conductor: 'TES Conductor',
+};
+
+export const labelRol = (nombre) => ROL_LABELS[nombre] || nombre;
 
 export const PERMISSIONS = {
   MANAGE_VEHICLES:    'manage_vehicles',

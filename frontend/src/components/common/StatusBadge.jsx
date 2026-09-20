@@ -1,5 +1,5 @@
 import React from 'react';
-import { ESTADO_COLORS, ESTADO_LABELS, TIPO_LABELS } from '../../utils/constants.js';
+import { ESTADO_COLORS, ESTADO_LABELS, TIPO_LABELS, labelRol } from '../../utils/constants.js';
 
 export function EstadoBadge({ estado }) {
   const color = ESTADO_COLORS[estado] || 'badge-gray';
@@ -19,8 +19,9 @@ export function RolBadge({ rol }) {
     tecnico:       'badge-yellow',
     enfermero:     'badge-green',
     medico:        'badge-blue',
+    tes_conductor: 'badge-yellow',
   };
-  return <span className={colors[rol] || 'badge-gray'}>{rol}</span>;
+  return <span className={colors[rol] || 'badge-gray'}>{labelRol(rol)}</span>;
 }
 
 export function ActiveBadge({ activo }) {

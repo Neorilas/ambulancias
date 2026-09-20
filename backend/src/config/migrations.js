@@ -789,6 +789,26 @@ const MIGRATIONS = [
                       'menu', 0, 90)`);
     },
   },
+
+  // ----------------------------------------------------------
+  {
+    name: 'v22_rol_tes_conductor',
+    description: 'Rol tes_conductor (personal de campo que conduce la ambulancia)',
+    async run() {
+      // Un rol se puede crear desde la app (POST /users/roles), pero ese
+      // camino solo escribe la fila: el código no lo reconoce como personal de
+      // campo, y quien lo llevara se quedaría sin poder subir la evidencia de
+      // su asignación (403 en ownership.middleware). Este rol SÍ es de campo,
+      // así que entra por migración —para que exista con el mismo nombre en
+      // los tres entornos— y acompañado de `ROLES` y `tieneRolDeCampo`.
+      //
+      // Sin permisos, igual que tecnico/enfermero/medico: queda acotado a
+      // «Mis Asignaciones». El reparto de v4 no se toca.
+      await query(`INSERT IGNORE INTO roles (nombre, descripcion)
+                   VALUES ('tes_conductor',
+                           'TES Conductor. Ver sus asignaciones y subir la evidencia fotográfica del vehículo.')`);
+    },
+  },
 ];
 
 // ============================================================

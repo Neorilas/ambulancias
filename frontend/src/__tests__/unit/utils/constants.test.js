@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ROLES, PERMISSIONS, TRABAJO_ESTADOS, TRABAJO_TIPOS,
+  ROLES, PERMISSIONS, TRABAJO_ESTADOS, TRABAJO_TIPOS, labelRol,
   IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, ESTADO_COLORS, ESTADO_LABELS,
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
 } from '../../../utils/constants';
@@ -10,6 +10,13 @@ describe('constants', () => {
     expect(ROLES.SUPERADMIN).toBe('superadmin');
     expect(ROLES.ADMINISTRADOR).toBe('administrador');
     expect(ROLES.TECNICO).toBe('tecnico');
+    expect(ROLES.TES_CONDUCTOR).toBe('tes_conductor');
+  });
+
+  it('labelRol escribe el rol como se lee, y deja pasar los creados a mano', () => {
+    expect(labelRol('tes_conductor')).toBe('TES Conductor');
+    expect(labelRol('tecnico')).toBe('Técnico');
+    expect(labelRol('rol_inventado')).toBe('rol_inventado');
   });
 
   it('exports PERMISSIONS', () => {

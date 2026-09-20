@@ -73,6 +73,7 @@ const USUARIOS = [
   { username: 'tecnico',   nombre: 'Tomás',   apellidos: 'Técnico Local',   dni: '00000003C', roles: ['tecnico'] },
   { username: 'tecnico2',  nombre: 'Teresa',  apellidos: 'Técnica Local',   dni: '00000004D', roles: ['tecnico'] },
   { username: 'enfermero', nombre: 'Elena',   apellidos: 'Enfermera Local', dni: '00000005E', roles: ['enfermero'] },
+  { username: 'tes',       nombre: 'Teo',     apellidos: 'TES Local',       dni: '00000006F', roles: ['tes_conductor'] },
 ];
 
 const VEHICULOS = [

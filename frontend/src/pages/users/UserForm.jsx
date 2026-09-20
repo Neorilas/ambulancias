@@ -3,7 +3,7 @@ import Modal from '../../components/common/Modal.jsx';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { ROLES } from '../../utils/constants.js';
+import { ROLES, labelRol } from '../../utils/constants.js';
 
 export default function UserForm({ user, onSaved, onClose }) {
   const isEdit = !!user;
@@ -213,7 +213,7 @@ export default function UserForm({ user, onSaved, onClose }) {
                     }
                     ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
-                  {r.nombre}
+                  {labelRol(r.nombre)}
                 </button>
               );
             })}

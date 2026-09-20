@@ -78,9 +78,19 @@ const isSuperAdmin  = (user) => hasRole(user, ROLES.SUPERADMIN);
 const isAdmin       = (user) => hasRole(user, ROLES.ADMINISTRADOR);
 const isGestor      = (user) => hasRole(user, ROLES.GESTOR);
 
-/** ¿Lleva un rol operativo? Literal, sin mirar si además tiene mando. */
+/**
+ * ¿Lleva un rol operativo? Literal, sin mirar si además tiene mando.
+ *
+ * Es la lista de los roles que salen de servicio con la ambulancia. Un rol
+ * creado desde `/usuarios` (POST /users/roles) NO entra aquí: existe en la
+ * tabla `roles` y se puede repartir, pero para el código no lleva vehículo, y
+ * su portador se queda sin poder subir evidencia (403 en `ownership`). Por eso
+ * un rol de campo nuevo se añade también en `config/constants.js`, aquí y en
+ * el `isOperacional` del frontend.
+ */
 const tieneRolDeCampo = (user) =>
-  hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) || hasRole(user, ROLES.MEDICO);
+  hasRole(user, ROLES.TECNICO) || hasRole(user, ROLES.ENFERMERO) ||
+  hasRole(user, ROLES.MEDICO)  || hasRole(user, ROLES.TES_CONDUCTOR);
 
 /**
  * ¿Es personal de campo **sin mando**?
