@@ -145,6 +145,31 @@ describe('runMigrations', () => {
     }
   });
 
+  it('v17 crea push_subscriptions con el endpoint como clave única', async () => {
+    // El UNIQUE sobre `endpoint` es lo que hace que volver a pulsar «Activar
+    // avisos» en el mismo navegador actualice la fila en vez de duplicarla.
+    const { ejecutadas } = mockDb();
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    const sql = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS push_subscriptions'));
+    expect(sql).toBeDefined();
+    expect(sql).toMatch(/UNIQUE KEY uq_push_endpoint \(endpoint\)/);
+    // Al borrar un usuario se van sus suscripciones: si no, quedarían filas
+    // apuntando a nadie y el JOIN de destinatarios las arrastraría.
+    expect(sql).toMatch(/ON DELETE CASCADE/);
+  });
+
+  it('v17 se aplica sola sobre una base que venía de v16', async () => {
+    const { ejecutadas, ledger } = mockDb({ aplicadas: hasta('v16_horas_a_utc') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v17_push_subscriptions']);
+    expect(ledger).toContain('v17_push_subscriptions');
+    expect(ejecutadas.some(q => q.includes('push_subscriptions'))).toBe(true);
+  });
+
   it('no resiembra role_permissions si ya tiene filas', async () => {
     const { ejecutadas } = mockDb({ permisosSembrados: 12 });
     await runMigrations();

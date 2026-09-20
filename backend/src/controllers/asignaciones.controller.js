@@ -15,6 +15,7 @@ const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
 const { ahora, fechaEnEspana }   = require('../utils/fecha.utils');
+const avisos                     = require('../services/avisosAsignacion.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -370,10 +371,18 @@ async function activarAsignacion(req, res, next) {
       return error(res, `No se puede iniciar una asignación en estado "${asig.estado}"`, 400);
     }
 
+    // Se mira ANTES de tocar la fila: el endpoint es idempotente y pulsar dos
+    // veces «Inicio de servicio» no debe volver a hacer sonar los teléfonos.
+    // Si el cron ya la había pasado a 'activa' tampoco se avisa aquí — el
+    // aviso lo mandó el cron.
+    const yaEstabaActiva = asig.estado === 'activa';
+
     await query(
       'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?) WHERE id = ?',
       ['activa', ahora(), asig.id]
     );
+
+    if (!yaEstabaActiva) avisos.avisarAsignacionActivada(asig);
 
     logAudit({
       userId:   req.user.id,
@@ -472,6 +481,11 @@ async function finalizarAsignacion(req, res, next) {
       }
     });
 
+    // Tras la transacción: si el cierre se hubiera deshecho, el aviso habría
+    // anunciado un servicio que sigue abierto. Vale también por el aviso de
+    // «fotos de fin completas» — llegar aquí exige tenerlas todas.
+    avisos.avisarAsignacionFinalizada(asig, { km_fin });
+
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
@@ -526,6 +540,13 @@ async function uploadEvidencia(req, res, next) {
       );
     }
 
+    // Foto de inicio: hay que saber si esta subida es la que completa la tanda
+    // para avisar una sola vez. Se mide antes y después de guardar; rehacer una
+    // foto ya subida deja el progreso como estaba y no vuelve a avisar.
+    const inicioCompletoAntes = momento === 'inicio'
+      ? (await getProgreso(asig.id)).inicio.completo
+      : true;
+
     // Las fotos 'general' (incidencias/observaciones) son acumulables: no se
     // reemplazan entre sí. El resto (inicio/fin) es único por tipo+momento.
     const [existing] = momento === 'general' ? [[]] : await query(
@@ -557,6 +578,13 @@ async function uploadEvidencia(req, res, next) {
     }
 
     const progreso = await getProgreso(asig.id);
+
+    // El salto de incompleto a completo es el suceso, no el hecho de que esté
+    // completo: sin esta comparación, cada foto rehecha después volvería a
+    // hacer sonar los teléfonos.
+    if (momento === 'inicio' && !inicioCompletoAntes && progreso.inicio.completo) {
+      avisos.avisarFotosInicioCompletas(asig);
+    }
 
     return success(res, {
       id:          imageId,

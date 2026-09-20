@@ -9,6 +9,32 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import UserForm from './UserForm.jsx';
 import ResetPasswordModal from './ResetPasswordModal.jsx';
 
+/**
+ * ¿A este usuario se le mandan avisos push?
+ *
+ * Mismo criterio que `suscripcionesDeAdmins` en el backend
+ * (services/push.service.js): permiso de gestión o rol de mando. Si allí
+ * cambia, aquí también — esta columna solo sirve si dice la verdad.
+ */
+const RECIBE_AVISOS = ['administrador', 'gestor', 'superadmin'];
+const recibeAvisos = (u) => (u.roles || []).some(r => RECIBE_AVISOS.includes(r));
+
+/** Cuántos dispositivos tiene este usuario con los avisos puestos. */
+function AvisosCelda({ user }) {
+  if (!recibeAvisos(user)) {
+    return <span className="text-neutral-300 text-xs">&mdash;</span>;
+  }
+  const n = Number(user.dispositivos_push) || 0;
+  if (n === 0) {
+    return <span className="badge-yellow" title="No le sonará ningún aviso">Sin avisos</span>;
+  }
+  return (
+    <span className="badge-green" title="Dispositivos con los avisos activados">
+      {n} {n === 1 ? 'dispositivo' : 'dispositivos'}
+    </span>
+  );
+}
+
 export default function UserList() {
   const { isAdmin, isSuperAdmin, canDeleteAny } = useAuth();
   const { notify } = useNotification();
@@ -102,13 +128,14 @@ export default function UserList() {
                   <th>Usuario</th>
                   <th className="hidden sm:table-cell">DNI</th>
                   <th>Roles</th>
+                  <th className="hidden md:table-cell">Avisos</th>
                   <th>Estado</th>
                   <th className="text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-8 text-neutral-400">Sin resultados</td></tr>
+                  <tr><td colSpan={6} className="text-center py-8 text-neutral-400">Sin resultados</td></tr>
                 ) : users.map(u => (
                   <tr key={u.id}>
                     <td>
@@ -124,6 +151,7 @@ export default function UserList() {
                         {(u.roles || []).map(r => <RolBadge key={r} rol={r} />)}
                       </div>
                     </td>
+                    <td className="hidden md:table-cell"><AvisosCelda user={u} /></td>
                     <td><ActiveBadge activo={u.activo} /></td>
                     <td>
                       <div className="flex justify-end gap-2">

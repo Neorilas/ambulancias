@@ -110,7 +110,12 @@ async function listUsers(req, res, next) {
     const [rows] = await query(
       `SELECT u.id, u.username, u.email, u.nombre, u.apellidos, u.dni,
               u.telefono, u.activo, u.created_at, u.updated_at, u.deleted_at,
-              GROUP_CONCAT(r.nombre ORDER BY r.nombre SEPARATOR ',') AS roles
+              GROUP_CONCAT(r.nombre ORDER BY r.nombre SEPARATOR ',') AS roles,
+              -- Dispositivos con los avisos push puestos. Va como subconsulta
+              -- y no como JOIN porque el GROUP BY de los roles multiplicaría
+              -- las filas y el recuento saldría inflado.
+              (SELECT COUNT(*) FROM push_subscriptions ps WHERE ps.user_id = u.id)
+                AS dispositivos_push
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        LEFT JOIN roles r ON ur.role_id = r.id

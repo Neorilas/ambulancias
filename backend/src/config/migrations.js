@@ -678,6 +678,38 @@ const MIGRATIONS = [
       logger.info(`v16: ${total} fila(s) reinterpretadas de hora española a UTC`);
     },
   },
+
+  {
+    name: 'v17_push_subscriptions',
+    description: 'Suscripciones Web Push por dispositivo para avisar a los administradores',
+    async run() {
+      // Una fila por NAVEGADOR, no por usuario: el mismo administrador puede
+      // llevar el móvil y el ordenador de la oficina, y cada uno tiene su
+      // propio endpoint. `endpoint` es único porque es lo que identifica al
+      // dispositivo de cara al servicio de push; si alguien vuelve a pulsar
+      // «Activar avisos» el navegador devuelve el mismo endpoint y la fila se
+      // actualiza en vez de duplicarse.
+      //
+      // Las claves p256dh/auth son las del propio navegador, no secretos del
+      // servidor: sin el endpoint no sirven para nada. Se guardan tal cual las
+      // entrega `PushSubscription.toJSON()`.
+      await query(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id    INT UNSIGNED NOT NULL,
+        endpoint   VARCHAR(512) NOT NULL,
+        p256dh     VARCHAR(255) NOT NULL,
+        auth       VARCHAR(255) NOT NULL,
+        user_agent VARCHAR(255) DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_ok_at DATETIME DEFAULT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_push_endpoint (endpoint),
+        KEY idx_push_user (user_id),
+        CONSTRAINT fk_push_user FOREIGN KEY (user_id)
+          REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 // ============================================================

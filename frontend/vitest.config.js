@@ -14,6 +14,11 @@ export default defineConfig({
       exclude: [
         'src/__tests__/**',
         'src/main.jsx',
+        // El service worker no se puede montar en jsdom: no hay `self`, ni
+        // registration, ni PushEvent. Sus dos piezas con lógica de verdad
+        // (leer el payload del push y componer la ruta del aviso) viven a
+        // propósito en utils/swAvisos.js, que sí se prueba.
+        'src/sw.js',
         'src/index.css',
         'src/App.jsx',
         'src/pages/**',

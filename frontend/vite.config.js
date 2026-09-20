@@ -58,32 +58,24 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType:   'autoUpdate',
         includeAssets:  ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-        devOptions: {
-          enabled: true,  // habilitar SW en desarrollo para testing
-        },
-        workbox: {
+        // Los avisos push necesitan handlers `push` y `notificationclick`, y
+        // eso no se declara en configuración: hay que escribir el service
+        // worker. Por eso esto ya no es `generateSW`. El precio es que lo que
+        // el plugin añadía solo (skipWaiting, clientsClaim, el fallback de la
+        // SPA, cleanupOutdatedCaches y las dos reglas de runtimeCaching) pasa
+        // a estar en src/sw.js, que es quien manda ahora.
+        strategies: 'injectManifest',
+        srcDir:     'src',
+        filename:   'sw.js',
+        injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-          runtimeCaching: [
-            {
-              // Cache de la API (solo GET, sin datos sensibles)
-              urlPattern: /^https?:\/\/.*\/api\/v1\/(vehicles|trabajos\/calendario)/,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName:          'api-cache',
-                expiration:         { maxEntries: 50, maxAgeSeconds: 300 },
-                networkTimeoutSeconds: 5,
-              },
-            },
-            {
-              // Cache de imágenes subidas
-              urlPattern: /^https?:\/\/.*\/uploads\//,
-              handler: 'CacheFirst',
-              options: {
-                cacheName:  'images-cache',
-                expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
-              },
-            },
-          ],
+        },
+        devOptions: {
+          enabled: true,   // habilitar SW en desarrollo para testing
+          // El SW de src/ usa imports ESM. En `generateSW` el plugin servía un
+          // SW clásico; aquí hay que pedir 'module' o el navegador no lo carga
+          // en `npm run dev`.
+          type:    'module',
         },
         manifest: {
           name:             NOMBRE,

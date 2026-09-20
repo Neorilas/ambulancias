@@ -12,11 +12,21 @@ jest.mock('../../../middleware/upload.middleware', () => ({
   deleteFile: jest.fn(),
 }));
 
+// Los avisos push se disparan sin await desde el controlador. Aquí solo
+// interesa SI se disparan y con qué asignación; el envío tiene sus propios
+// tests en services/push.service.test.js.
+jest.mock('../../../services/avisosAsignacion.service', () => ({
+  avisarAsignacionActivada:   jest.fn(),
+  avisarFotosInicioCompletas: jest.fn(),
+  avisarAsignacionFinalizada: jest.fn(),
+}));
+
 const {
   listAsignaciones, getAsignacion, createAsignacion, updateAsignacion,
   deleteAsignacion, activarAsignacion, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion,
 } = require('../../../controllers/asignaciones.controller');
+const avisos = require('../../../services/avisosAsignacion.service');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 const { IMAGEN_TIPOS_REQUERIDOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
   require('../../../config/constants');
@@ -615,6 +625,9 @@ describe('asignaciones.controller', () => {
 
     it('sella la hora al insertar, en lugar de dejarla a la BD', async () => {
       mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+      // Con momento='inicio' el controlador mide el progreso ANTES de guardar,
+      // para saber si esta foto es la que completa la tanda (aviso push).
+      query.mockResolvedValueOnce([[]]);                // getProgreso previo
       query.mockResolvedValueOnce([[]]);                // no hay foto previa
       query.mockResolvedValueOnce([{ insertId: 50 }]);  // INSERT
       query.mockResolvedValueOnce([allTiposRow()]);     // getProgreso
@@ -634,6 +647,7 @@ describe('asignaciones.controller', () => {
 
     it('al rehacer una foto pone la hora al día (no deja la de la primera)', async () => {
       mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+      query.mockResolvedValueOnce([[]]);            // getProgreso previo (momento='inicio')
       query.mockResolvedValueOnce([[{ id: 50, image_url: '/uploads/old.jpg' }]]);
       query.mockResolvedValueOnce([]);              // UPDATE
       query.mockResolvedValueOnce([allTiposRow()]); // getProgreso
@@ -756,6 +770,182 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await crearIncidenciaDesdeAsignacion(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(403);
+    });
+  });
+
+  // ── Avisos push a los administradores ──────────────────
+  //
+  // Un aviso de más es peor que uno de menos: hace sonar el teléfono de todos
+  // los admins por algo de lo que ya se había avisado. Por eso casi todos
+  // estos tests comprueban que NO se avisa.
+  describe('avisos push', () => {
+    const TECNICO = { id: 2, roles: ['tecnico'], permissions: [] };
+
+    describe('al activar', () => {
+      it('avisa cuando la asignación estaba programada', async () => {
+        mockAsignacionCompleta({ estado: 'programada', id: 1 });
+        query.mockResolvedValueOnce([]); // UPDATE
+        mockAsignacionCompleta({ estado: 'activa' });
+
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), mockRes(), mockNext());
+
+        expect(avisos.avisarAsignacionActivada).toHaveBeenCalledTimes(1);
+        expect(avisos.avisarAsignacionActivada).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 1, estado: 'programada' })
+        );
+      });
+
+      it('NO vuelve a avisar si ya estaba activa (el endpoint es idempotente)', async () => {
+        mockAsignacionCompleta({ estado: 'activa' });
+        query.mockResolvedValueOnce([]); // UPDATE
+        mockAsignacionCompleta({ estado: 'activa' });
+
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), mockRes(), mockNext());
+
+        expect(avisos.avisarAsignacionActivada).not.toHaveBeenCalled();
+      });
+
+      it('no avisa de una asignación que no se puede activar', async () => {
+        mockAsignacionCompleta({ estado: 'finalizada' });
+
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(avisos.avisarAsignacionActivada).not.toHaveBeenCalled();
+      });
+
+      it('no avisa cuando la petición se rechaza por permisos', async () => {
+        mockAsignacionCompleta({ estado: 'programada', user_id: 2 });
+
+        const res = mockRes();
+        await activarAsignacion(
+          mockReq({ params: { id: '1' }, user: { id: 99, roles: ['tecnico'], permissions: [] } }),
+          res, mockNext()
+        );
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(avisos.avisarAsignacionActivada).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('al completar las fotos de inicio', () => {
+      /** Prepara uploadEvidencia con el progreso de antes y el de después. */
+      function prepararSubida({ antes, despues, hayPrevia = false }) {
+        mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+        query.mockResolvedValueOnce([antes]);   // getProgreso previo
+        query.mockResolvedValueOnce(hayPrevia
+          ? [[{ id: 50, image_url: '/uploads/old.jpg' }]]
+          : [[]]);                              // ¿había foto de este tipo?
+        query.mockResolvedValueOnce([{ insertId: 50 }]); // INSERT o UPDATE
+        query.mockResolvedValueOnce([despues]); // getProgreso final
+      }
+
+      const filasInicio = (tipos) => tipos.map(t => ({ tipo_imagen: t, momento: 'inicio' }));
+      const TODAS           = IMAGEN_TIPOS_INICIO;
+      const TODAS_MENOS_UNA = IMAGEN_TIPOS_INICIO.slice(0, -1);
+
+      it('avisa justo cuando la última foto completa la tanda', async () => {
+        prepararSubida({ antes: filasInicio(TODAS_MENOS_UNA), despues: filasInicio(TODAS) });
+
+        const res = mockRes();
+        await uploadEvidencia(mockReq({
+          params: { id: '1' },
+          body: { tipo_imagen: TODAS[TODAS.length - 1], momento: 'inicio' },
+          processedFile: { url: '/uploads/img.jpg' },
+          user: TECNICO,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(avisos.avisarFotosInicioCompletas).toHaveBeenCalledTimes(1);
+      });
+
+      it('no avisa mientras falten fotos', async () => {
+        prepararSubida({ antes: [], despues: filasInicio(TODAS_MENOS_UNA) });
+
+        await uploadEvidencia(mockReq({
+          params: { id: '1' }, body: { tipo_imagen: 'frontal', momento: 'inicio' },
+          processedFile: { url: '/uploads/img.jpg' }, user: TECNICO,
+        }), mockRes(), mockNext());
+
+        expect(avisos.avisarFotosInicioCompletas).not.toHaveBeenCalled();
+      });
+
+      it('rehacer una foto con la tanda ya completa NO vuelve a avisar', async () => {
+        prepararSubida({
+          antes: filasInicio(TODAS), despues: filasInicio(TODAS), hayPrevia: true,
+        });
+
+        await uploadEvidencia(mockReq({
+          params: { id: '1' }, body: { tipo_imagen: 'frontal', momento: 'inicio' },
+          processedFile: { url: '/uploads/nueva.jpg' }, user: TECNICO,
+        }), mockRes(), mockNext());
+
+        expect(avisos.avisarFotosInicioCompletas).not.toHaveBeenCalled();
+      });
+
+      it('las fotos de fin no disparan este aviso: ya lo hace el cierre', async () => {
+        mockAsignacionCompleta({ estado: 'activa', user_id: 2 });
+        query.mockResolvedValueOnce([[]]);                     // ¿había foto previa?
+        query.mockResolvedValueOnce([{ insertId: 51 }]);       // INSERT
+        query.mockResolvedValueOnce([progresoCompletoRows()]); // getProgreso
+
+        await uploadEvidencia(mockReq({
+          params: { id: '1' }, body: { tipo_imagen: 'frontal', momento: 'fin' },
+          processedFile: { url: '/uploads/img.jpg' }, user: TECNICO,
+        }), mockRes(), mockNext());
+
+        expect(avisos.avisarFotosInicioCompletas).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('al finalizar', () => {
+      it('avisa una vez, con los km anotados', async () => {
+        mockAsignacionCompleta({
+          estado: 'activa', id: 4, fecha_fin: new Date(Date.now() - 3600000),
+        });
+        query.mockResolvedValueOnce([progresoCompletoRows()]);
+        query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+        query.mockResolvedValueOnce([]); // UPDATE vehicles
+        mockAsignacionCompleta({ estado: 'finalizada' });
+
+        const res = mockRes();
+        await finalizarAsignacion(mockReq({
+          params: { id: '4' }, body: { km_fin: 50100 }, user: TECNICO,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(avisos.avisarAsignacionFinalizada).toHaveBeenCalledTimes(1);
+        expect(avisos.avisarAsignacionFinalizada).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 4 }),
+          { km_fin: 50100 }
+        );
+      });
+
+      it('no avisa si el cierre se rechaza por faltar fotos', async () => {
+        mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+        query.mockResolvedValueOnce([[]]); // getProgreso: nada subido
+
+        const res = mockRes();
+        await finalizarAsignacion(mockReq({
+          params: { id: '1' }, body: { km_fin: 100 }, user: TECNICO,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(avisos.avisarAsignacionFinalizada).not.toHaveBeenCalled();
+      });
+
+      it('no avisa de una asignación ya finalizada', async () => {
+        mockAsignacionCompleta({ estado: 'finalizada' });
+
+        const res = mockRes();
+        await finalizarAsignacion(mockReq({
+          params: { id: '1' }, body: {}, user: TECNICO,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(avisos.avisarAsignacionFinalizada).not.toHaveBeenCalled();
+      });
     });
   });
 });

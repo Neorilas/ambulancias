@@ -71,6 +71,18 @@ services:
       # ── CORS ─────────────────────────────────────────────────────────────────
       CORS_ORIGIN: ${CORS_ORIGIN}
 
+      # ── Avisos Web Push (VAPID) ─────────────────────────────────────────────
+      # Salen del .env del servidor, que NO está en el repo (es público). Se
+      # generan una sola vez por entorno con `npx web-push generate-vapid-keys`
+      # y hay que guardarlas en el gestor de contraseñas: si se pierde la
+      # privada, todas las suscripciones de los móviles dejan de valer y cada
+      # admin tiene que volver a pulsar «Activar avisos».
+      # Vacías = push apagado; el resto de la app funciona igual.
+      VAPID_PUBLIC_KEY:  ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT:     ${VAPID_SUBJECT:-mailto:soporte@vapss.net}
+      PUSH_RATE_LIMIT_MAX: 20
+
       # ── Uploads ─────────────────────────────────────────────────────────────
       UPLOADS_DIR: ./uploads
       MAX_FILE_SIZE_MB: 10

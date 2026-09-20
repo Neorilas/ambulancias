@@ -144,6 +144,7 @@ async function startServer() {
   // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
   const { query: dbQuery } = require('./src/config/database');
   const { ahora } = require('./src/utils/fecha.utils');
+  const avisosAsignacion = require('./src/services/avisosAsignacion.service');
   const autoActivar = async () => {
     try {
       // El instante lo pone Node, no MySQL: fecha_inicio está en UTC y NOW()
@@ -158,13 +159,39 @@ async function startServer() {
       if (trab.affectedRows > 0) {
         logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) programados`);
       }
-      const [asig] = await dbQuery(
-        `UPDATE asignaciones_libres SET estado = 'activa'
-         WHERE estado = 'programada' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+      // Las asignaciones ya no se activan de un UPDATE masivo: hay que avisar
+      // por push de cada una, y para eso hace falta saber CUÁLES han cambiado.
+      // Primero se seleccionan las candidatas con sus datos (el aviso lleva el
+      // nombre de la ambulancia y el del técnico) y después se actualiza una a
+      // una con el guard `estado = 'programada'`. Ese UPDATE es lo que reclama
+      // la fila: si el responsable acaba de pulsar «Inicio de servicio» en ese
+      // hueco, aquí afecta a 0 filas y no se manda un segundo aviso.
+      const [programadas] = await dbQuery(
+        `SELECT al.id, al.user_id,
+                v.alias AS vehiculo_alias, v.matricula,
+                CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
+           FROM asignaciones_libres al
+           JOIN vehicles v ON v.id = al.vehicle_id
+           JOIN users u    ON u.id = al.user_id
+          WHERE al.estado = 'programada'
+            AND al.fecha_inicio <= ?
+            AND al.deleted_at IS NULL`,
         [ahoraUtc]
       );
-      if (asig.affectedRows > 0) {
-        logger.info(`Auto-activadas ${asig.affectedRows} asignación(es) programadas`);
+
+      let activadas = 0;
+      for (const asignacion of programadas) {
+        const [res] = await dbQuery(
+          `UPDATE asignaciones_libres SET estado = 'activa'
+           WHERE id = ? AND estado = 'programada'`,
+          [asignacion.id]
+        );
+        if (res.affectedRows === 0) continue;   // se adelantó el responsable
+        activadas++;
+        avisosAsignacion.avisarAsignacionActivada(asignacion);
+      }
+      if (activadas > 0) {
+        logger.info(`Auto-activadas ${activadas} asignación(es) programadas`);
       }
     } catch (err) {
       logger.error('Error en cron auto-activar:', err.message);
