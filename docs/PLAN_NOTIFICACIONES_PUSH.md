@@ -187,6 +187,39 @@ Estas instrucciones están dentro de la app, en el perfil, bajo «¿Suena demasi
 flojo o llega tarde?» (`AvisosPush` → `AjustesDelTelefono`), que es donde las va
 a buscar quien tenga el problema.
 
+## 3. iPhone — otras reglas
+
+Apple no da las mismas palancas, así que las instrucciones son distintas y la
+app enseña unas u otras según el dispositivo (`AvisosPush` → `AjustesIPhone` /
+`AjustesAndroid`).
+
+Requisito previo: **iOS 16.4 o superior y la PWA añadida a la pantalla de
+inicio desde Safari**. En una pestaña de Safari no llega nada, por mucho que se
+pulse «Activar avisos».
+
+Que suene y se vea — Ajustes → Notificaciones → VAPSS: activar **Sonidos** y
+Globos, marcar Pantalla bloqueada + Centro de notificaciones + Tiras, y poner el
+estilo de tira en **Persistente**.
+
+Que no lleguen tarde:
+
+- Ajustes → Notificaciones → **Resumen programado**: quitar VAPSS de la lista.
+  El resumen retiene los avisos y los entrega todos juntos más tarde, que es
+  exactamente lo contrario de lo que se busca aquí.
+- Ajustes → Modos de concentración: añadir VAPSS a las apps permitidas.
+- El modo de bajo consumo también retrasa la entrega.
+
+Volumen: en iPhone el aviso suena al volumen del **timbre** (Ajustes → Sonidos y
+vibraciones), no al de multimedia. Y el interruptor físico de silencio manda.
+
+**Lo que en iPhone NO se puede hacer, ni desde el código ni desde los ajustes:**
+poner un tono propio. iOS usa siempre el sonido de aviso del sistema para las
+apps web; no hay selector de sonido como en Android. Tampoco hay avisos
+«urgentes» (time sensitive): eso requiere una app nativa.
+
+Gotcha: si se borra el icono de la pantalla de inicio y se vuelve a añadir, la
+suscripción se pierde y hay que pulsar «Activar avisos» otra vez.
+
 ## Si aun así no suena
 
 Por orden, porque cada paso descarta una capa:

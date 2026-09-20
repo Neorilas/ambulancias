@@ -111,7 +111,8 @@ asignación. Sin app nativa ni Firebase.
 | Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
 | Entrega | Todo envío va con `urgency: 'high'` y `TTL` de 1 h. Con la urgencia `normal` que pone `web-push` por defecto, Android APARCA el aviso mientras el móvil está en reposo (Doze) y lo suelta en la siguiente ventana de mantenimiento: es el «el primero llegó y los demás no» |
 | `topic` | Derivado del tag (`normalizarTopic`, 32 caracteres base64url). Sustituye el aviso del mismo suceso que siga sin entregar, en vez de encolarlo detrás |
-| Volumen y tono | **No se pueden fijar desde el código.** En Android los decide el canal de notificaciones del sistema y una web no puede crear canales. Con la PWA instalada (WebAPK) la app tiene su propia entrada en los ajustes del teléfono y ahí sí se elige tono e importancia. Las instrucciones están en la UI, en `AvisosPush` → `AjustesDelTelefono` |
+| Volumen y tono | **No se pueden fijar desde el código.** En Android los decide el canal de notificaciones del sistema y una web no puede crear canales. Con la PWA instalada (WebAPK) la app tiene su propia entrada en los ajustes del teléfono y ahí sí se elige tono e importancia. Las instrucciones están en la UI, en `AvisosPush` → `AjustesDelTelefono`, que enseña las de Android o las de iPhone según `esIOS()` porque los dos sistemas no dan las mismas palancas |
+| iPhone | iOS 16.4+ y **solo con la PWA en la pantalla de inicio**. No hay tono propio para ninguna app web ni avisos «urgentes». Lo que sí importa tocar: quitar VAPSS del **Resumen programado** (retiene y agrupa) y de los modos de concentración. Volumen = el del timbre |
 | Alta/baja | Sección «Avisos en este dispositivo» del perfil (`components/common/AvisosPush.jsx`) |
 
 El aviso de prueba lleva **tag fijo** (`test-<userId>`), no uno por envío: con

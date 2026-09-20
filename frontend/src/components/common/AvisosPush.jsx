@@ -33,41 +33,97 @@ function Estado({ tono, children }) {
  * después de activarlos.
  *
  * Está aquí y no en un manual aparte porque el volumen y el tono NO se pueden
- * fijar desde la app: en Android los decide el canal de notificaciones del
- * sistema y una web no puede crear canales. Con la PWA instalada, sin embargo,
- * Android le da a VAPSS su propia entrada en los ajustes, y ahí sí se puede
- * poner un tono propio y subirla a urgente — exactamente igual que WhatsApp.
+ * fijar desde la app: los decide el sistema operativo. Y los dos sistemas no
+ * dan las mismas opciones, así que se enseña lo que sirve en ESTE teléfono en
+ * vez de una lista mezclada donde media es ruido:
+ *
+ *   - Android: con la PWA instalada, VAPSS tiene su propio canal de
+ *     notificaciones y ahí sí se elige tono propio e importancia urgente.
+ *   - iPhone: no hay tono propio para ninguna app web, punto. Lo que se puede
+ *     tocar es que no se retrase (el «Resumen programado») y que suene aunque
+ *     haya un modo de concentración puesto.
  */
-function AjustesDelTelefono() {
+function AjustesAndroid() {
+  return (
+    <>
+      <div>
+        <p className="text-[12.5px] font-medium text-neutral-700">
+          Tono propio y volumen (con la app instalada)
+        </p>
+        <ol className="text-[12.5px] text-neutral-500 list-decimal pl-5 space-y-1 mt-1">
+          <li>Ajustes del teléfono → Aplicaciones → <span className="font-medium text-neutral-700">VAPSS</span> → Notificaciones.</li>
+          <li>Entra en la categoría de avisos que aparezca.</li>
+          <li>Comportamiento: pon <span className="font-medium text-neutral-700">Urgente</span> («mostrar en pantalla y hacer sonido»).</li>
+          <li>Sonido: elige el tono que quieras, el mismo de WhatsApp si te vale.</li>
+          <li>Si quieres que suene también en «No molestar», activa la excepción ahí mismo.</li>
+        </ol>
+      </div>
+      <div>
+        <p className="text-[12.5px] font-medium text-neutral-700">Para que no lleguen tarde</p>
+        <p className="text-[12.5px] text-neutral-500 mt-1">
+          Ajustes → Aplicaciones → VAPSS → Batería → <span className="font-medium text-neutral-700">Sin restricciones</span>.
+          Con la batería optimizada, Android retrasa los avisos hasta que se despierta el teléfono.
+        </p>
+      </div>
+      <p className="text-[12px] text-neutral-400">
+        Sin la app instalada en la pantalla de inicio, los avisos salen bajo Chrome
+        (Ajustes → Chrome → Notificaciones → Sitios) y comparten tono con el resto de webs.
+      </p>
+    </>
+  );
+}
+
+function AjustesIPhone() {
+  return (
+    <>
+      <div>
+        <p className="text-[12.5px] font-medium text-neutral-700">Que suene y se vea</p>
+        <ol className="text-[12.5px] text-neutral-500 list-decimal pl-5 space-y-1 mt-1">
+          <li>Ajustes → Notificaciones → <span className="font-medium text-neutral-700">VAPSS</span>.</li>
+          <li>Activa <span className="font-medium text-neutral-700">Sonidos</span> y <span className="font-medium text-neutral-700">Globos</span>.</li>
+          <li>Marca Pantalla bloqueada, Centro de notificaciones y Tiras.</li>
+          <li>Estilo de tira: <span className="font-medium text-neutral-700">Persistente</span>, para que no se vaya sola.</li>
+        </ol>
+      </div>
+      <div>
+        <p className="text-[12.5px] font-medium text-neutral-700">Para que no lleguen tarde</p>
+        <ul className="text-[12.5px] text-neutral-500 list-disc pl-5 space-y-1 mt-1">
+          <li>
+            Ajustes → Notificaciones → <span className="font-medium text-neutral-700">Resumen programado</span>:
+            quita VAPSS de la lista. El resumen guarda los avisos y los entrega todos juntos más tarde.
+          </li>
+          <li>
+            Ajustes → Modos de concentración: añade VAPSS a las apps permitidas del modo que uses,
+            o no sonará mientras esté puesto.
+          </li>
+          <li>El modo de bajo consumo también retrasa los avisos.</li>
+        </ul>
+      </div>
+      <div>
+        <p className="text-[12.5px] font-medium text-neutral-700">Volumen</p>
+        <p className="text-[12.5px] text-neutral-500 mt-1">
+          En iPhone el volumen del aviso es el del timbre: Ajustes → Sonidos y vibraciones →
+          sube «Sonido del timbre y de los avisos». Comprueba también el interruptor de silencio
+          del lateral.
+        </p>
+      </div>
+      <p className="text-[12px] text-neutral-400">
+        En iPhone no se puede poner un tono propio: iOS usa siempre el sonido de aviso del sistema
+        para las apps web. Y si borras el icono de la pantalla de inicio y lo vuelves a añadir,
+        hay que pulsar «Activar avisos» otra vez.
+      </p>
+    </>
+  );
+}
+
+function AjustesDelTelefono({ ios }) {
   return (
     <details className="border-t border-neutral-200 pt-3 mt-1">
       <summary className="text-[13px] font-medium text-neutral-700 cursor-pointer">
         ¿Suena demasiado flojo o llega tarde?
       </summary>
       <div className="mt-2 space-y-3">
-        <div>
-          <p className="text-[12.5px] font-medium text-neutral-700">
-            Tono propio y volumen (Android, con la app instalada)
-          </p>
-          <ol className="text-[12.5px] text-neutral-500 list-decimal pl-5 space-y-1 mt-1">
-            <li>Ajustes del teléfono → Aplicaciones → <span className="font-medium text-neutral-700">VAPSS</span> → Notificaciones.</li>
-            <li>Entra en la categoría de avisos que aparezca.</li>
-            <li>Comportamiento: pon <span className="font-medium text-neutral-700">Urgente</span> («mostrar en pantalla y hacer sonido»).</li>
-            <li>Sonido: elige el tono que quieras, el mismo de WhatsApp si te vale.</li>
-            <li>Si quieres que suene también en «No molestar», activa la excepción ahí mismo.</li>
-          </ol>
-        </div>
-        <div>
-          <p className="text-[12.5px] font-medium text-neutral-700">Para que no lleguen tarde</p>
-          <p className="text-[12.5px] text-neutral-500 mt-1">
-            Ajustes → Aplicaciones → VAPSS → Batería → <span className="font-medium text-neutral-700">Sin restricciones</span>.
-            Con la batería optimizada, Android retrasa los avisos hasta que se despierta el teléfono.
-          </p>
-        </div>
-        <p className="text-[12px] text-neutral-400">
-          Sin la app instalada en la pantalla de inicio, los avisos salen bajo Chrome
-          (Ajustes → Chrome → Notificaciones → Sitios) y comparten tono con el resto de webs.
-        </p>
+        {ios ? <AjustesIPhone /> : <AjustesAndroid />}
       </div>
     </details>
   );
@@ -215,7 +271,7 @@ export default function AvisosPush() {
               Desactivar
             </button>
           </div>
-          <AjustesDelTelefono />
+          <AjustesDelTelefono ios={esIOS()} />
         </div>
       )}
 
