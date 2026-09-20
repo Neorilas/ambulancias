@@ -792,6 +792,27 @@ const MIGRATIONS = [
 
   // ----------------------------------------------------------
   {
+    name: 'v21_material_usado',
+    description: 'Material consumido durante el servicio, que el responsable anota al cerrar',
+    async run() {
+      // La columna es NULL-able aunque el dato sea OBLIGATORIO al cerrar, y no
+      // es una contradicción: lo obligatorio es el MOMENTO del cierre, no la
+      // fila. Una asignación programada o activa todavía no tiene material que
+      // declarar, y las que se cerraron antes de esta migración nunca lo
+      // pidieron. Un NOT NULL DEFAULT '' convertiría «no se preguntó» y «no se
+      // gastó nada» en el mismo valor, que es justo lo que este campo existe
+      // para distinguir: por eso el vacío se rechaza en el controlador y ahí
+      // se exige escribir «Sin gasto de material».
+      await ensureColumn('asignaciones_libres', 'material_usado',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN material_usado TEXT NULL DEFAULT NULL
+             COMMENT 'Material consumido en el servicio; obligatorio al finalizar'
+             AFTER motivo_fin`);
+    },
+  },
+
+  // ----------------------------------------------------------
+  {
     name: 'v22_rol_tes_conductor',
     description: 'Rol tes_conductor (personal de campo que conduce la ambulancia)',
     async run() {

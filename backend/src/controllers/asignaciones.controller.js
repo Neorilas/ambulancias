@@ -420,12 +420,25 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, 'No se puede finalizar una asignación cancelada', 400);
     }
 
-    const { km_fin, motivo_fin } = req.body;
+    const { km_fin, motivo_fin, material_usado } = req.body;
 
     // Si es anticipada (ahora < fecha_fin), el motivo es obligatorio
     const esAnticipada = ahora() < new Date(asig.fecha_fin);
     if (esAnticipada && (!motivo_fin || !motivo_fin.trim())) {
       return error(res, 'motivo_fin es obligatorio cuando la finalización es anticipada', 400);
+    }
+
+    // El material gastado se exige SIEMPRE, y no se acepta en blanco. Un campo
+    // vacío no distingue «no gastó nada» de «no lo rellenó», y ese es
+    // justamente el dato: por eso el mensaje dice qué escribir cuando no hubo
+    // gasto en vez de limitarse a decir que falta.
+    const material = typeof material_usado === 'string' ? material_usado.trim() : '';
+    if (!material) {
+      return error(
+        res,
+        'material_usado es obligatorio: indica el material utilizado o escribe "Sin gasto de material"',
+        400
+      );
     }
 
     // Validar que km_fin >= km_inicio (si se proporcionan ambos)
@@ -459,10 +472,11 @@ async function finalizarAsignacion(req, res, next) {
            estado         = 'finalizada',
            km_fin         = ?,
            motivo_fin     = ?,
+           material_usado = ?,
            finalizado_por = ?,
            finalizado_at  = ?
          WHERE id = ?`,
-        [km_fin ?? null, motivo_fin || null, req.user.id, ahora(), asig.id]
+        [km_fin ?? null, motivo_fin || null, material, req.user.id, ahora(), asig.id]
       );
 
       // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
@@ -491,7 +505,7 @@ async function finalizarAsignacion(req, res, next) {
       userInfo: req.user.username,
       action:   'finalize_asignacion',
       entityType: 'asignacion', entityId: asig.id,
-      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: motivo_fin || null },
+      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: motivo_fin || null, material_usado: material },
       ip: req.ip,
     });
     const updated = await getAsignacionCompleta(asig.id);

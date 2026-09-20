@@ -464,6 +464,7 @@ async function getVehicleHistorial(req, res, next) {
         al.estado                   AS asig_estado,
         al.km_inicio                AS asig_km_inicio,
         al.km_fin                   AS asig_km_fin,
+        al.material_usado           AS asig_material_usado,
         al.user_id                  AS asig_responsable_id,
         CONCAT(au.nombre,' ',au.apellidos) AS asig_responsable_nombre,
         u.id                        AS uploader_id,
@@ -500,6 +501,7 @@ async function getVehicleHistorial(req, res, next) {
           estado:              row.trabajo_estado,
           km_inicio:           row.trabajo_km_inicio,
           km_fin:              row.trabajo_km_fin,
+          material_usado:      null,
           responsable_nombre:  row.trabajo_responsable_nombre,
           responsable_user_id: row.trabajo_responsable_id,
         };
@@ -516,6 +518,7 @@ async function getVehicleHistorial(req, res, next) {
           estado:              row.asig_estado,
           km_inicio:           row.asig_km_inicio,
           km_fin:              row.asig_km_fin,
+          material_usado:      row.asig_material_usado,
           responsable_nombre:  row.asig_responsable_nombre,
           responsable_user_id: row.asig_responsable_id,
         };
@@ -532,6 +535,7 @@ async function getVehicleHistorial(req, res, next) {
           estado:              null,
           km_inicio:           null,
           km_fin:              null,
+          material_usado:      null,
           responsable_nombre:  null,
           responsable_user_id: null,
         };

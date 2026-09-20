@@ -81,6 +81,10 @@ router.post('/:id/finalizar',
     param('id').isInt({ min: 1 }),
     body('km_fin').optional({ nullable: true }).isInt({ min: 0 }),
     body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+    // Aquí solo se acota el tamaño: que sea obligatorio lo decide el
+    // controlador, para poder devolver el mensaje que explica qué escribir
+    // cuando no se ha gastado material.
+    body('material_usado').optional({ nullable: true }).isString().isLength({ max: 2000 }),
   ],
   handleValidation,
   ctrl.finalizarAsignacion

@@ -42,6 +42,12 @@
 - Foto **lateral derecha**.
 - Foto **lateral izquierda**.
 
+### ➡️ Material utilizado (texto libre, obligatorio)
+- Qué se ha gastado durante el servicio.
+- **Si no se ha gastado nada hay que escribirlo igual** («Sin gasto de material»).
+  Es el único modo de distinguir un servicio sin consumo de uno que nadie
+  rellenó: un campo en blanco no dice ninguna de las dos cosas.
+
 ### ➡️ Finalización del servicio.
 
 ---
@@ -54,7 +60,7 @@ La funcionalidad ya existe como **"asignaciones libres"** (`asignaciones_libres`
 - Estados: `programada → activa → finalizada / cancelada`.
 - `POST /asignaciones/:id/activar` — pone `estado='activa'`. **No guarda una hora de inicio real**: la hora sale de `fecha_inicio` (programada). También hay auto-activación por cron al llegar `fecha_inicio`.
 - `POST /asignaciones/:id/evidencias` — sube 1 foto (`tipo_imagen` + `momento` = `inicio`|`fin`).
-- `POST /asignaciones/:id/finalizar` — exige km_fin, motivo si es anticipada, y **todas** las fotos de inicio y fin completas.
+- `POST /asignaciones/:id/finalizar` — exige km_fin, motivo si es anticipada, **material utilizado** (siempre, sin blancos) y **todas** las fotos de inicio y fin completas.
 - `POST /asignaciones/:id/incidencias` — **solo admin/gestor** (`requirePermission(MANAGE_INCIDENCIAS)`). El técnico **no** puede registrar incidencias hoy.
 
 **Fotos obligatorias hoy** (`backend/src/config/constants.js`, `frontend/src/utils/constants.js`):
@@ -104,7 +110,8 @@ La funcionalidad ya existe como **"asignaciones libres"** (`asignaciones_libres`
   2. **Revisión mecánica** — aceite, líquidos, cuadro (`cuentakilometros` añadido al set de inicio → 7 fotos).
   3. **Estado exterior** — 4 caras, orden libre.
   4. **Incidencias** — "No hay incidencias" / reportar: fotos (momento `general`, tipo `danos`) + observaciones → crea incidencia real (Q5).
-- ⏳ **Pendiente:** menú de secciones adicionales (material, etc.) que definirá el cliente; checklist con checks OK-por-defecto (Q4); ajustar el flujo de cierre a la nueva estructura.
+- ✅ **Cierre — material utilizado:** `FinalizacionAsignacion.jsx` añade un paso `material` (texto libre **obligatorio**) justo antes de confirmar, y `POST /asignaciones/:id/finalizar` rechaza el cierre sin él. Columna `asignaciones_libres.material_usado` (v21).
+- ⏳ **Pendiente:** menú de secciones adicionales del wizard de INICIO que definirá el cliente; checklist con checks OK-por-defecto (Q4); ajustar el flujo de cierre a la nueva estructura.
 
 > **Nota de arquitectura:** el wizard se construyó sobre `const SECCIONES = [...]`. Añadir una sección nueva (p. ej. "material") es agregar una entrada con `tipo: 'photos'` (o un nuevo `tipo`) sin tocar el resto del flujo.
 

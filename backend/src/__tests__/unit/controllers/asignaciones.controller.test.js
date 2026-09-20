@@ -413,7 +413,7 @@ describe('asignaciones.controller', () => {
       mockAsignacionCompleta({ estado: 'finalizada' });
 
       const req = mockReq({
-        params: { id: '1' }, body: { km_fin: 50100 },
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' },
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       });
       const res = mockRes();
@@ -434,7 +434,7 @@ describe('asignaciones.controller', () => {
       mockAsignacionCompleta({ estado: 'finalizada' });
 
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: { km_fin: 50100 },
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: '2 mascarillas' },
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), mockRes(), mockNext());
 
@@ -460,7 +460,7 @@ describe('asignaciones.controller', () => {
 
       const res = mockRes();
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: {},   // sin km_fin
+        params: { id: '1' }, body: { material_usado: 'Sin gasto de material' },   // sin km_fin
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), res, mockNext());
 
@@ -521,10 +521,52 @@ describe('asignaciones.controller', () => {
       mockAsignacionCompleta({ estado: 'activa', user_id: 2, km_inicio: 50000, fecha_fin: new Date(Date.now() - 3600000) });
       const res = mockRes();
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: { km_fin: 49000 }, // less than km_inicio
+        params: { id: '1' }, body: { km_fin: 49000, material_usado: 'Sin gasto de material' }, // less than km_inicio
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('rechaza el cierre sin material utilizado', async () => {
+      // El campo es obligatorio SIEMPRE, no solo en los cierres anticipados:
+      // «no se gastó nada» es un dato que hay que escribir, no un silencio.
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() - 3600000) });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100 },   // sin material_usado
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('Sin gasto de material');
+    });
+
+    it('rechaza el material en blanco', async () => {
+      // Un textarea con espacios no es una declaración de material.
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() - 3600000) });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: '   ' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('guarda el material utilizado, ya recortado', async () => {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() - 3600000) });
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { material_usado: '  1 collarin cervical  ' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
+      expect(upd[0]).toContain('material_usado = ?');
+      expect(upd[1]).toContain('1 collarin cervical');
     });
 
     it('returns 400 when evidence not complete', async () => {
@@ -534,7 +576,7 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([[]]); // empty getProgreso
       const res = mockRes();
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: { km_fin: 50100 },
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' },
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
@@ -911,7 +953,7 @@ describe('asignaciones.controller', () => {
 
         const res = mockRes();
         await finalizarAsignacion(mockReq({
-          params: { id: '4' }, body: { km_fin: 50100 }, user: TECNICO,
+          params: { id: '4' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TECNICO,
         }), res, mockNext());
 
         expect(res.status).toHaveBeenCalledWith(200);

@@ -231,6 +231,31 @@ describe('runMigrations', () => {
     expect(sql).toContain('INSERT IGNORE');
   });
 
+  it('v21 añade material_usado como columna NULL-able', async () => {
+    // NULL-able a propósito: lo obligatorio es el momento del cierre, no la
+    // fila. Las asignaciones abiertas y las que se cerraron antes de esta
+    // migración no tienen material que declarar, y un NOT NULL DEFAULT ''
+    // confundiría «no se preguntó» con «no se gastó nada».
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v20_feature_flota') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toContain('v21_material_usado');
+
+    const sql = ejecutadas.find(q => q.includes('ADD COLUMN material_usado'));
+    expect(sql).toBeDefined();
+    expect(sql).toContain('TEXT NULL DEFAULT NULL');
+  });
+
+  it('v21 no repite el ALTER si la columna ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v20_feature_flota'),
+      columnas:  ['asignaciones_libres.material_usado'],
+    });
+    await runMigrations();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN material_usado'))).toBe(false);
+  });
+
   it('no resiembra role_permissions si ya tiene filas', async () => {
     const { ejecutadas } = mockDb({ permisosSembrados: 12 });
     await runMigrations();

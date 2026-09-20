@@ -16,7 +16,8 @@ import {
  *   1. exterior — 4 caras del vehículo (orden libre)
  *   2. km       — foto del cuadro + kilómetros finales
  *   3. motivo   — solo si la finalización es anticipada
- *   4. confirm  — resumen y envío
+ *   4. material — material gastado en el servicio (obligatorio)
+ *   5. confirm  — resumen y envío
  *
  * Al confirmar sube las fotos de fin (momento='fin') y llama a /finalizar.
  *
@@ -30,6 +31,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
   const [kmFin,  setKmFin]  = useState('');
   const [motivo, setMotivo] = useState('');
+  const [material, setMaterial] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
   // Fotos ya subidas, guardadas por File. Si el cierre falla a mitad (red mala,
@@ -59,6 +61,8 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         subtitulo: 'Foto del cuadro y kilómetros finales' },
     ];
     if (isAnticipada) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
+    base.push({ id: 'material', tipo: 'material', titulo: 'Material utilizado',
+      subtitulo: 'Qué se ha gastado durante el servicio' });
     base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
     return base;
   }, [isAnticipada]);
@@ -117,6 +121,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       await asignacionesService.finalizar(asignacion.id, {
         km_fin:     kmFin !== '' ? parseInt(kmFin) : null,
         motivo_fin: motivo || null,
+        material_usado: material.trim(),
       });
       notify.success('Servicio finalizado correctamente');
       onDone?.();
@@ -287,6 +292,40 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     );
   }
 
+  // ── Sección: material utilizado ─────────────────────────────
+  // Obligatoria siempre. El texto libre es a propósito: el material de una
+  // ambulancia no cabe en una lista cerrada, y lo que se busca es que quede
+  // por escrito qué se gastó en ESTE servicio. Por eso se pide también cuando
+  // no se gastó nada — «Sin gasto de material» dice que se revisó; un campo en
+  // blanco no dice nada.
+  if (seccion.tipo === 'material') {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <div className="card bg-primary-50 border border-primary-200">
+          <p className="text-sm text-primary-800">
+            Anota el material que has utilizado durante el servicio.
+            <strong className="block mt-1">
+              Si no has utilizado nada, escribe «Sin gasto de material».
+            </strong>
+          </p>
+        </div>
+        <div>
+          <label className="label">Material utilizado <span className="text-bad-500">*</span></label>
+          <textarea
+            className="input resize-none" rows={5}
+            placeholder="Ej.: 2 mascarillas, 1 vía periférica, 500 ml suero fisiológico — o «Sin gasto de material»"
+            value={material} onChange={e => setMaterial(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
+          <button onClick={() => setStep(step + 1)} disabled={!material.trim()} className="btn-primary flex-1">Siguiente →</button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Sección: confirmar ──────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -315,10 +354,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             <p className="text-neutral-700 italic">{motivo}</p>
           </div>
         )}
+        <div>
+          <span className="text-neutral-500 block mb-1">Material utilizado</span>
+          <p className="text-neutral-700 whitespace-pre-line">{material.trim() || '—'}</p>
+        </div>
       </div>
       <div className="flex gap-3">
         <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
-        <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading}>
+        <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading || !material.trim()}>
           {uploading ? 'Enviando…' : 'Finalizar servicio'}
         </button>
       </div>
