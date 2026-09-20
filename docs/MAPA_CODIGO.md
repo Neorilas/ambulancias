@@ -1,5 +1,11 @@
 # Mapa del código
 
+> **Este fichero se lee ANTES de tocar nada y se actualiza DESPUÉS.**
+> Todo cambio de lógica o de funcionalidad tiene que quedar reflejado aquí
+> en el mismo commit que lo introduce. Un mapa desactualizado es peor que no
+> tenerlo: manda a buscar al sitio equivocado y se confunde con la verdad.
+> La regla, en `docs/README.md`.
+
 Índice de «dónde está cada cosa y cómo se conecta». Se consulta **antes** de
 buscar en el repo y se actualiza **con cada cambio** que mueva, cree, borre o
 reconecte algo (ver §11). Si algo de aquí no coincide con el código, manda el
@@ -215,6 +221,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
+| `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
 | `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
@@ -314,6 +321,7 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`) y el cron de `server.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso |
+| Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
 
 ## 9. Entornos y despliegue
@@ -351,8 +359,27 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 
 ## 11. Mantenimiento de este mapa
 
-Actualizar **en el mismo commit** que el cambio cuando se: añada/borre/mueva un
-fichero relevante; añada un endpoint, ruta de frontend, tabla, migración,
-feature flag, permiso o rol; cambie qué servicio usa una página; o cambie un
-flujo de §8. Al final de cada tarea, repasar las secciones afectadas y la fecha
-de «última revisión».
+La regla está en `docs/README.md` → «Regla de documentación»: **todo cambio de
+lógica o de funcionalidad se documenta aquí, en el mismo commit que lo
+introduce**. Se lee antes de tocar nada y se actualiza después.
+
+Actualizar cuando se: añada/borre/mueva un fichero relevante; añada un endpoint,
+ruta de frontend, tabla, migración, feature flag, permiso o rol; cambie qué
+servicio usa una página; cambie una regla de negocio, un criterio de
+autorización o un flujo de §8; o se tome una decisión de infraestructura o de
+despliegue.
+
+Y sobre todo, dejar escritos **los porqués y las trampas**: lo que no se deduce
+leyendo el código es justo lo que hace falta dentro de seis meses. Un cambio que
+arregla algo raro merece una línea diciendo qué era lo raro — por ejemplo, la
+urgencia de los avisos push (§2.5) es una línea de código y un párrafo de
+explicación, y el párrafo vale más.
+
+Si el cambio da para más de un par de párrafos, va en su propio fichero de
+`docs/` y aquí queda el enlace desde la sección que corresponda.
+
+Al final de cada tarea, repasar las secciones afectadas y la fecha de
+«última revisión».
+
+Última revisión: **2026-09-20** (avisos push: urgencia de entrega, y los ajustes
+de Android/iPhone en el perfil).

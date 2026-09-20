@@ -4,6 +4,35 @@ Sistema interno PWA para gestión de servicios, flota y personal de una empresa 
 
 ---
 
+## Regla de documentación
+
+**Todo cambio de lógica o de funcionalidad se documenta en
+[`docs/MAPA_CODIGO.md`](MAPA_CODIGO.md), en el mismo commit que lo introduce.**
+
+El mapa es el índice de «dónde está cada cosa y cómo se conecta», y el flujo de
+trabajo es siempre el mismo:
+
+1. **Antes** de tocar nada: leerlo, para no buscar a ciegas ni duplicar algo que
+   ya existe.
+2. **Después** de cambiar algo: actualizarlo, en el mismo commit.
+
+Entra en el mapa cualquier cosa que mueva, cree, borre o reconecte piezas: una
+ruta o endpoint nuevo, un cambio de reglas de negocio o de permisos, una
+migración, una decisión de infraestructura o de despliegue, y sobre todo **los
+porqués y las trampas** — lo que no se deduce leyendo el código. No entra el
+detalle de implementación que el propio fichero ya cuenta.
+
+Un mapa desactualizado es peor que no tener ninguno: manda a buscar al sitio
+equivocado y se le cree. Si el mapa y el código discrepan, **manda el código**:
+se corrige el mapa.
+
+Cuando el cambio da para más de un par de párrafos (un plan, una auditoría, un
+rediseño), va en su propio fichero dentro de `docs/` y el mapa lo **enlaza**
+desde la sección que corresponda, para que siga habiendo un solo sitio por el
+que empezar a tirar del hilo.
+
+---
+
 ## Arquitectura
 
 ```
