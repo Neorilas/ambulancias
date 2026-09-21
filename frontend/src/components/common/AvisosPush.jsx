@@ -59,11 +59,21 @@ function AjustesAndroid() {
         </ol>
       </div>
       <div>
-        <p className="text-[12.5px] font-medium text-neutral-700">Para que no lleguen tarde</p>
-        <p className="text-[12.5px] text-neutral-500 mt-1">
-          Ajustes → Aplicaciones → VAPSS → Batería → <span className="font-medium text-neutral-700">Sin restricciones</span>.
-          Con la batería optimizada, Android retrasa los avisos hasta que se despierta el teléfono.
+        <p className="text-[12.5px] font-medium text-neutral-700">
+          Si solo llegan al abrir la app
         </p>
+        <p className="text-[12.5px] text-neutral-500 mt-1">
+          El aviso no lo recibe el icono de VAPSS sino <span className="font-medium text-neutral-700">Chrome</span>,
+          aunque tengas la app instalada. Si Android tiene dormido a Chrome, el aviso espera hasta
+          que abres la app. Los ajustes van en Chrome:
+        </p>
+        <ol className="text-[12.5px] text-neutral-500 list-decimal pl-5 space-y-1 mt-1">
+          <li>Ajustes → Aplicaciones → <span className="font-medium text-neutral-700">Chrome</span> → Batería → <span className="font-medium text-neutral-700">Sin restricciones</span>. Lo mismo en VAPSS.</li>
+          <li>Chrome → Datos móviles: permite el <span className="font-medium text-neutral-700">uso en segundo plano</span>.</li>
+          <li>Samsung: Batería → Límites de uso en segundo plano → saca a Chrome de «Aplicaciones en suspensión» y de «en suspensión profunda».</li>
+          <li>Xiaomi, Redmi, Poco: en Chrome activa <span className="font-medium text-neutral-700">Inicio automático</span>. Huawei, Honor: Batería → Inicio de aplicaciones → Chrome en manual, todo activado.</li>
+          <li>No cierres Chrome deslizándolo desde las apps recientes: en muchas marcas eso lo detiene del todo y no vuelve a recibir avisos hasta que lo abres.</li>
+        </ol>
       </div>
       <p className="text-[12px] text-neutral-400">
         Sin la app instalada en la pantalla de inicio, los avisos salen bajo Chrome

@@ -177,8 +177,12 @@ dejarla igual que WhatsApp:
 2. Comportamiento: **Urgente** («mostrar en pantalla y hacer sonido»).
 3. Sonido: el tono que se quiera, incluido el de WhatsApp.
 4. Excepción de «No molestar», si se quiere que suene siempre.
-5. Ajustes → Aplicaciones → VAPSS → Batería → **Sin restricciones**, para que
-   Android no retrase la entrega.
+5. Ajustes → Aplicaciones → **Chrome** → Batería → **Sin restricciones** (y lo
+   mismo en VAPSS). Es Chrome, no la app instalada, quien recibe el push y
+   ejecuta el service worker: con Chrome dormido los avisos solo aparecen al
+   abrir la app. En Samsung, además, sacar a Chrome de las «aplicaciones en
+   suspensión»; en Xiaomi/Huawei, activarle el inicio automático; y no cerrar
+   Chrome deslizándolo desde recientes.
 
 Sin instalar, los avisos cuelgan de Chrome (Ajustes → Chrome → Notificaciones →
 Sitios) y comparten tono con todas las demás webs: ahí no hay nada que hacer.
