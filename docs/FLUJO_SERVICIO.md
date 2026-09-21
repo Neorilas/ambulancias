@@ -36,17 +36,18 @@
 - **No se puede cerrar el servicio simplemente cerrando la app.** El servicio queda "en curso" hasta completar los pasos finales.
 - Solo cuando se completen todas las comprobaciones de cierre aparece **"Finalizar servicio"**.
 
+### ➡️ Material utilizado (texto libre, obligatorio) — primer paso del cierre
+- Qué se ha gastado durante el servicio.
+- **Si no se ha gastado nada hay que escribirlo igual** («Sin gasto de material»).
+  Es el único modo de distinguir un servicio sin consumo de uno que nadie
+  rellenó: un campo en blanco no dice ninguna de las dos cosas.
+- Va **antes** de las fotos de fin (decisión de negocio, 2026-09-22).
+
 ### ➡️ Estado exterior del vehículo al finalizar (fotos en cualquier orden)
 - Foto **frontal**.
 - Foto **trasera**.
 - Foto **lateral derecha**.
 - Foto **lateral izquierda**.
-
-### ➡️ Material utilizado (texto libre, obligatorio)
-- Qué se ha gastado durante el servicio.
-- **Si no se ha gastado nada hay que escribirlo igual** («Sin gasto de material»).
-  Es el único modo de distinguir un servicio sin consumo de uno que nadie
-  rellenó: un campo en blanco no dice ninguna de las dos cosas.
 
 ### ➡️ Finalización del servicio.
 
@@ -110,7 +111,7 @@ La funcionalidad ya existe como **"asignaciones libres"** (`asignaciones_libres`
   2. **Revisión mecánica** — aceite, líquidos, cuadro (`cuentakilometros` añadido al set de inicio → 7 fotos).
   3. **Estado exterior** — 4 caras, orden libre.
   4. **Incidencias** — "No hay incidencias" / reportar: fotos (momento `general`, tipo `danos`) + observaciones → crea incidencia real (Q5).
-- ✅ **Cierre — material utilizado:** `FinalizacionAsignacion.jsx` añade un paso `material` (texto libre **obligatorio**) justo antes de confirmar, y `POST /asignaciones/:id/finalizar` rechaza el cierre sin él. Columna `asignaciones_libres.material_usado` (v21).
+- ✅ **Cierre — material utilizado:** `FinalizacionAsignacion.jsx` abre con un paso `material` (texto libre **obligatorio**), antes de las fotos de fin, y `POST /asignaciones/:id/finalizar` rechaza el cierre sin él. Columna `asignaciones_libres.material_usado` (v21).
 - ⏳ **Pendiente:** menú de secciones adicionales del wizard de INICIO que definirá el cliente; checklist con checks OK-por-defecto (Q4); ajustar el flujo de cierre a la nueva estructura.
 
 > **Nota de arquitectura:** el wizard se construyó sobre `const SECCIONES = [...]`. Añadir una sección nueva (p. ej. "material") es agregar una entrada con `tipo: 'photos'` (o un nuevo `tipo`) sin tocar el resto del flujo.
