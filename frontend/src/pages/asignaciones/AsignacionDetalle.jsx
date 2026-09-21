@@ -334,14 +334,23 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Fin</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_fin)}</p>
               </div>
-              {asig.inicio_real_at && (
-                <div>
-                  <p className="text-neutral-400 text-xs mb-0.5">Inicio real de servicio</p>
-                  <p className="text-neutral-900">{formatDateTime(asig.inicio_real_at)}</p>
-                </div>
+              {/* Las dos horas reales van en pareja, debajo de las previstas, para
+                  que se lean en columna. `finalizado_at` lo sella el cierre del
+                  técnico; sin él había que deducir la hora de las fotos de fin. */}
+              {(asig.inicio_real_at || asig.finalizado_at) && (
+                <>
+                  <div>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio real de servicio</p>
+                    <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin real de servicio</p>
+                    <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
+                  </div>
+                </>
               )}
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Km inicio</p>
