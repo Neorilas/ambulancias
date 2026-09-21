@@ -7,6 +7,7 @@ import { formatDateTime } from '../../utils/dateUtils.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
 import AsignacionForm from './AsignacionForm.jsx';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
+import { resumenNombres } from '../../utils/miembrosAsignacion.js';
 
 const ESTADOS = ['', 'programada', 'activa', 'finalizada', 'cancelada'];
 
@@ -122,8 +123,16 @@ export default function AsignacionList() {
                         <p className="text-xs text-neutral-500 data">{a.matricula}</p>
                       </td>
                       <td>
-                        <p className="text-sm text-neutral-700">{a.responsable_nombre}</p>
-                        <p className="text-xs text-neutral-400">@{a.responsable_username}</p>
+                        <p className="text-sm text-neutral-700" title={a.responsables_nombres || undefined}>
+                          {resumenNombres(a.responsables_nombres) || a.responsable_nombre}
+                        </p>
+                        {a.personal_nombres ? (
+                          <p className="text-xs text-neutral-400" title={a.personal_nombres}>
+                            + personal: {resumenNombres(a.personal_nombres)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-neutral-400">@{a.responsable_username}</p>
+                        )}
                       </td>
                       <td className="text-sm text-neutral-600 whitespace-nowrap">{formatDateTime(a.fecha_inicio)}</td>
                       <td className="text-sm text-neutral-600 whitespace-nowrap">{formatDateTime(a.fecha_fin)}</td>

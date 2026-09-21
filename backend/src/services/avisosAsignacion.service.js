@@ -47,7 +47,15 @@ function etiquetaVehiculo(asig) {
 
 /** Nombre del técnico responsable, tal y como se pinta en la app. */
 function etiquetaResponsable(asig) {
-  return asig?.responsable_nombre || asig?.responsable_username || 'Sin responsable';
+  // Una asignación puede tener varios responsables (v23): se nombran todos,
+  // porque el aviso no sabe cuál de ellos ha pulsado el botón.
+  const nombres = Array.isArray(asig?.responsables) && asig.responsables.length
+    ? asig.responsables.map(r => [r.nombre, r.apellidos].filter(Boolean).join(' ') || r.username)
+    : null;
+  if (nombres) return nombres.length === 1 ? nombres[0]
+    : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+  return asig?.responsables_nombres || asig?.responsable_nombre
+      || asig?.responsable_username || 'Sin responsable';
 }
 
 /**

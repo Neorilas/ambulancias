@@ -13,6 +13,7 @@ import {
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
+import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
 
 const TIPO_INC_OPTS = [
   ['dano_exterior', 'Daño exterior'],
@@ -281,7 +282,11 @@ export default function AsignacionDetalle({ id, onClose }) {
 
   const incidencias = asig?.incidencias || [];
 
-  const soyResponsable = asig?.user_id === user?.id || canManageTrabajos();
+  // Iniciar y finalizar es de los responsables (o de quien gestiona). El
+  // personal ve la asignación pero no la mueve; el backend lo rechaza igual.
+  const miRol          = rolEnAsignacion(asig, user?.id);
+  const soyResponsable = miRol === 'responsable' || canManageTrabajos();
+  const soloPersonal   = miRol === 'personal' && !canManageTrabajos();
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
@@ -325,10 +330,26 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <p className="text-neutral-500 text-xs data">{asig.matricula}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Responsable</p>
-                <p className="font-medium text-neutral-900">{asig.responsable_nombre}</p>
-                <p className="text-neutral-500 text-xs">@{asig.responsable_username}</p>
+                <p className="text-neutral-400 text-xs mb-0.5">
+                  {(asig.responsables?.length || 0) > 1 ? 'Responsables' : 'Responsable'}
+                </p>
+                {(asig.responsables?.length ? asig.responsables : [{
+                  id: asig.user_id, nombre: asig.responsable_nombre, username: asig.responsable_username,
+                }]).map(r => (
+                  <div key={r.id}>
+                    <p className="font-medium text-neutral-900">{nombreMiembro(r)}</p>
+                    <p className="text-neutral-500 text-xs">@{r.username}</p>
+                  </div>
+                ))}
               </div>
+              {asig.personal?.length > 0 && (
+                <div className="col-span-2">
+                  <p className="text-neutral-400 text-xs mb-0.5">Personal</p>
+                  <p className="text-neutral-900">
+                    {asig.personal.map(nombreMiembro).join(', ')}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
@@ -379,6 +400,14 @@ export default function AsignacionDetalle({ id, onClose }) {
                 </div>
               )}
             </div>
+
+            {/* Quien va como personal ve la asignación, pero no la mueve */}
+            {soloPersonal && !finalizada && (
+              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
+                Vas como <strong>personal</strong> en esta asignación. Solo los
+                responsables pueden iniciarla, documentar el vehículo y finalizarla.
+              </div>
+            )}
 
             {/* Aviso persistente: falta inicio */}
             {puedeInicio && (

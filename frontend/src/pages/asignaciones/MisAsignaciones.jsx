@@ -6,10 +6,11 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
+import { resumenNombres } from '../../utils/miembrosAsignacion.js';
 
 export default function MisAsignaciones() {
   const { notify } = useNotification();
-  const { user }   = useAuth();
+  const { canManageTrabajos } = useAuth();
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [loading,      setLoading]      = useState(true);
@@ -18,7 +19,8 @@ export default function MisAsignaciones() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // El backend filtra por user_id automáticamente para operacionales
+      // El backend filtra para operacionales: las que llevan como responsable
+      // y aquellas en las que van como personal (`mi_rol` dice cuál)
       const resp = await asignacionesService.list({ limit: 50 });
       const activas = (resp.data || []).filter(a => a.estado !== 'finalizada' && a.estado !== 'cancelada');
       setAsignaciones(activas);
@@ -51,7 +53,7 @@ export default function MisAsignaciones() {
     <div className="space-y-4 animate-fade-in">
       <div>
         <h1 className="text-[19px] font-semibold text-neutral-900">Mis asignaciones</h1>
-        <p className="text-neutral-500 text-[13px] mt-0.5">Vehículos bajo tu responsabilidad</p>
+        <p className="text-neutral-500 text-[13px] mt-0.5">Vehículos que llevas o con los que vas</p>
       </div>
 
       {loading ? <PageLoading /> : asignaciones.length === 0 ? (
@@ -64,6 +66,8 @@ export default function MisAsignaciones() {
           {asignaciones.map(a => {
             const isActiva     = a.estado === 'activa';
             const isProgramada = a.estado === 'programada';
+            // El personal ve la asignación, pero no la inicia ni la finaliza
+            const esPersonal   = a.mi_rol === 'personal' && !canManageTrabajos();
 
             return (
               <div key={a.id} className="card pl-5">
@@ -76,7 +80,19 @@ export default function MisAsignaciones() {
                       <span className={ASIGNACION_ESTADO_COLORS[a.estado]}>
                         {ASIGNACION_ESTADO_LABELS[a.estado]}
                       </span>
+                      {esPersonal && <span className="badge-gray">Personal</span>}
                     </div>
+
+                    {(a.responsables_nombres || a.personal_nombres) && (
+                      <p className="text-[12.5px] text-neutral-500 mt-1.5">
+                        {resumenNombres(a.responsables_nombres) && (
+                          <>{a.responsables_nombres.includes(',') ? 'Responsables' : 'Responsable'}: <span className="text-neutral-700">{a.responsables_nombres}</span></>
+                        )}
+                        {a.personal_nombres && (
+                          <> · Personal: <span className="text-neutral-700">{a.personal_nombres}</span></>
+                        )}
+                      </p>
+                    )}
 
                     <div className="kv-row">
                       <span>
@@ -106,7 +122,7 @@ export default function MisAsignaciones() {
 
                   {/* Acciones: fila full-width en móvil, columna lateral en sm+ */}
                   <div className="flex flex-row sm:flex-col gap-2 sm:shrink-0">
-                    {isProgramada && (
+                    {isProgramada && !esPersonal && (
                       <button
                         onClick={() => handleActivar(a.id)}
                         className="btn-secondary flex-1 sm:flex-none"
@@ -118,7 +134,7 @@ export default function MisAsignaciones() {
                       onClick={() => setDetalleId(a.id)}
                       className="btn-primary flex-1 sm:flex-none"
                     >
-                      {isActiva ? 'Abrir jornada' : 'Abrir'}
+                      {esPersonal ? 'Ver' : isActiva ? 'Abrir jornada' : 'Abrir'}
                     </button>
                   </div>
                 </div>

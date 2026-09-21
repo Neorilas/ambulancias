@@ -619,4 +619,24 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     expect(ejecutadas.some(q =>
       q.includes('role_permissions') && q.includes('tes_conductor'))).toBe(false);
   });
+
+  it('v23 crea asignacion_usuarios con la persona unica por asignacion y rellena los responsables', async () => {
+    // La clave primaria (asignacion_id, user_id) es la que impide repetir a
+    // alguien, tambien como responsable y personal a la vez. Y el relleno
+    // conserva al usuario de cada asignacion existente como responsable.
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v22_rol_tes_conductor') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v23_asignacion_usuarios']);
+
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS asignacion_usuarios'));
+    expect(tabla).toContain('PRIMARY KEY (asignacion_id, user_id)');
+    expect(tabla).toContain("ENUM('responsable','personal')");
+    expect(tabla).toContain('ON DELETE CASCADE');
+
+    const relleno = ejecutadas.find(q => q.includes('INSERT IGNORE INTO asignacion_usuarios'));
+    expect(relleno).toContain("'responsable'");
+    expect(relleno).toContain('FROM asignaciones_libres');
+  });
 });

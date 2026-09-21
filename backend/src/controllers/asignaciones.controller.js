@@ -62,6 +62,21 @@ async function getAsignacionCompleta(id) {
 
   const asig = rows[0];
 
+  // Quién va en la asignación: responsables (activan, evidencian y cierran) y
+  // personal (solo la ven). Ver v23 en migrations.js.
+  const [miembros] = await query(
+    `SELECT au.user_id, au.rol, au.orden,
+            u.nombre, u.apellidos, u.username
+     FROM asignacion_usuarios au
+     JOIN users u ON au.user_id = u.id
+     WHERE au.asignacion_id = ?
+     ORDER BY au.orden ASC, au.created_at ASC`,
+    [id]
+  );
+  const persona = m => ({ id: m.user_id, nombre: m.nombre, apellidos: m.apellidos, username: m.username });
+  asig.responsables = (miembros || []).filter(m => m.rol === 'responsable').map(persona);
+  asig.personal     = (miembros || []).filter(m => m.rol === 'personal').map(persona);
+
   // Evidencias subidas
   const [evidencias] = await query(
     `SELECT id, tipo_imagen, momento, image_url, created_at AS uploaded_at
@@ -146,6 +161,121 @@ async function getAsignacionCompleta(id) {
 }
 
 // ============================================================
+// Helpers: quién va en la asignación
+// ============================================================
+
+/**
+ * Papel de un usuario en una asignación ya cargada con getAsignacionCompleta:
+ * 'responsable', 'personal' o null. Es la ÚNICA regla de acceso para quien no
+ * gestiona: ver pide ser miembro; activar, evidenciar y cerrar piden ser
+ * responsable.
+ */
+function rolEnAsignacion(asig, userId) {
+  const responsables = asig.responsables || [];
+  const personal     = asig.personal     || [];
+  if (responsables.some(r => r.id === userId)) return 'responsable';
+  if (personal.some(p => p.id === userId))     return 'personal';
+  // Red de seguridad: una fila sin miembros (no debería existir tras v23)
+  // sigue funcionando con el responsable principal.
+  if (!responsables.length && asig.user_id === userId) return 'responsable';
+  return null;
+}
+
+/** Lista de ids enteros de un campo del body, o undefined si no viene. */
+function idsDe(valor) {
+  if (valor === undefined || valor === null) return undefined;
+  const lista = Array.isArray(valor) ? valor : [valor];
+  return lista.map(v => Number(v));
+}
+
+/**
+ * Normaliza los miembros del body. Acepta el formato nuevo
+ * (`responsables: [ids]`, `personal: [ids]`) y el viejo (`user_id` suelto),
+ * que sigue mandando el frontend anterior hasta que se sube el nuevo: el
+ * frontend va en otro hosting y se sube a mano.
+ *
+ * @returns {{responsables?: number[], personal?: number[], error?: string}}
+ */
+function leerMiembros(body) {
+  const responsables = idsDe(body.responsables) ?? idsDe(body.user_id);
+  const personal     = idsDe(body.personal);
+
+  const todos = [...(responsables || []), ...(personal || [])];
+  if (todos.some(id => !Number.isInteger(id) || id < 1)) {
+    return { error: 'Los usuarios de la asignación deben ser ids válidos' };
+  }
+  if (responsables !== undefined && responsables.length === 0) {
+    return { error: 'La asignación necesita al menos un responsable' };
+  }
+  if (new Set(todos).size !== todos.length) {
+    return { error: 'La misma persona no puede figurar dos veces en la asignación' };
+  }
+  return { responsables, personal };
+}
+
+/**
+ * Comprueba que los ids existen y están activos. Devuelve los que no.
+ * `yaMiembros` se salta: quien ya iba en la asignación no bloquea una edición
+ * aunque desde entonces lo hayan dado de baja.
+ */
+async function usuariosNoValidos(ids, yaMiembros = []) {
+  const nuevos = ids.filter(id => !yaMiembros.includes(id));
+  if (!nuevos.length) return [];
+  const [rows] = await query(
+    `SELECT id FROM users
+     WHERE id IN (${nuevos.map(() => '?').join(',')})
+       AND deleted_at IS NULL AND activo = 1`,
+    nuevos
+  );
+  const ok = new Set(rows.map(r => r.id));
+  return nuevos.filter(id => !ok.has(id));
+}
+
+/** Reescribe los miembros de una asignación y sincroniza el responsable principal. */
+async function guardarMiembros(conn, asignacionId, responsables, personal) {
+  await conn.execute('DELETE FROM asignacion_usuarios WHERE asignacion_id = ?', [asignacionId]);
+  const filas = [
+    ...responsables.map((id, i) => [asignacionId, id, 'responsable', i]),
+    ...personal.map((id, i)     => [asignacionId, id, 'personal', i]),
+  ];
+  await conn.execute(
+    `INSERT INTO asignacion_usuarios (asignacion_id, user_id, rol, orden)
+     VALUES ${filas.map(() => '(?, ?, ?, ?)').join(', ')}`,
+    filas.flat()
+  );
+  // El principal (el primero) sigue en asignaciones_libres.user_id: lo leen
+  // flota, los avisos y el frontend anterior.
+  await conn.execute('UPDATE asignaciones_libres SET user_id = ? WHERE id = ?',
+    [responsables[0], asignacionId]);
+}
+
+/**
+ * Otras asignaciones abiertas de estas personas que se pisan en fechas con
+ * [inicio, fin). Es un AVISO: no bloquea el guardado, solo se devuelve para
+ * que quien asigna lo sepa.
+ */
+async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
+  if (!userIds.length) return [];
+  const [rows] = await query(
+    `SELECT au.user_id, CONCAT(u.nombre,' ',u.apellidos) AS nombre,
+            al.id AS asignacion_id, al.fecha_inicio, al.fecha_fin,
+            v.matricula, v.alias AS vehiculo_alias
+     FROM asignacion_usuarios au
+     JOIN asignaciones_libres al ON au.asignacion_id = al.id
+     JOIN users u                ON au.user_id = u.id
+     JOIN vehicles v             ON al.vehicle_id = v.id
+     WHERE au.user_id IN (${userIds.map(() => '?').join(',')})
+       AND al.id <> ?
+       AND al.deleted_at IS NULL
+       AND al.estado IN ('programada','activa')
+       AND al.fecha_inicio < ? AND al.fecha_fin > ?
+     ORDER BY al.fecha_inicio ASC`,
+    [...userIds, excluirId, new Date(fechaFin), new Date(fechaInicio)]
+  );
+  return rows || [];
+}
+
+// ============================================================
 // GET /asignaciones
 // ============================================================
 async function listAsignaciones(req, res, next) {
@@ -159,10 +289,14 @@ async function listAsignaciones(req, res, next) {
     const whereParts = ['al.deleted_at IS NULL'];
     const params     = [];
 
-    // Operacionales solo ven las suyas
+    // Operacionales solo ven aquellas en las que van, como responsable o
+    // como personal. `al.user_id` (el responsable principal) va de respaldo,
+    // igual que en rolEnAsignacion: una fila insertada sin miembros —el seed
+    // local lo hacía— no puede desaparecerle a su propio responsable.
     if (!canManage) {
-      whereParts.push('al.user_id = ?');
-      params.push(req.user.id);
+      whereParts.push(`(al.user_id = ? OR EXISTS (SELECT 1 FROM asignacion_usuarios au
+                               WHERE au.asignacion_id = al.id AND au.user_id = ?))`);
+      params.push(req.user.id, req.user.id);
     }
 
     if (estado) {
@@ -183,14 +317,22 @@ async function listAsignaciones(req, res, next) {
               al.estado, al.inicio_real_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               v.matricula, v.alias AS vehiculo_alias,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
-              u.username AS responsable_username
+              u.username AS responsable_username,
+              (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
+                WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres,
+              (SELECT GROUP_CONCAT(CONCAT(pu.nombre,' ',pu.apellidos) ORDER BY pa.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios pa JOIN users pu ON pa.user_id = pu.id
+                WHERE pa.asignacion_id = al.id AND pa.rol = 'personal') AS personal_nombres,
+              (SELECT ma.rol FROM asignacion_usuarios ma
+                WHERE ma.asignacion_id = al.id AND ma.user_id = ?) AS mi_rol
        FROM asignaciones_libres al
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
        ${where}
        ORDER BY al.fecha_inicio DESC
        LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      [req.user.id, ...params, limit, offset]
     );
 
     return paginated(res, { data: rows, total, page, limit });
@@ -209,8 +351,8 @@ async function getAsignacion(req, res, next) {
 
     if (!asig) return notFound(res, 'Asignación');
 
-    // Operacionales solo pueden ver las suyas
-    if (!canManage && asig.user_id !== req.user.id) {
+    // Operacionales solo ven aquellas en las que van (responsable o personal)
+    if (!canManage && !rolEnAsignacion(asig, req.user.id)) {
       return forbidden(res, 'No tienes acceso a esta asignación');
     }
 
@@ -225,38 +367,56 @@ async function getAsignacion(req, res, next) {
 // ============================================================
 async function createAsignacion(req, res, next) {
   try {
-    const { vehicle_id, user_id, fecha_inicio, fecha_fin, km_inicio, notas } = req.body;
+    const { vehicle_id, fecha_inicio, fecha_fin, km_inicio, notas } = req.body;
+
+    const miembros = leerMiembros(req.body);
+    if (miembros.error) return error(res, miembros.error, 400);
+    if (!miembros.responsables) return error(res, 'La asignación necesita al menos un responsable', 400);
+    const responsables = miembros.responsables;
+    const personal     = miembros.personal || [];
 
     // Validar que vehículo existe
     const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
     if (!veh.length) return notFound(res, 'Vehículo');
 
-    // Validar que usuario existe
-    const [usr] = await query('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL AND activo = 1', [user_id]);
-    if (!usr.length) return notFound(res, 'Usuario');
+    // Validar que los usuarios existen y están activos
+    if ((await usuariosNoValidos([...responsables, ...personal])).length) {
+      return notFound(res, 'Usuario');
+    }
 
     // Validar fechas
     if (new Date(fecha_fin) <= new Date(fecha_inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 
-    const [result] = await query(
-      `INSERT INTO asignaciones_libres
-         (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [vehicle_id, user_id, req.user.id, fecha_inicio, fecha_fin, km_inicio || null, notas || null]
-    );
+    const asignacionId = await transaction(async (conn) => {
+      const [result] = await conn.execute(
+        `INSERT INTO asignaciones_libres
+           (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [vehicle_id, responsables[0], req.user.id, fecha_inicio, fecha_fin, km_inicio || null, notas || null]
+      );
+      await guardarMiembros(conn, result.insertId, responsables, personal);
+      return result.insertId;
+    });
 
-    const asig = await getAsignacionCompleta(result.insertId);
+    const asig    = await getAsignacionCompleta(asignacionId);
+    const solapes = await buscarSolapes([...responsables, ...personal], fecha_inicio, fecha_fin, asignacionId);
+
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
       action:   'create_asignacion',
       entityType: 'asignacion', entityId: asig.id,
-      details:  { vehiculo: asig.matricula, responsable: asig.responsable_username },
+      details:  {
+        vehiculo:     asig.matricula,
+        responsable:  asig.responsable_username,
+        responsables: asig.responsables.map(r => r.username),
+        personal:     asig.personal.map(p => p.username),
+      },
       ip: req.ip,
     });
-    return created(res, asig, 'Asignación creada correctamente');
+    return created(res, { ...asig, solapes }, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
   }
@@ -274,16 +434,35 @@ async function updateAsignacion(req, res, next) {
       return error(res, `No se puede editar una asignación en estado "${asig.estado}"`, 400);
     }
 
-    const { vehicle_id, user_id, fecha_inicio, fecha_fin, km_inicio, notas, estado } = req.body;
+    const { vehicle_id, fecha_inicio, fecha_fin, km_inicio, notas, estado } = req.body;
+
+    const miembros = leerMiembros(req.body);
+    if (miembros.error) return error(res, miembros.error, 400);
+    const cambiaMiembros = miembros.responsables !== undefined || miembros.personal !== undefined;
+
+    // Lo que no venga se conserva. El frontend anterior manda `user_id` en
+    // TODO PUT, lo haya tocado o no: tomarlo como la lista completa recortaría
+    // a un solo responsable una asignación que tenga varios. Con el formato
+    // viejo solo se cambia el PRINCIPAL y el resto de responsables se queda.
+    const actualesResp = asig.responsables.map(r => r.id);
+    const actualesPers = asig.personal.map(p => p.id);
+    const formatoViejo = req.body.responsables === undefined && req.body.user_id !== undefined;
+    const responsables = formatoViejo
+      ? [miembros.responsables[0], ...actualesResp.slice(1).filter(id => id !== miembros.responsables[0])]
+      : (miembros.responsables ?? actualesResp);
+    const personal     = (miembros.personal ?? actualesPers).filter(id => !responsables.includes(id));
+    if (cambiaMiembros && !responsables.length) {
+      return error(res, 'La asignación necesita al menos un responsable', 400);
+    }
 
     // Validar solo si se cambian
     if (vehicle_id) {
       const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
       if (!veh.length) return notFound(res, 'Vehículo');
     }
-    if (user_id) {
-      const [usr] = await query('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL AND activo = 1', [user_id]);
-      if (!usr.length) return notFound(res, 'Usuario');
+    if (cambiaMiembros &&
+        (await usuariosNoValidos([...responsables, ...personal], [...actualesResp, ...actualesPers])).length) {
+      return notFound(res, 'Usuario');
     }
 
     // Solo pueden cambiar a programada/activa/cancelada mediante update
@@ -292,30 +471,48 @@ async function updateAsignacion(req, res, next) {
       return error(res, `estado inválido. Usa el endpoint /activar o /finalizar`, 400);
     }
 
-    await query(
-      `UPDATE asignaciones_libres SET
-         vehicle_id   = COALESCE(?, vehicle_id),
-         user_id      = COALESCE(?, user_id),
-         fecha_inicio = COALESCE(?, fecha_inicio),
-         fecha_fin    = COALESCE(?, fecha_fin),
-         km_inicio    = COALESCE(?, km_inicio),
-         notas        = COALESCE(?, notas),
-         estado       = COALESCE(?, estado)
-       WHERE id = ?`,
-      [
-        vehicle_id   || null,
-        user_id      || null,
-        fecha_inicio || null,
-        fecha_fin    || null,
-        km_inicio    !== undefined ? km_inicio : null,
-        notas        !== undefined ? notas : null,
-        estado       || null,
-        asig.id,
-      ]
-    );
+    await transaction(async (conn) => {
+      await conn.execute(
+        `UPDATE asignaciones_libres SET
+           vehicle_id   = COALESCE(?, vehicle_id),
+           fecha_inicio = COALESCE(?, fecha_inicio),
+           fecha_fin    = COALESCE(?, fecha_fin),
+           km_inicio    = COALESCE(?, km_inicio),
+           notas        = COALESCE(?, notas),
+           estado       = COALESCE(?, estado)
+         WHERE id = ?`,
+        [
+          vehicle_id   || null,
+          fecha_inicio || null,
+          fecha_fin    || null,
+          km_inicio    !== undefined ? km_inicio : null,
+          notas        !== undefined ? notas : null,
+          estado       || null,
+          asig.id,
+        ]
+      );
+      if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
+    });
 
     const updated = await getAsignacionCompleta(asig.id);
-    return success(res, updated, 'Asignación actualizada');
+    const solapes = await buscarSolapes(
+      [...responsables, ...personal], updated.fecha_inicio, updated.fecha_fin, asig.id);
+
+    if (cambiaMiembros) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'update_asignacion',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  {
+          vehiculo:     updated.matricula,
+          responsables: updated.responsables.map(r => r.username),
+          personal:     updated.personal.map(p => p.username),
+        },
+        ip: req.ip,
+      });
+    }
+    return success(res, { ...updated, solapes }, 'Asignación actualizada');
   } catch (err) {
     next(err);
   }
@@ -359,9 +556,9 @@ async function activarAsignacion(req, res, next) {
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    // Solo el responsable o admin/gestor pueden activar
-    if (!canManage && asig.user_id !== req.user.id) {
-      return forbidden(res, 'Solo el responsable puede iniciar esta asignación');
+    // Solo un responsable o admin/gestor pueden activar; el personal no
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+      return forbidden(res, 'Solo un responsable puede iniciar esta asignación');
     }
 
     // "Inicio de servicio": sella la hora real. Es idempotente y funciona
@@ -408,9 +605,9 @@ async function finalizarAsignacion(req, res, next) {
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    // Solo el responsable o admin/gestor pueden finalizar
-    if (!canManage && asig.user_id !== req.user.id) {
-      return forbidden(res, 'Solo el responsable puede finalizar esta asignación');
+    // Solo un responsable o admin/gestor pueden finalizar; el personal no
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+      return forbidden(res, 'Solo un responsable puede finalizar esta asignación');
     }
 
     if (asig.estado === 'finalizada') {
@@ -524,8 +721,8 @@ async function uploadEvidencia(req, res, next) {
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    // Solo el responsable o admin/gestor pueden subir evidencias
-    if (!canManage && asig.user_id !== req.user.id) {
+    // Solo un responsable o admin/gestor pueden subir evidencias; el personal no
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'No puedes subir evidencias de esta asignación');
     }
 
@@ -628,8 +825,9 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
 
     // El responsable de la asignación puede registrar incidencias en la suya;
     // admin/gestor (MANAGE_INCIDENCIAS) en cualquiera.
-    if (!canManage && asig.user_id !== req.user.id) {
-      return forbidden(res, 'Solo el responsable o un gestor pueden registrar incidencias en esta asignación');
+    // El personal acompañante NO registra incidencias: solo ve la asignación.
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+      return forbidden(res, 'Solo un responsable o un gestor pueden registrar incidencias en esta asignación');
     }
 
     const { tipo, gravedad, descripcion, responsable_user_id } = req.body;
@@ -637,10 +835,13 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
       return error(res, 'Descripción requerida', 400);
     }
 
-    // Por defecto la incidencia queda asignada al técnico responsable de la
-    // asignación; admin/gestor puede atribuírsela a otro empleado.
-    let responsableId       = asig.user_id;
-    let responsableUsername = asig.responsable_username;
+    // Por defecto la incidencia queda asignada al responsable de la
+    // asignación: a quien la registra si es uno de ellos (con varios
+    // responsables, el principal puede no tener nada que ver) y si no al
+    // principal. Admin/gestor puede atribuírsela a otro empleado.
+    const reportaResponsable = rolEnAsignacion(asig, req.user.id) === 'responsable';
+    let responsableId       = reportaResponsable ? req.user.id       : asig.user_id;
+    let responsableUsername = reportaResponsable ? req.user.username : asig.responsable_username;
     if (responsable_user_id !== undefined && responsable_user_id !== null) {
       if (!canManage) {
         return forbidden(res, 'Solo un gestor puede asignar la incidencia a otro empleado');
@@ -707,4 +908,6 @@ module.exports = {
   finalizarAsignacion,
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,
+  rolEnAsignacion,
+  leerMiembros,
 };
