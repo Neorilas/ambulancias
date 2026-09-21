@@ -5,6 +5,9 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
+import {
+  idsElegidos, usuariosDisponibles, miembrosIniciales, puedeAnadir, textoSolapes,
+} from '../../utils/miembrosAsignacion.js';
 
 // ── Combobox buscador de usuario ─────────────────────────────────────────────
 function UserCombobox({ users, value, onChange, error }) {
@@ -124,6 +127,49 @@ function UserCombobox({ users, value, onChange, error }) {
   );
 }
 
+// ── Lista de personas (responsables o personal) ─────────────────────────────
+// Una fila por persona, con «Añadir…» debajo. Cada combobox ofrece solo a
+// quien no esté ya en NINGUNA de las dos listas: la misma persona no puede
+// figurar dos veces (el backend lo rechaza igualmente).
+function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error }) {
+  const cambiar = (i, id) => onChange(lista.map((v, j) => (j === i ? id : v)));
+  const quitar  = i => onChange(lista.filter((_, j) => j !== i));
+  return (
+    <div className="space-y-2">
+      {lista.map((valor, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <div className="flex-1">
+            <UserCombobox
+              users={usuariosDisponibles(users, ocupados, valor)}
+              value={valor}
+              onChange={id => cambiar(i, id)}
+              error={error && !valor}
+            />
+          </div>
+          {lista.length > minimo && (
+            <button
+              type="button"
+              onClick={() => quitar(i)}
+              className="btn-ghost btn-sm text-neutral-500 shrink-0 mt-1"
+              aria-label="Quitar"
+            >
+              Quitar
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...lista, ''])}
+        disabled={!puedeAnadir(lista)}
+        className="btn-secondary btn-sm"
+      >
+        + {textoAnadir}
+      </button>
+    </div>
+  );
+}
+
 // ── Formulario principal ──────────────────────────────────────────────────────
 export default function AsignacionForm({ asignacion, onSaved, onClose }) {
   const isEdit = !!asignacion;
@@ -136,7 +182,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
 
   const [form, setForm] = useState({
     vehicle_id:   asignacion?.vehicle_id   || '',
-    user_id:      asignacion?.user_id      || '',
+    ...miembrosIniciales(asignacion),
     fecha_inicio: asignacion ? toInputDatetime(asignacion.fecha_inicio) : '',
     fecha_fin:    asignacion ? toInputDatetime(asignacion.fecha_fin)    : '',
     km_inicio:    asignacion?.km_inicio    ?? '',
@@ -148,6 +194,20 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
     usersService.list({ limit: 300 }).then(r => setUsers(r.data || [])).catch(console.error);
   }, []);
 
+  // Desde el listado llega la fila, que no trae los ids de los miembros: se
+  // pide la asignación completa para rellenar las dos listas.
+  useEffect(() => {
+    if (!asignacion?.id || asignacion.responsables) return;
+    asignacionesService.get(asignacion.id)
+      .then(full => setForm(f => ({ ...f, ...miembrosIniciales(full) })))
+      .catch(console.error);
+  }, [asignacion]);
+
+  const setMiembros = campo => lista => {
+    setForm(f => ({ ...f, [campo]: lista }));
+    setErrors(prev => ({ ...prev, responsables: '' }));
+  };
+
   const set = field => e => {
     setForm(f => ({ ...f, [field]: e.target.value }));
     setErrors(prev => ({ ...prev, [field]: '' }));
@@ -156,7 +216,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
   const validate = () => {
     const errs = {};
     if (!form.vehicle_id)   errs.vehicle_id   = 'Selecciona un vehículo';
-    if (!form.user_id)      errs.user_id      = 'Selecciona un responsable';
+    if (!idsElegidos(form.responsables).length) errs.responsables = 'Selecciona al menos un responsable';
     if (!form.fecha_inicio) errs.fecha_inicio = 'Fecha inicio requerida';
     if (!form.fecha_fin)    errs.fecha_fin    = 'Fecha fin requerida';
     if (form.fecha_inicio && form.fecha_fin && new Date(form.fecha_fin) <= new Date(form.fecha_inicio)) {
@@ -173,19 +233,20 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
     try {
       const payload = {
         vehicle_id:   parseInt(form.vehicle_id),
-        user_id:      parseInt(form.user_id),
+        responsables: idsElegidos(form.responsables),
+        personal:     idsElegidos(form.personal),
         fecha_inicio: toUtcIso(form.fecha_inicio),
         fecha_fin:    toUtcIso(form.fecha_fin),
         km_inicio:    form.km_inicio !== '' ? parseInt(form.km_inicio) : null,
         notas:        form.notas || null,
       };
-      if (isEdit) {
-        await asignacionesService.update(asignacion.id, payload);
-        notify.success('Asignación actualizada');
-      } else {
-        await asignacionesService.create(payload);
-        notify.success('Asignación creada');
-      }
+      const guardada = isEdit
+        ? await asignacionesService.update(asignacion.id, payload)
+        : await asignacionesService.create(payload);
+      notify.success(isEdit ? 'Asignación actualizada' : 'Asignación creada');
+      // Solape de fechas con otra asignación: se avisa, no se bloquea.
+      const aviso = textoSolapes(guardada?.solapes);
+      if (aviso) notify.warning(aviso, 10000);
       onSaved();
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al guardar la asignación');
@@ -229,19 +290,36 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
           {errors.vehicle_id && <p className="field-error">{errors.vehicle_id}</p>}
         </div>
 
-        {/* Responsable — combobox buscable */}
+        {/* Responsables (1..N) — activan, documentan y cierran */}
         <div>
-          <label className="label">Responsable <span className="text-bad-500">*</span></label>
-          <UserCombobox
+          <label className="label">Responsables <span className="text-bad-500">*</span></label>
+          <ListaMiembros
             users={users}
-            value={form.user_id}
-            onChange={id => {
-              setForm(f => ({ ...f, user_id: id }));
-              setErrors(prev => ({ ...prev, user_id: '' }));
-            }}
-            error={!!errors.user_id}
+            lista={form.responsables}
+            ocupados={[...form.responsables, ...form.personal]}
+            onChange={setMiembros('responsables')}
+            minimo={1}
+            textoAnadir="Añadir otro responsable"
+            error={!!errors.responsables}
           />
-          {errors.user_id && <p className="field-error">{errors.user_id}</p>}
+          {errors.responsables && <p className="field-error">{errors.responsables}</p>}
+        </div>
+
+        {/* Personal (0..N) — va con el vehículo y ve la asignación, pero no
+            la inicia ni la finaliza. PROVISIONAL hasta Trabajos. */}
+        <div>
+          <label className="label">Personal (opcional)</label>
+          <p className="text-xs text-neutral-500 mb-2">
+            Ve la asignación, pero no puede iniciarla ni finalizarla.
+          </p>
+          <ListaMiembros
+            users={users}
+            lista={form.personal}
+            ocupados={[...form.responsables, ...form.personal]}
+            onChange={setMiembros('personal')}
+            minimo={0}
+            textoAnadir="Añadir personal"
+          />
         </div>
 
         {/* Fechas */}
@@ -287,7 +365,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
           <textarea
             className="input resize-none"
             rows={3}
-            placeholder="Observaciones o instrucciones para el responsable"
+            placeholder="Observaciones o instrucciones para quien va en la asignación"
             value={form.notas}
             onChange={set('notas')}
           />

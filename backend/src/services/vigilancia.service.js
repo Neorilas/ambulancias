@@ -55,7 +55,10 @@ async function revisarAsignacionesSinIniciar() {
     const [candidatas] = await query(
       `SELECT al.id, al.user_id,
               v.alias AS vehiculo_alias, v.matricula,
-              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
+              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
+              (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
+                WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
          FROM asignaciones_libres al
          JOIN vehicles v ON v.id = al.vehicle_id
          JOIN users u    ON u.id = al.user_id

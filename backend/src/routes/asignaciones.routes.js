@@ -13,6 +13,7 @@ const { requirePermission }     = require('../middleware/roles.middleware');
 const { handleValidation }      = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
+const { requireAsignacionEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
 
 const router = express.Router();
@@ -33,7 +34,15 @@ router.post('/',
   requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [
     body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
-    body('user_id').notEmpty().isInt({ min: 1 }).withMessage('user_id requerido'),
+    // Miembros: `responsables` (1..N) y `personal` (0..N). `user_id` suelto es
+    // el formato del frontend anterior y se sigue aceptando como un único
+    // responsable. Que haya al menos uno y que nadie se repita lo decide el
+    // controlador (leerMiembros), que es quien conoce los dos formatos.
+    body('user_id').optional().isInt({ min: 1 }),
+    body('responsables').optional().isArray({ min: 1, max: 20 }),
+    body('responsables.*').isInt({ min: 1 }),
+    body('personal').optional().isArray({ max: 30 }),
+    body('personal.*').isInt({ min: 1 }),
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida'),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida'),
     body('km_inicio').optional({ nullable: true }).isInt({ min: 0 }),
@@ -50,6 +59,10 @@ router.put('/:id',
     param('id').isInt({ min: 1 }),
     body('vehicle_id').optional().isInt({ min: 1 }),
     body('user_id').optional().isInt({ min: 1 }),
+    body('responsables').optional().isArray({ min: 1, max: 20 }),
+    body('responsables.*').isInt({ min: 1 }),
+    body('personal').optional().isArray({ max: 30 }),
+    body('personal.*').isInt({ min: 1 }),
     body('fecha_inicio').optional().isISO8601(),
     body('fecha_fin').optional().isISO8601(),
     body('km_inicio').optional({ nullable: true }).isInt({ min: 0 }),
@@ -68,7 +81,7 @@ router.delete('/:id',
   ctrl.deleteAsignacion
 );
 
-// POST /asignaciones/:id/activar
+// POST /asignaciones/:id/activar  (responsables o admin/gestor; el personal no)
 router.post('/:id/activar',
   [param('id').isInt({ min: 1 })],
   handleValidation,
@@ -91,7 +104,8 @@ router.post('/:id/finalizar',
 );
 
 // POST /asignaciones/:id/incidencias
-// El responsable puede registrar incidencias en su propia asignación;
+// Un responsable puede registrar incidencias en su propia asignación (el
+// personal acompañante no);
 // admin/gestor (MANAGE_INCIDENCIAS) en cualquiera. La autorización se
 // resuelve en el controlador.
 router.post('/:id/incidencias',
@@ -118,6 +132,8 @@ router.post('/:id/evidencias',
       .withMessage('momento debe ser "inicio", "fin" o "general"'),
   ],
   handleValidation,
+  // Antes de guardar la imagen: un rechazado no deja la foto huérfana en disco
+  requireAsignacionEvidenciaAccess,
   async (req, res, next) => {
     return processAndSave(`asignaciones/${req.params.id}`)(req, res, next);
   },

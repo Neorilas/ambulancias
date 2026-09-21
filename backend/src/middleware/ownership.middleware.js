@@ -25,7 +25,9 @@ const { PERMISSIONS } = require('../config/constants');
 /**
  * ¿Tiene este usuario el vehículo en la mano ahora mismo?
  * Vale tanto por un trabajo activo como por una asignación libre activa: son
- * las dos formas que tiene un operacional de llevar una ambulancia.
+ * las dos formas que tiene un operacional de llevar una ambulancia. En la
+ * asignación solo cuentan los RESPONSABLES: el personal que va con el vehículo
+ * la ve, pero no sube la evidencia de su estado.
  */
 async function tieneElVehiculoAsignado(userId, vehicleId) {
   const [rows] = await query(
@@ -38,10 +40,13 @@ async function tieneElVehiculoAsignado(userId, vehicleId) {
      UNION
      SELECT 1 AS ok
      FROM asignaciones_libres al
-     WHERE al.vehicle_id = ? AND al.user_id = ?
+     WHERE al.vehicle_id = ?
        AND al.estado IN ('programada', 'activa') AND al.deleted_at IS NULL
+       AND (al.user_id = ? OR EXISTS (
+             SELECT 1 FROM asignacion_usuarios au
+             WHERE au.asignacion_id = al.id AND au.user_id = ? AND au.rol = 'responsable'))
      LIMIT 1`,
-    [vehicleId, userId, vehicleId, userId]
+    [vehicleId, userId, vehicleId, userId, userId]
   );
   return rows.length > 0;
 }
@@ -102,8 +107,37 @@ async function requireTrabajoEvidenciaAccess(req, res, next) {
   }
 }
 
+/**
+ * POST /asignaciones/:id/evidencias — fotos de inicio/fin de una asignación.
+ * Pasa quien gestiona trabajos o un RESPONSABLE de esa asignación; el personal
+ * que va con el vehículo no (§6.1 del mapa). El controlador lo vuelve a
+ * comprobar, pero aquí va ANTES de processAndSave: sin esto la foto de un
+ * rechazado se escribía en disco y se quedaba huérfana tras el 403.
+ */
+async function requireAsignacionEvidenciaAccess(req, res, next) {
+  try {
+    if (hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS)) return next();
+
+    const [rows] = await query(
+      `SELECT 1 AS ok
+       FROM asignaciones_libres al
+       WHERE al.id = ? AND al.deleted_at IS NULL
+         AND (al.user_id = ? OR EXISTS (
+               SELECT 1 FROM asignacion_usuarios au
+               WHERE au.asignacion_id = al.id AND au.user_id = ? AND au.rol = 'responsable'))`,
+      [parseInt(req.params.id), req.user.id, req.user.id]
+    );
+    if (rows.length) return next();
+
+    return forbidden(res, 'No puedes subir evidencias de esta asignación');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   tieneElVehiculoAsignado,
+  requireAsignacionEvidenciaAccess,
   requireVehicleUploadAccess,
   requireTrabajoEvidenciaAccess,
 };

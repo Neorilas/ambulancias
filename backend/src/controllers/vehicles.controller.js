@@ -151,7 +151,11 @@ async function getVehicle(req, res, next) {
     );
     const [asigActiva] = await query(
       `SELECT al.id, al.fecha_inicio, al.fecha_fin, al.inicio_real_at,
-              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
+              -- Todos los responsables (v23), con el principal de respaldo
+              COALESCE((SELECT GROUP_CONCAT(CONCAT(mru.nombre,' ',mru.apellidos) ORDER BY mr.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios mr JOIN users mru ON mr.user_id = mru.id
+                WHERE mr.asignacion_id = al.id AND mr.rol = 'responsable'),
+                       CONCAT(u.nombre,' ',u.apellidos)) AS responsable_nombre
        FROM asignaciones_libres al
        JOIN users u ON al.user_id = u.id
        WHERE al.vehicle_id = ? AND al.deleted_at IS NULL AND al.estado = 'activa'
@@ -466,7 +470,14 @@ async function getVehicleHistorial(req, res, next) {
         al.km_fin                   AS asig_km_fin,
         al.material_usado           AS asig_material_usado,
         al.user_id                  AS asig_responsable_id,
-        CONCAT(au.nombre,' ',au.apellidos) AS asig_responsable_nombre,
+        -- Todos los responsables (v23) y el personal que fue con el vehículo
+        COALESCE((SELECT GROUP_CONCAT(CONCAT(mru.nombre,' ',mru.apellidos) ORDER BY mr.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios mr JOIN users mru ON mr.user_id = mru.id
+                WHERE mr.asignacion_id = al.id AND mr.rol = 'responsable'),
+                 CONCAT(au.nombre,' ',au.apellidos)) AS asig_responsable_nombre,
+        (SELECT GROUP_CONCAT(CONCAT(mpu.nombre,' ',mpu.apellidos) ORDER BY mp.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios mp JOIN users mpu ON mp.user_id = mpu.id
+                WHERE mp.asignacion_id = al.id AND mp.rol = 'personal') AS asig_personal_nombres,
         u.id                        AS uploader_id,
         u.nombre                    AS uploader_nombre,
         u.apellidos                 AS uploader_apellidos,
@@ -521,6 +532,7 @@ async function getVehicleHistorial(req, res, next) {
           material_usado:      row.asig_material_usado,
           responsable_nombre:  row.asig_responsable_nombre,
           responsable_user_id: row.asig_responsable_id,
+          personal_nombres:    row.asig_personal_nombres || null,
         };
       } else {
         key = 'sin_asignar';

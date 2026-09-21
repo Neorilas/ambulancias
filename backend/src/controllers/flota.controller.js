@@ -38,7 +38,11 @@ async function vehiculosConAsignacion() {
             al.fecha_inicio AS asignacion_inicio,
             al.fecha_fin    AS asignacion_fin,
             al.inicio_real_at,
-            CONCAT(u.nombre, ' ', u.apellidos) AS responsable_nombre
+            -- Todos los responsables (v23), con el principal de respaldo
+            COALESCE((SELECT GROUP_CONCAT(CONCAT(mru.nombre,' ',mru.apellidos) ORDER BY mr.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios mr JOIN users mru ON mr.user_id = mru.id
+                WHERE mr.asignacion_id = al.id AND mr.rol = 'responsable'),
+                     CONCAT(u.nombre, ' ', u.apellidos)) AS responsable_nombre
        FROM vehicles v
        LEFT JOIN asignaciones_libres al
               ON al.vehicle_id = v.id

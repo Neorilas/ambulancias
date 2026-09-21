@@ -179,6 +179,11 @@ function TrabajoCard({ trabajo }) {
                   {trabajo.responsable_nombre}
                 </span>
               )}
+              {trabajo.personal_nombres && (
+                <span className="text-xs text-neutral-400">
+                  + {trabajo.personal_nombres}
+                </span>
+              )}
             </div>
             <p className="text-xs text-neutral-500 mt-0.5">
               {trabajo.fecha_inicio ? formatDate(trabajo.fecha_inicio) : '—'}

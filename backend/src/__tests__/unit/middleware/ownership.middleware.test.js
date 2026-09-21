@@ -3,6 +3,7 @@
 const { query } = require('../../../config/database');
 const {
   tieneElVehiculoAsignado,
+  requireAsignacionEvidenciaAccess,
   requireVehicleUploadAccess,
   requireTrabajoEvidenciaAccess,
 } = require('../../../middleware/ownership.middleware');
@@ -21,9 +22,50 @@ describe('ownership.middleware', () => {
       await expect(tieneElVehiculoAsignado(20, 3)).resolves.toBe(true);
     });
 
+    it('en la asignación libre solo cuentan los responsables, no el personal', async () => {
+      query.mockResolvedValueOnce([[]]);
+      await tieneElVehiculoAsignado(20, 3);
+      const sql = query.mock.calls[0][0];
+      expect(sql).toContain('FROM asignacion_usuarios au');
+      expect(sql).toContain("au.rol = 'responsable'");
+    });
+
     it('false cuando no hay ninguno', async () => {
       query.mockResolvedValueOnce([[]]);
       await expect(tieneElVehiculoAsignado(20, 3)).resolves.toBe(false);
+    });
+  });
+
+  describe('requireAsignacionEvidenciaAccess', () => {
+    it('deja pasar a quien gestiona sin consultar la BD', async () => {
+      const next = mockNext();
+      await requireAsignacionEvidenciaAccess(mockReq({ params: { id: '3' }, user: gestor }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith();
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('deja pasar a un responsable de la asignación', async () => {
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);
+      const next = mockNext();
+      await requireAsignacionEvidenciaAccess(mockReq({ params: { id: '3' }, user: tecnico }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith();
+      expect(query.mock.calls[0][0]).toContain("au.rol = 'responsable'");
+    });
+
+    it('403 al personal o a un ajeno, antes de guardar la foto', async () => {
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      const next = mockNext();
+      await requireAsignacionEvidenciaAccess(mockReq({ params: { id: '3' }, user: tecnico }), res, next);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('un error de BD va a next(err)', async () => {
+      query.mockRejectedValueOnce(new Error('db'));
+      const next = mockNext();
+      await requireAsignacionEvidenciaAccess(mockReq({ params: { id: '3' }, user: tecnico }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });
 

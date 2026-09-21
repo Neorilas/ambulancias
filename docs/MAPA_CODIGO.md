@@ -33,9 +33,9 @@ frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2�
 | `.claude/` | Comandos `/local`, `/verifica`, `/a-pro` y agente `probador-local` |
 | `scripts/deploy.sh`, `docker-compose*.yml` | Despliegue y entorno local |
 
-Dominio: **vehículos** (ambulancias) + **asignaciones libres** (un usuario
-responsable usa un vehículo entre dos fechas; evidencia fotográfica al inicio y
-al fin). **Trabajos** (vehículo(s)+usuarios para un servicio) existe pero está
+Dominio: **vehículos** (ambulancias) + **asignaciones libres** (1..N
+responsables usan un vehículo entre dos fechas, con 0..N personal que va con
+ellos; evidencia fotográfica al inicio y al fin). **Trabajos** (vehículo(s)+usuarios para un servicio) existe pero está
 oculto por feature flags (§7).
 
 ---
@@ -74,7 +74,10 @@ saber cuáles ha cambiado de verdad (§2.5).
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
-`getAsignacionCompleta`, `crearIncidenciaDesdeAsignacion`;
+`getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
+`rolEnAsignacion` (la regla de acceso de §6.1), `leerMiembros` (lee el body en
+formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
+`crearIncidenciaDesdeAsignacion`;
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 `generateIdentificador`, `getTrabajoCompleto`.
@@ -85,7 +88,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 |---|---|---|
 | `auth.middleware.js` | `authenticate` | Verifica JWT y **consulta permisos en BD en cada request** (no van en el token) |
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
-| `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess` | Quién puede subir fotos a qué |
+| `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. En asignaciones solo cuentan los **responsables**, nunca el personal. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
 | `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
 | `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
@@ -338,6 +341,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
+| `utils/miembrosAsignacion.js` | Responsables/personal en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
 | `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission` |
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
@@ -376,7 +380,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
-`asignaciones_libres.material_usado` (v21),
+`asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22).
 
@@ -384,7 +388,8 @@ Relaciones clave:
 
 ```
 users ─N:M─ roles (user_roles) ─N:M─ permissions (role_permissions)
-vehicles 1─N asignaciones_libres (user_id = responsable, created_by = admin)
+vehicles 1─N asignaciones_libres (user_id = responsable PRINCIPAL, created_by = admin)
+asignaciones_libres N:M users (asignacion_usuarios: rol responsable|personal, orden)
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
 vehicles 1─N vehicle_revisiones
@@ -396,6 +401,21 @@ Estados: asignación `programada → activa → finalizada | cancelada`; trabajo
 `programado → activo → finalizado | finalizado_anticipado`; incidencia
 `pendiente → en_revision → resuelto`. Borrado lógico con `deleted_at`.
 `vehicles.alias` es el titular visible; `matricula` es única.
+
+**`asignacion_usuarios` (v23) es quién va en la asignación**; `user_id` se
+conserva como responsable principal (el `orden` 0) y lo mantiene
+`guardarMiembros` en la misma transacción. Se conserva porque el frontend se
+sube a mano y durante un rato un frontend viejo habla con el backend nuevo
+mandando `user_id` suelto en TODO PUT (`leerMiembros` lo acepta; al crear es el
+único responsable y al editar **solo cambia el principal**: los demás
+responsables y el personal se conservan, o un formulario viejo recortaría la
+lista sin avisar), y porque flota, historial y
+avisos lo usan de respaldo. La PK `(asignacion_id, user_id)` impide que la
+misma persona figure dos veces, también como responsable y personal a la vez.
+**Trampa:** una fila de `asignaciones_libres` insertada a mano, sin sus
+miembros, solo la ve su `user_id` (el listado y `ownership` lo aceptan de
+respaldo). Le pasó a `scripts/seed-local.js`, que corre después de las
+migraciones y por tanto no recibe el relleno de v23: ahora lo repite él.
 
 **Ojo:** `schema.sql` está desincronizado (le faltan `asignaciones_libres` y
 otras). La fuente real es `schema.sql` + `migrations.js`.
@@ -412,7 +432,9 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v22_rol_tes_conductor**.
+Última migración: **v23_asignacion_usuarios**. (En alguna BD local puede
+aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
+y no existe en el código.)
 
 ---
 
@@ -445,6 +467,20 @@ En pantalla el nombre de BD no se pinta tal cual: `ROL_LABELS`/`labelRol()`
 (`frontend/utils/constants.js`) lo traducen («TES Conductor»), con respaldo al
 nombre crudo para los roles creados a mano. Lo usan `RolBadge` y `UserForm`.
 
+### 6.1 Quién hace qué en una asignación
+
+| Acción | Responsable | Personal | Gestión (`manage_trabajos`) |
+|---|---|---|---|
+| Verla (Mis asignaciones, detalle) | sí | **sí** | sí |
+| Activar / fotos de inicio / finalizar | sí (cualquiera de ellos) | **no** | sí |
+| Subir evidencias (`ownership` incluido) | sí | **no** | sí |
+| Registrar incidencia desde la asignación | sí (la incidencia queda a su nombre) | **no** | sí (`manage_incidencias`; atribuye al principal o a quien elija) |
+
+La regla vive en `rolEnAsignacion` (backend); el frontend solo esconde
+botones (`mi_rol` en el listado, `rolEnAsignacion` del util en el detalle).
+Que una persona se solape en fechas con otra asignación abierta **no se
+bloquea**: create/update devuelven `solapes` y el formulario pinta un aviso.
+
 ## 7. Feature flags
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.
@@ -453,6 +489,15 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
 `menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
 `menu_usuarios`, `menu_alertas` (encendidas); `menu_flota` (apagada, v20).
+
+**PENDIENTE — quitar el `personal` de las asignaciones cuando se active
+Trabajos.** El personal en asignaciones libres (rol `personal` de
+`asignacion_usuarios`, su bloque en `AsignacionForm`, la etiqueta en
+`MisAsignaciones`, el aviso en `AsignacionDetalle`) es provisional. El modelo
+bueno es Trabajo → vehículo(s) → personal: el responsable de cada vehículo
+activa el trabajo y evidencia el estado del vehículo, y todo el personal ve los
+detalles del trabajo. Al encender `menu_trabajos`, el personal se retira de las
+asignaciones.
 
 **`menu_flota` es la excepción a todo lo anterior y conviene no copiarla sin
 pensar.** Los demás flags solo deciden si una pantalla aparece en el menú, y
@@ -467,6 +512,7 @@ solo actúa en el navegador no es un control de acceso.
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
+| Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |

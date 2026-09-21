@@ -830,6 +830,49 @@ const MIGRATIONS = [
                            'TES Conductor. Ver sus asignaciones y subir la evidencia fotográfica del vehículo.')`);
     },
   },
+
+  // ----------------------------------------------------------
+  {
+    name: 'v23_asignacion_usuarios',
+    description: 'Varios responsables y personal acompañante por asignación',
+    async run() {
+      // Una asignación pasa de tener UN usuario (asignaciones_libres.user_id)
+      // a tener 1..N responsables y 0..N personal. Los responsables activan,
+      // evidencian y cierran; el personal solo VE la asignación.
+      //
+      // El UNIQUE es la regla «la misma persona no sale dos veces»: ni
+      // repetida como responsable ni a la vez responsable y personal. Se
+      // impone aquí y no solo en el formulario.
+      //
+      // `asignaciones_libres.user_id` se queda: es el responsable PRINCIPAL
+      // (el primero de la lista) y el controlador lo mantiene sincronizado.
+      // Hace falta mientras conviven un backend nuevo y un frontend viejo
+      // (el frontend se sube a mano, a otro hosting), y porque flota y los
+      // avisos lo usan para nombrar a alguien.
+      //
+      // PROVISIONAL: el `personal` se retira cuando exista Trabajos
+      // (trabajo → vehículos → personal). Ver MAPA_CODIGO.md §7.
+      await query(`CREATE TABLE IF NOT EXISTS asignacion_usuarios (
+        asignacion_id INT UNSIGNED NOT NULL,
+        user_id       INT UNSIGNED NOT NULL,
+        rol           ENUM('responsable','personal') NOT NULL,
+        orden         SMALLINT UNSIGNED NOT NULL DEFAULT 0
+                      COMMENT 'Orden dentro de su rol; el responsable 0 es el principal',
+        created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (asignacion_id, user_id),
+        INDEX idx_au_user (user_id),
+        CONSTRAINT fk_au_asignacion FOREIGN KEY (asignacion_id)
+          REFERENCES asignaciones_libres(id) ON DELETE CASCADE,
+        CONSTRAINT fk_au_user FOREIGN KEY (user_id)
+          REFERENCES users(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Relleno: cada asignación existente conserva a su usuario como único
+      // responsable. INSERT IGNORE para que un rearranque no duplique nada.
+      await query(`INSERT IGNORE INTO asignacion_usuarios (asignacion_id, user_id, rol, orden)
+                   SELECT id, user_id, 'responsable', 0 FROM asignaciones_libres`);
+    },
+  },
 ];
 
 // ============================================================

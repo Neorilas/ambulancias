@@ -181,6 +181,15 @@ async function main() {
       );
     }
 
+    // Quién va en cada asignación (v23). El seed corre DESPUÉS de las
+    // migraciones, así que el relleno de v23 no llega a estas filas: sin esto
+    // el técnico no vería la suya (el listado filtra por asignacion_usuarios).
+    // Mismo INSERT IGNORE que la migración: repetir el seed no duplica nada.
+    await conn.query(
+      `INSERT IGNORE INTO asignacion_usuarios (asignacion_id, user_id, rol, orden)
+       SELECT id, user_id, 'responsable', 0 FROM asignaciones_libres`
+    );
+
     // ── Resumen ─────────────────────────────────────────────────────────────
     const [[{ u }]] = await conn.query('SELECT COUNT(*) AS u FROM users WHERE deleted_at IS NULL');
     const [[{ v }]] = await conn.query('SELECT COUNT(*) AS v FROM vehicles WHERE deleted_at IS NULL');
