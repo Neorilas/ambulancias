@@ -13,11 +13,13 @@ import {
  * Wizard de CIERRE de servicio — coherente con el de inicio.
  *
  * Secciones (SECCIONES, extensible igual que en InicioAsignacion):
- *   1. exterior — 4 caras del vehículo (orden libre)
- *   2. km       — foto del cuadro + kilómetros finales
- *   3. motivo   — solo si la finalización es anticipada
- *   4. material — material gastado en el servicio (obligatorio)
+ *   1. material — material gastado en el servicio (obligatorio)
+ *   2. exterior — 4 caras del vehículo (orden libre)
+ *   3. km       — foto del cuadro + kilómetros finales
+ *   4. motivo   — solo si la finalización es anticipada
  *   5. confirm  — resumen y envío
+ *
+ * El material va primero, antes de las fotos de fin: decisión de negocio.
  *
  * Al confirmar sube las fotos de fin (momento='fin') y llama a /finalizar.
  *
@@ -55,14 +57,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   // ── Secciones (motivo condicional) ──────────────────────────
   const secciones = useMemo(() => {
     const base = [
+      { id: 'material', tipo: 'material', titulo: 'Material utilizado',
+        subtitulo: 'Qué se ha gastado durante el servicio' },
       { id: 'exterior', tipo: 'photos', titulo: 'Estado exterior',
         subtitulo: 'Las cuatro caras del vehículo (orden libre)', fotos: IMAGEN_TIPOS_FIN_EXTERIOR },
       { id: 'km', tipo: 'km', titulo: 'Kilometraje',
         subtitulo: 'Foto del cuadro y kilómetros finales' },
     ];
     if (isAnticipada) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
-    base.push({ id: 'material', tipo: 'material', titulo: 'Material utilizado',
-      subtitulo: 'Qué se ha gastado durante el servicio' });
     base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
     return base;
   }, [isAnticipada]);
@@ -165,6 +167,11 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     </div>
   );
 
+  // En el primer paso «volver» es salir del asistente; en los demás, retroceder.
+  const BotonVolver = () => step === 0
+    ? <button onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
+    : <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>;
+
   // ── Sección: fotos exteriores ───────────────────────────────
   if (seccion.tipo === 'photos') {
     const tipos = seccion.fotos;
@@ -213,7 +220,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           })}
         </div>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
+          <BotonVolver />
           <button onClick={() => setStep(step + 1)} disabled={!completa} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
@@ -319,7 +326,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           />
         </div>
         <div className="flex gap-3">
-          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
+          <BotonVolver />
           <button onClick={() => setStep(step + 1)} disabled={!material.trim()} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
