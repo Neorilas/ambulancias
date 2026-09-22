@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import Modal from '../../components/common/Modal.jsx';
+import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDate, sumarMeses, diasHasta, formatDiaCalendario }
   from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
+import { parseKm } from '../../utils/kmUtils.js';
 
 /**
  * Calcula la próxima fecha de ITV según normativa:
@@ -63,6 +65,9 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
+  // Payload pendiente de un «sí» del aviso de bajar el kilometraje; null =
+  // no hay ningún aviso abierto.
+  const [confirmKmPayload, setConfirmKmPayload] = useState(null);
   const [form,   setForm]   = useState({
     matricula:             vehicle?.matricula             || '',
     alias:                 vehicle?.alias                 || '',
@@ -89,29 +94,9 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = async (ev) => {
-    ev.preventDefault();
-    if (!validate()) return;
+  const guardar = async (payload) => {
     setSaving(true);
     try {
-      const payload = {
-        alias:                    form.alias.trim(),
-        matricula:                normalizarMatricula(form.matricula),
-        fecha_matriculacion:      form.fecha_matriculacion      || null,
-        fecha_itv:                form.fecha_itv                || null,
-        fecha_its:                form.fecha_its                || null,
-        fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
-        fecha_ultima_revision:    form.fecha_ultima_revision    || null,
-        fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
-      };
-
-      // Km en blanco es «no hay lectura», no «cero». Al editar, mandarlo como 0
-      // borraba el cuentakilómetros real del vehículo; omitido, el controlador
-      // deja el campo como estaba. Al crear, la columna ya entra a 0 por defecto.
-      if (form.kilometros_actuales !== '') {
-        payload.kilometros_actuales = parseInt(form.kilometros_actuales, 10);
-      }
-
       if (isEdit) await vehiclesService.update(vehicle.id, payload);
       else        await vehiclesService.create(payload);
 
@@ -121,7 +106,43 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
       notify.error(err.response?.data?.message || 'Error al guardar');
     } finally {
       setSaving(false);
+      setConfirmKmPayload(null);
     }
+  };
+
+  const handleSubmit = async (ev) => {
+    ev.preventDefault();
+    if (!validate()) return;
+
+    const payload = {
+      alias:                    form.alias.trim(),
+      matricula:                normalizarMatricula(form.matricula),
+      fecha_matriculacion:      form.fecha_matriculacion      || null,
+      fecha_itv:                form.fecha_itv                || null,
+      fecha_its:                form.fecha_its                || null,
+      fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
+      fecha_ultima_revision:    form.fecha_ultima_revision    || null,
+      fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
+    };
+
+    // Km en blanco es «no hay lectura», no «cero». Al editar, mandarlo como 0
+    // borraba el cuentakilómetros real del vehículo; omitido, el controlador
+    // deja el campo como estaba. Al crear, la columna ya entra a 0 por defecto.
+    if (form.kilometros_actuales !== '') {
+      payload.kilometros_actuales = parseKm(form.kilometros_actuales);
+    }
+
+    // Bajar el kilometraje solo se hace aquí, a propósito (corregir una
+    // lectura anterior mal anotada) — al cerrar un servicio se rechaza. Por
+    // ser tan poco frecuente y tan fácil de teclear mal, se avisa antes de
+    // guardar en vez de guardarlo sin más.
+    const bajaKm = isEdit
+      && payload.kilometros_actuales != null
+      && vehicle.kilometros_actuales != null
+      && payload.kilometros_actuales < vehicle.kilometros_actuales;
+    if (bajaKm) { setConfirmKmPayload(payload); return; }
+
+    await guardar(payload);
   };
 
   const proximaITV = calcProximaITV(form.fecha_matriculacion, form.fecha_itv);
@@ -131,6 +152,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
   const proximaTarjeta = form.fecha_tarjeta_transporte || null;
 
   return (
+    <>
     <Modal
       isOpen
       onClose={onClose}
@@ -295,5 +317,21 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
 
       </form>
     </Modal>
+
+    <ConfirmDialog
+      isOpen={!!confirmKmPayload}
+      onClose={() => setConfirmKmPayload(null)}
+      onConfirm={() => guardar(confirmKmPayload)}
+      title="Bajar el kilometraje"
+      message={
+        `Vas a dejar el kilometraje en ${confirmKmPayload?.kilometros_actuales?.toLocaleString() ?? ''} km, `
+        + `por debajo de los ${vehicle?.kilometros_actuales?.toLocaleString() ?? ''} km actuales. `
+        + '¿Seguro que quieres continuar?'
+      }
+      confirmText="Sí, bajar el kilometraje"
+      danger
+      loading={saving}
+    />
+    </>
   );
 }

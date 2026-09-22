@@ -651,6 +651,41 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
+    // El vehículo puede haber avanzado por otra asignación desde que empezó
+    // ésta: el mínimo real no es solo km_inicio, es también el km actual del
+    // vehículo. Bajarlo a propósito solo se puede desde la ficha del vehículo.
+    it('returns 400 when km_fin < vehiculo_km_actual, aunque supere km_inicio', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', user_id: 2, km_inicio: 40000, vehiculo_km_actual: 50000,
+        fecha_fin: new Date(Date.now() - 3600000),
+      });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 45000, material_usado: 'Sin gasto de material' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].message).toMatch(/km actuales del vehículo/);
+    });
+
+    it('permite finalizar con km_fin igual al km actual del vehículo', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', vehicle_id: 7, km_inicio: 40000, vehiculo_km_actual: 50000,
+        fecha_fin: new Date(Date.now() - 3600000),
+      });
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      query.mockResolvedValueOnce([]); // UPDATE vehicles
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50000, material_usado: 'Sin gasto de material' },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
     it('rechaza el cierre sin material utilizado', async () => {
       // El campo es obligatorio SIEMPRE, no solo en los cierres anticipados:
       // «no se gastó nada» es un dato que hay que escribir, no un silencio.

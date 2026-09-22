@@ -16,6 +16,7 @@ const { uploadLimiter }         = require('../middleware/rateLimiter.middleware'
 const { requireVehicleUploadAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS }          = require('../config/constants');
 const { esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
+const { limpiarMilesKm } = require('../utils/km.utils');
 
 const router = express.Router();
 router.use(authenticate);
@@ -69,7 +70,7 @@ router.post('/',
       .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
     body('alias').trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
-    body('kilometros_actuales').optional().isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
+    body('kilometros_actuales').optional().customSanitizer(limpiarMilesKm).isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
     body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
     body('fecha_its').optional({ nullable: true }).isISO8601().withMessage('Fecha ITS inválida'),
@@ -91,7 +92,7 @@ router.put('/:id',
       .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
     body('alias').optional().trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
-    body('kilometros_actuales').optional().isInt({ min: 0 }),
+    body('kilometros_actuales').optional().customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
     body('fecha_itv').optional({ nullable: true }).isISO8601(),
     body('fecha_its').optional({ nullable: true }).isISO8601(),

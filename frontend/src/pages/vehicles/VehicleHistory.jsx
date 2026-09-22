@@ -20,8 +20,10 @@ import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import Modal from '../../components/common/Modal.jsx';
+import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { formatDate, formatDateTime, formatDateTimeShort, toInputDate } from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
+import { parseKm } from '../../utils/kmUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
@@ -779,6 +781,10 @@ function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   );
 }
 
+// Lo que devuelve `guardar()` cuando queda a la espera de que se confirme
+// bajar el km, para no confundirlo con `false` (falló) ni `true` (guardó).
+const PENDIENTE_CONFIRMACION_KM = 'confirmar-km';
+
 // Campos que se editan desde el resumen. La lista se usa para saber si quedan
 // cambios sin guardar, así que tiene que ser exactamente la del formulario.
 const CAMPOS_FICHA = [
@@ -813,6 +819,9 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
   const [form,      setForm]      = useState(null);   // null = no se está editando
   const [errores,   setErrores]   = useState({});
   const [guardando, setGuardando] = useState(false);
+  // Payload pendiente de que el admin/gestor confirme que quiere bajar el
+  // kilometraje; null = no hay ningún aviso abierto.
+  const [confirmKm, setConfirmKm] = useState(null);
 
   const editando = form !== null;
   const original = vehicle ? formDesdeVehiculo(vehicle) : null;
@@ -828,7 +837,26 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
     setErrores(er => ({ ...er, [campo]: '' }));
   };
 
-  /** Devuelve true si se guardó; false si falló la validación o el servidor. */
+  const enviar = async (payload) => {
+    setGuardando(true);
+    try {
+      await vehiclesService.update(vehicle.id, payload);
+      notify.success('Vehículo actualizado');
+      setForm(null);
+      await recargarVehiculo();
+      return true;
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al guardar');
+      return false;
+    } finally {
+      setGuardando(false);
+      setConfirmKm(null);
+    }
+  };
+
+  /** Devuelve true si se guardó, false si falló la validación o el servidor,
+   *  o PENDIENTE_CONFIRMACION_KM si queda a la espera de que se confirme una
+   *  bajada de kilometraje (ni guardado ni fallado todavía). */
   const guardar = async () => {
     const e = {};
     if (!form.alias.trim())                e.alias     = 'Nombre requerido';
@@ -842,36 +870,42 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
       return false;
     }
 
-    setGuardando(true);
-    try {
-      const payload = {
-        alias:                    form.alias.trim(),
-        matricula:                normalizarMatricula(form.matricula),
-        fecha_matriculacion:      form.fecha_matriculacion      || null,
-        fecha_itv:                form.fecha_itv                || null,
-        fecha_its:                form.fecha_its                || null,
-        fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
-        fecha_ultima_revision:    form.fecha_ultima_revision    || null,
-        fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
-      };
-      // Km en blanco es «no hay lectura nueva», no «cero»: mandándolo como 0 el
-      // UPDATE borraba el cuentakilómetros real del vehículo. Si no se toca, el
-      // campo no viaja y el controlador lo deja como estaba.
-      if (form.kilometros_actuales !== '') {
-        payload.kilometros_actuales = parseInt(form.kilometros_actuales, 10);
-      }
-      await vehiclesService.update(vehicle.id, payload);
-      notify.success('Vehículo actualizado');
-      setForm(null);
-      await recargarVehiculo();
-      return true;
-    } catch (err) {
-      notify.error(err.response?.data?.message || 'Error al guardar');
-      return false;
-    } finally {
-      setGuardando(false);
+    const payload = {
+      alias:                    form.alias.trim(),
+      matricula:                normalizarMatricula(form.matricula),
+      fecha_matriculacion:      form.fecha_matriculacion      || null,
+      fecha_itv:                form.fecha_itv                || null,
+      fecha_its:                form.fecha_its                || null,
+      fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
+      fecha_ultima_revision:    form.fecha_ultima_revision    || null,
+      fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
+    };
+    // Km en blanco es «no hay lectura nueva», no «cero»: mandándolo como 0 el
+    // UPDATE borraba el cuentakilómetros real del vehículo. Si no se toca, el
+    // campo no viaja y el controlador lo deja como estaba.
+    if (form.kilometros_actuales !== '') {
+      payload.kilometros_actuales = parseKm(form.kilometros_actuales);
     }
+
+    // Bajar el kilometraje solo se hace aquí, a propósito (corregir una
+    // lectura anterior mal anotada) — al cerrar un servicio se rechaza. Se
+    // avisa antes de guardar en vez de aceptarlo sin más. Devuelve un
+    // sentinel distinto de `false` porque quien llama (p. ej.
+    // `guardarYSeguir`) necesita distinguir "quedó pendiente de confirmar"
+    // de "falló": leer `confirmKm` justo después de este `await` no sirve,
+    // porque el objeto `edicion` de ese closure es la foto de ANTES del
+    // `setConfirmKm` de aquí arriba — React no lo actualiza a mitad de este
+    // mismo evento.
+    const bajaKm = payload.kilometros_actuales != null
+      && vehicle.kilometros_actuales != null
+      && payload.kilometros_actuales < vehicle.kilometros_actuales;
+    if (bajaKm) { setConfirmKm(payload); return PENDIENTE_CONFIRMACION_KM; }
+
+    return enviar(payload);
   };
+
+  const confirmarBajadaKm = () => confirmKm && enviar(confirmKm);
+  const cancelarBajadaKm  = () => setConfirmKm(null);
 
   // El aviso de las pestañas no cubre recargar ni cerrar la pestaña del
   // navegador; para eso solo queda el diálogo nativo.
@@ -882,7 +916,10 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
     return () => window.removeEventListener('beforeunload', avisar);
   }, [sucio]);
 
-  return { form, editando, sucio, errores, guardando, abrir, descartar, guardar, set };
+  return {
+    form, editando, sucio, errores, guardando, abrir, descartar, guardar, set,
+    confirmKm, confirmarBajadaKm, cancelarBajadaKm,
+  };
 }
 
 function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, puedeVerMapa,
@@ -1228,8 +1265,16 @@ export default function VehicleHistory() {
   };
 
   const guardarYSeguir = async () => {
-    const guardado = await edicion.guardar();
-    if (!guardado) {
+    const resultado = await edicion.guardar();
+    // Bajar el km abre su propio aviso de confirmación en vez de guardar: no
+    // es un fallo, es una pregunta pendiente. Se deja `destino` tal cual
+    // para retomarlo cuando se confirme o se cancele — si se limpiara aquí,
+    // confirmar la bajada de km ya no llevaría a ningún sitio (ver
+    // `confirmarBajadaKmYSeguir`). Comparar con el sentinel, no con
+    // `edicion.confirmKm`: ese objeto es la foto de ANTES de este `await`,
+    // React no lo actualiza a mitad del mismo evento.
+    if (resultado === PENDIENTE_CONFIRMACION_KM) return;
+    if (!resultado) {
       // El aviso tapa el formulario: si no se cierra, los campos en rojo
       // quedan detrás y no hay forma de ver qué está mal.
       setDestino(null);
@@ -1245,6 +1290,17 @@ export default function VehicleHistory() {
     const dest = destino;
     setDestino(null);
     aplicarDestino(dest);
+  };
+
+  const confirmarBajadaKmYSeguir = async () => {
+    const guardado = await edicion.confirmarBajadaKm();
+    // Si esto venía del aviso de «cambios sin guardar» (destino pendiente),
+    // ahora sí se completa el viaje que se dejó a medias arriba.
+    if (guardado && destino) {
+      const dest = destino;
+      setDestino(null);
+      aplicarDestino(dest);
+    }
   };
 
   if (loading) return <PageLoading />;
@@ -1359,7 +1415,9 @@ export default function VehicleHistory() {
       )}
 
       {/* Aviso de cambios sin guardar. Cerrarlo (Escape o la ×) es seguir editando. */}
-      {destino && (
+      {/* Mientras el aviso de bajar km está abierto, este se oculta en vez de
+          cerrarse (destino se conserva): confirmar el km lo retoma. */}
+      {destino && !edicion.confirmKm && (
         <Modal
           isOpen
           onClose={() => setDestino(null)}
@@ -1384,6 +1442,21 @@ export default function VehicleHistory() {
           </p>
         </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={!!edicion.confirmKm}
+        onClose={edicion.cancelarBajadaKm}
+        onConfirm={confirmarBajadaKmYSeguir}
+        title="Bajar el kilometraje"
+        message={
+          `Vas a dejar el kilometraje en ${edicion.confirmKm?.kilometros_actuales?.toLocaleString() ?? ''} km, `
+          + `por debajo de los ${vehicle?.kilometros_actuales?.toLocaleString() ?? ''} km actuales. `
+          + '¿Seguro que quieres continuar?'
+        }
+        confirmText="Sí, bajar el kilometraje"
+        danger
+        loading={edicion.guardando}
+      />
     </div>
   );
 }

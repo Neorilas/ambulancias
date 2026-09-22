@@ -373,6 +373,70 @@ describe('VehicleHistory · edicion desde el resumen', () => {
   });
 });
 
+// Bajar el km desde «Guardar y continuar» (cambio de pestaña con ediciones
+// sin guardar) abre su propio aviso en vez de guardar sin más. Nació de un
+// bug real: leer el estado de ese aviso justo tras el `await` de guardar()
+// veía la foto de ANTES de abrirlo (React no la actualiza a mitad del mismo
+// evento), así que el destino de navegación se perdía en silencio aunque el
+// guardado funcionara.
+describe('VehicleHistory · bajar km desde «Guardar y continuar»', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesionConPermiso();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.update.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('pregunta antes de guardar y, al confirmar, guarda y completa el cambio de pestaña', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    const km = screen.getByDisplayValue('120000');
+    await user.clear(km);
+    await user.type(km, '100000');
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    await user.click(await screen.findByRole('button', { name: 'Guardar y continuar' }));
+
+    // El aviso de bajar km sustituye al de cambios sin guardar, no se apilan.
+    expect(await screen.findByText('Bajar el kilometraje')).toBeInTheDocument();
+    expect(screen.queryByText('Has modificado los datos del vehículo')).not.toBeInTheDocument();
+    expect(vehiclesService.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Sí, bajar el kilometraje' }));
+
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.update.mock.calls[0][1].kilometros_actuales).toBe(100000);
+    // El destino que quedó pendiente (Revisiones) se retoma tras confirmar.
+    expect(await screen.findByText('Sin revisiones registradas')).toBeInTheDocument();
+  });
+
+  it('cancelar el aviso de km vuelve a mostrar el de cambios sin guardar', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    const km = screen.getByDisplayValue('120000');
+    await user.clear(km);
+    await user.type(km, '100000');
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    await user.click(await screen.findByRole('button', { name: 'Guardar y continuar' }));
+    await screen.findByText('Bajar el kilometraje');
+
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(vehiclesService.update).not.toHaveBeenCalled();
+    expect(await screen.findByText('Cambios sin guardar')).toBeInTheDocument();
+  });
+});
+
 // Vaciar los kilometros y guardar mandaba `kilometros_actuales: 0`, que el
 // UPDATE escribia encima de la lectura real del cuentakilometros. Un campo en
 // blanco es «no hay lectura nueva»: no debe viajar.
