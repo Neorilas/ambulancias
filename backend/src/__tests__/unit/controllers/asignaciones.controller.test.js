@@ -43,7 +43,7 @@ function progresoCompletoRows() {
 // Helper: mock getAsignacionCompleta (main + miembros + evidencias + incidencias + getProgreso)
 // `miembros` (opcional) son las filas de asignacion_usuarios; por defecto el
 // user_id de la asignación como único responsable, que es lo que deja v23.
-function mockAsignacionCompleta({ miembros, ...overrides } = {}) {
+function mockAsignacionCompleta({ miembros, evidencias, incidencias, ...overrides } = {}) {
   const base = {
     id: 1, vehicle_id: 1, user_id: 2, estado: 'activa',
     fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
@@ -55,8 +55,12 @@ function mockAsignacionCompleta({ miembros, ...overrides } = {}) {
   };
   query.mockResolvedValueOnce([[base]]); // main query
   query.mockResolvedValueOnce([miembros || [{ user_id: base.user_id, rol: 'responsable', orden: 0 }]]);
-  query.mockResolvedValueOnce([[]]);     // evidencias
-  query.mockResolvedValueOnce([[]]);     // incidencias
+  query.mockResolvedValueOnce([evidencias || []]); // evidencias
+  query.mockResolvedValueOnce([incidencias || []]); // incidencias
+  // getAsignacionCompleta solo pide comentarios si hay incidencias.
+  if (incidencias && incidencias.length) {
+    query.mockResolvedValueOnce([[]]); // comentarios de esas incidencias
+  }
   query.mockResolvedValueOnce([[]]);     // getProgreso
 }
 
@@ -122,6 +126,39 @@ describe('asignaciones.controller', () => {
       await listAsignaciones(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(query.mock.calls[0][1]).toContain('activa');
+    });
+
+    // El orden es funcionalidad, no adorno: arriba la próxima a activarse,
+    // abajo las cerradas. Aquí solo se puede comprobar el SQL que sale, pero
+    // eso ya protege de que alguien vuelva a dejar un `fecha_inicio DESC`
+    // suelto y ponga el listado del revés sin enterarse.
+    it('orders by proximity to activation, with finalizada/cancelada last', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({
+        query: {}, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      await listAsignaciones(req, mockRes(), mockNext());
+
+      const sql = query.mock.calls[1][0].replace(/\s+/g, ' ');
+      // Las cerradas al final
+      expect(sql).toContain(
+        "ORDER BY CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC"
+      );
+      // Lo que está EN CURSO encabeza las abiertas. No sobra: activarAsignacion
+      // no mira el reloj, así que una activada antes de hora conserva su
+      // fecha_inicio futura y sin esto se hundía bajo las que no han empezado.
+      expect(sql).toContain("CASE WHEN al.estado = 'activa' THEN 0 ELSE 1 END ASC");
+      // Las abiertas, la más próxima primero
+      expect(sql).toContain(
+        "CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC"
+      );
+      // Entre las cerradas, la que se cerró más tarde primero (una cancelada
+      // no tiene finalizado_at: cae en fecha_fin)
+      expect(sql).toContain('COALESCE(al.finalizado_at, al.fecha_fin) DESC');
+      // Desempate estable para que la paginación no baile
+      expect(sql).toContain('al.id DESC');
     });
   });
 
@@ -314,16 +351,88 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('validates vehicle_id change', async () => {
-      mockAsignacionCompleta({ estado: 'activa' });
+    it('validates vehicle_id change while programada and without evidence', async () => {
+      mockAsignacionCompleta({ estado: 'programada', vehicle_id: 1 });
       query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
       query.mockResolvedValueOnce([]); // UPDATE
-      mockAsignacionCompleta({ estado: 'activa' });
+      mockAsignacionCompleta({ estado: 'programada', vehicle_id: 2 });
       query.mockResolvedValueOnce([[]]); // solapes
 
       const req = mockReq({
         params: { id: '1' },
         body: { vehicle_id: 2 },
+        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      const res = mockRes();
+      await updateAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    // Reasignar el vehículo una vez hay evidencia deja fotos del vehículo
+    // viejo "completando" la tanda del nuevo (getProgreso cuenta por
+    // asignación, no por vehículo) — así que el candado va por delante:
+    // solo mientras sigue programada y sin ni una foto subida.
+    it('blocks vehicle_id change once the asignación is activa', async () => {
+      mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
+      query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: 2 },
+        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      const res = mockRes();
+      await updateAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('blocks vehicle_id change when evidence already exists, even if programada', async () => {
+      mockAsignacionCompleta({
+        estado: 'programada', vehicle_id: 1,
+        evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio' }],
+      });
+      query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: 2 },
+        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      const res = mockRes();
+      await updateAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('blocks vehicle_id change when there is already an incidencia, even if programada and without photos', async () => {
+      mockAsignacionCompleta({
+        estado: 'programada', vehicle_id: 1,
+        incidencias: [{ id: 1, tipo: 'mecanico', gravedad: 'leve', descripcion: 'Ruido en el motor', estado: 'pendiente' }],
+      });
+      query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: 2 },
+        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      const res = mockRes();
+      await updateAsignacion(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('allows update without changing vehicle_id regardless of estado/evidence', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', vehicle_id: 1,
+        evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio' }],
+      });
+      query.mockResolvedValueOnce([[{ id: 1 }]]); // vehicle found (same id, still validated)
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
+      query.mockResolvedValueOnce([[]]); // solapes
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: 1, notas: 'sin cambiar vehículo' },
         user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
       });
       const res = mockRes();

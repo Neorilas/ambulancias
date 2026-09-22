@@ -278,6 +278,39 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
 // ============================================================
 // GET /asignaciones
 // ============================================================
+
+/**
+ * Orden del listado: arriba lo que toca ahora, abajo lo que ya no.
+ *
+ * 1. Las cerradas (finalizada/cancelada) van al final, siempre: ya no hay
+ *    nada que hacer con ellas.
+ * 2. Las `activa` encabezan las abiertas: son las que están pasando.
+ * 3. El resto por `fecha_inicio` ASC — la más próxima a activarse arriba del
+ *    todo y la que más queda, abajo.
+ * 4. Entre las cerradas, la que se cerró más tarde primero: ahí lo último que
+ *    pasó es lo que se viene a mirar. `finalizado_at` solo lo sella
+ *    `finalizarAsignacion`, así que una **cancelada** no lo tiene y cae en el
+ *    `fecha_fin` del COALESCE.
+ *
+ * El criterio 2 parece redundante —el cron activa cada asignación en cuanto
+ * llega su `fecha_inicio`, así que lo normal es que una `activa` ya tenga
+ * fecha pasada y suba sola— pero NO lo es: `activarAsignacion` no comprueba el
+ * reloj. Un responsable que pulsa «Inicio de servicio» antes de la hora deja
+ * una `activa` con `fecha_inicio` futura, y sin este criterio el servicio que
+ * está EN CURSO se hundía por debajo de las que aún no han empezado.
+ *
+ * El `CASE` del criterio 3 deja las cerradas a NULL para que empaten entre
+ * ellas y las desempate el 4. `al.id` cierra el orden: sin un criterio único,
+ * dos filas con la misma fecha pueden cambiar de sitio entre páginas y
+ * repetirse o perderse en la paginación.
+ */
+const ORDEN_LISTADO = `
+  CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC,
+  CASE WHEN al.estado = 'activa' THEN 0 ELSE 1 END ASC,
+  CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC,
+  COALESCE(al.finalizado_at, al.fecha_fin) DESC,
+  al.id DESC`;
+
 async function listAsignaciones(req, res, next) {
   try {
     const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
@@ -330,7 +363,7 @@ async function listAsignaciones(req, res, next) {
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
        ${where}
-       ORDER BY al.fecha_inicio DESC
+       ORDER BY ${ORDEN_LISTADO}
        LIMIT ? OFFSET ?`,
       [req.user.id, ...params, limit, offset]
     );
@@ -459,6 +492,22 @@ async function updateAsignacion(req, res, next) {
     if (vehicle_id) {
       const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
       if (!veh.length) return notFound(res, 'Vehículo');
+
+      // Reasignar el vehículo una vez hay evidencia (fotos o incidencias) es
+      // peligroso: tanto getProgreso como crearIncidenciaDesdeAsignacion
+      // graban/cuentan por asignación, no por vehículo, así que lo que ya se
+      // subió del vehículo anterior seguiría contando —o quedaría mal
+      // atribuido— para el nuevo. Se corta de raíz: solo se puede cambiar
+      // mientras sigue "programada" y no hay ni una foto ni una incidencia
+      // registrada todavía.
+      if (Number(vehicle_id) !== asig.vehicle_id) {
+        if (asig.estado !== 'programada') {
+          return error(res, 'El vehículo solo se puede cambiar mientras la asignación está "programada"', 400);
+        }
+        if (asig.evidencias.length || asig.incidencias.length) {
+          return error(res, 'No se puede cambiar el vehículo: ya hay evidencia o incidencias registradas en esta asignación', 400);
+        }
+      }
     }
     if (cambiaMiembros &&
         (await usuariosNoValidos([...responsables, ...personal], [...actualesResp, ...actualesPers])).length) {
