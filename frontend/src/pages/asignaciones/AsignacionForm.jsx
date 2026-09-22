@@ -170,6 +170,24 @@ function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, 
   );
 }
 
+// El vehículo solo se puede tocar mientras la asignación sigue "programada" y
+// no tiene ni una foto ni una incidencia registrada: en cuanto hay algo de
+// eso, reasignarlo lo deja mal atribuido (el backend corta lo mismo en
+// PUT /asignaciones/:id — esto solo evita el viaje al servidor para
+// enterarse).
+function motivoVehiculoBloqueado(asig) {
+  if (asig.estado !== 'programada') {
+    return 'El vehículo solo se puede cambiar mientras la asignación está "programada".';
+  }
+  if ((asig.evidencias || []).length) {
+    return 'No se puede cambiar el vehículo: ya hay evidencia fotográfica subida.';
+  }
+  if ((asig.incidencias || []).length) {
+    return 'No se puede cambiar el vehículo: ya hay incidencias registradas en esta asignación.';
+  }
+  return '';
+}
+
 // ── Formulario principal ──────────────────────────────────────────────────────
 export default function AsignacionForm({ asignacion, onSaved, onClose }) {
   const isEdit = !!asignacion;
@@ -179,6 +197,11 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
   const [users,    setUsers]    = useState([]);
   const [saving,   setSaving]   = useState(false);
   const [errors,   setErrors]   = useState({});
+  // Bloqueado por defecto en edición hasta saber estado+evidencias de verdad;
+  // en creación no aplica.
+  const [vehiculoBloqueado, setVehiculoBloqueado] = useState(
+    isEdit ? (motivoVehiculoBloqueado(asignacion) || 'Comprobando…') : ''
+  );
 
   const [form, setForm] = useState({
     vehicle_id:   asignacion?.vehicle_id   || '',
@@ -194,12 +217,20 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
     usersService.list({ limit: 300 }).then(r => setUsers(r.data || [])).catch(console.error);
   }, []);
 
-  // Desde el listado llega la fila, que no trae los ids de los miembros: se
-  // pide la asignación completa para rellenar las dos listas.
+  // Desde el listado llega la fila, que no trae ni los ids de los miembros ni
+  // las evidencias: se pide la asignación completa para rellenar las listas
+  // y para saber si el vehículo se puede tocar.
   useEffect(() => {
-    if (!asignacion?.id || asignacion.responsables) return;
+    if (!asignacion?.id) return;
+    if (asignacion.responsables && asignacion.evidencias !== undefined) {
+      setVehiculoBloqueado(motivoVehiculoBloqueado(asignacion));
+      return;
+    }
     asignacionesService.get(asignacion.id)
-      .then(full => setForm(f => ({ ...f, ...miembrosIniciales(full) })))
+      .then(full => {
+        if (!asignacion.responsables) setForm(f => ({ ...f, ...miembrosIniciales(full) }));
+        setVehiculoBloqueado(motivoVehiculoBloqueado(full));
+      })
       .catch(console.error);
   }, [asignacion]);
 
@@ -278,7 +309,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             className={`input ${errors.vehicle_id ? 'input-error' : ''}`}
             value={form.vehicle_id}
             onChange={set('vehicle_id')}
-            disabled={isEdit}
+            disabled={isEdit && !!vehiculoBloqueado}
           >
             <option value="">— Seleccionar vehículo —</option>
             {vehicles.map(v => (
@@ -288,6 +319,9 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             ))}
           </select>
           {errors.vehicle_id && <p className="field-error">{errors.vehicle_id}</p>}
+          {isEdit && vehiculoBloqueado && (
+            <p className="text-xs text-neutral-500 mt-1">{vehiculoBloqueado}</p>
+          )}
         </div>
 
         {/* Responsables (1..N) — activan, documentan y cierran */}

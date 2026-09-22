@@ -481,6 +481,41 @@ botones (`mi_rol` en el listado, `rolEnAsignacion` del util en el detalle).
 Que una persona se solape en fechas con otra asignación abierta **no se
 bloquea**: create/update devuelven `solapes` y el formulario pinta un aviso.
 
+**Editar una asignación (`programada` o `activa`) permite cambiar también los
+responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
+`responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
+que crear/borrar).
+
+**El vehículo, en cambio, solo se puede reasignar si la asignación sigue
+`programada` y no tiene ni una foto subida.** La trampa: `getProgreso`
+(§2.2) cuenta las evidencias por `asignacion_id`, no por vehículo, así que si
+se permitiera reasignar con fotos ya subidas, las del vehículo anterior
+seguirían dando por completada la tanda del nuevo sin haberlo fotografiado
+nunca — se podría cerrar el servicio sin evidencia real, que es justo lo que
+el producto existe para garantizar. Y no basta con mirar el estado: nada
+impide subir la foto de "inicio" con la asignación todavía `programada` (ni
+`uploadEvidencia` ni el aviso "Subir ahora" del detalle exigen `activa`), así
+que el candado comprueba **las dos cosas** — `updateAsignacion` corta el
+cambio de `vehicle_id` si `estado !== 'programada'` o si ya hay
+`evidencias`/`incidencias`. Se incluyen las incidencias porque
+`crearIncidenciaDesdeAsignacion` tiene la misma trampa: graba
+`vehicle_id = asig.vehicle_id` sin exigir `activa` y sin volver a tocarlo si
+luego se reasigna el vehículo — es el mismo bug que las fotos, pero en
+`vehicle_incidencias`. `AsignacionForm` repite la misma comprobación
+(`motivoVehiculoBloqueado`) solo para no hacer el viaje al servidor; quien
+manda es el backend.
+
+**Ventana estrecha sin cerrar, a propósito:** el candado se evalúa contra el
+`asig` leído al principio de `updateAsignacion`, fuera de la transacción del
+`UPDATE`. Si entre esa lectura y el `UPDATE` alguien sube una evidencia o una
+incidencia por otra petición, el cambio de vehículo la pasaría por alto. Exige
+que dos peticiones distintas lleguen casi al mismo milisegundo sobre la misma
+asignación programada — a diferencia del aviso de «sin iniciar» (§2.5), que
+sí necesita el guard dentro del `UPDATE` porque el cron reintenta cada minuto
+y la ventana se abre sesenta veces por hora. Aquí no hay reintento: se ha
+aceptado el riesgo en vez de meter un `SELECT ... FOR UPDATE` dentro de la
+transacción. Si se quiere cerrar del todo, es ahí donde iría.
+
 ## 7. Feature flags
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.
@@ -598,7 +633,5 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-20** (mapa de flota con Cartrack: §2.6, las tres
-trampas que destapó la sonda de fase 0, y el flag `menu_flota` que lo abre a
-los administradores — el primero que hace de control de acceso también en el
-backend).
+Última revisión: **2026-09-22** (§6.1: editar una asignación ya permite
+cambiar vehículo y responsables desde el formulario, no solo fechas/notas).

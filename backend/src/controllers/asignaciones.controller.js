@@ -459,6 +459,22 @@ async function updateAsignacion(req, res, next) {
     if (vehicle_id) {
       const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
       if (!veh.length) return notFound(res, 'Vehículo');
+
+      // Reasignar el vehículo una vez hay evidencia (fotos o incidencias) es
+      // peligroso: tanto getProgreso como crearIncidenciaDesdeAsignacion
+      // graban/cuentan por asignación, no por vehículo, así que lo que ya se
+      // subió del vehículo anterior seguiría contando —o quedaría mal
+      // atribuido— para el nuevo. Se corta de raíz: solo se puede cambiar
+      // mientras sigue "programada" y no hay ni una foto ni una incidencia
+      // registrada todavía.
+      if (Number(vehicle_id) !== asig.vehicle_id) {
+        if (asig.estado !== 'programada') {
+          return error(res, 'El vehículo solo se puede cambiar mientras la asignación está "programada"', 400);
+        }
+        if (asig.evidencias.length || asig.incidencias.length) {
+          return error(res, 'No se puede cambiar el vehículo: ya hay evidencia o incidencias registradas en esta asignación', 400);
+        }
+      }
     }
     if (cambiaMiembros &&
         (await usuariosNoValidos([...responsables, ...personal], [...actualesResp, ...actualesPers])).length) {
