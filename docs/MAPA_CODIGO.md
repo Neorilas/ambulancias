@@ -108,7 +108,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `config/database.js` | Pool mysql2, `query`, transacciones; sesión en UTC |
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
-| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` |
+| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarAsignacionesSinIniciar` |
@@ -347,7 +347,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/miembrosAsignacion.js` | Responsables/personal en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
-| `utils/kmUtils.js` | `parseKm`: quita el "." (separador de miles en español, «45.000») antes de convertir a entero — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`) |
+| `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
 | `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission` |
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
@@ -515,11 +515,16 @@ manda es el backend.
 rechaza (400) un `km_fin` menor que `vehicles.kilometros_actuales` del momento
 — no solo menor que `km_inicio` de la propia asignación, que puede haberse
 quedado atrás si otra asignación avanzó el contador mientras esta seguía
-abierta. `getAsignacionCompleta` trae ese dato como `vehiculo_km_actual` para
-poder compararlo. Bajarlo a propósito (corregir una lectura mal anotada) solo
-se puede desde la ficha del vehículo — `VehicleForm` o el Resumen de
-`VehicleHistory` — que **sí** dejan escribir cualquier valor porque las edita
-quien ya tiene `manage_trabajos` (admin/gestor/superadmin, por
+abierta. Tanto `getAsignacionCompleta` (`GET /:id`, detalle) como
+`listAsignaciones` (`GET /`, listados — incluido el Dashboard, que abre
+`FinalizacionAsignacion` directamente con la fila del listado) traen ese dato
+como `vehiculo_km_actual`; si solo uno de los dos lo trajera, el aviso previo
+del wizard fallaría en silencio según desde dónde se entrara — el backend
+seguiría protegido igual, pero el técnico se llevaría un 400 sorpresa al
+confirmar, ya con las fotos subidas. Bajarlo a propósito (corregir una lectura
+mal anotada) solo se puede desde la ficha del vehículo — `VehicleForm` o el
+Resumen de `VehicleHistory` — que **sí** dejan escribir cualquier valor porque
+las edita quien ya tiene `manage_trabajos` (admin/gestor/superadmin, por
 `requireAdminOrGestor` en `vehicles.routes`); ambos avisan con un
 `ConfirmDialog` antes de guardar si el valor escrito es menor que el actual,
 para que bajarlo sea una decisión y no un despiste. El guard
@@ -527,6 +532,22 @@ para que bajarlo sea una decisión y no un despiste. El guard
 sigue ahí como red de seguridad para la carrera entre la validación y el
 `UPDATE`, no como la regla en sí — ver el comentario en
 `asignaciones.controller.finalizarAsignacion`.
+
+**Trampa en `VehicleHistory`: confirmar la bajada de km desde «Guardar y
+continuar» pierde el destino si se lee mal el estado.** Cambiar de pestaña con
+ediciones sin guardar abre el aviso «Cambios sin guardar»; si eso incluye
+bajar el km, `guardar()` no guarda — abre su propio `ConfirmDialog` y hay que
+esperar a que se confirme. La trampa es CÓMO se entera quien llamó a
+`guardar()` de que se quedó a la espera: leer `edicion.confirmKm` justo
+después del `await` no sirve, porque `edicion` es la foto del render de ANTES
+de ese `setConfirmKm` — React no la actualiza a mitad del mismo evento, así
+que esa lectura siempre ve `null` y el código de abajo trataba la espera como
+un fallo, limpiaba el destino pendiente y el "Guardar y continuar" se quedaba
+callado sobre a dónde iba. Se arregla haciendo que `guardar()` devuelva un
+sentinel (`PENDIENTE_CONFIRMACION_KM`, no `false`) que sí viaja por el
+`await` correctamente, y separando el `ConfirmDialog` del km del modal de
+«Cambios sin guardar» (se ocultan mutuamente por condición, no se apilan) para
+que confirmar el km complete el cambio de pestaña que quedó a medias.
 
 **Ventana estrecha sin cerrar, a propósito:** el candado se evalúa contra el
 `asig` leído al principio de `updateAsignacion`, fuera de la transacción del
@@ -659,10 +680,16 @@ Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
 Última revisión: **2026-09-22** (§6.1 y §8: el km al cerrar un servicio no
-puede bajar del actual del vehículo — se rechaza en `finalizarAsignacion`;
-bajarlo a propósito solo desde la ficha del vehículo, con aviso. Y
-`utils/kmUtils.js` (§3.4): el "." de los miles se quita antes de parsear
-kilómetros en los tres sitios donde se escriben a mano).
+puede bajar del actual del vehículo — se rechaza en `finalizarAsignacion`,
+también desde el Dashboard (`listAsignaciones` trae `vehiculo_km_actual`
+igual que el detalle); bajarlo a propósito solo desde la ficha del vehículo,
+con aviso. `utils/kmUtils.js` (§3.4, con espejo backend `km.utils.js`): el
+"." de los miles se quita antes de parsear kilómetros en los tres sitios
+donde se escriben a mano, pero solo cuando de verdad tiene forma de miles —
+un decimal mal tecleado («4.5») no se cuela como otro número. Y la trampa del
+sentinel en `VehicleHistory` al confirmar una bajada de km desde «Guardar y
+continuar» (§6.1): leer el estado del aviso justo tras un `await` no sirve,
+React no lo ha actualizado todavía).
 
 Antes, **2026-09-22** (§6.1: editar una asignación ya permite
 cambiar vehículo y responsables desde el formulario, no solo fechas/notas; y

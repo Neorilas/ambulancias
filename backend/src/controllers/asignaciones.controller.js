@@ -350,6 +350,7 @@ async function listAsignaciones(req, res, next) {
       `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
               al.estado, al.inicio_real_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               v.matricula, v.alias AS vehiculo_alias,
+              v.kilometros_actuales AS vehiculo_km_actual,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
               u.username AS responsable_username,
               (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
@@ -688,8 +689,10 @@ async function finalizarAsignacion(req, res, next) {
       );
     }
 
-    // Validar que km_fin >= km_inicio (si se proporcionan ambos)
-    if (km_fin !== undefined && asig.km_inicio !== null && km_fin < asig.km_inicio) {
+    // Validar que km_fin >= km_inicio (si se proporcionan ambos). `!= null`
+    // cubre también un `km_fin: null` explícito (el validador lo permite) sin
+    // que `null < km_inicio` lo confunda con un 0 real.
+    if (km_fin != null && asig.km_inicio !== null && km_fin < asig.km_inicio) {
       return error(res, 'km_fin no puede ser menor que km_inicio', 400);
     }
 

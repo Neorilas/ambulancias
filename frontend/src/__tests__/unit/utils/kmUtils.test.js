@@ -24,4 +24,12 @@ describe('parseKm', () => {
     expect(parseKm('.')).toBeNull();
     expect(parseKm('abc')).toBeNull();
   });
+
+  // No todo punto es separador de miles: un decimal mal tecleado no debe
+  // colarse como otro número. "4.5" no es "45" — es un dato inválido.
+  it('no confunde un decimal con un separador de miles', () => {
+    expect(parseKm('4.5')).toBeNull();
+    expect(parseKm('45.00')).toBe(45);   // 45.00 SÍ es entero (45), no es el caso a rechazar
+    expect(parseKm('45.5')).toBeNull();
+  });
 });

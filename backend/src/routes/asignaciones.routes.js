@@ -15,15 +15,10 @@ const { multerUpload, processAndSave } = require('../middleware/upload.middlewar
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
 const { requireAsignacionEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
+const { limpiarMilesKm } = require('../utils/km.utils');
 
 const router = express.Router();
 router.use(authenticate);
-
-// El km puede llegar como cadena con el "." que se usa en español para miles
-// («45.000»): sin quitarlo antes, isInt lo rechaza y, si llegara a colarse,
-// parseInt lo cortaría en el punto (45 en vez de 45000). Se limpia siempre,
-// por si acaso, antes de validar.
-const quitarPuntoKm = (v) => (typeof v === 'string' ? v.replace(/\./g, '') : v);
 
 // GET /asignaciones  (todos autenticados; admin/gestor ven todas, operacionales solo las suyas)
 router.get('/', ctrl.listAsignaciones);
@@ -51,7 +46,7 @@ router.post('/',
     body('personal.*').isInt({ min: 1 }),
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida'),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida'),
-    body('km_inicio').optional({ nullable: true }).customSanitizer(quitarPuntoKm).isInt({ min: 0 }),
+    body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
   ],
   handleValidation,
@@ -71,7 +66,7 @@ router.put('/:id',
     body('personal.*').isInt({ min: 1 }),
     body('fecha_inicio').optional().isISO8601(),
     body('fecha_fin').optional().isISO8601(),
-    body('km_inicio').optional({ nullable: true }).customSanitizer(quitarPuntoKm).isInt({ min: 0 }),
+    body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
     body('estado').optional().isIn(['programada', 'activa', 'cancelada']),
   ],
@@ -98,7 +93,7 @@ router.post('/:id/activar',
 router.post('/:id/finalizar',
   [
     param('id').isInt({ min: 1 }),
-    body('km_fin').optional({ nullable: true }).customSanitizer(quitarPuntoKm).isInt({ min: 0 }),
+    body('km_fin').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
     // Aquí solo se acota el tamaño: que sea obligatorio lo decide el
     // controlador, para poder devolver el mensaje que explica qué escribir

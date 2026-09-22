@@ -781,6 +781,10 @@ function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   );
 }
 
+// Lo que devuelve `guardar()` cuando queda a la espera de que se confirme
+// bajar el km, para no confundirlo con `false` (falló) ni `true` (guardó).
+const PENDIENTE_CONFIRMACION_KM = 'confirmar-km';
+
 // Campos que se editan desde el resumen. La lista se usa para saber si quedan
 // cambios sin guardar, así que tiene que ser exactamente la del formulario.
 const CAMPOS_FICHA = [
@@ -850,8 +854,9 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
     }
   };
 
-  /** Devuelve true si se guardó; false si falló la validación o el servidor,
-   *  o si queda pendiente de que se confirme una bajada de kilometraje. */
+  /** Devuelve true si se guardó, false si falló la validación o el servidor,
+   *  o PENDIENTE_CONFIRMACION_KM si queda a la espera de que se confirme una
+   *  bajada de kilometraje (ni guardado ni fallado todavía). */
   const guardar = async () => {
     const e = {};
     if (!form.alias.trim())                e.alias     = 'Nombre requerido';
@@ -884,11 +889,17 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
 
     // Bajar el kilometraje solo se hace aquí, a propósito (corregir una
     // lectura anterior mal anotada) — al cerrar un servicio se rechaza. Se
-    // avisa antes de guardar en vez de aceptarlo sin más.
+    // avisa antes de guardar en vez de aceptarlo sin más. Devuelve un
+    // sentinel distinto de `false` porque quien llama (p. ej.
+    // `guardarYSeguir`) necesita distinguir "quedó pendiente de confirmar"
+    // de "falló": leer `confirmKm` justo después de este `await` no sirve,
+    // porque el objeto `edicion` de ese closure es la foto de ANTES del
+    // `setConfirmKm` de aquí arriba — React no lo actualiza a mitad de este
+    // mismo evento.
     const bajaKm = payload.kilometros_actuales != null
       && vehicle.kilometros_actuales != null
       && payload.kilometros_actuales < vehicle.kilometros_actuales;
-    if (bajaKm) { setConfirmKm(payload); return false; }
+    if (bajaKm) { setConfirmKm(payload); return PENDIENTE_CONFIRMACION_KM; }
 
     return enviar(payload);
   };
@@ -940,7 +951,6 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, pu
     : null;
 
   return (
-    <>
     <div className="space-y-4">
       {/* Barra de edición: mientras está abierta, los datos son campos */}
       {editando && (
@@ -1139,22 +1149,6 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, pu
         </div>
       </div>
     </div>
-
-    <ConfirmDialog
-      isOpen={!!edicion.confirmKm}
-      onClose={edicion.cancelarBajadaKm}
-      onConfirm={edicion.confirmarBajadaKm}
-      title="Bajar el kilometraje"
-      message={
-        `Vas a dejar el kilometraje en ${edicion.confirmKm?.kilometros_actuales?.toLocaleString() ?? ''} km, `
-        + `por debajo de los ${vehicle.kilometros_actuales?.toLocaleString() ?? ''} km actuales. `
-        + '¿Seguro que quieres continuar?'
-      }
-      confirmText="Sí, bajar el kilometraje"
-      danger
-      loading={guardando}
-    />
-    </>
   );
 }
 
@@ -1271,8 +1265,16 @@ export default function VehicleHistory() {
   };
 
   const guardarYSeguir = async () => {
-    const guardado = await edicion.guardar();
-    if (!guardado) {
+    const resultado = await edicion.guardar();
+    // Bajar el km abre su propio aviso de confirmación en vez de guardar: no
+    // es un fallo, es una pregunta pendiente. Se deja `destino` tal cual
+    // para retomarlo cuando se confirme o se cancele — si se limpiara aquí,
+    // confirmar la bajada de km ya no llevaría a ningún sitio (ver
+    // `confirmarBajadaKmYSeguir`). Comparar con el sentinel, no con
+    // `edicion.confirmKm`: ese objeto es la foto de ANTES de este `await`,
+    // React no lo actualiza a mitad del mismo evento.
+    if (resultado === PENDIENTE_CONFIRMACION_KM) return;
+    if (!resultado) {
       // El aviso tapa el formulario: si no se cierra, los campos en rojo
       // quedan detrás y no hay forma de ver qué está mal.
       setDestino(null);
@@ -1288,6 +1290,17 @@ export default function VehicleHistory() {
     const dest = destino;
     setDestino(null);
     aplicarDestino(dest);
+  };
+
+  const confirmarBajadaKmYSeguir = async () => {
+    const guardado = await edicion.confirmarBajadaKm();
+    // Si esto venía del aviso de «cambios sin guardar» (destino pendiente),
+    // ahora sí se completa el viaje que se dejó a medias arriba.
+    if (guardado && destino) {
+      const dest = destino;
+      setDestino(null);
+      aplicarDestino(dest);
+    }
   };
 
   if (loading) return <PageLoading />;
@@ -1402,7 +1415,9 @@ export default function VehicleHistory() {
       )}
 
       {/* Aviso de cambios sin guardar. Cerrarlo (Escape o la ×) es seguir editando. */}
-      {destino && (
+      {/* Mientras el aviso de bajar km está abierto, este se oculta en vez de
+          cerrarse (destino se conserva): confirmar el km lo retoma. */}
+      {destino && !edicion.confirmKm && (
         <Modal
           isOpen
           onClose={() => setDestino(null)}
@@ -1427,6 +1442,21 @@ export default function VehicleHistory() {
           </p>
         </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={!!edicion.confirmKm}
+        onClose={edicion.cancelarBajadaKm}
+        onConfirm={confirmarBajadaKmYSeguir}
+        title="Bajar el kilometraje"
+        message={
+          `Vas a dejar el kilometraje en ${edicion.confirmKm?.kilometros_actuales?.toLocaleString() ?? ''} km, `
+          + `por debajo de los ${vehicle?.kilometros_actuales?.toLocaleString() ?? ''} km actuales. `
+          + '¿Seguro que quieres continuar?'
+        }
+        confirmText="Sí, bajar el kilometraje"
+        danger
+        loading={edicion.guardando}
+      />
     </div>
   );
 }
