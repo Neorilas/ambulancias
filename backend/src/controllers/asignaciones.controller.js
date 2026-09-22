@@ -278,6 +278,31 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
 // ============================================================
 // GET /asignaciones
 // ============================================================
+
+/**
+ * Orden del listado: arriba lo que toca ahora, abajo lo que ya no.
+ *
+ * 1. Las cerradas (finalizada/cancelada) van al final, siempre: ya no hay
+ *    nada que hacer con ellas.
+ * 2. Las abiertas van por `fecha_inicio` ASC — la más próxima a activarse
+ *    arriba del todo y la que más queda, abajo. Las `activa` salen primero
+ *    sin ningún caso especial: el cron de `server.js` las activa en cuanto
+ *    llega su `fecha_inicio`, así que su fecha ya es pasado y una
+ *    `programada` siempre es futuro.
+ * 3. Entre las cerradas, la más reciente primero (DESC): ahí lo último que
+ *    pasó es lo que se suele venir a mirar.
+ *
+ * El `CASE` del segundo criterio deja las cerradas a NULL para que empaten
+ * entre ellas y las desempate el tercero. `al.id` cierra el orden: sin un
+ * criterio único, dos filas con la misma fecha pueden cambiar de sitio entre
+ * páginas y repetirse o perderse en la paginación.
+ */
+const ORDEN_LISTADO = `
+  CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC,
+  CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC,
+  al.fecha_inicio DESC,
+  al.id DESC`;
+
 async function listAsignaciones(req, res, next) {
   try {
     const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
@@ -330,7 +355,7 @@ async function listAsignaciones(req, res, next) {
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
        ${where}
-       ORDER BY al.fecha_inicio DESC
+       ORDER BY ${ORDEN_LISTADO}
        LIMIT ? OFFSET ?`,
       [req.user.id, ...params, limit, offset]
     );

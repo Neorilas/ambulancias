@@ -77,7 +77,8 @@ Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
 `rolEnAsignacion` (la regla de acceso de §6.1), `leerMiembros` (lee el body en
 formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
-`crearIncidenciaDesdeAsignacion`;
+`crearIncidenciaDesdeAsignacion`, `ORDEN_LISTADO` (el `ORDER BY` del listado,
+§8);
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 `generateIdentificador`, `getTrabajoCompleto`.
@@ -513,6 +514,7 @@ solo actúa en el navegador no es un control de acceso.
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
+| El orden del listado de asignaciones | `ORDEN_LISTADO` en `asignaciones.controller` (es un `ORDER BY` de SQL, **no** un `sort` en el navegador: `AsignacionList` pagina de 20 en 20 y ordenar solo la página que ha llegado daría un orden distinto en cada página). Hoy: cerradas (finalizada/cancelada) al final; el resto por `fecha_inicio` ASC, la más próxima a activarse arriba. Las `activa` no necesitan caso aparte —el cron las activa al llegar su `fecha_inicio`, así que su fecha ya es pasado y suben solas—, y `al.id` cierra el orden para que la paginación no repita ni pierda filas. `MisAsignaciones` no ordena: pinta lo que llega y descarta las cerradas |
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
@@ -598,7 +600,10 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-20** (mapa de flota con Cartrack: §2.6, las tres
+Última revisión: **2026-09-22** (orden del listado de asignaciones: §8, por
+qué el `ORDER BY` va en SQL y no en el navegador).
+
+Antes, **2026-09-20** (mapa de flota con Cartrack: §2.6, las tres
 trampas que destapó la sonda de fase 0, y el flag `menu_flota` que lo abre a
 los administradores — el primero que hace de control de acceso también en el
 backend).

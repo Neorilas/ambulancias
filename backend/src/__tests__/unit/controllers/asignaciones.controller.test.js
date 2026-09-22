@@ -123,6 +123,32 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(query.mock.calls[0][1]).toContain('activa');
     });
+
+    // El orden es funcionalidad, no adorno: arriba la próxima a activarse,
+    // abajo las cerradas. Aquí solo se puede comprobar el SQL que sale, pero
+    // eso ya protege de que alguien vuelva a dejar un `fecha_inicio DESC`
+    // suelto y ponga el listado del revés sin enterarse.
+    it('orders by proximity to activation, with finalizada/cancelada last', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({
+        query: {}, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      });
+      await listAsignaciones(req, mockRes(), mockNext());
+
+      const sql = query.mock.calls[1][0].replace(/\s+/g, ' ');
+      // Las cerradas al final
+      expect(sql).toContain(
+        "ORDER BY CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC"
+      );
+      // Las abiertas, la más próxima primero
+      expect(sql).toContain(
+        "CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC"
+      );
+      // Desempate estable para que la paginación no baile
+      expect(sql).toContain('al.id DESC');
+    });
   });
 
   // ── getAsignacion ──────────────────────────────────────
