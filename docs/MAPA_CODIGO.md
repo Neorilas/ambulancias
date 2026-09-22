@@ -59,7 +59,11 @@ seleccionan primero y se actualizan una a una con el guard `estado =
 'programada'`, porque de cada una hay que mandar un aviso push y hace falta
 saber cuáles ha cambiado de verdad (§2.5).
 
-### 2.2 Rutas → controlador (prefijo `/api`)
+### 2.2 Rutas → controlador (prefijo `/api/v1`)
+
+El prefijo real es `/api/${API_VERSION || 'v1'}` (`server.js`), y el
+frontend lo fija en `services/api.js` (`VITE_API_URL || '/api/v1'`). Las
+tablas de abajo listan la ruta **sin** ese prefijo.
 
 | Grupo | Fichero rutas | Controlador | Endpoints |
 |---|---|---|---|
