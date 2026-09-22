@@ -142,10 +142,17 @@ describe('asignaciones.controller', () => {
       expect(sql).toContain(
         "ORDER BY CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC"
       );
+      // Lo que está EN CURSO encabeza las abiertas. No sobra: activarAsignacion
+      // no mira el reloj, así que una activada antes de hora conserva su
+      // fecha_inicio futura y sin esto se hundía bajo las que no han empezado.
+      expect(sql).toContain("CASE WHEN al.estado = 'activa' THEN 0 ELSE 1 END ASC");
       // Las abiertas, la más próxima primero
       expect(sql).toContain(
         "CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC"
       );
+      // Entre las cerradas, la que se cerró más tarde primero (una cancelada
+      // no tiene finalizado_at: cae en fecha_fin)
+      expect(sql).toContain('COALESCE(al.finalizado_at, al.fecha_fin) DESC');
       // Desempate estable para que la paginación no baile
       expect(sql).toContain('al.id DESC');
     });

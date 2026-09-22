@@ -284,23 +284,31 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
  *
  * 1. Las cerradas (finalizada/cancelada) van al final, siempre: ya no hay
  *    nada que hacer con ellas.
- * 2. Las abiertas van por `fecha_inicio` ASC — la más próxima a activarse
- *    arriba del todo y la que más queda, abajo. Las `activa` salen primero
- *    sin ningún caso especial: el cron de `server.js` las activa en cuanto
- *    llega su `fecha_inicio`, así que su fecha ya es pasado y una
- *    `programada` siempre es futuro.
- * 3. Entre las cerradas, la más reciente primero (DESC): ahí lo último que
- *    pasó es lo que se suele venir a mirar.
+ * 2. Las `activa` encabezan las abiertas: son las que están pasando.
+ * 3. El resto por `fecha_inicio` ASC — la más próxima a activarse arriba del
+ *    todo y la que más queda, abajo.
+ * 4. Entre las cerradas, la que se cerró más tarde primero: ahí lo último que
+ *    pasó es lo que se viene a mirar. `finalizado_at` solo lo sella
+ *    `finalizarAsignacion`, así que una **cancelada** no lo tiene y cae en el
+ *    `fecha_fin` del COALESCE.
  *
- * El `CASE` del segundo criterio deja las cerradas a NULL para que empaten
- * entre ellas y las desempate el tercero. `al.id` cierra el orden: sin un
- * criterio único, dos filas con la misma fecha pueden cambiar de sitio entre
- * páginas y repetirse o perderse en la paginación.
+ * El criterio 2 parece redundante —el cron activa cada asignación en cuanto
+ * llega su `fecha_inicio`, así que lo normal es que una `activa` ya tenga
+ * fecha pasada y suba sola— pero NO lo es: `activarAsignacion` no comprueba el
+ * reloj. Un responsable que pulsa «Inicio de servicio» antes de la hora deja
+ * una `activa` con `fecha_inicio` futura, y sin este criterio el servicio que
+ * está EN CURSO se hundía por debajo de las que aún no han empezado.
+ *
+ * El `CASE` del criterio 3 deja las cerradas a NULL para que empaten entre
+ * ellas y las desempate el 4. `al.id` cierra el orden: sin un criterio único,
+ * dos filas con la misma fecha pueden cambiar de sitio entre páginas y
+ * repetirse o perderse en la paginación.
  */
 const ORDEN_LISTADO = `
   CASE WHEN al.estado IN ('finalizada','cancelada') THEN 1 ELSE 0 END ASC,
+  CASE WHEN al.estado = 'activa' THEN 0 ELSE 1 END ASC,
   CASE WHEN al.estado IN ('finalizada','cancelada') THEN NULL ELSE al.fecha_inicio END ASC,
-  al.fecha_inicio DESC,
+  COALESCE(al.finalizado_at, al.fecha_fin) DESC,
   al.id DESC`;
 
 async function listAsignaciones(req, res, next) {
