@@ -347,6 +347,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/miembrosAsignacion.js` | Responsables/personal en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
+| `utils/kmUtils.js` | `parseKm`: quita el "." (separador de miles en español, «45.000») antes de convertir a entero — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
 | `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission` |
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
@@ -510,6 +511,23 @@ luego se reasigna el vehículo — es el mismo bug que las fotos, pero en
 (`motivoVehiculoBloqueado`) solo para no hacer el viaje al servidor; quien
 manda es el backend.
 
+**El kilometraje no retrocede al cerrar un servicio.** `finalizarAsignacion`
+rechaza (400) un `km_fin` menor que `vehicles.kilometros_actuales` del momento
+— no solo menor que `km_inicio` de la propia asignación, que puede haberse
+quedado atrás si otra asignación avanzó el contador mientras esta seguía
+abierta. `getAsignacionCompleta` trae ese dato como `vehiculo_km_actual` para
+poder compararlo. Bajarlo a propósito (corregir una lectura mal anotada) solo
+se puede desde la ficha del vehículo — `VehicleForm` o el Resumen de
+`VehicleHistory` — que **sí** dejan escribir cualquier valor porque las edita
+quien ya tiene `manage_trabajos` (admin/gestor/superadmin, por
+`requireAdminOrGestor` en `vehicles.routes`); ambos avisan con un
+`ConfirmDialog` antes de guardar si el valor escrito es menor que el actual,
+para que bajarlo sea una decisión y no un despiste. El guard
+`kilometros_actuales < ?` que ya llevaba el `UPDATE` de vehículo (§ arriba)
+sigue ahí como red de seguridad para la carrera entre la validación y el
+`UPDATE`, no como la regla en sí — ver el comentario en
+`asignaciones.controller.finalizarAsignacion`.
+
 **Ventana estrecha sin cerrar, a propósito:** el candado se evalúa contra el
 `asig` leído al principio de `updateAsignacion`, fuera de la transacción del
 `UPDATE`. Si entre esa lectura y el `UPDATE` alguien sube una evidencia o una
@@ -555,6 +573,7 @@ solo actúa en el navegador no es un control de acceso.
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
 | El orden del listado de asignaciones | `ORDEN_LISTADO` en `asignaciones.controller` (es un `ORDER BY` de SQL, **no** un `sort` en el navegador: `AsignacionList` pagina de 20 en 20 y ordenar solo la página que ha llegado daría un orden distinto en cada página). Hoy: cerradas (finalizada/cancelada) al final; las `activa` encabezan las abiertas; el resto por `fecha_inicio` ASC, la más próxima a activarse arriba; entre las cerradas, la que se cerró más tarde primero (`COALESCE(finalizado_at, fecha_fin)` — una cancelada no tiene `finalizado_at`). **El criterio de las `activa` parece redundante y no lo es**: `activarAsignacion` no mira el reloj, así que quien pulsa «Inicio de servicio» antes de hora deja una `activa` con `fecha_inicio` futura, y sin él el servicio EN CURSO se hunde bajo los que no han empezado. `al.id` cierra el orden para que la paginación no repita ni pierda filas. Quien consume ese orden sin tocarlo: `AsignacionList`, y `MisAsignaciones` y `Dashboard`, que piden 50 y descartan las cerradas en el cliente (por eso mandarlas al final les llena la ventana de filas útiles) |
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
+| El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
@@ -639,7 +658,13 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-22** (§6.1: editar una asignación ya permite
+Última revisión: **2026-09-22** (§6.1 y §8: el km al cerrar un servicio no
+puede bajar del actual del vehículo — se rechaza en `finalizarAsignacion`;
+bajarlo a propósito solo desde la ficha del vehículo, con aviso. Y
+`utils/kmUtils.js` (§3.4): el "." de los miles se quita antes de parsear
+kilómetros en los tres sitios donde se escriben a mano).
+
+Antes, **2026-09-22** (§6.1: editar una asignación ya permite
 cambiar vehículo y responsables desde el formulario, no solo fechas/notas; y
 orden del listado de asignaciones: §8, por qué el `ORDER BY` va en SQL y no
 en el navegador).

@@ -20,6 +20,12 @@ const { esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const router = express.Router();
 router.use(authenticate);
 
+// El km puede llegar como cadena con el "." que se usa en español para miles
+// («45.000»): sin quitarlo antes, isInt lo rechaza y, si llegara a colarse,
+// parseInt lo cortaría en el punto (45 en vez de 45000). Se limpia siempre,
+// por si acaso, antes de validar.
+const quitarPuntoKm = (v) => (typeof v === 'string' ? v.replace(/\./g, '') : v);
+
 // GET /vehicles
 router.get('/', ctrl.listVehicles);
 
@@ -69,7 +75,7 @@ router.post('/',
       .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
     body('alias').trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
-    body('kilometros_actuales').optional().isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
+    body('kilometros_actuales').optional().customSanitizer(quitarPuntoKm).isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
     body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
     body('fecha_its').optional({ nullable: true }).isISO8601().withMessage('Fecha ITS inválida'),
@@ -91,7 +97,7 @@ router.put('/:id',
       .custom(v => esMatricula(v)).withMessage(MENSAJE_FORMATO),
     body('alias').optional().trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
-    body('kilometros_actuales').optional().isInt({ min: 0 }),
+    body('kilometros_actuales').optional().customSanitizer(quitarPuntoKm).isInt({ min: 0 }),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
     body('fecha_itv').optional({ nullable: true }).isISO8601(),
     body('fecha_its').optional({ nullable: true }).isISO8601(),

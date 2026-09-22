@@ -3,6 +3,7 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
+import { parseKm } from '../../utils/kmUtils.js';
 import {
   IMAGEN_TIPOS_FIN,
   IMAGEN_TIPOS_FIN_EXTERIOR,
@@ -121,7 +122,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
       await asignacionesService.finalizar(asignacion.id, {
-        km_fin:     kmFin !== '' ? parseInt(kmFin) : null,
+        km_fin:     parseKm(kmFin),
         motivo_fin: motivo || null,
         material_usado: material.trim(),
       });
@@ -232,7 +233,13 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     const ckm = IMAGEN_TIPO_CUENTAKILOMETROS;
     const file = fotos[ckm.key];
     const preview = previews[ckm.key];
-    const puedeSeguir = !!file && kmFin !== '';
+    // El mínimo real es el mayor entre el km de inicio de ESTA asignación y el
+    // km actual del vehículo (puede haber avanzado por otra asignación desde
+    // entonces): bajarlo de ahí lo rechaza el backend, y aquí se avisa antes.
+    const kmMinimo = Math.max(asignacion.km_inicio || 0, asignacion.vehiculo_km_actual || 0);
+    const kmFinParsed = parseKm(kmFin);
+    const kmPorDebajoDelMinimo = kmFinParsed != null && kmFinParsed < kmMinimo;
+    const puedeSeguir = !!file && kmFinParsed != null && !kmPorDebajoDelMinimo;
     return (
       <div className="space-y-6">
         <Header />
@@ -259,11 +266,15 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         <div>
           <label className="label">Kilómetros finales <span className="text-bad-500">*</span></label>
           <input
-            type="number" min={asignacion.km_inicio || 0} className="input"
-            placeholder={asignacion.km_inicio ? `Mín. ${asignacion.km_inicio}` : 'Introduce los km actuales'}
+            type="number" min={kmMinimo || 0} className={`input ${kmPorDebajoDelMinimo ? 'input-error' : ''}`}
+            placeholder={kmMinimo ? `Mín. ${kmMinimo}` : 'Introduce los km actuales'}
             value={kmFin} onChange={e => setKmFin(e.target.value)}
           />
-          {asignacion.km_inicio != null && (
+          {kmPorDebajoDelMinimo ? (
+            <p className="field-error">
+              No puede ser menor que los km actuales del vehículo ({kmMinimo.toLocaleString()} km)
+            </p>
+          ) : asignacion.km_inicio != null && (
             <p className="text-xs text-neutral-400 mt-1">Km inicio: {asignacion.km_inicio.toLocaleString()} km</p>
           )}
         </div>
@@ -347,7 +358,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Km finales</span>
-          <span className="font-medium">{kmFin ? `${parseInt(kmFin).toLocaleString()} km` : '—'}</span>
+          <span className="font-medium">{parseKm(kmFin) != null ? `${parseKm(kmFin).toLocaleString()} km` : '—'}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-500">Fotos</span>

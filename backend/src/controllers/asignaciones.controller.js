@@ -48,6 +48,7 @@ async function getAsignacionCompleta(id) {
   const [rows] = await query(
     `SELECT al.*,
             v.matricula, v.alias AS vehiculo_alias,
+            v.kilometros_actuales AS vehiculo_km_actual,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
             u.username AS responsable_username,
             CONCAT(c.nombre,' ',c.apellidos) AS creado_por_nombre
@@ -692,6 +693,20 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, 'km_fin no puede ser menor que km_inicio', 400);
     }
 
+    // El kilometraje del vehículo no puede retroceder al cerrar un servicio:
+    // ni una lectura equivocada del técnico ni una asignación finalizada tarde
+    // pueden dejar el contador por detrás de donde ya está. Bajarlo a
+    // propósito (un error de anotación anterior, por ejemplo) solo se puede
+    // desde la ficha del vehículo, que admin/gestor/superadmin sí pueden
+    // editar libremente y con aviso — no desde aquí.
+    if (km_fin != null && asig.vehiculo_km_actual != null && km_fin < asig.vehiculo_km_actual) {
+      return error(
+        res,
+        `Los km introducidos (${km_fin}) no pueden ser menores que los km actuales del vehículo (${asig.vehiculo_km_actual}). Si el dato es correcto, corrígelo desde la ficha del vehículo.`,
+        400
+      );
+    }
+
     // Validar que todas las evidencias (inicio y fin) están subidas
     const progreso = await getProgreso(asig.id);
     if (!progreso.inicio.completo) {
@@ -727,10 +742,13 @@ async function finalizarAsignacion(req, res, next) {
 
       // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
       // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
-      // propagar. El guard `kilometros_actuales < ?` evita que el contador
-      // retroceda por una anotación equivocada; es el mismo criterio que usa
-      // finalizeTrabajo, y por eso la fecha de último servicio tampoco se toca
-      // cuando la lectura no supera a la que ya había.
+      // propagar. La validación de arriba ya rechaza un km_fin por debajo del
+      // actual; el guard `kilometros_actuales < ?` de aquí es la red de
+      // seguridad para la carrera entre esa lectura y este UPDATE (otra
+      // asignación que adelanta el contador justo en medio), no la regla en
+      // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
+      // último servicio tampoco se toca cuando la lectura no supera a la que
+      // ya había.
       if (km_fin != null) {
         await conn.execute(
           `UPDATE vehicles SET kilometros_actuales   = ?,
