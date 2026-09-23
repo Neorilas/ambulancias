@@ -873,6 +873,26 @@ const MIGRATIONS = [
                    SELECT id, user_id, 'responsable', 0 FROM asignaciones_libres`);
     },
   },
+
+  // ----------------------------------------------------------
+  {
+    name: 'v24_liberar_email_borrados',
+    description: 'Libera el email de los usuarios ya borrados, igual que username y dni',
+    async run() {
+      // deleteUser sufijaba username y dni al hacer soft delete para liberar
+      // sus UNIQUE KEYs, pero se dejó fuera el email — que también es UNIQUE
+      // (uq_email). Un usuario borrado y dado de alta otra vez con el mismo
+      // correo chocaba con su propia fila muerta ("ya existe un usuario con
+      // ese email"). Aquí se repara lo que ya está borrado; el borrado futuro
+      // ya sufija el email en el propio controlador.
+      const [resultado] = await query(
+        `UPDATE users SET email = CONCAT(email, '__del_', id)
+         WHERE deleted_at IS NOT NULL AND email IS NOT NULL
+           AND email NOT LIKE CONCAT('%__del_', id)`
+      );
+      logger.info(`v24: ${resultado.affectedRows} usuario(s) borrado(s) con el email liberado`);
+    },
+  },
 ];
 
 // ============================================================

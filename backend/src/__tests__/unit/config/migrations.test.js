@@ -624,7 +624,9 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // La clave primaria (asignacion_id, user_id) es la que impide repetir a
     // alguien, tambien como responsable y personal a la vez. Y el relleno
     // conserva al usuario de cada asignacion existente como responsable.
-    const { ejecutadas } = mockDb({ aplicadas: hasta('v22_rol_tes_conductor') });
+    const { ejecutadas } = mockDb({
+      aplicadas: [...hasta('v22_rol_tes_conductor'), 'v24_liberar_email_borrados'],
+    });
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
@@ -638,5 +640,21 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const relleno = ejecutadas.find(q => q.includes('INSERT IGNORE INTO asignacion_usuarios'));
     expect(relleno).toContain("'responsable'");
     expect(relleno).toContain('FROM asignaciones_libres');
+  });
+
+  it('v24 libera el email de los usuarios ya borrados para poder recrearlos', async () => {
+    // deleteUser sufijaba username y dni al borrar pero no el email, que
+    // tambien es UNIQUE (uq_email): un usuario borrado se quedaba bloqueando
+    // para siempre el alta de otro con su mismo correo.
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v23_asignacion_usuarios') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v24_liberar_email_borrados']);
+
+    const libera = ejecutadas.find(q => q.includes('UPDATE users SET email'));
+    expect(libera).toContain("CONCAT(email, '__del_', id)");
+    expect(libera).toContain('deleted_at IS NOT NULL');
+    expect(libera).toContain("email NOT LIKE CONCAT('%__del_', id)");
   });
 });
