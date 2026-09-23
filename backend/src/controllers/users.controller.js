@@ -450,10 +450,17 @@ async function deleteUser(req, res, next) {
     }
 
     await transaction(async (conn) => {
-      // Soft delete — sufijamos username y dni para liberar los UNIQUE KEYs de MySQL
-      // y permitir que se cree un nuevo usuario con los mismos datos si fuera necesario.
+      // Soft delete — sufijamos username, dni y email para liberar los UNIQUE
+      // KEYs de MySQL (uq_email incluido) y permitir que se cree un nuevo
+      // usuario con los mismos datos si fuera necesario. email es NULL-able,
+      // de ahí el CASE: CONCAT con NULL da NULL y no rompe nada, pero es más
+      // claro dejarlo explícito.
       await conn.execute(
-        "UPDATE users SET deleted_at = ?, activo = 0, username = CONCAT(username,'__del_',id), dni = CONCAT(dni,'__del_',id) WHERE id = ?",
+        `UPDATE users SET deleted_at = ?, activo = 0,
+                username = CONCAT(username,'__del_',id),
+                dni      = CONCAT(dni,'__del_',id),
+                email    = CASE WHEN email IS NOT NULL THEN CONCAT(email,'__del_',id) ELSE email END
+         WHERE id = ?`,
         [ahora(), targetId]
       );
       // Revocar tokens activos

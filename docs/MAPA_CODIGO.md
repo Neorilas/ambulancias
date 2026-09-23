@@ -388,7 +388,8 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
-permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22).
+permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
+email liberado en usuarios ya borrados (v24).
 
 Relaciones clave:
 
@@ -426,6 +427,15 @@ migraciones y por tanto no recibe el relleno de v23: ahora lo repite él.
 **Ojo:** `schema.sql` está desincronizado (le faltan `asignaciones_libres` y
 otras). La fuente real es `schema.sql` + `migrations.js`.
 
+**`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
+liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
+el `UNIQUE KEY` no bloquee un alta futura con los mismos datos, pero el email
+se quedaba tal cual en la fila borrada — así que recrear un usuario con el
+email de uno ya eliminado chocaba contra su propia fila muerta (`ER_DUP_ENTRY`,
+409 «Ya existe un registro con ese valor en: uq_email»). Se corrigió sufijando
+también el email al borrar, y la migración **v24** repara con el mismo criterio
+los usuarios que ya estaban borrados antes del fix.
+
 ---
 
 ## 5. Cómo se añade un cambio de esquema
@@ -438,7 +448,7 @@ otras). La fuente real es `schema.sql` + `migrations.js`.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v23_asignacion_usuarios**. (En alguna BD local puede
+Última migración: **v24_liberar_email_borrados**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
