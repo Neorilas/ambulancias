@@ -84,6 +84,18 @@ registerRoute(
   })
 );
 
+// Detector de encuadre de las fotos (components/camera/detectorVehiculo.js):
+// el chunk de TensorFlow, que va fuera del precache, y el modelo (7 MB). Los
+// dos llevan versión en el nombre (hash del chunk, carpeta coco-ssd-vN), así
+// que se pueden servir de caché para siempre; se bajan una vez por móvil.
+registerRoute(
+  ({ url }) => /\/assets\/deteccion-[^/]+\.js$/.test(url.pathname) || url.pathname.includes('/modelos/'),
+  new CacheFirst({
+    cacheName: 'deteccion-cache',
+    plugins: [new ExpirationPlugin({ maxEntries: 10 })],
+  })
+);
+
 // ============================================================
 // Avisos push
 // ============================================================

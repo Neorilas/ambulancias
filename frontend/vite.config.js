@@ -69,6 +69,10 @@ export default defineConfig(({ mode }) => {
         filename:   'sw.js',
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          // TensorFlow (chunk `deteccion`) solo lo necesita quien abre la
+          // cámara para fotos exteriores. Precacheado, lo bajaría TODO el que
+          // instala o actualiza la app. Lo cachea src/sw.js en el primer uso.
+          globIgnores:  ['**/deteccion-*.js'],
         },
         devOptions: {
           enabled: true,   // habilitar SW en desarrollo para testing
@@ -136,6 +140,15 @@ export default defineConfig(({ mode }) => {
             // En chunk aparte al menos no se reinvalida en el navegador cada
             // vez que se toca código de la app, que son ~43 kB gzip.
             mapa:      ['leaflet'],
+            // Detector de encuadre de CameraCapture; solo se carga con import()
+            // dinámico. Nombre fijo para poder excluirlo del precache (arriba).
+            deteccion: [
+              '@tensorflow/tfjs-core',
+              '@tensorflow/tfjs-converter',
+              '@tensorflow/tfjs-backend-webgl',
+              '@tensorflow/tfjs-backend-cpu',
+              '@tensorflow-models/coco-ssd',
+            ],
           },
         },
       },

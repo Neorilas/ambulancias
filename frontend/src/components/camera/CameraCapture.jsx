@@ -3,6 +3,9 @@ import { compressImage, blobToFile } from '../../utils/imageCompress.js';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { useCameraStream } from './useCameraStream.js';
 import PhotoSilhouette from './PhotoSilhouette.jsx';
+import { analizarFoto } from './analizarFoto.js';
+import { precargarDetector } from './detectorVehiculo.js';
+import { TIPOS_CON_ENCUADRE } from '../../utils/encuadreVehiculo.js';
 
 /**
  * CameraCapture
@@ -16,6 +19,12 @@ import PhotoSilhouette from './PhotoSilhouette.jsx';
  *   onComplete(entries[])  → { tipo, label, preview, file } por cada foto
  *   onCancel()
  *   initialIndex           → índice por el que empezar (default 0)
+ *
+ * Revisión de la foto (analizarFoto): al hacerla se mira si está borrosa,
+ * movida, oscura o —en las exteriores— si la ambulancia sale cortada o lejos.
+ * NUNCA bloquea: con avisos, el técnico elige entre repetir o «Usar
+ * igualmente», y los botones están activos también mientras se revisa. Un
+ * análisis que se equivoca no puede dejar un servicio sin cerrar.
  */
 
 /**
@@ -43,11 +52,40 @@ function OrientationIcon({ isLandscape }) {
   );
 }
 
+/**
+ * Resultado de la revisión bajo la foto. Mientras se revisa, una línea
+ * discreta; con avisos, el recuadro con qué pasa y cómo arreglarlo. Nunca
+ * sustituye a los botones: solo informa.
+ */
+function RevisionFoto({ avisos }) {
+  if (avisos === null) {
+    return <p className="text-white/60 text-xs text-center" role="status">Revisando la foto…</p>;
+  }
+  if (!avisos.length) return null;
+  return (
+    <div className="rounded-lg bg-warn-50 border border-warn-200 px-4 py-3 text-left" role="alert">
+      <p className="text-warn-700 text-sm font-semibold mb-1">Esta foto podría salir mejor</p>
+      <ul className="space-y-1.5">
+        {avisos.map(a => (
+          <li key={a.codigo} className="text-sm text-gray-800">
+            <span className="font-medium">{a.titulo}.</span>{' '}
+            <span className="text-gray-600">{a.consejo}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-gray-500 mt-2">Puedes repetirla o usarla igualmente.</p>
+    </div>
+  );
+}
+
 export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, onCancel, initialIndex = 0 }) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [captured,     setCaptured]     = useState([]);   // { tipo, label, preview, file }[]
   const [preview,      setPreview]      = useState(null); // { blob, previewUrl }
   const [compressing,  setCompressing]  = useState(false);
+  // null = revisando · [] = sin avisos · [...] = avisos para el técnico
+  const [avisos,       setAvisos]       = useState(null);
+  const analisisRef = useRef(0);   // descarta el resultado de una foto ya repetida
 
   const currentTipo = tipos[currentIndex];
   const addedCount  = captured.filter(c => c.tipo === currentTipo.key).length;
@@ -64,14 +102,30 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const { videoRef, canvasRef, cameraReady, error, isLandscape, toggleCamera, captureBlob } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
+  // El detector de encuadre tarda en cargar la primera vez: se empieza a
+  // bajar al abrir la cámara, mientras el técnico encuadra.
+  useEffect(() => {
+    if (tipos.some(t => TIPOS_CON_ENCUADRE.includes(t.key))) precargarDetector();
+  }, [tipos]);
+
   // ── Capturar ─────────────────────────────────────────────────
   const capture = useCallback(async () => {
     if (!cameraReady) return;
     try {
       const blob = await captureBlob();
       setPreview({ blob, previewUrl: URL.createObjectURL(blob) });
+      setAvisos(null);
+      const id = ++analisisRef.current;
+      const vigente = () => id === analisisRef.current;
+      analizarFoto(blob, currentTipo.key, {
+        onCalidad: (a) => { if (vigente() && a.length) setAvisos(a); },
+      })
+        .then((a) => { if (vigente()) setAvisos(a); })
+        .catch(() => { if (vigente()) setAvisos([]); });
     } catch { /* cámara no lista */ }
-  }, [cameraReady, captureBlob]);
+  }, [cameraReady, captureBlob, currentTipo.key]);
+
+  const hayAvisos = !!avisos?.length;
 
   // ── Guardar foto y opcionalmente avanzar ─────────────────────
   const savePhoto = useCallback(async (andAdvance) => {
@@ -85,6 +139,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
       const newCaptured = [...captured, entry];
       setCaptured(newCaptured);
       setPreview(null);
+      analisisRef.current++;
+      setAvisos(null);
 
       if (andAdvance) {
         if (currentIndex + 1 >= tipos.length) {
@@ -102,6 +158,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const retake = useCallback(() => {
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
     setPreview(null);
+    analisisRef.current++;
+    setAvisos(null);
   }, [preview]);
 
   const retakeRef = useRef(retake);
@@ -155,7 +213,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
       {/* ── Previsualización ─────────────────────────────────── */}
       {preview && (
         <div
-          className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black"
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black overflow-y-auto"
           style={{
             paddingTop:    'var(--safe-top)',
             paddingBottom: 'var(--safe-bottom)',
@@ -166,9 +224,10 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
           <img
             src={preview.previewUrl}
             alt="Previsualización"
-            className="max-h-[68dvh] object-contain"
+            className={`${hayAvisos ? 'max-h-[48dvh]' : 'max-h-[68dvh]'} object-contain`}
           />
           <div className="p-5 w-full flex flex-col gap-3">
+            <RevisionFoto avisos={avisos} />
             <p className="text-white text-center font-medium">
               {currentTipo.label}
               {currentTipo.multiple && addedCount > 0 && (
@@ -187,16 +246,16 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                   {compressing ? '…' : '+ Añadir'}
                 </button>
                 <button onClick={() => savePhoto(true)} className="flex-1 btn-primary text-sm py-2" disabled={compressing}>
-                  {compressing ? 'Procesando…' : 'Continuar'}
+                  {compressing ? 'Procesando…' : hayAvisos ? 'Continuar igualmente' : 'Continuar'}
                 </button>
               </div>
             ) : (
               <div className="flex gap-3">
-                <button onClick={retake} className="flex-1 btn-secondary" disabled={compressing}>
+                <button onClick={retake} className={`flex-1 ${hayAvisos ? 'btn-primary' : 'btn-secondary'}`} disabled={compressing}>
                   Repetir
                 </button>
-                <button onClick={() => savePhoto(true)} className="flex-1 btn-primary" disabled={compressing}>
-                  {compressing ? 'Procesando…' : 'Usar foto'}
+                <button onClick={() => savePhoto(true)} className={`flex-1 ${hayAvisos ? 'btn-secondary' : 'btn-primary'}`} disabled={compressing}>
+                  {compressing ? 'Procesando…' : hayAvisos ? 'Usar igualmente' : 'Usar foto'}
                 </button>
               </div>
             )}
