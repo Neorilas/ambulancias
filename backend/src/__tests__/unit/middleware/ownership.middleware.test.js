@@ -30,17 +30,6 @@ describe('ownership.middleware', () => {
       expect(sql).toContain("au.rol = 'responsable'");
     });
 
-    it('en el trabajo cuentan los responsables de ESE vehículo y el estado del vehículo', async () => {
-      // El equipo del trabajo ve la ficha, no sube evidencia; y cada vehículo
-      // tiene su propio ciclo de vida (v25), así que no vale el estado del trabajo.
-      query.mockResolvedValueOnce([[]]);
-      await tieneElVehiculoAsignado(20, 3);
-      const sql = query.mock.calls[0][0];
-      expect(sql).toContain('trabajo_vehiculo_responsables tvr');
-      expect(sql).toContain("tv.estado = 'activo'");
-      expect(sql).not.toContain('trabajo_usuarios');
-    });
-
     it('false cuando no hay ninguno', async () => {
       query.mockResolvedValueOnce([[]]);
       await expect(tieneElVehiculoAsignado(20, 3)).resolves.toBe(false);

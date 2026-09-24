@@ -22,14 +22,6 @@ export const trabajosService = {
   delete(id) {
     return api.delete(`/trabajos/${id}`).then(r => r.data);
   },
-  // Ciclo de vida por vehículo: cada responsable activa y cierra el suyo
-  activarVehiculo(id, vehicleId) {
-    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/activar`).then(r => r.data.data);
-  },
-  finalizeVehiculo(id, vehicleId, data) {
-    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/finalize`, data).then(r => r.data);
-  },
-  // Solo trabajos SIN vehículos (los lleva gestión a mano)
   activar(id) {
     return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
   },

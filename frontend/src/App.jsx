@@ -53,10 +53,7 @@ export default function App() {
               <Route
                 path="/mis-trabajos"
                 element={
-                  // Cualquiera: responsables y equipo de un trabajo son
-                  // personal de campo. Qué trabajos ve cada uno lo filtra el
-                  // backend (§6.2 del mapa).
-                  <ProtectedRoute requiredFeature="menu_mis_trabajos">
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_mis_trabajos">
                     <MisTrabajos />
                   </ProtectedRoute>
                 }
@@ -72,10 +69,7 @@ export default function App() {
               <Route
                 path="/trabajos/:id"
                 element={
-                  // Se llega desde el listado de gestión (menu_trabajos) o
-                  // desde «Mis trabajos» (menu_mis_trabajos). El backend da 403
-                  // a quien no va en el trabajo y recorta lo que no le toca.
-                  <ProtectedRoute requiredFeature={['menu_trabajos', 'menu_mis_trabajos']}>
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.GESTOR]} requiredFeature="menu_trabajos">
                     <TrabajoDetail />
                   </ProtectedRoute>
                 }

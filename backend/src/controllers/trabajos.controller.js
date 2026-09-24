@@ -1,12 +1,6 @@
 /**
  * controllers/trabajos.controller.js
- * CRUD de trabajos + ciclo de vida POR VEHÍCULO (activar / evidencias / cerrar).
- *
- * Un trabajo tiene 0..N vehículos y un equipo de 0..N personas. Cada vehículo
- * lleva 1..N responsables (tabla trabajo_vehiculo_responsables, v25), que son
- * quienes lo activan, suben su evidencia y lo cierran, cada uno el suyo y por
- * su cuenta. `trabajos.estado` ya no se escribe a mano: se DERIVA de los
- * estados de sus vehículos (sincronizarEstadoTrabajo). Reglas en §6.2 del mapa.
+ * CRUD de trabajos + lógica de finalización con evidencias
  */
 
 'use strict';
@@ -14,42 +8,14 @@
 const { query, transaction }          = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
-const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX, PERMISSIONS,
-        IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
+const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX,
+        IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_MOMENTOS } =
   require('../config/constants');
-const { hasPermission }               = require('../middleware/roles.middleware');
+const { isAdmin, isOperacional }      = require('../middleware/roles.middleware');
+const logger                          = require('../utils/logger.utils');
 const { logAudit }                    = require('./admin.controller');
 const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana } =
   require('../utils/fecha.utils');
-
-const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
-
-// ============================================================
-// Quién es quién
-// ============================================================
-
-/** Activa, cierra y edita cualquier vehículo de cualquier trabajo. */
-const gestiona = (user) => hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS);
-
-/**
- * Ve todos los trabajos y el detalle completo de todos sus vehículos. Sin
- * esto solo se ven los trabajos propios (equipo o responsable de un vehículo).
- * Antes el recorte colgaba de `isOperacional`, y un usuario SIN ningún rol —la
- * mayoría de la plantilla— no era «operacional» y veía la lista entera.
- */
-const veTodo = (user) =>
-  gestiona(user) || hasPermission(user, PERMISSIONS.VIEW_ALL_TRABAJOS);
-
-/**
- * «Es mío»: va en el equipo o es responsable de alguno de sus vehículos. Un
- * responsable no tiene por qué figurar además en el equipo. Lleva DOS
- * parámetros, los dos el id del usuario.
- */
-const FILTRO_PROPIOS = `(
-  EXISTS (SELECT 1 FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id AND tu.user_id = ?)
-  OR EXISTS (SELECT 1 FROM trabajo_vehiculos tvp
-               JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tvp.id
-              WHERE tvp.trabajo_id = t.id AND tvr.user_id = ?))`;
 
 // ============================================================
 // Helpers
@@ -71,149 +37,7 @@ async function generateIdentificador() {
   return `${TRABAJO_ID_PREFIX}-${year}-${String(seq).padStart(4, '0')}`;
 }
 
-/** Texto opcional: recortado, y el vacío se guarda como NULL. */
-function textoOpcional(valor) {
-  if (valor === undefined) return undefined;
-  if (valor === null) return null;
-  const t = String(valor).trim();
-  return t || null;
-}
-
-/** Lista de ids enteros de un campo del body, o undefined si no viene. */
-function idsDe(valor) {
-  if (valor === undefined || valor === null || valor === '') return undefined;
-  const lista = Array.isArray(valor) ? valor : [valor];
-  return lista.map(v => Number(v));
-}
-
-/**
- * Normaliza `vehiculos` del body. Cada uno necesita al menos un responsable.
- * Acepta `responsable_user_id` suelto (el formulario anterior) además de
- * `responsables: [ids]`.
- *
- * @returns {{vehiculos?: Array<{vehicle_id, responsables, kilometros_inicio}>, error?: string}}
- */
-function leerVehiculos(lista) {
-  if (lista === undefined) return {};
-  if (!Array.isArray(lista)) return { error: 'vehiculos debe ser una lista' };
-
-  const vehiculos = [];
-  for (const veh of lista) {
-    const vehicleId = Number(veh?.vehicle_id);
-    if (!Number.isInteger(vehicleId) || vehicleId < 1) {
-      return { error: 'Cada vehículo del trabajo necesita un vehicle_id válido' };
-    }
-    const responsables = idsDe(veh.responsables) ?? idsDe(veh.responsable_user_id) ?? [];
-    if (!responsables.length) {
-      return { error: 'Cada vehículo necesita al menos un responsable' };
-    }
-    if (responsables.some(id => !Number.isInteger(id) || id < 1)) {
-      return { error: 'Los responsables deben ser ids de usuario válidos' };
-    }
-    if (new Set(responsables).size !== responsables.length) {
-      return { error: 'La misma persona no puede figurar dos veces como responsable del mismo vehículo' };
-    }
-    const km = veh.kilometros_inicio;
-    vehiculos.push({
-      vehicle_id: vehicleId,
-      responsables,
-      kilometros_inicio: km === undefined || km === null || km === '' ? null : Number(km),
-    });
-  }
-  if (new Set(vehiculos.map(v => v.vehicle_id)).size !== vehiculos.length) {
-    return { error: 'El mismo vehículo no puede figurar dos veces en el trabajo' };
-  }
-  return { vehiculos };
-}
-
-/**
- * Ids que no existen o están dados de baja. `yaMiembros` se salta: quien ya
- * iba en el trabajo no bloquea una edición aunque desde entonces lo hayan
- * dado de baja.
- */
-async function usuariosNoValidos(ids, yaMiembros = []) {
-  const nuevos = [...new Set(ids)].filter(id => !yaMiembros.includes(id));
-  if (!nuevos.length) return [];
-  const [rows] = await query(
-    `SELECT id FROM users
-     WHERE id IN (${nuevos.map(() => '?').join(',')})
-       AND deleted_at IS NULL AND activo = 1`,
-    nuevos
-  );
-  const ok = new Set(rows.map(r => r.id));
-  return nuevos.filter(id => !ok.has(id));
-}
-
-/**
- * Reescribe los responsables de un vehículo del trabajo y sincroniza el
- * principal (`trabajo_vehiculos.responsable_user_id`, el primero de la lista),
- * que siguen leyendo la vista v_trabajos_activos y el historial del vehículo.
- */
-async function guardarResponsables(conn, trabajoVehiculoId, responsables) {
-  await conn.execute(
-    'DELETE FROM trabajo_vehiculo_responsables WHERE trabajo_vehiculo_id = ?',
-    [trabajoVehiculoId]
-  );
-  await conn.execute(
-    `INSERT INTO trabajo_vehiculo_responsables (trabajo_vehiculo_id, user_id, orden)
-     VALUES ${responsables.map(() => '(?, ?, ?)').join(', ')}`,
-    responsables.flatMap((id, i) => [trabajoVehiculoId, id, i])
-  );
-  await conn.execute(
-    'UPDATE trabajo_vehiculos SET responsable_user_id = ? WHERE id = ?',
-    [responsables[0], trabajoVehiculoId]
-  );
-}
-
-/**
- * Estado del trabajo a partir de los de sus vehículos:
- *  - todos cerrados → finalizado (o finalizado_anticipado si alguno lo fue);
- *  - alguno activo o ya cerrado → activo (el trabajo está en marcha);
- *  - ninguno empezado → programado.
- * Sin vehículos devuelve null: ese trabajo se gestiona a mano (0 vehículos).
- */
-function estadoTrabajoDesde(estados) {
-  if (!estados.length) return null;
-  if (estados.every(e => CERRADOS.includes(e))) {
-    return estados.includes(TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO)
-      ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
-      : TRABAJO_ESTADOS.FINALIZADO;
-  }
-  if (estados.some(e => e !== TRABAJO_ESTADOS.PROGRAMADO)) return TRABAJO_ESTADOS.ACTIVO;
-  return TRABAJO_ESTADOS.PROGRAMADO;
-}
-
-/**
- * Recalcula `trabajos.estado`. Se guarda en vez de calcularse al leer para que
- * el listado y el calendario sigan filtrando por una columna, sin juntar
- * vehículos en cada GET. Se llama tras CADA cambio de estado de un vehículo.
- */
-async function sincronizarEstadoTrabajo(conn, trabajoId) {
-  const [rows] = await conn.execute(
-    'SELECT estado FROM trabajo_vehiculos WHERE trabajo_id = ?', [trabajoId]
-  );
-  const estado = estadoTrabajoDesde(rows.map(r => r.estado));
-  if (estado) {
-    await conn.execute('UPDATE trabajos SET estado = ? WHERE id = ?', [estado, trabajoId]);
-  }
-  return estado;
-}
-
-/** Progreso de fotos de inicio y fin de un vehículo, a partir de sus imágenes. */
-function progresoDe(fotosVeh) {
-  const tanda = (tipos, momento) => {
-    const ok = tipos.filter(t => fotosVeh.some(i => i.momento === momento && i.tipo_imagen === t));
-    return {
-      completado: ok.length,
-      total:      tipos.length,
-      faltantes:  tipos.filter(t => !ok.includes(t)),
-      completo:   ok.length === tipos.length,
-    };
-  };
-  return { inicio: tanda(IMAGEN_TIPOS_INICIO, 'inicio'), fin: tanda(IMAGEN_TIPOS_FIN, 'fin') };
-}
-
-/** Obtiene el trabajo completo, SIN recortar (el recorte es `vistaParaUsuario`). */
+/** Obtiene trabajo completo con relaciones */
 async function getTrabajoCompleto(id) {
   const [trows] = await query(
     `SELECT t.*, u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos
@@ -226,29 +50,20 @@ async function getTrabajoCompleto(id) {
 
   const t = trows[0];
 
+  // Vehículos asignados
   const [vehicles] = await query(
-    `SELECT tv.id AS trabajo_vehiculo_id, tv.vehicle_id, tv.responsable_user_id,
-            tv.estado, tv.inicio_real_at, tv.finalizado_at, tv.motivo_finalizacion_anticipada,
+    `SELECT tv.id AS asignacion_id, tv.vehicle_id, tv.responsable_user_id,
             tv.kilometros_inicio, tv.kilometros_fin,
-            v.matricula, v.alias AS vehiculo_alias, v.kilometros_actuales AS vehiculo_km_actual
+            v.matricula, v.alias AS vehiculo_alias,
+            CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
      FROM trabajo_vehiculos tv
      JOIN vehicles v ON tv.vehicle_id = v.id
-     WHERE tv.trabajo_id = ?
-     ORDER BY tv.id`,
+     LEFT JOIN users u ON tv.responsable_user_id = u.id
+     WHERE tv.trabajo_id = ?`,
     [id]
   );
 
-  const [responsables] = await query(
-    `SELECT tvr.trabajo_vehiculo_id, u.id, u.username, u.nombre, u.apellidos
-     FROM trabajo_vehiculo_responsables tvr
-     JOIN trabajo_vehiculos tv ON tv.id = tvr.trabajo_vehiculo_id
-     JOIN users u ON u.id = tvr.user_id
-     WHERE tv.trabajo_id = ?
-     ORDER BY tvr.trabajo_vehiculo_id, tvr.orden`,
-    [id]
-  );
-
-  // Equipo: ve la ficha del trabajo, no la evidencia de los vehículos
+  // Personal asignado
   const [usuarios] = await query(
     `SELECT tu.user_id, u.username, u.nombre, u.apellidos,
             GROUP_CONCAT(r.nombre SEPARATOR ',') AS roles
@@ -261,6 +76,7 @@ async function getTrabajoCompleto(id) {
     [id]
   );
 
+  // Imágenes de evidencia
   const [images] = await query(
     `SELECT vi.id, vi.vehicle_id, vi.tipo_imagen, vi.momento, vi.image_url, vi.created_at,
             v.matricula
@@ -271,82 +87,36 @@ async function getTrabajoCompleto(id) {
     [id]
   );
 
+  // Progreso por vehículo: qué tipos están cubiertos en inicio y en fin
+  const progresoPorVehiculo = {};
+  for (const v of vehicles) {
+    const fotosVeh  = images.filter(i => i.vehicle_id === v.vehicle_id);
+    const inicioOk  = IMAGEN_TIPOS_INICIO.filter(t =>
+      fotosVeh.some(i => i.momento === 'inicio' && i.tipo_imagen === t));
+    const finOk     = IMAGEN_TIPOS_FIN.filter(t =>
+      fotosVeh.some(i => i.momento === 'fin' && i.tipo_imagen === t));
+    progresoPorVehiculo[v.vehicle_id] = {
+      inicio: {
+        completado: inicioOk.length,
+        total:      IMAGEN_TIPOS_INICIO.length,
+        faltantes:  IMAGEN_TIPOS_INICIO.filter(t => !inicioOk.includes(t)),
+        completo:   inicioOk.length === IMAGEN_TIPOS_INICIO.length,
+      },
+      fin: {
+        completado: finOk.length,
+        total:      IMAGEN_TIPOS_FIN.length,
+        faltantes:  IMAGEN_TIPOS_FIN.filter(t => !finOk.includes(t)),
+        completo:   finOk.length === IMAGEN_TIPOS_FIN.length,
+      },
+    };
+  }
+
   return {
     ...t,
-    vehiculos: vehicles.map(v => ({
-      ...v,
-      responsables: responsables
-        .filter(r => r.trabajo_vehiculo_id === v.trabajo_vehiculo_id)
-        .map(({ trabajo_vehiculo_id, ...r }) => r),
-      progreso_fotos: progresoDe(images.filter(i => i.vehicle_id === v.vehicle_id)),
-    })),
+    vehiculos: vehicles.map(v => ({ ...v, progreso_fotos: progresoPorVehiculo[v.vehicle_id] })),
     usuarios:  usuarios.map(u => ({ ...u, roles: u.roles ? u.roles.split(',') : [] })),
     evidencias: images,
   };
-}
-
-/**
- * Lo que este usuario puede ver del trabajo, o null si no puede verlo.
- *  - Gestión (ver todo): el trabajo entero.
- *  - Responsable: el detalle (km, fotos, progreso) de SUS vehículos; el resto,
- *    recortado como a cualquiera del equipo.
- *  - Equipo: título, descripción, ubicación, fechas y qué vehículos van (alias,
- *    matrícula, estado, responsables), sin evidencia ni kilómetros.
- * Cada vehículo sale con `soy_responsable` y `detalle` para que el frontend
- * no tenga que repetir la regla.
- */
-function vistaParaUsuario(t, user) {
-  const todo     = veTodo(user);
-  const enEquipo = t.usuarios.some(u => u.user_id === user.id);
-
-  const vehiculos = t.vehiculos.map(v => {
-    const soy = v.responsables.some(r => r.id === user.id)
-      // Red de seguridad: una fila sin responsables (no debería existir tras v25)
-      || (!v.responsables.length && v.responsable_user_id === user.id);
-    if (todo || soy) return { ...v, soy_responsable: soy, detalle: true };
-    const {
-      kilometros_inicio, kilometros_fin, vehiculo_km_actual,
-      progreso_fotos, motivo_finalizacion_anticipada, ...ligero
-    } = v;
-    return { ...ligero, soy_responsable: false, detalle: false };
-  });
-
-  const soyResponsable = vehiculos.some(v => v.soy_responsable);
-  if (!todo && !enEquipo && !soyResponsable) return null;
-
-  const conDetalle = new Set(vehiculos.filter(v => v.detalle).map(v => v.vehicle_id));
-  return {
-    ...t,
-    vehiculos,
-    evidencias: t.evidencias.filter(e => conDetalle.has(e.vehicle_id)),
-    mi_rol: todo ? 'gestion' : (soyResponsable ? 'responsable' : 'equipo'),
-  };
-}
-
-/**
- * Carga la fila trabajo↔vehículo sobre la que se va a actuar y dice si este
- * usuario puede operar en ella (gestión o responsable de ESE vehículo).
- */
-async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
-  const [rows] = await query(
-    `SELECT tv.id, tv.trabajo_id, tv.vehicle_id, tv.estado, tv.inicio_real_at,
-            tv.kilometros_inicio,
-            t.nombre, t.fecha_inicio, t.fecha_fin,
-            v.matricula, v.alias AS vehiculo_alias, v.kilometros_actuales AS vehiculo_km_actual
-     FROM trabajo_vehiculos tv
-     JOIN trabajos t ON t.id = tv.trabajo_id
-     JOIN vehicles v ON v.id = tv.vehicle_id
-     WHERE tv.trabajo_id = ? AND tv.vehicle_id = ? AND t.deleted_at IS NULL`,
-    [trabajoId, vehicleId]
-  );
-  if (!rows.length) return { fila: null, puede: false };
-  if (gestiona(user)) return { fila: rows[0], puede: true };
-
-  const [resp] = await query(
-    'SELECT 1 AS ok FROM trabajo_vehiculo_responsables WHERE trabajo_vehiculo_id = ? AND user_id = ?',
-    [rows[0].id, user.id]
-  );
-  return { fila: rows[0], puede: resp.length > 0 };
 }
 
 // ============================================================
@@ -363,9 +133,10 @@ async function listTrabajos(req, res, next) {
     let where  = 'WHERE t.deleted_at IS NULL';
     const params = [];
 
-    if (!veTodo(req.user)) {
-      where += ` AND ${FILTRO_PROPIOS}`;
-      params.push(req.user.id, req.user.id);
+    // Filtro por rol: operacionales solo ven sus trabajos
+    if (isOperacional(req.user)) {
+      where += ' AND EXISTS (SELECT 1 FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id AND tu.user_id = ?)';
+      params.push(req.user.id);
     }
 
     if (estado) { where += ' AND t.estado = ?';       params.push(estado); }
@@ -373,8 +144,8 @@ async function listTrabajos(req, res, next) {
     if (fecha_desde) { where += ' AND t.fecha_inicio >= ?'; params.push(fecha_desde); }
     if (fecha_hasta) { where += ' AND t.fecha_fin <= ?';    params.push(fecha_hasta + ' 23:59:59'); }
     if (search) {
-      where += ' AND (t.nombre LIKE ? OR t.identificador LIKE ? OR t.ubicacion LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      where += ' AND (t.nombre LIKE ? OR t.identificador LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
     }
 
     const [countRows] = await query(
@@ -383,7 +154,7 @@ async function listTrabajos(req, res, next) {
     const total = countRows[0].total;
 
     const [rows] = await query(
-      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
+      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado,
               t.fecha_inicio, t.fecha_fin, t.created_at,
               u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos,
               COUNT(DISTINCT tv.vehicle_id) AS num_vehiculos,
@@ -423,16 +194,16 @@ async function listTrabajosCalendario(req, res, next) {
     const ySig = m === 12 ? y + 1 : y;
     const hasta = instanteEnEspana(ySig, mSig, 1);
 
-    let sql    = `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
+    let sql    = `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado,
                          t.fecha_inicio, t.fecha_fin
                   FROM trabajos t
                   WHERE t.deleted_at IS NULL
                     AND t.fecha_inicio < ? AND t.fecha_fin >= ?`;
     const params = [hasta, desde];
 
-    if (!veTodo(req.user)) {
-      sql += ` AND ${FILTRO_PROPIOS}`;
-      params.push(req.user.id, req.user.id);
+    if (isOperacional(req.user)) {
+      sql += ' AND EXISTS (SELECT 1 FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id AND tu.user_id = ?)';
+      params.push(req.user.id);
     }
 
     sql += ' ORDER BY t.fecha_inicio ASC';
@@ -452,28 +223,15 @@ async function getTrabajo(req, res, next) {
     const t = await getTrabajoCompleto(parseInt(req.params.id));
     if (!t) return notFound(res, 'Trabajo');
 
-    const vista = vistaParaUsuario(t, req.user);
-    if (!vista) return forbidden(res, 'No tienes acceso a este trabajo');
+    // Operacional solo puede ver trabajos donde está asignado
+    if (isOperacional(req.user)) {
+      const asignado = t.usuarios.some(u => u.user_id === req.user.id);
+      if (!asignado) return forbidden(res, 'No tienes acceso a este trabajo');
+    }
 
-    return success(res, vista);
+    return success(res, t);
   } catch (err) {
     next(err);
-  }
-}
-
-/** Inserta un vehículo en el trabajo con sus responsables. */
-async function insertarVehiculo(conn, trabajoId, veh) {
-  const [ins] = await conn.execute(
-    `INSERT INTO trabajo_vehiculos (trabajo_id, vehicle_id, responsable_user_id, kilometros_inicio)
-     VALUES (?, ?, ?, ?)`,
-    [trabajoId, veh.vehicle_id, veh.responsables[0], veh.kilometros_inicio]
-  );
-  await guardarResponsables(conn, ins.insertId, veh.responsables);
-  if (veh.kilometros_inicio) {
-    await conn.execute(
-      'UPDATE vehicles SET kilometros_actuales = ? WHERE id = ? AND kilometros_actuales < ?',
-      [veh.kilometros_inicio, veh.vehicle_id, veh.kilometros_inicio]
-    );
   }
 }
 
@@ -482,39 +240,40 @@ async function insertarVehiculo(conn, trabajoId, veh) {
 // ============================================================
 async function createTrabajo(req, res, next) {
   try {
-    const { nombre, tipo, fecha_inicio, fecha_fin, usuarios = [] } = req.body;
+    const { nombre, tipo, fecha_inicio, fecha_fin, vehiculos = [], usuarios = [] } = req.body;
 
     if (new Date(fecha_fin) <= new Date(fecha_inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
-    }
-
-    const { vehiculos = [], error: errVeh } = leerVehiculos(req.body.vehiculos);
-    if (errVeh) return error(res, errVeh, 400);
-
-    const equipo = (idsDe(usuarios) || []);
-    if (equipo.some(id => !Number.isInteger(id) || id < 1)) {
-      return error(res, 'El equipo debe ser una lista de ids de usuario válidos', 400);
-    }
-    const malos = await usuariosNoValidos([...equipo, ...vehiculos.flatMap(v => v.responsables)]);
-    if (malos.length) {
-      return error(res, `Usuarios inexistentes o dados de baja: ${malos.join(', ')}`, 400);
     }
 
     const identificador = await generateIdentificador();
 
     const trabajoId = await transaction(async (conn) => {
       const [result] = await conn.execute(
-        `INSERT INTO trabajos (identificador, nombre, descripcion, ubicacion, tipo,
-                               fecha_inicio, fecha_fin, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [identificador, nombre, textoOpcional(req.body.descripcion) ?? null,
-         textoOpcional(req.body.ubicacion) ?? null, tipo, fecha_inicio, fecha_fin, req.user.id]
+        `INSERT INTO trabajos (identificador, nombre, tipo, fecha_inicio, fecha_fin, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [identificador, nombre, tipo, fecha_inicio, fecha_fin, req.user.id]
       );
       const newId = result.insertId;
 
-      for (const veh of vehiculos) await insertarVehiculo(conn, newId, veh);
+      // Asignar vehículos
+      for (const veh of vehiculos) {
+        await conn.execute(
+          `INSERT INTO trabajo_vehiculos (trabajo_id, vehicle_id, responsable_user_id, kilometros_inicio)
+           VALUES (?, ?, ?, ?)`,
+          [newId, veh.vehicle_id, veh.responsable_user_id, veh.kilometros_inicio || null]
+        );
+        // Actualizar km del vehículo si se proporcionan
+        if (veh.kilometros_inicio) {
+          await conn.execute(
+            'UPDATE vehicles SET kilometros_actuales = ? WHERE id = ? AND kilometros_actuales < ?',
+            [veh.kilometros_inicio, veh.vehicle_id, veh.kilometros_inicio]
+          );
+        }
+      }
 
-      for (const userId of equipo) {
+      // Asignar usuarios
+      for (const userId of usuarios) {
         await conn.execute(
           'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)',
           [newId, userId]
@@ -530,8 +289,7 @@ async function createTrabajo(req, res, next) {
       userInfo: req.user.username,
       action:   'create_trabajo',
       entityType: 'trabajo', entityId: trabajoId,
-      details:  { identificador: t.identificador, nombre: t.nombre, tipo: t.tipo,
-                  vehiculos: vehiculos.length },
+      details:  { identificador: t.identificador, nombre: t.nombre, tipo: t.tipo },
       ip: req.ip,
     });
     return created(res, t, 'Trabajo creado');
@@ -547,117 +305,46 @@ async function updateTrabajo(req, res, next) {
   try {
     const id = parseInt(req.params.id);
     const [existing] = await query(
-      'SELECT id, estado, fecha_inicio, fecha_fin FROM trabajos WHERE id = ? AND deleted_at IS NULL', [id]
+      'SELECT id, estado FROM trabajos WHERE id = ? AND deleted_at IS NULL', [id]
     );
     if (!existing.length) return notFound(res, 'Trabajo');
 
-    const actual = existing[0];
-    if (CERRADOS.includes(actual.estado)) {
+    const est = existing[0].estado;
+    if ([TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(est)) {
       return error(res, 'No se puede modificar un trabajo finalizado', 400);
     }
 
-    const { nombre, tipo, fecha_inicio, fecha_fin, usuarios } = req.body;
-    const descripcion = textoOpcional(req.body.descripcion);
-    const ubicacion   = textoOpcional(req.body.ubicacion);
-
-    const inicio = fecha_inicio !== undefined ? fecha_inicio : actual.fecha_inicio;
-    const fin    = fecha_fin    !== undefined ? fecha_fin    : actual.fecha_fin;
-    if (new Date(fin) <= new Date(inicio)) {
-      return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
-    }
-
-    const { vehiculos, error: errVeh } = leerVehiculos(req.body.vehiculos);
-    if (errVeh) return error(res, errVeh, 400);
-
-    const equipo = idsDe(usuarios);
-    if (equipo && equipo.some(id => !Number.isInteger(id) || id < 1)) {
-      return error(res, 'El equipo debe ser una lista de ids de usuario válidos', 400);
-    }
-
-    // Quien ya iba en el trabajo no bloquea la edición aunque lo hayan dado de baja
-    const [miembros] = await query(
-      `SELECT tu.user_id FROM trabajo_usuarios tu WHERE tu.trabajo_id = ?
-       UNION
-       SELECT tvr.user_id FROM trabajo_vehiculo_responsables tvr
-         JOIN trabajo_vehiculos tv ON tv.id = tvr.trabajo_vehiculo_id
-        WHERE tv.trabajo_id = ?`,
-      [id, id]
-    );
-    const malos = await usuariosNoValidos(
-      [...(equipo || []), ...(vehiculos || []).flatMap(v => v.responsables)],
-      miembros.map(m => m.user_id)
-    );
-    if (malos.length) {
-      return error(res, `Usuarios inexistentes o dados de baja: ${malos.join(', ')}`, 400);
-    }
-
-    // Los vehículos se comparan con los que ya hay, no se borran y se vuelven
-    // a meter: borrar la fila se llevaría por delante su estado, su hora real
-    // de inicio y sus responsables. Y un vehículo que ya ha empezado (o tiene
-    // fotos subidas) no se puede quitar: su evidencia quedaría colgando de un
-    // trabajo que ya no lo lleva.
-    let actuales = [];
-    if (vehiculos !== undefined) {
-      [actuales] = await query(
-        `SELECT tv.id, tv.vehicle_id, tv.estado,
-                (SELECT COUNT(*) FROM vehicle_images vi
-                  WHERE vi.trabajo_id = tv.trabajo_id AND vi.vehicle_id = tv.vehicle_id) AS fotos,
-                v.matricula
-         FROM trabajo_vehiculos tv
-         JOIN vehicles v ON v.id = tv.vehicle_id
-         WHERE tv.trabajo_id = ?`,
-        [id]
-      );
-      const pedidos = new Set(vehiculos.map(v => v.vehicle_id));
-      const bloqueado = actuales.find(a => !pedidos.has(a.vehicle_id) &&
-        (a.estado !== TRABAJO_ESTADOS.PROGRAMADO || a.fotos > 0));
-      if (bloqueado) {
-        return error(res,
-          `No se puede quitar el vehículo ${bloqueado.matricula}: ya ha empezado o tiene fotos subidas`,
-          400);
-      }
-    }
+    const { nombre, tipo, fecha_inicio, fecha_fin, estado, vehiculos, usuarios } = req.body;
 
     await transaction(async (conn) => {
       const updates = [];
       const vals    = [];
       if (nombre       !== undefined) { updates.push('nombre = ?');       vals.push(nombre); }
-      if (descripcion  !== undefined) { updates.push('descripcion = ?');  vals.push(descripcion); }
-      if (ubicacion    !== undefined) { updates.push('ubicacion = ?');    vals.push(ubicacion); }
       if (tipo         !== undefined) { updates.push('tipo = ?');         vals.push(tipo); }
       if (fecha_inicio !== undefined) { updates.push('fecha_inicio = ?'); vals.push(fecha_inicio); }
       if (fecha_fin    !== undefined) { updates.push('fecha_fin = ?');    vals.push(fecha_fin); }
+      if (estado       !== undefined && [TRABAJO_ESTADOS.PROGRAMADO, TRABAJO_ESTADOS.ACTIVO].includes(estado)) {
+        updates.push('estado = ?'); vals.push(estado);
+      }
 
       if (updates.length) {
         await conn.execute(`UPDATE trabajos SET ${updates.join(', ')} WHERE id = ?`, [...vals, id]);
       }
 
       if (vehiculos !== undefined) {
-        const porVehiculo = new Map(actuales.map(a => [a.vehicle_id, a]));
-        for (const a of actuales) {
-          if (!vehiculos.some(v => v.vehicle_id === a.vehicle_id)) {
-            await conn.execute('DELETE FROM trabajo_vehiculos WHERE id = ?', [a.id]);
-          }
-        }
+        await conn.execute('DELETE FROM trabajo_vehiculos WHERE trabajo_id = ?', [id]);
         for (const veh of vehiculos) {
-          const fila = porVehiculo.get(veh.vehicle_id);
-          if (!fila) {
-            await insertarVehiculo(conn, id, veh);
-            continue;
-          }
-          await guardarResponsables(conn, fila.id, veh.responsables);
-          if (fila.estado === TRABAJO_ESTADOS.PROGRAMADO) {
-            await conn.execute('UPDATE trabajo_vehiculos SET kilometros_inicio = ? WHERE id = ?',
-              [veh.kilometros_inicio, fila.id]);
-          }
+          await conn.execute(
+            `INSERT INTO trabajo_vehiculos (trabajo_id, vehicle_id, responsable_user_id, kilometros_inicio)
+             VALUES (?, ?, ?, ?)`,
+            [id, veh.vehicle_id, veh.responsable_user_id, veh.kilometros_inicio || null]
+          );
         }
-        // Añadir o quitar vehículos puede cambiar el estado del conjunto
-        await sincronizarEstadoTrabajo(conn, id);
       }
 
-      if (equipo !== undefined) {
+      if (usuarios !== undefined) {
         await conn.execute('DELETE FROM trabajo_usuarios WHERE trabajo_id = ?', [id]);
-        for (const userId of equipo) {
+        for (const userId of usuarios) {
           await conn.execute(
             'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)',
             [id, userId]
@@ -711,237 +398,110 @@ async function deleteTrabajo(req, res, next) {
 }
 
 // ============================================================
-// POST /trabajos/:id/vehiculos/:vehicleId/activar
-// «Inicio de servicio» de UN vehículo del trabajo
+// POST /trabajos/:id/finalize
+// Finalización con evidencias obligatorias
 // ============================================================
-async function activarVehiculo(req, res, next) {
-  try {
-    const trabajoId = parseInt(req.params.id);
-    const vehicleId = parseInt(req.params.vehicleId);
-
-    const { fila, puede } = await cargarVehiculoDelTrabajo(trabajoId, vehicleId, req.user);
-    if (!fila) return notFound(res, 'Vehículo en este trabajo');
-    if (!puede) return forbidden(res, 'Solo un responsable de este vehículo puede activarlo');
-
-    if (CERRADOS.includes(fila.estado)) {
-      return error(res, 'Este vehículo ya ha cerrado su parte del trabajo', 400);
-    }
-
-    // Quien no gestiona solo puede adelantarse hasta 24 h. Si el cron ya lo
-    // pasó a 'activo' a su hora, aquí solo se sella la hora real.
-    if (!gestiona(req.user) && fila.estado === TRABAJO_ESTADOS.PROGRAMADO) {
-      const horasRestantes = (new Date(fila.fecha_inicio) - ahora()) / (1000 * 60 * 60);
-      if (horasRestantes > 24) {
-        return error(res, 'Solo puedes activar el vehículo en las 24 horas previas al inicio', 400);
-      }
-    }
-
-    // Idempotente, como «Inicio de servicio» en asignaciones: la hora real es
-    // la de la PRIMERA pulsación, y funciona aunque el cron ya lo activara.
-    await transaction(async (conn) => {
-      await conn.execute(
-        `UPDATE trabajo_vehiculos
-            SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?)
-          WHERE id = ?`,
-        [TRABAJO_ESTADOS.ACTIVO, ahora(), fila.id]
-      );
-      await conn.execute(
-        'UPDATE trabajos SET activado_por = COALESCE(activado_por, ?) WHERE id = ?',
-        [req.user.id, trabajoId]
-      );
-      await sincronizarEstadoTrabajo(conn, trabajoId);
-    });
-
-    logAudit({
-      userId:   req.user.id,
-      userInfo: req.user.username,
-      action:   'activate_trabajo_vehiculo',
-      entityType: 'trabajo', entityId: trabajoId,
-      details:  { trabajo_vehiculo_id: fila.id, vehicle_id: vehicleId, matricula: fila.matricula },
-      ip: req.ip,
-    });
-    const t = await getTrabajoCompleto(trabajoId);
-    return success(res, vistaParaUsuario(t, req.user), 'Vehículo activado');
-  } catch (err) {
-    next(err);
-  }
-}
-
-// ============================================================
-// POST /trabajos/:id/vehiculos/:vehicleId/finalize
-// Cierre de UN vehículo con evidencias obligatorias. El trabajo entero pasa a
-// finalizado cuando el último de sus vehículos cierra.
-// ============================================================
-async function finalizeVehiculo(req, res, next) {
-  try {
-    const trabajoId = parseInt(req.params.id);
-    const vehicleId = parseInt(req.params.vehicleId);
-
-    const { fila, puede } = await cargarVehiculoDelTrabajo(trabajoId, vehicleId, req.user);
-    if (!fila) return notFound(res, 'Vehículo en este trabajo');
-    if (!puede) return forbidden(res, 'Solo un responsable de este vehículo puede cerrarlo');
-
-    if (CERRADOS.includes(fila.estado)) {
-      return error(res, 'Este vehículo ya ha cerrado su parte del trabajo', 400);
-    }
-
-    const { motivo_finalizacion_anticipada } = req.body;
-    const kmFin = req.body.kilometros_fin;
-    const isAnticipado = ahora() < new Date(fila.fecha_fin);
-
-    if (isAnticipado && !motivo_finalizacion_anticipada?.trim()) {
-      return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
-    }
-
-    if (kmFin === undefined || kmFin === null || kmFin === '') {
-      return error(res, 'Faltan los kilómetros finales del vehículo', 400);
-    }
-    if (fila.kilometros_inicio != null && kmFin < fila.kilometros_inicio) {
-      return error(res, 'Los kilómetros finales no pueden ser menores que los de inicio', 400);
-    }
-    // El cuentakilómetros no retrocede al cerrar un servicio: mismo criterio
-    // que finalizarAsignacion (§6.1 del mapa). Bajarlo a propósito, desde la
-    // ficha del vehículo.
-    if (fila.vehiculo_km_actual != null && kmFin < fila.vehiculo_km_actual) {
-      return error(
-        res,
-        `Los km introducidos (${kmFin}) no pueden ser menores que los km actuales del vehículo (${fila.vehiculo_km_actual}). Si el dato es correcto, corrígelo desde la ficha del vehículo.`,
-        400
-      );
-    }
-
-    // Evidencias: fotos de INICIO + FIN de este vehículo en este trabajo
-    const [imgs] = await query(
-      'SELECT tipo_imagen, momento FROM vehicle_images WHERE vehicle_id = ? AND trabajo_id = ?',
-      [vehicleId, trabajoId]
-    );
-    const progreso = progresoDe(imgs);
-    if (!progreso.inicio.completo) {
-      return error(res,
-        `No se puede cerrar: faltan las fotos de INICIO de ${fila.matricula} (${progreso.inicio.faltantes.join(', ')}). Sube primero las fotos de inicio.`,
-        400
-      );
-    }
-    if (!progreso.fin.completo) {
-      return error(res,
-        `Faltan fotos de FIN de ${fila.matricula}: ${progreso.fin.faltantes.join(', ')}`, 400
-      );
-    }
-
-    const nuevoEstado = isAnticipado
-      ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
-      : TRABAJO_ESTADOS.FINALIZADO;
-
-    let estadoTrabajo;
-    await transaction(async (conn) => {
-      await conn.execute(
-        `UPDATE trabajo_vehiculos
-            SET estado = ?, kilometros_fin = ?, finalizado_at = ?,
-                motivo_finalizacion_anticipada = ?
-          WHERE id = ?`,
-        [nuevoEstado, kmFin, ahora(), isAnticipado ? motivo_finalizacion_anticipada.trim() : null, fila.id]
-      );
-      // El guard `<` queda de red para la carrera entre la validación y aquí
-      await conn.execute(
-        `UPDATE vehicles SET kilometros_actuales = ?, fecha_ultimo_servicio = ?
-          WHERE id = ? AND kilometros_actuales < ?`,
-        [kmFin, fechaEnEspana(), vehicleId, kmFin]
-      );
-      estadoTrabajo = await sincronizarEstadoTrabajo(conn, trabajoId);
-    });
-
-    logAudit({
-      userId:   req.user.id,
-      userInfo: req.user.username,
-      action:   'finalize_trabajo_vehiculo',
-      entityType: 'trabajo', entityId: trabajoId,
-      details:  { trabajo_vehiculo_id: fila.id, vehicle_id: vehicleId, matricula: fila.matricula,
-                  estado: nuevoEstado, anticipado: isAnticipado, estado_trabajo: estadoTrabajo },
-      ip: req.ip,
-    });
-    const t = await getTrabajoCompleto(trabajoId);
-    const mensaje = CERRADOS.includes(estadoTrabajo)
-      ? 'Vehículo cerrado. Era el último: el trabajo queda finalizado'
-      : 'Vehículo cerrado correctamente';
-    return success(res, vistaParaUsuario(t, req.user), mensaje);
-  } catch (err) {
-    next(err);
-  }
-}
-
-// ============================================================
-// POST /trabajos/:id/activar  y  /finalize
-// Solo para trabajos SIN vehículos (p. ej. una cobertura sin ambulancia): no
-// hay fila trabajo↔vehículo de la que colgar el ciclo de vida, así que lo lleva
-// gestión a mano. Con vehículos, cada uno se activa y se cierra por separado.
-// ============================================================
-async function cargarTrabajoSinVehiculos(id) {
-  const [rows] = await query(
-    `SELECT t.id, t.estado, t.fecha_inicio, t.fecha_fin,
-            (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos
-     FROM trabajos t
-     WHERE t.id = ? AND t.deleted_at IS NULL`,
-    [id]
-  );
-  return rows[0] || null;
-}
-
-const MSG_CON_VEHICULOS =
-  'Este trabajo tiene vehículos: cada responsable activa y cierra el suyo por separado';
-
-async function activarTrabajo(req, res, next) {
-  try {
-    const id = parseInt(req.params.id);
-    const trabajo = await cargarTrabajoSinVehiculos(id);
-    if (!trabajo) return notFound(res, 'Trabajo');
-    if (trabajo.num_vehiculos > 0) return error(res, MSG_CON_VEHICULOS, 400);
-    if (trabajo.estado !== TRABAJO_ESTADOS.PROGRAMADO) {
-      return error(res, 'Solo se pueden activar trabajos programados', 400);
-    }
-
-    await query(
-      'UPDATE trabajos SET estado = ?, activado_por = ? WHERE id = ?',
-      [TRABAJO_ESTADOS.ACTIVO, req.user.id, id]
-    );
-
-    logAudit({
-      userId:   req.user.id,
-      userInfo: req.user.username,
-      action:   'activate_trabajo',
-      entityType: 'trabajo', entityId: id,
-      ip: req.ip,
-    });
-    const t = await getTrabajoCompleto(id);
-    return success(res, vistaParaUsuario(t, req.user), 'Trabajo activado');
-  } catch (err) {
-    next(err);
-  }
-}
-
 async function finalizeTrabajo(req, res, next) {
   try {
     const id = parseInt(req.params.id);
-    const trabajo = await cargarTrabajoSinVehiculos(id);
-    if (!trabajo) return notFound(res, 'Trabajo');
-    if (trabajo.num_vehiculos > 0) return error(res, MSG_CON_VEHICULOS, 400);
-    if (CERRADOS.includes(trabajo.estado)) {
+
+    const [existing] = await query(
+      `SELECT t.*, tv.vehicle_id, tv.responsable_user_id
+       FROM trabajos t
+       LEFT JOIN trabajo_vehiculos tv ON t.id = tv.trabajo_id
+       WHERE t.id = ? AND t.deleted_at IS NULL`,
+      [id]
+    );
+    if (!existing.length) return notFound(res, 'Trabajo');
+
+    const trabajo = existing[0];
+
+    // Verificar que quien finaliza es responsable o admin/gestor
+    if (isOperacional(req.user)) {
+      const esResponsable = existing.some(row => row.responsable_user_id === req.user.id);
+      if (!esResponsable) return forbidden(res, 'Solo el responsable puede finalizar este trabajo');
+    }
+
+    if ([TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado)) {
       return error(res, 'El trabajo ya está finalizado', 400);
     }
 
-    const { motivo_finalizacion_anticipada } = req.body;
+    const { motivo_finalizacion_anticipada, vehiculos_km = [] } = req.body;
     const isAnticipado = ahora() < new Date(trabajo.fecha_fin);
+
     if (isAnticipado && !motivo_finalizacion_anticipada?.trim()) {
       return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
     }
+
+    // Determinar qué vehículos debe documentar este usuario:
+    // - Operacional → solo los vehículos donde es responsable
+    // - Admin/gestor → todos los vehículos del trabajo
+    const allVehicleIds = [...new Set(existing.map(r => r.vehicle_id).filter(Boolean))];
+    const vehicleIds = isOperacional(req.user)
+      ? [...new Set(existing.filter(r => r.responsable_user_id === req.user.id).map(r => r.vehicle_id).filter(Boolean))]
+      : allVehicleIds;
+
+    // Verificar evidencias: fotos de INICIO + FIN por cada vehículo
+    for (const vehicleId of vehicleIds) {
+      const [imgs] = await query(
+        `SELECT tipo_imagen, momento FROM vehicle_images
+         WHERE vehicle_id = ? AND trabajo_id = ?`,
+        [vehicleId, id]
+      );
+      const inicioSubidos = imgs.filter(i => i.momento === 'inicio').map(i => i.tipo_imagen);
+      const finSubidos    = imgs.filter(i => i.momento === 'fin').map(i => i.tipo_imagen);
+
+      const faltInicio = IMAGEN_TIPOS_INICIO.filter(t => !inicioSubidos.includes(t));
+      if (faltInicio.length > 0) {
+        return error(res,
+          `No se pueden finalizar: faltan las fotos de INICIO del vehículo ${vehicleId} (${faltInicio.join(', ')}). Sube primero las fotos de inicio.`,
+          400
+        );
+      }
+
+      const faltFin = IMAGEN_TIPOS_FIN.filter(t => !finSubidos.includes(t));
+      if (faltFin.length > 0) {
+        return error(res,
+          `Faltan fotos de FIN del vehículo ${vehicleId}: ${faltFin.join(', ')}`, 400
+        );
+      }
+    }
+
+    // Verificar que se proporcionaron km finales para cada vehículo
+    for (const vehicleId of vehicleIds) {
+      const kmData = vehiculos_km.find(v => v.vehicle_id === vehicleId);
+      if (!kmData?.kilometros_fin) {
+        return error(res, `Faltan kilómetros finales para el vehículo ${vehicleId}`, 400);
+      }
+    }
+
     const nuevoEstado = isAnticipado
       ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO
       : TRABAJO_ESTADOS.FINALIZADO;
 
-    await query(
-      'UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?',
-      [nuevoEstado, isAnticipado ? motivo_finalizacion_anticipada.trim() : null, id]
-    );
+    await transaction(async (conn) => {
+      // Actualizar km finales de los vehículos documentados por este usuario
+      for (const vkm of vehiculos_km) {
+        await conn.execute(
+          `UPDATE trabajo_vehiculos SET kilometros_fin = ? WHERE trabajo_id = ? AND vehicle_id = ?`,
+          [vkm.kilometros_fin, id, vkm.vehicle_id]
+        );
+        await conn.execute(
+          `UPDATE vehicles SET kilometros_actuales = ?,
+                               fecha_ultimo_servicio = ?
+           WHERE id = ? AND kilometros_actuales < ?`,
+          [vkm.kilometros_fin, fechaEnEspana(), vkm.vehicle_id, vkm.kilometros_fin]
+        );
+      }
 
+      // Cambiar estado a finalizado
+      await conn.execute(
+        `UPDATE trabajos SET estado = ?, motivo_finalizacion_anticipada = ? WHERE id = ?`,
+        [nuevoEstado, motivo_finalizacion_anticipada || null, id]
+      );
+    });
+
+    const t = await getTrabajoCompleto(id);
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
@@ -950,8 +510,7 @@ async function finalizeTrabajo(req, res, next) {
       details:  { estado: nuevoEstado, anticipado: isAnticipado },
       ip: req.ip,
     });
-    const t = await getTrabajoCompleto(id);
-    return success(res, vistaParaUsuario(t, req.user), 'Trabajo finalizado correctamente');
+    return success(res, t, 'Trabajo finalizado correctamente');
   } catch (err) {
     next(err);
   }
@@ -959,7 +518,7 @@ async function finalizeTrabajo(req, res, next) {
 
 // ============================================================
 // POST /trabajos/:id/evidencias
-// Subida de evidencias (imágenes) para un vehículo del trabajo
+// Subida de evidencias (imágenes) para un trabajo
 // ============================================================
 async function uploadEvidencia(req, res, next) {
   try {
@@ -983,20 +542,21 @@ async function uploadEvidencia(req, res, next) {
       );
     }
 
-    // El candado es el del VEHÍCULO, no el del trabajo: con dos vehículos, el
-    // que ya cerró no admite más fotos aunque el otro siga en marcha.
-    const [rel] = await query(
-      `SELECT tv.id, tv.estado
-       FROM trabajo_vehiculos tv
-       JOIN trabajos t ON t.id = tv.trabajo_id
-       WHERE tv.trabajo_id = ? AND tv.vehicle_id = ? AND t.deleted_at IS NULL`,
+    const [trow] = await query(
+      'SELECT id, estado FROM trabajos WHERE id = ? AND deleted_at IS NULL', [trabajoId]
+    );
+    if (!trow.length) return notFound(res, 'Trabajo');
+
+    if ([TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trow[0].estado)) {
+      return error(res, 'No se pueden subir evidencias a un trabajo ya finalizado', 400);
+    }
+
+    // Verificar que el vehículo está asignado al trabajo
+    const [assigned] = await query(
+      'SELECT id FROM trabajo_vehiculos WHERE trabajo_id = ? AND vehicle_id = ?',
       [trabajoId, vehicleId]
     );
-    if (!rel.length) return error(res, 'El vehículo no está asignado a este trabajo', 400);
-
-    if (CERRADOS.includes(rel[0].estado)) {
-      return error(res, 'Este vehículo ya ha cerrado su parte del trabajo: no admite más fotos', 400);
-    }
+    if (!assigned.length) return error(res, 'El vehículo no está asignado a este trabajo', 400);
 
     if (!req.processedFile) return error(res, 'No se recibió ninguna imagen', 400);
 
@@ -1061,41 +621,36 @@ async function uploadEvidencia(req, res, next) {
 }
 
 // ============================================================
-// GET /trabajos/mis-trabajos
-// Una fila por trabajo (no por vehículo: con dos vehículos salía repetido).
+// GET /trabajos/mis-trabajos  (para operacionales)
 // ============================================================
 async function misTrab(req, res, next) {
   try {
     const page   = Math.max(1, parseInt(req.query.page) || 1);
-    const limit  = Math.min(parseInt(req.query.limit) || 20, PAGINATION.MAX_LIMIT);
+    const limit  = 20;
     const offset = (page - 1) * limit;
-    const uid    = req.user.id;
-
-    const where = `WHERE t.deleted_at IS NULL AND t.estado IN ('programado', 'activo')
-                     AND ${FILTRO_PROPIOS}`;
 
     const [countRows] = await query(
-      `SELECT COUNT(*) AS total FROM trabajos t ${where}`, [uid, uid]
+      `SELECT COUNT(*) AS total FROM trabajo_usuarios tu
+       JOIN trabajos t ON tu.trabajo_id = t.id
+       WHERE tu.user_id = ? AND t.deleted_at IS NULL AND t.estado IN ('programado', 'activo')`,
+      [req.user.id]
     );
 
     const [rows] = await query(
-      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
+      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado,
               t.fecha_inicio, t.fecha_fin,
-              (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY tv.id SEPARATOR ', ')
-                 FROM trabajo_vehiculos tv JOIN vehicles v ON v.id = tv.vehicle_id
-                WHERE tv.trabajo_id = t.id) AS vehiculos_resumen,
-              EXISTS (SELECT 1 FROM trabajo_vehiculos tv
-                        JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
-                       WHERE tv.trabajo_id = t.id AND tvr.user_id = ?) AS soy_responsable,
-              (SELECT COUNT(*) FROM trabajo_vehiculos tv
-                 JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
-                WHERE tv.trabajo_id = t.id AND tvr.user_id = ?
-                  AND tv.estado IN ('programado', 'activo')) AS mis_vehiculos_pendientes
-       FROM trabajos t
-       ${where}
+              v.matricula, v.alias AS vehiculo_alias,
+              CONCAT(resp.nombre,' ',resp.apellidos) AS responsable,
+              tv.responsable_user_id = ? AS soy_responsable
+       FROM trabajo_usuarios tu
+       JOIN trabajos t ON tu.trabajo_id = t.id
+       LEFT JOIN trabajo_vehiculos tv ON t.id = tv.trabajo_id
+       LEFT JOIN vehicles v ON tv.vehicle_id = v.id
+       LEFT JOIN users resp ON tv.responsable_user_id = resp.id
+       WHERE tu.user_id = ? AND t.deleted_at IS NULL AND t.estado IN ('programado', 'activo')
        ORDER BY FIELD(t.estado, 'activo', 'programado'), t.fecha_inicio ASC
        LIMIT ? OFFSET ?`,
-      [uid, uid, uid, uid, limit, offset]
+      [req.user.id, req.user.id, limit, offset]
     );
 
     return paginated(res, { data: rows, total: countRows[0].total, page, limit });
@@ -1104,12 +659,63 @@ async function misTrab(req, res, next) {
   }
 }
 
+// ============================================================
+// POST /trabajos/:id/activar
+// Activación manual anticipada (owner/admin/gestor)
+// ============================================================
+async function activarTrabajo(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    const [rows] = await query(
+      `SELECT t.id, t.estado, t.fecha_inicio
+       FROM trabajos t
+       WHERE t.id = ? AND t.deleted_at IS NULL`,
+      [id]
+    );
+    if (!rows.length) return notFound(res, 'Trabajo');
+
+    const trabajo = rows[0];
+    if (trabajo.estado !== TRABAJO_ESTADOS.PROGRAMADO) {
+      return error(res, 'Solo se pueden activar trabajos programados', 400);
+    }
+
+    // Operacionales solo pueden activar si son responsables de algún vehículo
+    if (isOperacional(req.user)) {
+      const [resp] = await query(
+        'SELECT id FROM trabajo_vehiculos WHERE trabajo_id = ? AND responsable_user_id = ?',
+        [id, req.user.id]
+      );
+      if (!resp.length) return forbidden(res, 'Solo el responsable puede activar este trabajo');
+    }
+
+    // Permitir activar si faltan <= 24 horas para fecha_inicio
+    const horasRestantes = (new Date(trabajo.fecha_inicio) - new Date()) / (1000 * 60 * 60);
+    if (horasRestantes > 24 && isOperacional(req.user)) {
+      return error(res, 'Solo puedes activar el trabajo en las 24 horas previas al inicio', 400);
+    }
+
+    await query(
+      'UPDATE trabajos SET estado = ?, activado_por = ? WHERE id = ?',
+      [TRABAJO_ESTADOS.ACTIVO, req.user.id, id]
+    );
+
+    const t = await getTrabajoCompleto(id);
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'activate_trabajo',
+      entityType: 'trabajo', entityId: id,
+      details:  { nombre: t.nombre },
+      ip: req.ip,
+    });
+    return success(res, t, 'Trabajo activado');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listTrabajos, listTrabajosCalendario, getTrabajo,
   createTrabajo, updateTrabajo, deleteTrabajo,
-  activarVehiculo, finalizeVehiculo,
-  activarTrabajo, finalizeTrabajo,
-  uploadEvidencia, misTrab,
-  // Para el cron y los tests
-  estadoTrabajoDesde, sincronizarEstadoTrabajo, vistaParaUsuario, leerVehiculos,
+  finalizeTrabajo, uploadEvidencia, misTrab, activarTrabajo,
 };

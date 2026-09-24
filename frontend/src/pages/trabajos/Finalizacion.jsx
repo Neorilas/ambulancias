@@ -1,31 +1,28 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
-import { parseKm } from '../../utils/kmUtils.js';
 
 /**
- * Cierre de UN vehículo del trabajo (v25: cada responsable cierra el suyo; el
- * trabajo se da por finalizado cuando cierra el último).
- * Paso 1: Fotos + km
+ * Flujo de finalización de trabajo:
+ * Paso 1: Fotos + km por vehículo (combinados)
  * Paso 2: Motivo (solo si anticipado)
  * Paso 3: Confirmar y enviar
- *
- * Props: trabajo (completo), vehicleId, onDone(), onCancel()
  */
-export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
-  const { notify } = useNotification();
+export default function Finalizacion({ trabajo, onDone, onCancel }) {
+  const { notify }           = useNotification();
+  const { user, canManageTrabajos } = useAuth();
 
-  // Solo el vehículo pedido, y solo si quien mira tiene su detalle (gestión o
-  // responsable de ese vehículo; lo decide el backend)
-  const vehiculos = (trabajo?.vehiculos || [])
-    .filter(v => v.detalle && v.vehicle_id === vehicleId);
+  // Operacionales solo ven y documentan su propio vehículo (el que son responsables).
+  // Admins/gestores ven todos los vehículos del trabajo.
+  const todosVehiculos = trabajo?.vehiculos || [];
+  const vehiculos = canManageTrabajos()
+    ? todosVehiculos
+    : todosVehiculos.filter(v => v.responsable_user_id === user?.id);
   const isAnticipado = new Date() < new Date(trabajo?.fecha_fin);
-
-  // El cuentakilómetros no retrocede: ni por debajo del inicio ni del actual
-  // del vehículo (el backend lo rechaza igual; esto avisa antes)
-  const kmMinimo = (v) => Math.max(v.kilometros_inicio || 0, v.vehiculo_km_actual || 0);
 
   const [step,           setStep]          = useState('fotos');
   const [currentVehIdx,  setCurrentVehIdx] = useState(0);
@@ -134,14 +131,18 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
         }
       }
 
-      // 2. Cerrar el vehículo
-      const veh = vehiculos[0];
-      const result = await trabajosService.finalizeVehiculo(trabajo.id, veh.vehicle_id, {
-        kilometros_fin: parseKm(kmFinales[veh.vehicle_id]),
+      // 2. Finalizar
+      const vehiculos_km = vehiculos.map(v => ({
+        vehicle_id:     v.vehicle_id,
+        kilometros_fin: parseInt(kmFinales[v.vehicle_id]),
+      }));
+
+      const result = await trabajosService.finalize(trabajo.id, {
+        vehiculos_km,
         motivo_finalizacion_anticipada: isAnticipado ? motivo : undefined,
       });
 
-      notify.success(result.message || 'Vehículo cerrado correctamente');
+      notify.success(result.message || '¡Trabajo finalizado correctamente!');
       onDone?.();
     } catch (err) {
       // Priorizar mensaje del backend sobre mensaje genérico de Axios
@@ -155,12 +156,9 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
   const fotosPorVeh = (vid) =>
     IMAGEN_TIPOS_FIN.filter(t => evidencias[vid]?.[t.key]).length;
 
-  const kmValido = (v) => {
-    const km = parseKm(kmFinales[v.vehicle_id]);
-    return km !== null && km >= kmMinimo(v);
-  };
   const canProceedFromFotos = vehiculos.length > 0 && vehiculos.every(v =>
-    IMAGEN_TIPOS_FIN.every(t => evidencias[v.vehicle_id]?.[t.key]) && kmValido(v)
+    IMAGEN_TIPOS_FIN.every(t => evidencias[v.vehicle_id]?.[t.key]) &&
+    kmFinales[v.vehicle_id] && parseInt(kmFinales[v.vehicle_id]) >= 0
   );
 
   /* ── CameraCapture ────────────────────────────────────── */
@@ -181,12 +179,12 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
       <div className="space-y-4 animate-fade-in">
         <div className="flex items-center gap-3">
           <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
-          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+          <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
         </div>
         <div className="card bg-bad-50 border border-bad-200 space-y-2">
-          <p className="text-bad-600 font-medium">No puedes cerrar este vehículo</p>
+          <p className="text-bad-600 font-medium">Sin vehículos asignados</p>
           <p className="text-bad-600 text-sm">
-            Solo lo cierra uno de sus responsables. Contacta con el administrador.
+            Este trabajo no tiene vehículos asignados. Contacta con el administrador.
           </p>
         </div>
         <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
@@ -201,7 +199,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
       <div className="space-y-4 animate-fade-in">
         <div className="flex items-center gap-3">
           <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
-          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+          <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
         </div>
         <div className="card bg-warn-50 border border-warn-200 space-y-2">
           <p className="text-warn-700 font-medium">Faltan las fotos de inicio</p>
@@ -237,7 +235,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
       <div className="flex items-center gap-3">
         <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
         <div>
-          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+          <h2 className="text-lg font-bold text-neutral-900">Finalizar trabajo</h2>
           <p className="text-sm text-neutral-500">{trabajo?.nombre}</p>
           {isAnticipado && (
             <span className="badge-yellow text-xs mt-1">Finalización anticipada</span>
@@ -362,22 +360,14 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
                       </span>
                     )}
                     <input
-                      type="text"
-                      inputMode="numeric"
+                      type="number"
                       className="input flex-1"
+                      min={veh.kilometros_inicio || 0}
                       value={kmFinales[veh.vehicle_id]}
                       onChange={e => setKmFinales(k => ({ ...k, [veh.vehicle_id]: e.target.value }))}
                       placeholder="Introduce los km actuales"
                     />
                   </div>
-                  {kmFinales[veh.vehicle_id] !== '' && !kmValido(veh) && (
-                    <p className="field-error mt-1">
-                      Tienen que ser al menos {kmMinimo(veh).toLocaleString()} km
-                      {veh.vehiculo_km_actual > (veh.kilometros_inicio || 0)
-                        ? ' (lo que marca ya el vehículo). Si el dato es correcto, que lo corrija un administrador desde la ficha del vehículo.'
-                        : '.'}
-                    </p>
-                  )}
                 </div>
               </div>
             );
@@ -403,7 +393,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
         <div className="space-y-4">
           <div className="p-3 bg-warn-50 border border-warn-200 rounded-lg">
             <p className="text-warn-700 text-sm">
-              Estás cerrando el vehículo antes de la fecha prevista del trabajo.
+              Estás finalizando el trabajo antes de la fecha prevista.
               Por favor, indica el motivo.
             </p>
           </div>
@@ -440,7 +430,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
                   <p className="font-medium text-sm">{veh.vehiculo_alias || veh.matricula}</p>
                   <p className="text-xs text-neutral-500 mt-0.5">
                     {veh.kilometros_inicio != null && `${veh.kilometros_inicio.toLocaleString()} → `}
-                    <strong>{(parseKm(kmFinales[veh.vehicle_id]) ?? 0).toLocaleString()} km</strong>
+                    <strong>{parseInt(kmFinales[veh.vehicle_id]).toLocaleString()} km</strong>
                   </p>
                   <div className="flex gap-1 mt-1.5 flex-wrap">
                     {IMAGEN_TIPOS_FIN.map(t => (
@@ -479,7 +469,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 spinner" /> Finalizando...
                 </span>
-              ) : 'Cerrar vehículo'}
+              ) : 'Finalizar trabajo'}
             </button>
           </div>
         </div>

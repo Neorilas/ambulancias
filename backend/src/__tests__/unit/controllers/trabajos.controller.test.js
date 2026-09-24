@@ -14,922 +14,991 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 
 const {
   listTrabajos, listTrabajosCalendario, getTrabajo, createTrabajo,
-  updateTrabajo, deleteTrabajo, activarVehiculo, finalizeVehiculo,
-  activarTrabajo, finalizeTrabajo, uploadEvidencia, misTrab,
-  estadoTrabajoDesde, vistaParaUsuario, leerVehiculos,
+  updateTrabajo, deleteTrabajo, finalizeTrabajo, uploadEvidencia,
+  misTrab, activarTrabajo,
 } = require('../../../controllers/trabajos.controller');
-const { logAudit } = require('../../../controllers/admin.controller');
-const { deleteFile } = require('../../../middleware/upload.middleware');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
-const { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } = require('../../../config/constants');
+const { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
+  require('../../../config/constants');
 
-// ── Personas ────────────────────────────────────────────────
-const admin   = { id: 1,  username: 'admin', roles: ['administrador'],
-                  permissions: ['manage_trabajos', 'view_all_trabajos'] };
-const resp1   = { id: 20, username: 'ana',   roles: ['tecnico'], permissions: [] };
-const resp2   = { id: 21, username: 'luis',  roles: ['tecnico'], permissions: [] };
-const equipo  = { id: 30, username: 'eva',   roles: ['enfermero'], permissions: [] };
-const ajeno   = { id: 99, username: 'nadie', roles: ['tecnico'], permissions: [] };
-// La mayoría de la plantilla no tiene rol: antes no era «operacional» y veía todo
-const sinRol  = { id: 98, username: 'sinrol', roles: [], permissions: [] };
-
-const MANANA = () => new Date(Date.now() + 86400000);
-const AYER   = () => new Date(Date.now() - 86400000);
-
-function fotos(momento, tipos) {
-  return tipos.map(t => ({ tipo_imagen: t, momento }));
-}
-const FOTOS_COMPLETAS = [...fotos('inicio', IMAGEN_TIPOS_INICIO), ...fotos('fin', IMAGEN_TIPOS_FIN)];
-
-/**
- * Simula `query` respondiendo POR SQL, no por orden de llamada: cada entrada
- * es [fragmento, resultado | fn(params)] y gana la primera que encaje. Lo que
- * no encaja devuelve vacío. Así un test no se rompe porque el controlador
- * añada una consulta que a él no le importa.
- */
-function bd(reglas) {
-  query.mockImplementation(async (sql, params) => {
-    for (const [frag, res] of reglas) {
-      if (sql.includes(frag)) return typeof res === 'function' ? res(params, sql) : res;
-    }
-    return [[]];
-  });
-}
-
-/** Reglas para que getTrabajoCompleto devuelva un trabajo con dos vehículos. */
-function trabajoDosVehiculos({ trabajo = {}, vehiculos, responsables, usuarios, imagenes = [] } = {}) {
+// Filas de vehicle_images que cubren TODAS las fotos requeridas de inicio y fin,
+// cada una con su `momento` (lo que finalizeTrabajo usa para validar evidencias).
+function evidenciaCompletaRows() {
   return [
-    ['JOIN users u ON t.created_by = u.id', [[{
-      id: 1, identificador: 'TRB-2026-0001', nombre: 'Maratón', estado: 'activo',
-      descripcion: 'Cobertura de la maratón', ubicacion: 'Parque del Retiro',
-      fecha_inicio: AYER(), fecha_fin: MANANA(), ...trabajo,
-    }]]],
-    ['JOIN vehicles v ON tv.vehicle_id = v.id', [vehiculos || [
-      { trabajo_vehiculo_id: 101, vehicle_id: 7, responsable_user_id: 20, estado: 'activo',
-        kilometros_inicio: 1000, kilometros_fin: null, matricula: '7777AAA', vehiculo_alias: 'UVI-1' },
-      { trabajo_vehiculo_id: 102, vehicle_id: 8, responsable_user_id: 21, estado: 'programado',
-        kilometros_inicio: 2000, kilometros_fin: null, matricula: '8888BBB', vehiculo_alias: 'SVB-2' },
-    ]]],
-    ['FROM trabajo_vehiculo_responsables tvr\n     JOIN trabajo_vehiculos', [responsables || [
-      { trabajo_vehiculo_id: 101, id: 20, nombre: 'Ana' },
-      { trabajo_vehiculo_id: 102, id: 21, nombre: 'Luis' },
-    ]]],
-    ['FROM trabajo_usuarios tu\n     JOIN users u', [usuarios || [
-      { user_id: 30, nombre: 'Eva', roles: 'enfermero' },
-    ]]],
-    ['FROM vehicle_images vi\n     JOIN vehicles v', [imagenes]],
+    ...IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' })),
+    ...IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' })),
   ];
 }
 
-/** Conexión de transacción que registra lo que ejecuta. */
-function conexion({ estados = [], insertId = 500 } = {}) {
-  const ejecutadas = [];
-  const conn = {
-    execute: jest.fn(async (sql, params) => {
-      ejecutadas.push({ sql, params });
-      if (sql.includes('SELECT estado FROM trabajo_vehiculos')) {
-        return [estados.map(e => ({ estado: e }))];
-      }
-      if (sql.startsWith('INSERT')) return [{ insertId: insertId++ }];
-      return [{ affectedRows: 1 }];
-    }),
+// Helper to mock getTrabajoCompleto (4 queries, all destructured)
+function mockGetTrabajoCompleto(trabajo = {}) {
+  const base = {
+    id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+    estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+    creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+    ...trabajo,
   };
-  transaction.mockImplementation(async (cb) => cb(conn));
-  return { conn, ejecutadas };
+  query.mockResolvedValueOnce([[base]]);  // trabajo
+  query.mockResolvedValueOnce([[]]);      // vehiculos
+  query.mockResolvedValueOnce([[]]);      // usuarios
+  query.mockResolvedValueOnce([[]]);      // evidencias
 }
 
 describe('trabajos.controller', () => {
   // clearAllMocks NO vacía la cola de mockResolvedValueOnce; mockReset sí.
+  // Sin esto, los valores encolados y no consumidos por un test se filtran al
+  // siguiente y corrompen sus resultados de `query`.
   beforeEach(() => { jest.clearAllMocks(); query.mockReset(); transaction.mockReset(); });
 
-  // ── Estado del trabajo a partir de sus vehículos ───────────
-  describe('estadoTrabajoDesde', () => {
-    it.each([
-      [[], null],
-      [['programado', 'programado'], 'programado'],
-      [['activo', 'programado'], 'activo'],
-      // Uno cerrado y otro sin empezar: el trabajo está en marcha
-      [['finalizado', 'programado'], 'activo'],
-      [['finalizado', 'finalizado'], 'finalizado'],
-      [['finalizado', 'finalizado_anticipado'], 'finalizado_anticipado'],
-    ])('%j → %s', (estados, esperado) => {
-      expect(estadoTrabajoDesde(estados)).toBe(esperado);
-    });
-  });
-
-  describe('leerVehiculos', () => {
-    it('sin campo no toca nada', () => {
-      expect(leerVehiculos(undefined)).toEqual({});
-    });
-    it('acepta varios responsables y el formato viejo de uno suelto', () => {
-      const { vehiculos } = leerVehiculos([
-        { vehicle_id: 7, responsables: [20, 21], kilometros_inicio: '100' },
-        { vehicle_id: '8', responsable_user_id: 22 },
-      ]);
-      expect(vehiculos).toEqual([
-        { vehicle_id: 7, responsables: [20, 21], kilometros_inicio: 100 },
-        { vehicle_id: 8, responsables: [22], kilometros_inicio: null },
-      ]);
-    });
-    it.each([
-      ['no es lista', 'x', 'lista'],
-      ['vehículo sin id', [{ responsables: [1] }], 'vehicle_id'],
-      ['sin responsables', [{ vehicle_id: 7, responsables: [] }], 'al menos un responsable'],
-      ['responsable inválido', [{ vehicle_id: 7, responsables: ['a'] }], 'ids de usuario'],
-      ['responsable repetido', [{ vehicle_id: 7, responsables: [2, 2] }], 'dos veces'],
-      ['vehículo repetido', [{ vehicle_id: 7, responsables: [2] }, { vehicle_id: 7, responsables: [3] }], 'mismo vehículo'],
-    ])('rechaza: %s', (_n, lista, msg) => {
-      expect(leerVehiculos(lista).error).toContain(msg);
-    });
-  });
-
-  // ── Visibilidad ────────────────────────────────────────────
-  describe('vistaParaUsuario', () => {
-    const t = {
-      id: 1,
-      usuarios: [{ user_id: 30 }],
-      vehiculos: [
-        { vehicle_id: 7, responsable_user_id: 20, responsables: [{ id: 20 }],
-          kilometros_inicio: 1000, progreso_fotos: {}, vehiculo_km_actual: 1500 },
-        { vehicle_id: 8, responsable_user_id: 21, responsables: [{ id: 21 }],
-          kilometros_inicio: 2000, progreso_fotos: {} },
-      ],
-      evidencias: [{ id: 1, vehicle_id: 7 }, { id: 2, vehicle_id: 8 }],
-    };
-
-    it('gestión lo ve todo', () => {
-      const v = vistaParaUsuario(t, admin);
-      expect(v.mi_rol).toBe('gestion');
-      expect(v.vehiculos.every(x => x.detalle)).toBe(true);
-      expect(v.evidencias).toHaveLength(2);
-    });
-
-    it('un responsable ve el detalle de SU vehículo y el otro recortado', () => {
-      const v = vistaParaUsuario(t, resp1);
-      expect(v.mi_rol).toBe('responsable');
-      const [mio, otro] = v.vehiculos;
-      expect(mio).toMatchObject({ soy_responsable: true, detalle: true, kilometros_inicio: 1000 });
-      expect(otro).toMatchObject({ soy_responsable: false, detalle: false });
-      expect(otro).not.toHaveProperty('kilometros_inicio');
-      expect(otro).not.toHaveProperty('progreso_fotos');
-      expect(v.evidencias.map(e => e.id)).toEqual([1]);
-    });
-
-    it('el equipo ve la ficha y qué vehículos van, pero ninguna evidencia ni km', () => {
-      const v = vistaParaUsuario(t, equipo);
-      expect(v.mi_rol).toBe('equipo');
-      expect(v.vehiculos.every(x => !x.detalle)).toBe(true);
-      expect(v.vehiculos[0]).not.toHaveProperty('vehiculo_km_actual');
-      expect(v.vehiculos[0].responsables).toEqual([{ id: 20 }]);
-      expect(v.evidencias).toEqual([]);
-    });
-
-    it('un ajeno no lo ve, ni aunque no tenga ningún rol', () => {
-      expect(vistaParaUsuario(t, ajeno)).toBeNull();
-      expect(vistaParaUsuario(t, sinRol)).toBeNull();
-    });
-
-    it('una fila sin responsables sigue funcionando con el principal', () => {
-      const viejo = { ...t, usuarios: [], vehiculos: [{ ...t.vehiculos[0], responsables: [] }] };
-      expect(vistaParaUsuario(viejo, resp1).vehiculos[0].soy_responsable).toBe(true);
-    });
-  });
-
-  // ── GET /trabajos/:id ──────────────────────────────────────
-  describe('getTrabajo', () => {
-    it('devuelve el trabajo con descripción, ubicación y responsables por vehículo', async () => {
-      bd(trabajoDosVehiculos());
-      const res = mockRes();
-      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-
-      expect(res.status).toHaveBeenCalledWith(200);
-      const t = res._json.data;
-      expect(t.ubicacion).toBe('Parque del Retiro');
-      expect(t.descripcion).toBe('Cobertura de la maratón');
-      expect(t.vehiculos[0].responsables).toEqual([{ id: 20, nombre: 'Ana' }]);
-      expect(t.vehiculos[1].responsables).toEqual([{ id: 21, nombre: 'Luis' }]);
-      expect(t.usuarios[0].roles).toEqual(['enfermero']);
-    });
-
-    it('404 si no existe', async () => {
-      bd([]);
-      const res = mockRes();
-      await getTrabajo(mockReq({ params: { id: '9' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-
-    it('403 a quien no va en el trabajo', async () => {
-      bd(trabajoDosVehiculos());
-      const res = mockRes();
-      await getTrabajo(mockReq({ params: { id: '1' }, user: ajeno }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(403);
-    });
-
-    it('un responsable que NO está en el equipo entra igual', async () => {
-      bd(trabajoDosVehiculos({ usuarios: [] }));
-      const res = mockRes();
-      await getTrabajo(mockReq({ params: { id: '1' }, user: resp2 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res._json.data.mi_rol).toBe('responsable');
-    });
-
-    it('al equipo le llega sin las fotos de los vehículos', async () => {
-      bd(trabajoDosVehiculos({ imagenes: [{ id: 1, vehicle_id: 7, momento: 'inicio', tipo_imagen: 'frontal' }] }));
-      const res = mockRes();
-      await getTrabajo(mockReq({ params: { id: '1' }, user: equipo }), res, mockNext());
-      expect(res._json.data.evidencias).toEqual([]);
-      expect(res._json.data.vehiculos[0]).not.toHaveProperty('progreso_fotos');
-    });
-
-    describe('progreso_fotos por vehículo', () => {
-      const conImagenes = (imagenes) => {
-        bd(trabajoDosVehiculos({ imagenes }));
-        const res = mockRes();
-        return getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext())
-          .then(() => res._json.data.vehiculos);
-      };
-
-      it('sin fotos arranca a cero y lista todo lo que falta', async () => {
-        const [v7] = await conImagenes([]);
-        expect(v7.progreso_fotos.inicio).toEqual({
-          completado: 0, total: IMAGEN_TIPOS_INICIO.length,
-          faltantes: IMAGEN_TIPOS_INICIO, completo: false,
-        });
-      });
-
-      it('las fotos de un vehículo no cuentan para el de al lado', async () => {
-        const [v7, v8] = await conImagenes(
-          fotos('inicio', IMAGEN_TIPOS_INICIO).map(f => ({ ...f, vehicle_id: 7 })));
-        expect(v7.progreso_fotos.inicio.completo).toBe(true);
-        expect(v8.progreso_fotos.inicio.completado).toBe(0);
-      });
-
-      it('las fotos "general" y las repetidas no inflan el contador', async () => {
-        const [v7] = await conImagenes([
-          { vehicle_id: 7, momento: 'general', tipo_imagen: 'danos' },
-          { vehicle_id: 7, momento: 'fin', tipo_imagen: 'frontal' },
-          { vehicle_id: 7, momento: 'fin', tipo_imagen: 'frontal' },
-        ]);
-        expect(v7.progreso_fotos.fin.completado).toBe(1);
-        expect(v7.progreso_fotos.inicio.completado).toBe(0);
-      });
-    });
-  });
-
-  // ── Listados ───────────────────────────────────────────────
+  // ── listTrabajos ───────────────────────────────────────
   describe('listTrabajos', () => {
-    it('gestión ve todos, sin filtro de pertenencia', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 2 }]]], ['GROUP BY t.id', [[{ id: 1 }, { id: 2 }]]]]);
+    it('returns paginated list', async () => {
+      query.mockResolvedValueOnce([[{ total: 2 }]]);
+      query.mockResolvedValueOnce([[
+        { id: 1, identificador: 'TRB-001', nombre: 'T1', num_vehiculos: 1, num_usuarios: 2 },
+        { id: 2, identificador: 'TRB-002', nombre: 'T2', num_vehiculos: 0, num_usuarios: 0 },
+      ]]);
+
+      const req = mockReq({ query: {}, user: { id: 1, roles: ['administrador'] } });
       const res = mockRes();
-      await listTrabajos(mockReq({ query: {}, user: admin }), res, mockNext());
+      await listTrabajos(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
       expect(res._json.data).toHaveLength(2);
-      expect(query.mock.calls[0][0]).not.toContain('trabajo_vehiculo_responsables');
     });
 
-    it.each([['un técnico', resp1], ['un usuario sin rol', sinRol]])(
-      '%s solo ve los suyos: equipo o responsable de un vehículo', async (_n, user) => {
-        bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
-        await listTrabajos(mockReq({ query: {}, user }), mockRes(), mockNext());
-        const [sql, params] = query.mock.calls[0];
-        expect(sql).toContain('trabajo_usuarios tu');
-        expect(sql).toContain('trabajo_vehiculo_responsables tvr');
-        expect(params).toEqual([user.id, user.id]);
-      });
+    it('filters for operacionales', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, identificador: 'TRB-001' }]]);
 
-    it('aplica los filtros, y la búsqueda mira también la ubicación', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 1 }]]]]);
-      await listTrabajos(mockReq({
-        query: { estado: 'activo', tipo: 'traslado', fecha_desde: '2026-01-01',
-                 fecha_hasta: '2026-12-31', search: 'Retiro' },
-        user: admin,
-      }), mockRes(), mockNext());
-      const [sql, params] = query.mock.calls[0];
-      expect(sql).toContain('t.ubicacion LIKE ?');
-      expect(params).toEqual(['activo', 'traslado', '2026-01-01', '2026-12-31 23:59:59',
-        '%Retiro%', '%Retiro%', '%Retiro%']);
+      const req = mockReq({ query: {}, user: { id: 5, roles: ['tecnico'] } });
+      const res = mockRes();
+      await listTrabajos(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('applies all filters (estado, tipo, fecha_desde, fecha_hasta, search)', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, identificador: 'TRB-2026-0001', nombre: 'Test' }]]);
+
+      const req = mockReq({
+        query: {
+          estado: 'activo',
+          tipo: 'programado',
+          fecha_desde: '2026-01-01',
+          fecha_hasta: '2026-12-31',
+          search: 'TRB',
+        },
+        user: { id: 1, roles: ['administrador'] },
+      });
+      const res = mockRes();
+      await listTrabajos(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      // Verify that filter params were passed to query
+      const countParams = query.mock.calls[0][1];
+      expect(countParams).toContain('activo');
+      expect(countParams).toContain('programado');
+      expect(countParams).toContain('%TRB%');
     });
   });
 
+  // ── listTrabajosCalendario ─────────────────────────────
   describe('listTrabajosCalendario', () => {
-    it('devuelve el mes con el título y la ubicación', async () => {
-      bd([['FROM trabajos t', [[{ id: 1, nombre: 'Maratón' }]]]]);
+    it('returns trabajos for month', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+
+      const req = mockReq({ query: { year: '2026', month: '4' }, user: { id: 1, roles: ['administrador'] } });
       const res = mockRes();
-      await listTrabajosCalendario(mockReq({ query: { year: '2026', month: '4' }, user: admin }), res, mockNext());
-      expect(res._json.data).toEqual([{ id: 1, nombre: 'Maratón' }]);
-      expect(query.mock.calls[0][0]).toContain('t.ubicacion');
+      await listTrabajosCalendario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    it('a quien no ve todo le filtra por pertenencia', async () => {
-      bd([]);
-      await listTrabajosCalendario(mockReq({ query: { year: '2026', month: '4' }, user: resp1 }), mockRes(), mockNext());
-      const [sql, params] = query.mock.calls[0];
-      expect(sql).toContain('trabajo_vehiculo_responsables');
-      expect(params.slice(2)).toEqual([20, 20]);
+    it('adds EXISTS clause for operacional user', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+
+      const req = mockReq({ query: { year: '2026', month: '4' }, user: { id: 5, roles: ['tecnico'] } });
+      const res = mockRes();
+      await listTrabajosCalendario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const sql = query.mock.calls[0][0];
+      expect(sql).toContain('EXISTS');
+      expect(query.mock.calls[0][1]).toContain(5);
     });
 
-    it('diciembre pasa a enero del año siguiente', async () => {
-      bd([]);
-      await listTrabajosCalendario(mockReq({ query: { year: '2026', month: '12' }, user: admin }), mockRes(), mockNext());
-      const [hasta] = query.mock.calls[0][1];
-      expect(hasta.toISOString()).toBe('2026-12-31T23:00:00.000Z');
+    it('wraps to next year when month=12', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+
+      const req = mockReq({ query: { year: '2026', month: '12' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await listTrabajosCalendario(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      // `hasta` es el 1 de enero de 2027 a las 00:00 de España, que en UTC
+      // (que es como se guarda) son las 23:00 del 31 de diciembre.
+      const params = query.mock.calls[0][1];
+      expect(params[0].toISOString()).toBe('2026-12-31T23:00:00.000Z');
     });
 
     it('acota el mes por la medianoche española, no por la UTC', async () => {
-      bd([]);
-      await listTrabajosCalendario(mockReq({ query: { year: '2026', month: '7' }, user: admin }), mockRes(), mockNext());
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+
+      const req = mockReq({ query: { year: '2026', month: '7' }, user: { id: 1, roles: ['administrador'] } });
+      const res = mockRes();
+      await listTrabajosCalendario(req, res, mockNext());
       const [hasta, desde] = query.mock.calls[0][1];
+      // Julio: horario de verano, +02:00
       expect(desde.toISOString()).toBe('2026-06-30T22:00:00.000Z');
       expect(hasta.toISOString()).toBe('2026-07-31T22:00:00.000Z');
     });
   });
 
-  describe('misTrab', () => {
-    it('una fila por trabajo, suyos por equipo o por vehículo', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 1 }]]],
-          ['vehiculos_resumen', [[{ id: 1, vehiculos_resumen: 'UVI-1, SVB-2', soy_responsable: 1 }]]]]);
+  // ── getTrabajo ─────────────────────────────────────────
+  describe('getTrabajo', () => {
+    it('returns trabajo completo', async () => {
+      mockGetTrabajoCompleto();
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
       const res = mockRes();
-      await misTrab(mockReq({ query: {}, user: resp1 }), res, mockNext());
-      expect(res._json.data).toHaveLength(1);
-      const [sql, params] = query.mock.calls[1];
-      expect(sql).toContain('mis_vehiculos_pendientes');
-      expect(sql).not.toContain('LEFT JOIN trabajo_vehiculos');  // multiplicaba filas
-      expect(params).toEqual([20, 20, 20, 20, 20, 0]);
+      await getTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data.identificador).toBe('TRB-2026-0001');
     });
 
-    it('respeta el limit que se pide, con tope', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
-      await misTrab(mockReq({ query: { limit: '5000', page: '2' }, user: resp1 }), mockRes(), mockNext());
-      const params = query.mock.calls[1][1];
-      const [limit, offset] = params.slice(-2);
-      expect(limit).toBeLessThan(5000);
-      expect(offset).toBe(limit);
+    it('returns 404 when not found', async () => {
+      query.mockResolvedValueOnce([[]]); // getTrabajoCompleto returns null
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('returns 403 for operacional not assigned to trabajo', async () => {
+      // getTrabajoCompleto — trabajo returned but usuarios list doesn't include user 5
+      const base = {
+        id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+        estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+        creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+      };
+      query.mockResolvedValueOnce([[base]]);    // trabajo
+      query.mockResolvedValueOnce([[]]);        // vehiculos
+      query.mockResolvedValueOnce([[{ user_id: 99, username: 'other' }]]); // usuarios (not user 5)
+      query.mockResolvedValueOnce([[]]);        // evidencias
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'] } });
+      const res = mockRes();
+      await getTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
     });
   });
 
-  // ── POST /trabajos ─────────────────────────────────────────
+  // ── createTrabajo ──────────────────────────────────────
   describe('createTrabajo', () => {
-    const body = (extra = {}) => ({
-      nombre: 'Maratón', tipo: 'cobertura_evento',
-      descripcion: '  Cobertura  ', ubicacion: '',
-      fecha_inicio: '2026-10-15T08:00:00Z', fecha_fin: '2026-10-15T20:00:00Z',
-      vehiculos: [{ vehicle_id: 7, responsables: [20, 21], kilometros_inicio: 1200 }],
-      usuarios: [30],
+    it('creates trabajo', async () => {
+      // generateIdentificador
+      query.mockResolvedValueOnce([[]]);
+      // transaction
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([{ insertId: 10 }]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto({ id: 10 });
+
+      const req = mockReq({
+        body: {
+          nombre: 'Nuevo', tipo: 'programado',
+          fecha_inicio: '2026-04-15T08:00', fecha_fin: '2026-04-15T20:00',
+          vehiculos: [{ vehicle_id: 1, responsable_user_id: 2 }],
+          usuarios: [2],
+        },
+        user: { id: 1, username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await createTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('returns 400 when fecha_fin <= fecha_inicio', async () => {
+      const res = mockRes();
+      await createTrabajo(mockReq({
+        body: {
+          nombre: 'Bad dates', tipo: 'programado',
+          fecha_inicio: '2026-04-15T20:00', fecha_fin: '2026-04-15T08:00',
+          vehiculos: [], usuarios: [],
+        },
+        user: { id: 1, username: 'admin' },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('increments sequence when existing identificador found', async () => {
+      // generateIdentificador finds existing TRB-2026-0003
+      query.mockResolvedValueOnce([[{ identificador: 'TRB-2026-0003' }]]);
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([{ insertId: 20 }]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto({ id: 20, identificador: 'TRB-2026-0004' });
+
+      const req = mockReq({
+        body: {
+          nombre: 'Seq test', tipo: 'programado',
+          fecha_inicio: '2026-04-15T08:00', fecha_fin: '2026-04-15T20:00',
+          vehiculos: [], usuarios: [],
+        },
+        user: { id: 1, username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await createTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('creates trabajo with km_inicio (covers km update branch)', async () => {
+      query.mockResolvedValueOnce([[]]);
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([{ insertId: 11 }]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto({ id: 11 });
+
+      const req = mockReq({
+        body: {
+          nombre: 'With km', tipo: 'programado',
+          fecha_inicio: '2026-04-15T08:00', fecha_fin: '2026-04-15T20:00',
+          vehiculos: [{ vehicle_id: 1, responsable_user_id: 2, kilometros_inicio: 10000 }],
+          usuarios: [],
+        },
+        user: { id: 1, username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await createTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+  });
+
+  // ── updateTrabajo ──────────────────────────────────────
+  describe('updateTrabajo', () => {
+    it('updates trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado' }]]);
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto();
+
+      const req = mockReq({ params: { id: '1' }, body: { nombre: 'Updated' }, user: { id: 1, username: 'admin' }, ip: '1.1.1.1' });
+      const res = mockRes();
+      await updateTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 400 for finalizado trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'finalizado' }]]);
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'X' }, user: { id: 1 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 for finalizado_anticipado trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'finalizado_anticipado' }]]);
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'X' }, user: { id: 1 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('updates trabajo with vehiculos and usuarios reassignment', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado' }]]);
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto();
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: {
+          nombre: 'Updated',
+          vehiculos: [{ vehicle_id: 2, responsable_user_id: 3 }],
+          usuarios: [3, 4],
+        },
+        user: { id: 1, username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await updateTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+  });
+
+  // ── deleteTrabajo ──────────────────────────────────────
+  describe('deleteTrabajo', () => {
+    it('soft deletes', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado' }]]);
+      query.mockResolvedValueOnce([]); // UPDATE
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, username: 'admin' }, ip: '1.1.1.1' });
+      const res = mockRes();
+      await deleteTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 400 for active trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+      const res = mockRes();
+      await deleteTrabajo(mockReq({ params: { id: '1' }, user: { id: 1 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 404 when not found', async () => {
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await deleteTrabajo(mockReq({ params: { id: '999' }, user: { id: 1 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  // ── finalizeTrabajo ────────────────────────────────────
+  describe('finalizeTrabajo', () => {
+    it('finalizes with evidence complete', async () => {
+      // existing query (trabajo + vehicles) - past fecha_fin
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 2 },
+      ]]);
+      // evidence check for vehicle 1 — evidencias completas (inicio + fin)
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      // transaction
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([]) };
+        return cb(conn);
+      });
+      // getTrabajoCompleto
+      mockGetTrabajoCompleto({ estado: 'finalizado' });
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await finalizeTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 404 when not found', async () => {
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({ params: { id: '999' }, body: { vehiculos_km: [] }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    // Los roles no son excluyentes: el jefe que ademas sale de servicio lleva
+    // `tecnico`, y eso no puede convertirlo en un operacional cualquiera.
+    it('un administrador que ademas es tecnico finaliza sin ser responsable', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 99 },
+      ]]);
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      transaction.mockImplementation(async (cb) => cb({ execute: jest.fn().mockResolvedValue([]) }));
+      mockGetTrabajoCompleto({ estado: 'finalizado' });
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] },
+        user: { id: 5, roles: ['administrador', 'tecnico'], username: 'jefe' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 403 for operacional who is not responsable', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() + 86400000), vehicle_id: 1, responsable_user_id: 99 },
+      ]]);
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [] },
+        user: { id: 5, roles: ['tecnico'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('returns 400 when trabajo already finalizado', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'finalizado', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 1 },
+      ]]);
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] },
+        user: { id: 1, roles: ['administrador'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when anticipado without motivo', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() + 86400000), vehicle_id: 1, responsable_user_id: 1 },
+      ]]);
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] }, // no motivo
+        user: { id: 1, roles: ['administrador'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when evidence incomplete', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 1 },
+      ]]);
+      // evidence check for vehicle 1 returns empty (no images)
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }] },
+        user: { id: 1, roles: ['administrador'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when km missing for a vehicle', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), vehicle_id: 1, responsable_user_id: 1 },
+      ]]);
+      // All evidence provided → debe fallar por los km, no por las fotos
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+
+      const res = mockRes();
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [] }, // no km provided
+        user: { id: 1, roles: ['administrador'] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('finalizes anticipado when motivo provided', async () => {
+      const futureDate = new Date(Date.now() + 86400000);
+      query.mockResolvedValueOnce([[
+        { id: 1, estado: 'activo', fecha_fin: futureDate, vehicle_id: 1, responsable_user_id: 1 },
+      ]]);
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      transaction.mockImplementation(async (cb) => {
+        const conn = { execute: jest.fn().mockResolvedValue([]) };
+        return cb(conn);
+      });
+      mockGetTrabajoCompleto({ estado: 'finalizado_anticipado' });
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: {
+          vehiculos_km: [{ vehicle_id: 1, kilometros_fin: 50000 }],
+          motivo_finalizacion_anticipada: 'Fin anticipado por motivo X',
+        },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+        ip: '1.1.1.1',
+      });
+      const res = mockRes();
+      await finalizeTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+  });
+
+  // ── uploadEvidencia ────────────────────────────────────
+  describe('uploadEvidencia', () => {
+    it('uploads evidence image', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]); // trabajo
+      query.mockResolvedValueOnce([[{ id: 10 }]]); // vehicle assigned
+      query.mockResolvedValueOnce([[]]); // no existing image
+      query.mockResolvedValueOnce([{ insertId: 30 }]); // insert
+      query.mockResolvedValueOnce([[{ tipo_imagen: 'frontal' }]]); // progress
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2 },
+      });
+      const res = mockRes();
+      await uploadEvidencia(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('returns 400 when no file', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+      query.mockResolvedValueOnce([[{ id: 10 }]]);
+
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'frontal' },
+        user: { id: 2 },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when vehicle_id missing', async () => {
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { tipo_imagen: 'frontal' }, // no vehicle_id
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2 },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 for invalid tipo_imagen', async () => {
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'invalid_type' },
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2 },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when trabajo already finalizado', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'finalizado' }]]);
+
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2 },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 400 when vehicle not assigned to trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+      query.mockResolvedValueOnce([[]]); // not assigned
+
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/img.jpg' },
+        user: { id: 2 },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('overwrites existing image (UPDATE path)', async () => {
+      const { deleteFile } = require('../../../middleware/upload.middleware');
+
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);       // trabajo
+      query.mockResolvedValueOnce([[{ id: 10 }]]);                         // vehicle assigned
+      query.mockResolvedValueOnce([[{ id: 50, image_url: '/uploads/old.jpg' }]]); // existing image
+      query.mockResolvedValueOnce([]);                                      // UPDATE
+      query.mockResolvedValueOnce([[{ tipo_imagen: 'frontal' }]]);          // progress
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '1', tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/new.jpg' },
+        user: { id: 2 },
+      });
+      const res = mockRes();
+      await uploadEvidencia(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(deleteFile).toHaveBeenCalledWith('/uploads/old.jpg');
+    });
+  });
+
+  // ── misTrab ────────────────────────────────────────────
+  describe('misTrab', () => {
+    it('returns user trabajos', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, identificador: 'TRB-001', estado: 'activo', soy_responsable: 1 }]]);
+
+      const req = mockReq({ query: {}, user: { id: 5 } });
+      const res = mockRes();
+      await misTrab(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('paginates correctly with page=2', async () => {
+      query.mockResolvedValueOnce([[{ total: 25 }]]);
+      query.mockResolvedValueOnce([[{ id: 21, identificador: 'TRB-021', estado: 'activo', soy_responsable: 0 }]]);
+
+      const req = mockReq({ query: { page: '2' }, user: { id: 5 } });
+      const res = mockRes();
+      await misTrab(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      // Second page offset: (2-1)*20 = 20, so the limit/offset params should reflect page 2
+      const limitOffsetParams = query.mock.calls[1][1];
+      expect(limitOffsetParams).toContain(20); // offset=20
+    });
+  });
+
+  // ── activarTrabajo ─────────────────────────────────────
+  describe('activarTrabajo', () => {
+    it('activates programado trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado', fecha_inicio: new Date(Date.now() + 3600000) }]]);
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockGetTrabajoCompleto({ estado: 'activo' });
+
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], username: 'admin' }, ip: '1.1.1.1' });
+      const res = mockRes();
+      await activarTrabajo(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 400 for non-programado', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'activo' }]]);
+      const res = mockRes();
+      await activarTrabajo(mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('returns 404 when trabajo not found', async () => {
+      query.mockResolvedValueOnce([[]]); // not found
+      const res = mockRes();
+      await activarTrabajo(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('returns 403 for operacional who is not responsable', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado', fecha_inicio: new Date(Date.now() + 3600000) }]]);
+      // responsable query returns empty (not responsable)
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await activarTrabajo(mockReq({
+        params: { id: '1' },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('un administrador que ademas es tecnico activa sin ser responsable y sin la ventana de 24h', async () => {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado', fecha_inicio: new Date(Date.now() + 48 * 3600000) }]]);
+      query.mockResolvedValueOnce([[]]); // UPDATE; no se llega a consultar responsable_user_id
+      mockGetTrabajoCompleto({ estado: 'activo' });
+
+      const res = mockRes();
+      await activarTrabajo(mockReq({
+        params: { id: '1' },
+        user: { id: 5, roles: ['administrador', 'tecnico'], username: 'jefe' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 400 for operacional activating >24h before start', async () => {
+      // fecha_inicio is 48h away
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado', fecha_inicio: new Date(Date.now() + 48 * 3600000) }]]);
+      // operacional IS responsable
+      query.mockResolvedValueOnce([[{ id: 5 }]]);
+
+      const res = mockRes();
+      await activarTrabajo(mockReq({
+        params: { id: '1' },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+        ip: '1.1.1.1',
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  // ── getTrabajo: progreso de fotos por vehículo ─────────
+  // Es lo que el técnico ve en la ficha para saber qué le falta por subir.
+  describe('getTrabajo → progreso_fotos', () => {
+    const vehiculo = (vehicle_id, extra = {}) => ({
+      asignacion_id: vehicle_id, vehicle_id, responsable_user_id: 5,
+      matricula: `000${vehicle_id}ABC`, vehiculo_alias: `Ambulancia ${vehicle_id}`,
       ...extra,
     });
-
-    it('crea el trabajo con sus vehículos, varios responsables y el equipo', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]],
-          ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ insertId: 10 });
-
-      const res = mockRes();
-      await createTrabajo(mockReq({ body: body(), user: admin }), res, mockNext());
-
-      expect(res.status).toHaveBeenCalledWith(201);
-      const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
-      // descripción recortada, ubicación en blanco → NULL
-      expect(insTrab.params.slice(1, 4)).toEqual(['Maratón', 'Cobertura', null]);
-
-      const insVeh = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_vehiculos'));
-      expect(insVeh.params).toEqual([10, 7, 20, 1200]);  // principal = primero
-
-      const resps = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_vehiculo_responsables'));
-      expect(resps.params).toEqual([11, 20, 0, 11, 21, 1]);
-
-      expect(ejecutadas.some(e => e.sql.includes('UPDATE vehicles SET kilometros_actuales'))).toBe(true);
-      expect(ejecutadas.some(e => e.sql.includes('INSERT IGNORE INTO trabajo_usuarios'))).toBe(true);
-      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'create_trabajo' }));
+    const foto = (vehicle_id, tipo_imagen, momento) => ({
+      id: `${vehicle_id}-${momento}-${tipo_imagen}`, vehicle_id, tipo_imagen, momento,
     });
 
-    it('un trabajo sin vehículos también vale', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]], ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion();
+    /** Encola las 4 consultas de getTrabajoCompleto con vehículos y fotos reales. */
+    function mockFicha(vehicles, images) {
+      query.mockResolvedValueOnce([[{
+        id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+        estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+        creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+      }]]);
+      query.mockResolvedValueOnce([vehicles]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([images]);
+    }
+
+    const admin = { id: 1, roles: ['administrador'] };
+
+    it('sin ninguna foto, el progreso arranca a cero y lista todo lo que falta', async () => {
+      mockFicha([vehiculo(7)], []);
+
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ vehiculos: [] }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(ejecutadas.some(e => e.sql.includes('trabajo_vehiculos'))).toBe(false);
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { progreso_fotos } = res._json.data.vehiculos[0];
+      expect(progreso_fotos.inicio).toEqual({
+        completado: 0,
+        total: IMAGEN_TIPOS_INICIO.length,
+        faltantes: IMAGEN_TIPOS_INICIO,
+        completo: false,
+      });
+      expect(progreso_fotos.fin).toEqual({
+        completado: 0,
+        total: IMAGEN_TIPOS_FIN.length,
+        faltantes: IMAGEN_TIPOS_FIN,
+        completo: false,
+      });
     });
 
-    it('400 si las fechas van al revés', async () => {
+    it('cuenta solo las fotos del momento que toca', async () => {
+      // Todas las de inicio subidas; de fin, ninguna.
+      mockFicha(
+        [vehiculo(7)],
+        IMAGEN_TIPOS_INICIO.map(t => foto(7, t, 'inicio'))
+      );
+
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ fecha_fin: '2026-10-14T08:00:00Z' }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { progreso_fotos } = res._json.data.vehiculos[0];
+      expect(progreso_fotos.inicio.completo).toBe(true);
+      expect(progreso_fotos.inicio.faltantes).toEqual([]);
+      expect(progreso_fotos.fin.completo).toBe(false);
+      expect(progreso_fotos.fin.completado).toBe(0);
     });
 
-    it('400 si un vehículo no lleva responsable', async () => {
+    it('una tanda a medias dice exactamente qué tipos faltan', async () => {
+      mockFicha([vehiculo(7)], [
+        foto(7, 'frontal', 'fin'),
+        foto(7, 'trasera', 'fin'),
+      ]);
+
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ vehiculos: [{ vehicle_id: 7 }] }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('al menos un responsable');
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completado).toBe(2);
+      expect(fin.faltantes).toEqual(
+        IMAGEN_TIPOS_FIN.filter(t => !['frontal', 'trasera'].includes(t)));
+      expect(fin.completo).toBe(false);
     });
 
-    it('400 si el equipo trae ids que no son números', async () => {
+    it('las fotos de un vehículo no cuentan para el de al lado', async () => {
+      mockFicha(
+        [vehiculo(7), vehiculo(8)],
+        IMAGEN_TIPOS_INICIO.map(t => foto(7, t, 'inicio'))
+      );
+
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ usuarios: ['x'] }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const [v7, v8] = res._json.data.vehiculos;
+      expect(v7.progreso_fotos.inicio.completo).toBe(true);
+      expect(v8.progreso_fotos.inicio.completo).toBe(false);
+      expect(v8.progreso_fotos.inicio.completado).toBe(0);
     });
 
-    it('400 si alguien no existe o está de baja', async () => {
-      bd([['FROM users', [[{ id: 20 }, { id: 21 }]]]]);  // falta el 30
+    it('las fotos "general" (daños) no cuentan para el progreso: no bloquean', async () => {
+      mockFicha([vehiculo(7)], [
+        ...IMAGEN_TIPOS_FIN.map(t => foto(7, t, 'fin')),
+        foto(7, 'danos', 'general'),
+      ]);
+
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body(), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('30');
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completo).toBe(true);
+      expect(fin.completado).toBe(IMAGEN_TIPOS_FIN.length);
     });
 
-    it('continúa la numeración del año', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]],
-          ['identificador LIKE', [[{ identificador: 'TRB-2026-0041' }]]],
-          ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion();
-      await createTrabajo(mockReq({ body: body(), user: admin }), mockRes(), mockNext());
-      const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
-      expect(insTrab.params[0]).toMatch(/-0042$/);
+    it('una foto repetida no infla el contador por encima del total', async () => {
+      mockFicha([vehiculo(7)], [
+        foto(7, 'frontal', 'fin'),
+        { ...foto(7, 'frontal', 'fin'), id: 'repetida' },
+      ]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const { fin } = res._json.data.vehiculos[0].progreso_fotos;
+      expect(fin.completado).toBe(1);
+      expect(fin.completado).toBeLessThanOrEqual(fin.total);
+    });
+
+    it('los roles del personal llegan como array, no como el GROUP_CONCAT crudo', async () => {
+      query.mockResolvedValueOnce([[{
+        id: 1, identificador: 'TRB-2026-0001', nombre: 'Test', tipo: 'programado',
+        estado: 'activo', fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+        creado_por_nombre: 'Admin', creado_por_apellidos: 'U',
+      }]]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([[
+        { user_id: 5, username: 'tec', roles: 'tecnico,enfermero' },
+        { user_id: 6, username: 'sinrol', roles: null },
+      ]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      expect(res._json.data.usuarios[0].roles).toEqual(['tecnico', 'enfermero']);
+      expect(res._json.data.usuarios[1].roles).toEqual([]);
     });
   });
 
-  // ── PUT /trabajos/:id ──────────────────────────────────────
-  describe('updateTrabajo', () => {
-    const existente = (estado = 'programado') =>
-      ['SELECT id, estado, fecha_inicio, fecha_fin FROM trabajos',
-       [[{ id: 1, estado, fecha_inicio: new Date('2026-10-15T08:00:00Z'),
-           fecha_fin: new Date('2026-10-15T20:00:00Z') }]]];
-    const usuariosOk = ['FROM users', (params) => [params.map(id => ({ id }))]];
-    const actuales = (filas) => ['AS fotos', [filas]];
+  // ── updateTrabajo: cambio de estado ────────────────────
+  describe('updateTrabajo → estado', () => {
+    /** Encola el SELECT previo y captura los execute de la transacción. */
+    function prepararUpdate() {
+      query.mockResolvedValueOnce([[{ id: 1, estado: 'programado' }]]);
+      const execute = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      transaction.mockImplementation(async (cb) => cb({ execute }));
+      return execute;
+    }
 
-    it('404 si no existe', async () => {
-      bd([]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
+    it('acepta volver a programado o pasar a activo', async () => {
+      for (const estado of ['programado', 'activo']) {
+        query.mockReset(); transaction.mockReset();
+        const execute = prepararUpdate();
+        mockGetTrabajoCompleto();
+
+        await updateTrabajo(mockReq({
+          params: { id: '1' }, body: { estado }, user: { id: 1, roles: ['administrador'], username: 'admin' },
+        }), mockRes(), mockNext());
+
+        const [sql, vals] = execute.mock.calls[0];
+        expect(sql).toContain('estado = ?');
+        expect(vals).toContain(estado);
+      }
     });
 
-    it.each(['finalizado', 'finalizado_anticipado'])('400 si el trabajo está %s', async (estado) => {
-      bd([existente(estado)]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'X' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+    it('ignora un estado que no se puede poner a mano', async () => {
+      // Finalizar tiene su propio endpoint, con las validaciones de evidencias.
+      const execute = prepararUpdate();
+      mockGetTrabajoCompleto();
+
+      await updateTrabajo(mockReq({
+        params: { id: '1' }, body: { estado: 'finalizado', nombre: 'Otro' },
+        user: { id: 1, roles: ['administrador'], username: 'admin' },
+      }), mockRes(), mockNext());
+
+      const [sql, vals] = execute.mock.calls[0];
+      expect(sql).not.toContain('estado = ?');
+      expect(vals).not.toContain('finalizado');
+      expect(sql).toContain('nombre = ?'); // el resto del update sí se aplica
     });
+  });
 
-    it('400 si una sola fecha nueva deja el fin antes del inicio', async () => {
-      bd([existente()]);
+  // ── finalizeTrabajo: alcance por responsable ───────────
+  describe('finalizeTrabajo → qué vehículos debe documentar cada uno', () => {
+    const trabajoAbierto = (vehiculos) => {
+      query.mockResolvedValueOnce([vehiculos.map(v => ({
+        id: 1, estado: 'activo', fecha_fin: new Date(Date.now() - 3600000), // ya pasó: no es anticipado
+        ...v,
+      }))]);
+    };
+
+    it('un operacional solo responde de los vehículos en los que es responsable', async () => {
+      trabajoAbierto([
+        { vehicle_id: 7, responsable_user_id: 5 },
+        { vehicle_id: 8, responsable_user_id: 99 }, // de otro técnico
+      ]);
+      // Solo se comprueban las evidencias del 7: una sola consulta de fotos.
+      query.mockResolvedValueOnce([evidenciaCompletaRows()]);
+      const execute = jest.fn().mockResolvedValue([{ affectedRows: 1 }]);
+      transaction.mockImplementation(async (cb) => cb({ execute }));
+      mockGetTrabajoCompleto();
+
       const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' },
-        body: { fecha_fin: '2026-10-15T07:00:00Z' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 7, kilometros_fin: 120500 }] },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+      }), res, mockNext());
 
-    it('actualiza los campos y NO acepta un estado puesto a mano', async () => {
-      bd([existente(), ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion();
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' },
-        body: { nombre: 'Nuevo', ubicacion: ' Ifema ', descripcion: '', estado: 'activo' },
-        user: admin }), res, mockNext());
-
+      // La comprobación de evidencias se hizo para el 7 y no para el 8.
+      // (se filtra por esta consulta concreta: getTrabajoCompleto lee
+      // vehicle_images otra vez al recomponer la ficha de respuesta)
+      const consultasFotos = query.mock.calls.filter(
+        ([sql]) => sql.includes('SELECT tipo_imagen, momento FROM vehicle_images'));
+      expect(consultasFotos).toHaveLength(1);
+      expect(consultasFotos[0][1]).toEqual([7, 1]);
       expect(res.status).toHaveBeenCalledWith(200);
-      const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
-      expect(upd.sql).not.toContain('estado');
-      expect(upd.params).toEqual(['Nuevo', null, 'Ifema', 1]);
     });
 
-    it('conserva la fila de un vehículo que sigue: estado y fotos no se pierden', async () => {
-      bd([existente(), usuariosOk,
-          actuales([{ id: 101, vehicle_id: 7, estado: 'activo', fotos: 7, matricula: '7777AAA' }]),
-          ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ estados: ['activo'] });
+    it('sin las fotos de INICIO no se puede finalizar, y lo dice', async () => {
+      trabajoAbierto([{ vehicle_id: 7, responsable_user_id: 5 }]);
+      // Solo hay fotos de fin: faltan todas las de inicio.
+      query.mockResolvedValueOnce([IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }))]);
+
       const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' },
-        body: { vehiculos: [{ vehicle_id: 7, responsables: [21, 20] }] }, user: admin }), res, mockNext());
+      await finalizeTrabajo(mockReq({
+        params: { id: '1' },
+        body: { vehiculos_km: [{ vehicle_id: 7, kilometros_fin: 120500 }] },
+        user: { id: 5, roles: ['tecnico'], username: 'tec' },
+      }), res, mockNext());
 
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_vehiculos'))).toBe(false);
-      const principal = ejecutadas.find(e => e.sql.includes('SET responsable_user_id'));
-      expect(principal.params).toEqual([21, 101]);
-      // Ya activo: el km de inicio no se reescribe
-      expect(ejecutadas.some(e => e.sql.includes('SET kilometros_inicio'))).toBe(false);
-    });
-
-    it('quita un vehículo sin empezar ni fotos y añade otro nuevo', async () => {
-      bd([existente(), usuariosOk,
-          actuales([{ id: 101, vehicle_id: 7, estado: 'programado', fotos: 0, matricula: '7777AAA' }]),
-          ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ estados: ['programado'] });
-      await updateTrabajo(mockReq({ params: { id: '1' },
-        body: { vehiculos: [{ vehicle_id: 9, responsables: [20] }] }, user: admin }), mockRes(), mockNext());
-
-      const borrado = ejecutadas.find(e => e.sql.includes('DELETE FROM trabajo_vehiculos'));
-      expect(borrado.params).toEqual([101]);
-      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_vehiculos')).params)
-        .toEqual([1, 9, 20, null]);
-      expect(ejecutadas.some(e => e.sql.includes('SELECT estado FROM trabajo_vehiculos'))).toBe(true);
-    });
-
-    it.each([
-      ['ya ha empezado', { estado: 'activo', fotos: 0 }],
-      ['tiene fotos subidas', { estado: 'programado', fotos: 3 }],
-    ])('400 al quitar un vehículo que %s', async (_n, fila) => {
-      bd([existente(), usuariosOk,
-          actuales([{ id: 101, vehicle_id: 7, matricula: '7777AAA', ...fila }])]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { vehiculos: [] }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('7777AAA');
+      expect(res._json.message).toContain('fotos de INICIO');
+      expect(res._json.message).toContain('nivel_aceite'); // nombra lo que falta
       expect(transaction).not.toHaveBeenCalled();
     });
-
-    it('rehace el equipo', async () => {
-      bd([existente(), usuariosOk, ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [30, 31] }, user: admin }),
-        mockRes(), mockNext());
-      expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_usuarios'))).toBe(true);
-      expect(ejecutadas.filter(e => e.sql.includes('INSERT IGNORE INTO trabajo_usuarios'))).toHaveLength(2);
-    });
-
-    it('quien ya iba no bloquea la edición aunque esté de baja', async () => {
-      bd([existente(), ['UNION', [[{ user_id: 30 }]]], ['FROM users', [[]]], ...trabajoDosVehiculos()]);
-      conexion();
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [30] }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-    });
-
-    it('400 si un vehículo viene sin responsables', async () => {
-      bd([existente()]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' },
-        body: { vehiculos: [{ vehicle_id: 7, responsables: [] }] }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('400 si un nuevo miembro no existe', async () => {
-      bd([existente(), ['FROM users', [[]]]]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [77] }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('400 si el equipo trae ids no válidos', async () => {
-      bd([existente()]);
-      const res = mockRes();
-      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [0] }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
   });
 
-  // ── DELETE /trabajos/:id ───────────────────────────────────
-  describe('deleteTrabajo', () => {
-    it('borrado lógico', async () => {
-      bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'programado' }]]]]);
+  // ── uploadEvidencia: validación de `momento` ───────────
+  describe('uploadEvidencia → momento', () => {
+    it('rechaza un momento que no sea inicio o fin', async () => {
       const res = mockRes();
-      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(query.mock.calls[1][0]).toContain('SET deleted_at');
-    });
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'durante' },
+        user: { id: 5, roles: ['tecnico'] },
+      }), res, mockNext());
 
-    it('400 si está activo', async () => {
-      bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'activo' }]]]]);
-      const res = mockRes();
-      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('404 si no existe', async () => {
-      bd([]);
-      const res = mockRes();
-      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-  });
-
-  // ── Ciclo de vida por vehículo ─────────────────────────────
-  const filaVehiculo = (extra = {}) => ['FROM trabajo_vehiculos tv\n     JOIN trabajos t ON t.id = tv.trabajo_id\n     JOIN vehicles v',
-    [[{ id: 101, trabajo_id: 1, vehicle_id: 7, estado: 'activo', inicio_real_at: null,
-        kilometros_inicio: 1000, vehiculo_km_actual: 1100, matricula: '7777AAA',
-        fecha_inicio: AYER(), fecha_fin: AYER(), ...extra }]]];
-  const esResponsable = (si = true) =>
-    ['FROM trabajo_vehiculo_responsables WHERE trabajo_vehiculo_id', [si ? [{ ok: 1 }] : []]];
-  const reqVeh = (user, body = {}) => mockReq({ params: { id: '1', vehicleId: '7' }, body, user });
-
-  describe('activarVehiculo', () => {
-    it('404 si el vehículo no va en ese trabajo', async () => {
-      bd([]);
-      const res = mockRes();
-      await activarVehiculo(reqVeh(admin), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-
-    it('403 a quien no es responsable de ESE vehículo', async () => {
-      bd([filaVehiculo({ estado: 'programado' }), esResponsable(false)]);
-      const res = mockRes();
-      await activarVehiculo(reqVeh(resp2), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(403);
-    });
-
-    it('el responsable activa SOLO su vehículo y el trabajo pasa a activo', async () => {
-      bd([filaVehiculo({ estado: 'programado', fecha_inicio: new Date(Date.now() + 3600e3) }),
-          esResponsable(), ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ estados: ['activo', 'programado'] });
-      const res = mockRes();
-      await activarVehiculo(reqVeh(resp1), res, mockNext());
-
-      expect(res.status).toHaveBeenCalledWith(200);
-      const act = ejecutadas.find(e => e.sql.includes('UPDATE trabajo_vehiculos'));
-      expect(act.sql).toContain('inicio_real_at = COALESCE(inicio_real_at, ?)');
-      expect(act.params[2]).toBe(101);
-      const sinc = ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado'));
-      expect(sinc.params).toEqual(['activo', 1]);
-      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'activate_trabajo_vehiculo' }));
-    });
-
-    it('si el cron ya lo activó, el responsable solo sella la hora real', async () => {
-      bd([filaVehiculo({ estado: 'activo' }), esResponsable(), ...trabajoDosVehiculos()]);
-      conexion({ estados: ['activo'] });
-      const res = mockRes();
-      await activarVehiculo(reqVeh(resp1), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-    });
-
-    it('400 si ya cerró', async () => {
-      bd([filaVehiculo({ estado: 'finalizado' }), esResponsable()]);
-      const res = mockRes();
-      await activarVehiculo(reqVeh(resp1), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('400 al responsable que se adelanta más de 24 h', async () => {
-      bd([filaVehiculo({ estado: 'programado', fecha_inicio: new Date(Date.now() + 48 * 3600e3) }),
-          esResponsable()]);
-      const res = mockRes();
-      await activarVehiculo(reqVeh(resp1), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('24 horas');
-    });
-
-    it('gestión no tiene ventana de 24 h ni necesita ser responsable', async () => {
-      bd([filaVehiculo({ estado: 'programado', fecha_inicio: new Date(Date.now() + 48 * 3600e3) }),
-          ...trabajoDosVehiculos()]);
-      conexion({ estados: ['activo'] });
-      const res = mockRes();
-      await activarVehiculo(reqVeh(admin), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-    });
-  });
-
-  describe('finalizeVehiculo', () => {
-    const conFotos = (imgs = FOTOS_COMPLETAS) =>
-      ['SELECT tipo_imagen, momento FROM vehicle_images', [imgs]];
-
-    it('403 a quien no es responsable de ESE vehículo', async () => {
-      bd([filaVehiculo(), esResponsable(false)]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp2, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(403);
-    });
-
-    it('404 si el vehículo no va en ese trabajo', async () => {
-      bd([]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(admin, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-
-    it('400 si ese vehículo ya cerró', async () => {
-      bd([filaVehiculo({ estado: 'finalizado' }), esResponsable()]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('400 si es anticipado y no hay motivo', async () => {
-      bd([filaVehiculo({ fecha_fin: MANANA() }), esResponsable()]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('motivo');
-    });
-
-    it.each([
-      ['sin km', {}, 'kilómetros finales'],
-      ['km por debajo del inicio', { kilometros_fin: 900 }, 'de inicio'],
-      ['km por debajo del actual del vehículo', { kilometros_fin: 1050 }, 'km actuales'],
-    ])('400 %s', async (_n, body, msg) => {
-      bd([filaVehiculo(), esResponsable()]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, body), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain(msg);
-    });
-
-    it('400 si faltan las fotos de INICIO, y lo dice', async () => {
-      bd([filaVehiculo(), esResponsable(), conFotos(fotos('fin', IMAGEN_TIPOS_FIN))]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('INICIO');
-    });
-
-    it('400 si faltan fotos de FIN', async () => {
-      bd([filaVehiculo(), esResponsable(), conFotos(fotos('inicio', IMAGEN_TIPOS_INICIO))]);
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('FIN');
-    });
-
-    it('cierra SU vehículo; con el otro aún en marcha el trabajo sigue activo', async () => {
-      bd([filaVehiculo(), esResponsable(), conFotos(), ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ estados: ['finalizado', 'programado'] });
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-
-      expect(res.status).toHaveBeenCalledWith(200);
-      const cierre = ejecutadas.find(e => e.sql.includes('UPDATE trabajo_vehiculos'));
-      expect(cierre.params[0]).toBe('finalizado');
-      expect(cierre.params[1]).toBe(1200);
-      expect(cierre.params[4]).toBe(101);           // solo esa fila
-      const sinc = ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado'));
-      expect(sinc.params).toEqual(['activo', 1]);
-      expect(res._json.message).toBe('Vehículo cerrado correctamente');
-    });
-
-    it('el último vehículo en cerrar finaliza el trabajo', async () => {
-      bd([filaVehiculo(), esResponsable(), conFotos(), ...trabajoDosVehiculos()]);
-      conexion({ estados: ['finalizado', 'finalizado'] });
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200 }), res, mockNext());
-      expect(res._json.message).toContain('el trabajo queda finalizado');
-      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
-        action: 'finalize_trabajo_vehiculo',
-        details: expect.objectContaining({ estado_trabajo: 'finalizado' }),
-      }));
-    });
-
-    it('anticipado con motivo: queda en la fila del vehículo', async () => {
-      bd([filaVehiculo({ fecha_fin: MANANA() }), conFotos(), ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ estados: ['finalizado_anticipado'] });
-      const res = mockRes();
-      await finalizeVehiculo(reqVeh(admin, { kilometros_fin: 1200, motivo_finalizacion_anticipada: ' Lluvia ' }),
-        res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-      const cierre = ejecutadas.find(e => e.sql.includes('UPDATE trabajo_vehiculos'));
-      expect(cierre.params[0]).toBe('finalizado_anticipado');
-      expect(cierre.params[3]).toBe('Lluvia');
-    });
-  });
-
-  // ── Trabajos sin vehículos ─────────────────────────────────
-  describe('activarTrabajo / finalizeTrabajo (0 vehículos)', () => {
-    const trabajo = (extra = {}) => ['AS num_vehiculos',
-      [[{ id: 1, estado: 'programado', fecha_inicio: AYER(), fecha_fin: AYER(), num_vehiculos: 0, ...extra }]]];
-
-    it('404 si no existe', async () => {
-      bd([]);
-      const res = mockRes();
-      await activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-
-    it.each([['activarTrabajo', activarTrabajo], ['finalizeTrabajo', finalizeTrabajo]])(
-      '%s: 400 si el trabajo tiene vehículos', async (_n, fn) => {
-        bd([trabajo({ num_vehiculos: 2 })]);
-        const res = mockRes();
-        await fn(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
-        expect(res.status).toHaveBeenCalledWith(400);
-        expect(res._json.message).toContain('por separado');
-      });
-
-    it('activa un trabajo sin vehículos', async () => {
-      bd([trabajo(), ...trabajoDosVehiculos({ vehiculos: [], responsables: [] })]);
-      const res = mockRes();
-      await activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(200);
-    });
-
-    it('400 al activar lo que no está programado', async () => {
-      bd([trabajo({ estado: 'activo' })]);
-      const res = mockRes();
-      await activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('finaliza; anticipado exige motivo', async () => {
-      bd([trabajo({ estado: 'activo', fecha_fin: MANANA() })]);
-      const res = mockRes();
-      await finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-
-      bd([trabajo({ estado: 'activo', fecha_fin: MANANA() }), ...trabajoDosVehiculos({ vehiculos: [], responsables: [] })]);
-      const res2 = mockRes();
-      await finalizeTrabajo(mockReq({ params: { id: '1' }, body: { motivo_finalizacion_anticipada: 'Suspendido' }, user: admin }),
-        res2, mockNext());
-      expect(res2.status).toHaveBeenCalledWith(200);
-      const upd = query.mock.calls.find(([sql]) => sql.includes('motivo_finalizacion_anticipada = ?'));
-      expect(upd[1]).toEqual(['finalizado_anticipado', 'Suspendido', 1]);
-    });
-
-    it('400 si ya está finalizado', async () => {
-      bd([trabajo({ estado: 'finalizado' })]);
-      const res = mockRes();
-      await finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('404 al finalizar uno que no existe', async () => {
-      bd([]);
-      const res = mockRes();
-      await finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(404);
-    });
-  });
-
-  // ── POST /trabajos/:id/evidencias ──────────────────────────
-  describe('uploadEvidencia', () => {
-    const rel = (estado = 'activo') => ['WHERE tv.trabajo_id = ? AND tv.vehicle_id = ? AND t.deleted_at IS NULL',
-      [[{ id: 101, estado }]]];
-    const req = (body = {}, file = { url: '/uploads/x.webp' }) => mockReq({
-      params: { id: '1' },
-      body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'fin', ...body },
-      user: resp1, processedFile: file,
-    });
-
-    it('sube la foto y devuelve el progreso de la tanda', async () => {
-      bd([rel(), ['INSERT INTO vehicle_images', [{ insertId: 55 }]],
-          ['AND tipo_imagen = ? AND momento = ?', [[]]],
-          ['AND momento = ?', [[{ tipo_imagen: 'frontal' }]]]]);
-      const res = mockRes();
-      await uploadEvidencia(req(), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res._json.data.id).toBe(55);
-      expect(res._json.data.progreso.completado).toBe(1);
-    });
-
-    it('rehace una foto: borra la vieja y vuelve a sellar la hora', async () => {
-      bd([rel(),
-          ['AND tipo_imagen = ? AND momento = ?', [[{ id: 9, image_url: '/uploads/viejo.webp' }]]],
-          ['AND momento = ?', [[{ tipo_imagen: 'frontal' }]]]]);
-      const res = mockRes();
-      await uploadEvidencia(req(), res, mockNext());
-      expect(deleteFile).toHaveBeenCalledWith('/uploads/viejo.webp');
-      expect(res._json.data.id).toBe(9);
-    });
-
-    it('400 si el vehículo de ESTE trabajo ya cerró, aunque el trabajo siga', async () => {
-      bd([rel('finalizado')]);
-      const res = mockRes();
-      await uploadEvidencia(req(), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('ya ha cerrado');
-    });
-
-    it('400 si el vehículo no va en el trabajo', async () => {
-      bd([]);
-      const res = mockRes();
-      await uploadEvidencia(req(), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it('400 sin imagen', async () => {
-      bd([rel()]);
-      const res = mockRes();
-      await uploadEvidencia(req({}, null), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-    });
-
-    it.each([
-      ['sin vehicle_id', { vehicle_id: '' }],
-      ['momento que no es inicio ni fin', { momento: 'general' }],
-      ['tipo que no toca en ese momento', { momento: 'fin', tipo_imagen: 'nivel_aceite' }],
-    ])('400 %s', async (_n, body) => {
-      const res = mockRes();
-      await uploadEvidencia(req(body), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toBe('momento debe ser "inicio" o "fin"');
+      expect(query).not.toHaveBeenCalled();
     });
 
     it('sin momento asume "fin", que es el flujo de cierre', async () => {
-      bd([rel(), ['INSERT INTO vehicle_images', [{ insertId: 1 }]]]);
+      // `nivel_aceite` solo vale para inicio: si el default fuera 'inicio'
+      // esto pasaría, y debe fallar.
       const res = mockRes();
-      await uploadEvidencia(req({ momento: undefined }), res, mockNext());
-      expect(res._json.data.momento).toBe('fin');
+      await uploadEvidencia(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: '7', tipo_imagen: 'nivel_aceite' },
+        user: { id: 5, roles: ['tecnico'] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('momento="fin"');
     });
   });
 
-  // ── Errores de BD: todos los endpoints delegan en next ─────
+  // ── Errores de BD: todos los endpoints delegan en next ─
+  // Sin esto, un fallo de la BD se convertiría en una promesa rechazada sin
+  // capturar y el cliente se quedaría colgado en vez de recibir un 500.
   describe('un fallo de BD siempre va a next(err)', () => {
+    const admin = { id: 1, roles: ['administrador'], username: 'admin' };
+
     const casos = [
       ['listTrabajos',           () => listTrabajos(mockReq({ query: {}, user: admin }), mockRes(), next)],
       ['listTrabajosCalendario', () => listTrabajosCalendario(mockReq({ query: {}, user: admin }), mockRes(), next)],
       ['getTrabajo',             () => getTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
-      ['createTrabajo',          () => createTrabajo(mockReq({ body: { nombre: 'T', tipo: 'otro', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02', usuarios: [3] }, user: admin }), mockRes(), next)],
+      ['createTrabajo',          () => createTrabajo(mockReq({ body: { nombre: 'T', tipo: 'programado', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02' }, user: admin }), mockRes(), next)],
       ['updateTrabajo',          () => updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'T' }, user: admin }), mockRes(), next)],
       ['deleteTrabajo',          () => deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
-      ['activarVehiculo',        () => activarVehiculo(reqVeh(admin), mockRes(), next)],
-      ['finalizeVehiculo',       () => finalizeVehiculo(reqVeh(admin, { kilometros_fin: 1 }), mockRes(), next)],
-      ['activarTrabajo',         () => activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
       ['finalizeTrabajo',        () => finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), mockRes(), next)],
       ['uploadEvidencia',        () => uploadEvidencia(mockReq({ params: { id: '1' }, body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'fin' }, user: admin }), mockRes(), next)],
       ['misTrab',                () => misTrab(mockReq({ query: {}, user: admin }), mockRes(), next)],
+      ['activarTrabajo',         () => activarTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
     ];
 
     let next;

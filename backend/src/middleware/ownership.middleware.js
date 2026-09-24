@@ -25,20 +25,18 @@ const { PERMISSIONS } = require('../config/constants');
 /**
  * ¿Tiene este usuario el vehículo en la mano ahora mismo?
  * Vale tanto por un trabajo activo como por una asignación libre activa: son
- * las dos formas que tiene un operacional de llevar una ambulancia. En los dos
- * casos solo cuentan los RESPONSABLES: el equipo de un trabajo y el personal de
- * una asignación ven el servicio, pero no suben la evidencia del vehículo. En
- * el trabajo se mira el estado de ESA fila trabajo↔vehículo, no el del trabajo:
- * cada vehículo tiene su propio ciclo de vida (v25).
+ * las dos formas que tiene un operacional de llevar una ambulancia. En la
+ * asignación solo cuentan los RESPONSABLES: el personal que va con el vehículo
+ * la ve, pero no sube la evidencia de su estado.
  */
 async function tieneElVehiculoAsignado(userId, vehicleId) {
   const [rows] = await query(
     `SELECT 1 AS ok
      FROM trabajo_vehiculos tv
-     JOIN trabajos t ON tv.trabajo_id = t.id
-     JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
-     WHERE tv.vehicle_id = ? AND tvr.user_id = ?
-       AND tv.estado = 'activo' AND t.deleted_at IS NULL
+     JOIN trabajos t          ON tv.trabajo_id = t.id
+     JOIN trabajo_usuarios tu ON t.id = tu.trabajo_id
+     WHERE tv.vehicle_id = ? AND tu.user_id = ?
+       AND t.estado = 'activo' AND t.deleted_at IS NULL
      UNION
      SELECT 1 AS ok
      FROM asignaciones_libres al
@@ -78,7 +76,7 @@ async function requireVehicleUploadAccess(req, res, next) {
 
 /**
  * POST /trabajos/:id/evidencias — fotos de inicio/fin de un trabajo.
- * Mismo criterio que `finalizeVehiculo`: pasa quien gestiona trabajos, o un
+ * Mismo criterio que `finalizeTrabajo`: pasa quien gestiona trabajos, o el
  * responsable de ese vehículo dentro de ese trabajo. Nadie más, porque estas
  * fotos se sobrescriben entre sí.
  */
@@ -93,14 +91,12 @@ async function requireTrabajoEvidenciaAccess(req, res, next) {
       return forbidden(res, 'No eres el responsable de este vehículo en este trabajo');
     }
 
-    // Cualquiera de los responsables de ESE vehículo, no solo el principal
     const [rows] = await query(
       `SELECT 1 AS ok
        FROM trabajo_vehiculos tv
        JOIN trabajos t ON tv.trabajo_id = t.id
-       JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
        WHERE tv.trabajo_id = ? AND tv.vehicle_id = ?
-         AND tvr.user_id = ? AND t.deleted_at IS NULL`,
+         AND tv.responsable_user_id = ? AND t.deleted_at IS NULL`,
       [trabajoId, vehicleId, req.user.id]
     );
     if (rows.length) return next();

@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_INICIO } from '../../utils/constants.js';
 
 /**
- * Flujo de INICIO de un vehículo del trabajo — fotos al recibirlo.
- * · Fotos obligatorias de inicio (contorno + aceite + líquidos + cuadro).
+ * Flujo de INICIO de trabajo — fotos al empezar / al recibir el vehículo.
+ * · 6 fotos obligatorias por vehículo (4 walk-around + aceite + líquidos).
  * · NO pide km ni motivo.
- * · Solo sobre vehículos con `detalle` (gestión o responsable de ese vehículo;
- *   lo decide el backend). Cada responsable documenta el SUYO.
+ * · Sólo muestra los vehículos sobre los que el usuario es responsable
+ *   (los admin/gestor ven todos).
  *
  * Props:
  *   trabajo                            — trabajo completo (con vehiculos[])
@@ -18,9 +19,13 @@ import { IMAGEN_TIPOS_INICIO } from '../../utils/constants.js';
  *   onCancel()
  */
 export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCancel }) {
-  const { notify } = useNotification();
+  const { notify }                  = useNotification();
+  const { user, canManageTrabajos } = useAuth();
 
-  let vehiculos = (trabajo?.vehiculos || []).filter(v => v.detalle);
+  const todosVehiculos = trabajo?.vehiculos || [];
+  let vehiculos = canManageTrabajos()
+    ? todosVehiculos
+    : todosVehiculos.filter(v => v.responsable_user_id === user?.id);
 
   if (vehicleIdFilter) {
     vehiculos = vehiculos.filter(v => v.vehicle_id === vehicleIdFilter);
@@ -183,7 +188,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
         <p className="text-primary-700 text-xs mt-1">
           Sube las {IMAGEN_TIPOS_INICIO.length} fotos obligatorias de cada vehículo:
           4 del contorno del vehículo, nivel de aceite y resto de líquidos.
-          Sin esto no podrás cerrar el vehículo.
+          Sin esto no podrás finalizar el trabajo.
         </p>
       </div>
 

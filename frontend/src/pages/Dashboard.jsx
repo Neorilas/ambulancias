@@ -93,9 +93,10 @@ function WeekStrip({ trabajos }) {
 }
 
 // Tarjeta de trabajo activo (vista técnico)
-function ActiveJobCard({ trabajo }) {
+function ActiveJobCard({ trabajo, onFinalizar }) {
+  const { notify }   = useNotification();
   const navigate     = useNavigate();
-  const pendientes   = Number(trabajo.mis_vehiculos_pendientes) || 0;
+  const [loading, setLoading] = React.useState(false);
 
   const horas = diferenciaHoras(trabajo.fecha_fin);
   const enTiempo = horas > 0;
@@ -112,8 +113,11 @@ function ActiveJobCard({ trabajo }) {
         <EstadoBadge estado={trabajo.estado} />
       </div>
 
-      {trabajo.vehiculos_resumen && (
-        <p className="text-sm font-semibold text-neutral-900">{trabajo.vehiculos_resumen}</p>
+      {trabajo.vehiculo_alias && (
+        <div className="flex items-baseline gap-2 text-sm">
+          <span className="font-semibold text-neutral-900">{trabajo.vehiculo_alias}</span>
+          <span className="data text-neutral-500 text-[13px]">{trabajo.matricula}</span>
+        </div>
       )}
 
       <div className="text-xs text-neutral-500 space-y-0.5">
@@ -131,12 +135,23 @@ function ActiveJobCard({ trabajo }) {
         >
           Ver detalles
         </button>
-        {pendientes > 0 && (
+        {trabajo.soy_responsable && (
           <button
-            onClick={() => navigate(`/trabajos/${trabajo.id}`)}
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const full = await trabajosService.get(trabajo.id);
+                onFinalizar(full);
+              } catch {
+                notify.error('Error al cargar el trabajo');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
             className="btn-primary text-xs flex-1"
           >
-            {pendientes === 1 ? 'Documentar mi vehículo' : `Documentar mis ${pendientes} vehículos`}
+            {loading ? '...' : 'Finalizar trabajo'}
           </button>
         )}
       </div>
@@ -161,8 +176,10 @@ function NextJobCard({ trabajo }) {
         </div>
         <EstadoBadge estado={trabajo.estado} />
       </div>
-      {trabajo.vehiculos_resumen && (
-        <p className="text-xs text-neutral-500">{trabajo.vehiculos_resumen}</p>
+      {trabajo.vehiculo_alias && (
+        <p className="text-xs text-neutral-500">
+          {trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span>
+        </p>
       )}
       <p className="text-xs text-neutral-400">
         {formatDateTime(trabajo.fecha_inicio)} → {formatDateTime(trabajo.fecha_fin)}
@@ -246,6 +263,7 @@ function DashboardOperacional({ user }) {
   const [asignaciones,   setAsignaciones]   = useState([]);
   const [calendarioSem,  setCalendarioSem]  = useState([]);
   const [loading,        setLoading]        = useState(true);
+  const [finTrabajo,     setFinTrabajo]     = useState(null);
   const [finAsignacion,  setFinAsignacion]  = useState(null);
 
   const loadData = useCallback(() => {
@@ -282,6 +300,20 @@ function DashboardOperacional({ user }) {
 
   const hora    = new Date().getHours();
   const saludo  = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+
+  // Si está en flujo de finalización de trabajo
+  if (finTrabajo) {
+    const Finalizacion = React.lazy(() => import('./trabajos/Finalizacion.jsx'));
+    return (
+      <React.Suspense fallback={<PageLoading />}>
+        <Finalizacion
+          trabajo={finTrabajo}
+          onDone={() => { setFinTrabajo(null); loadData(); }}
+          onCancel={() => setFinTrabajo(null)}
+        />
+      </React.Suspense>
+    );
+  }
 
   // Si está en flujo de finalización de asignación
   if (finAsignacion) {
@@ -336,7 +368,7 @@ function DashboardOperacional({ user }) {
           </p>
           <div className="space-y-3">
             {activos.map(t => (
-              <ActiveJobCard key={t.id} trabajo={t} />
+              <ActiveJobCard key={t.id} trabajo={t} onFinalizar={setFinTrabajo} />
             ))}
           </div>
         </div>

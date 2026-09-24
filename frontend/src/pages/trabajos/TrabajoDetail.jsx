@@ -6,9 +6,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { EstadoBadge, TipoBadge, RolBadge } from '../../components/common/StatusBadge.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
-import {
-  estaCerrado, accionesVehiculo, vehiculosConAcciones, nombresResponsables,
-} from '../../utils/trabajos.js';
+import { TRABAJO_ESTADOS } from '../../utils/constants.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import Finalizacion from './Finalizacion.jsx';
 import InicioTrabajo from './InicioTrabajo.jsx';
@@ -123,132 +121,18 @@ function Lightbox({ img, allImgs, onClose }) {
   );
 }
 
-// ── Un vehículo del trabajo ────────────────────────────────────────────────────
-// Quien tiene su `detalle` (gestión o responsable de ESE vehículo) ve km,
-// progreso de fotos y sus botones; el resto del equipo, solo qué vehículo es,
-// en qué estado va y quién lo lleva. El recorte lo hace el backend.
-function VehiculoTrabajo({ v, ocupado, onActivar, onInicio, onFin }) {
-  const acc = accionesVehiculo(v);
-  const pi  = v.progreso_fotos?.inicio;
-  const pf  = v.progreso_fotos?.fin;
-  return (
-    <div className="p-3 bg-neutral-50 rounded-lg space-y-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-medium text-sm">
-            {v.vehiculo_alias || v.matricula}{' '}
-            <span className="data text-neutral-500">({v.matricula})</span>
-          </p>
-          <p className="text-xs text-neutral-500">
-            Responsable{v.responsables?.length > 1 ? 's' : ''}: {nombresResponsables(v) || '—'}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {v.soy_responsable && (
-            <span className="badge bg-idle-50 text-idle-600 text-xs">Tuyo</span>
-          )}
-          <EstadoBadge estado={v.estado} />
-        </div>
-      </div>
-
-      {v.detalle && (
-        <div className="text-xs text-neutral-500 space-y-0.5">
-          <p>
-            Km inicio: {v.kilometros_inicio?.toLocaleString() || '—'}
-            {v.kilometros_fin ? ` → Km fin: ${v.kilometros_fin.toLocaleString()}` : ''}
-          </p>
-          {pi && pf && (
-            <p>Fotos de inicio {pi.completado}/{pi.total} · de fin {pf.completado}/{pf.total}</p>
-          )}
-          {(v.inicio_real_at || v.finalizado_at) && (
-            <p className="data">
-              Inicio real {v.inicio_real_at ? formatDateTimeShort(v.inicio_real_at) : '—'}
-              {' · '}Cierre {v.finalizado_at ? formatDateTimeShort(v.finalizado_at) : '—'}
-            </p>
-          )}
-          {v.motivo_finalizacion_anticipada && (
-            <p className="text-warn-700">Cierre anticipado: {v.motivo_finalizacion_anticipada}</p>
-          )}
-        </div>
-      )}
-
-      {(acc.activar || acc.fotosInicio || acc.finalizar) && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          {acc.activar && (
-            <button onClick={onActivar} disabled={ocupado} className="btn-secondary text-xs">
-              Inicio de servicio
-            </button>
-          )}
-          {acc.fotosInicio && (
-            <button onClick={onInicio} className="btn-primary text-xs">Fotos de inicio</button>
-          )}
-          {acc.finalizar && (
-            <button onClick={onFin} className="btn-primary text-xs">Cerrar vehículo</button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Trabajo sin vehículos: lo lleva gestión a mano ────────────────────────────
-function CicloSinVehiculos({ trabajo, onHecho }) {
-  const { notify } = useNotification();
-  const [motivo, setMotivo]   = useState('');
-  const [ocupado, setOcupado] = useState(false);
-  const anticipado = new Date() < new Date(trabajo.fecha_fin);
-
-  const correr = async (fn, ok) => {
-    setOcupado(true);
-    try { await fn(); notify.success(ok); onHecho(); }
-    catch (err) { notify.error(err.response?.data?.message || 'No se pudo completar'); }
-    finally { setOcupado(false); }
-  };
-
-  return (
-    <div className="card space-y-3">
-      <h2 className="font-semibold text-neutral-900">Trabajo sin vehículos</h2>
-      <p className="text-sm text-neutral-500">
-        No hay responsable de vehículo que lo active o lo cierre: lo hace gestión desde aquí.
-      </p>
-      {trabajo.estado === 'programado' ? (
-        <button disabled={ocupado} className="btn-secondary text-sm"
-          onClick={() => correr(() => trabajosService.activar(trabajo.id), 'Trabajo activado')}>
-          Activar trabajo
-        </button>
-      ) : (
-        <>
-          {anticipado && (
-            <textarea className="input min-h-20 resize-none" value={motivo}
-              onChange={e => setMotivo(e.target.value)}
-              placeholder="Motivo de la finalización anticipada (obligatorio)" />
-          )}
-          <button disabled={ocupado || (anticipado && !motivo.trim())} className="btn-primary text-sm"
-            onClick={() => correr(
-              () => trabajosService.finalize(trabajo.id,
-                { motivo_finalizacion_anticipada: anticipado ? motivo : undefined }),
-              'Trabajo finalizado')}>
-            Finalizar trabajo
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
 // ── Página principal ───────────────────────────────────────────────────────────
 export default function TrabajoDetail() {
   const { id }  = useParams();
   const navigate = useNavigate();
-  const { canManageTrabajos } = useAuth();
+  const { canManageTrabajos, isAdmin, user } = useAuth();
   const { notify } = useNotification();
 
-  const [trabajo,     setTrabajo]     = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  // { tipo: 'inicio' | 'fin', vehicleId } mientras se hacen las fotos de uno
-  const [accion,      setAccion]      = useState(null);
-  const [activando,   setActivando]   = useState(null);
-  const [showEdit,    setShowEdit]    = useState(false);
+  const [trabajo,    setTrabajo]    = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [showFin,    setShowFin]    = useState(false);
+  const [showInicio, setShowInicio] = useState(false);
+  const [showEdit,   setShowEdit]   = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
 
   const load = useCallback(async () => {
@@ -258,7 +142,7 @@ export default function TrabajoDetail() {
       setTrabajo(t);
     } catch {
       notify.error('Error al cargar el trabajo');
-      navigate(-1);
+      navigate('/trabajos');
     } finally {
       setLoading(false);
     }
@@ -269,35 +153,34 @@ export default function TrabajoDetail() {
   if (loading) return <PageLoading />;
   if (!trabajo) return null;
 
-  const finalizado    = estaCerrado(trabajo.estado);
-  const vehiculos     = trabajo.vehiculos || [];
-  const allEvidencias = trabajo.evidencias || [];
-  const sinInicio     = vehiculosConAcciones(trabajo).filter(v => accionesVehiculo(v).fotosInicio);
-  const cerrar        = () => { setAccion(null); load(); };
+  const finalizado     = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado);
+  const soyResponsable = trabajo.vehiculos?.some(v => v.responsable_user_id === user?.id);
+  const allEvidencias  = trabajo.evidencias || [];
 
-  const activarVehiculo = async (v) => {
-    setActivando(v.vehicle_id);
-    try {
-      await trabajosService.activarVehiculo(trabajo.id, v.vehicle_id);
-      notify.success(`${v.vehiculo_alias || v.matricula}: servicio iniciado`);
-      load();
-    } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo activar el vehículo');
-    } finally {
-      setActivando(null);
-    }
-  };
+  // Vehículos del usuario actual que aún no tienen inicio completo
+  const vehiculosDelUser = canManageTrabajos()
+    ? (trabajo.vehiculos || [])
+    : (trabajo.vehiculos || []).filter(v => v.responsable_user_id === user?.id);
+  const vehSinInicio = vehiculosDelUser.filter(v => !v.progreso_fotos?.inicio?.completo);
+  const faltaInicio  = !finalizado && vehSinInicio.length > 0 && vehiculosDelUser.length > 0;
 
-  if (accion?.tipo === 'fin') {
+  if (showFin) {
     return (
-      <Finalizacion trabajo={trabajo} vehicleId={accion.vehicleId}
-        onDone={cerrar} onCancel={() => setAccion(null)} />
+      <Finalizacion
+        trabajo={trabajo}
+        onDone={() => { setShowFin(false); load(); }}
+        onCancel={() => setShowFin(false)}
+      />
     );
   }
-  if (accion?.tipo === 'inicio') {
+
+  if (showInicio) {
     return (
-      <InicioTrabajo trabajo={trabajo} vehicleIdFilter={accion.vehicleId}
-        onDone={cerrar} onCancel={() => setAccion(null)} />
+      <InicioTrabajo
+        trabajo={trabajo}
+        onDone={() => { setShowInicio(false); load(); }}
+        onCancel={() => setShowInicio(false)}
+      />
     );
   }
 
@@ -305,76 +188,84 @@ export default function TrabajoDetail() {
     <div className="space-y-5 animate-fade-in max-w-3xl">
       {/* Header */}
       <div className="flex items-start gap-3">
-        <button onClick={() => navigate(-1)} className="btn-ghost btn-icon mt-1">‹</button>
+        <button onClick={() => navigate('/trabajos')} className="btn-ghost btn-icon mt-1">‹</button>
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[19px] font-semibold text-neutral-900">{trabajo.nombre}</h1>
             <EstadoBadge estado={trabajo.estado} />
             <TipoBadge tipo={trabajo.tipo} />
           </div>
-          <p className="text-neutral-500 text-sm mt-0.5 data">{trabajo.identificador}</p>
+          <p className="text-neutral-500 text-sm mt-0.5">{trabajo.identificador}</p>
         </div>
-        {canManageTrabajos() && !finalizado && (
-          <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
-        )}
-      </div>
-
-      {/* Ficha: la ve todo el equipo */}
-      <div className="card space-y-4">
-        {trabajo.descripcion && (
-          <p className="text-sm text-neutral-700 whitespace-pre-line">{trabajo.descripcion}</p>
-        )}
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          {trabajo.ubicacion && (
-            <div className="col-span-2">
-              <p className="text-neutral-500 text-xs">Ubicación</p>
-              <p className="font-medium">{trabajo.ubicacion}</p>
-            </div>
+        <div className="flex gap-2">
+          {canManageTrabajos() && !finalizado && (
+            <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
           )}
-          <div>
-            <p className="text-neutral-500 text-xs">Inicio</p>
-            <p className="font-medium">{formatDateTime(trabajo.fecha_inicio)}</p>
-          </div>
-          <div>
-            <p className="text-neutral-500 text-xs">Fin previsto</p>
-            <p className="font-medium">{formatDateTime(trabajo.fecha_fin)}</p>
-          </div>
-          <div>
-            <p className="text-neutral-500 text-xs">Duración</p>
-            <p className="font-medium">{duration(trabajo.fecha_inicio, trabajo.fecha_fin)}</p>
-          </div>
-          <div>
-            <p className="text-neutral-500 text-xs">Creado por</p>
-            <p className="font-medium">{trabajo.creado_por_nombre} {trabajo.creado_por_apellidos}</p>
-          </div>
+          {!finalizado && (soyResponsable || canManageTrabajos()) && faltaInicio && (
+            <button onClick={() => setShowInicio(true)} className="btn-primary text-sm">
+              Fotos de inicio
+            </button>
+          )}
+          {!finalizado && (soyResponsable || canManageTrabajos()) && !faltaInicio && (
+            <button onClick={() => setShowFin(true)} className="btn-primary text-sm">
+              Finalizar
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Aviso persistente: faltan fotos de inicio de algún vehículo tuyo */}
-      {sinInicio.length > 0 && (
+      {/* Fechas */}
+      <div className="card grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <p className="text-neutral-500 text-xs">Inicio</p>
+          <p className="font-medium">{formatDateTime(trabajo.fecha_inicio)}</p>
+        </div>
+        <div>
+          <p className="text-neutral-500 text-xs">Fin previsto</p>
+          <p className="font-medium">{formatDateTime(trabajo.fecha_fin)}</p>
+        </div>
+        <div>
+          <p className="text-neutral-500 text-xs">Duración</p>
+          <p className="font-medium">{duration(trabajo.fecha_inicio, trabajo.fecha_fin)}</p>
+        </div>
+        <div>
+          <p className="text-neutral-500 text-xs">Creado por</p>
+          <p className="font-medium">{trabajo.creado_por_nombre} {trabajo.creado_por_apellidos}</p>
+        </div>
+      </div>
+
+      {/* Aviso persistente: faltan fotos de inicio */}
+      {faltaInicio && (
         <div className="card bg-warn-50 border-warn-200 border-2 space-y-2">
-          <p className="font-semibold text-warn-700">Faltan las fotos de inicio</p>
-          <p className="text-sm text-warn-700">
-            Antes de poder cerrar un vehículo hay que documentar cómo se recibió.
-          </p>
-          <ul className="text-xs text-warn-600 space-y-1">
-            {sinInicio.map(v => (
-              <li key={v.vehicle_id} className="flex items-center justify-between gap-2">
-                <span>
-                  · <strong>{v.vehiculo_alias || v.matricula}</strong>{' — '}
-                  {v.progreso_fotos?.inicio?.completado || 0}/{v.progreso_fotos?.inicio?.total} subidas
-                </span>
-                <button onClick={() => setAccion({ tipo: 'inicio', vehicleId: v.vehicle_id })}
-                  className="btn-primary text-xs whitespace-nowrap">
-                  Subir ahora
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <p className="font-semibold text-warn-700">Faltan las fotos de inicio</p>
+              <p className="text-sm text-warn-700 mt-0.5">
+                Antes de poder finalizar, tienes que documentar el estado del
+                vehículo al recibirlo: 4 fotos del contorno, nivel de aceite y
+                líquidos.
+              </p>
+              <ul className="text-xs text-warn-600 mt-2 space-y-0.5">
+                {vehSinInicio.map(v => (
+                  <li key={v.vehicle_id}>
+                    · <strong>{v.vehiculo_alias || v.matricula}</strong>{' — '}
+                    {v.progreso_fotos?.inicio?.completado || 0}/
+                    {v.progreso_fotos?.inicio?.total || 6} subidas
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <button
+              onClick={() => setShowInicio(true)}
+              className="btn-primary text-sm whitespace-nowrap"
+            >
+              Subir ahora
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Motivo finalización anticipada (trabajo sin vehículos) */}
+      {/* Motivo finalización anticipada */}
       {trabajo.motivo_finalizacion_anticipada && (
         <div className="card bg-warn-50 border-warn-200">
           <p className="text-xs font-semibold text-warn-700 mb-1">Motivo finalización anticipada:</p>
@@ -383,30 +274,28 @@ export default function TrabajoDetail() {
       )}
 
       {/* Vehículos */}
-      {vehiculos.length > 0 && (
+      {trabajo.vehiculos?.length > 0 && (
         <div className="card space-y-3">
-          <h2 className="font-semibold text-neutral-900">Vehículos</h2>
-          {vehiculos.map(v => (
-            <VehiculoTrabajo
-              key={v.vehicle_id}
-              v={v}
-              ocupado={activando === v.vehicle_id}
-              onActivar={() => activarVehiculo(v)}
-              onInicio={() => setAccion({ tipo: 'inicio', vehicleId: v.vehicle_id })}
-              onFin={() => setAccion({ tipo: 'fin', vehicleId: v.vehicle_id })}
-            />
+          <h2 className="font-semibold text-neutral-900">Vehículos asignados</h2>
+          {trabajo.vehiculos.map(v => (
+            <div key={v.vehicle_id} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+              <div>
+                <p className="font-medium text-sm">{v.alias} <span className="font-mono text-neutral-500">({v.matricula})</span></p>
+                <p className="text-xs text-neutral-500">Responsable: {v.responsable_nombre}</p>
+                <p className="text-xs text-neutral-400">
+                  Km inicio: {v.kilometros_inicio?.toLocaleString() || '—'}
+                  {v.kilometros_fin ? ` → Km fin: ${v.kilometros_fin.toLocaleString()}` : ''}
+                </p>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {vehiculos.length === 0 && canManageTrabajos() && !finalizado && (
-        <CicloSinVehiculos trabajo={trabajo} onHecho={load} />
-      )}
-
-      {/* Equipo */}
+      {/* Personal */}
       {trabajo.usuarios?.length > 0 && (
         <div className="card space-y-2">
-          <h2 className="font-semibold text-neutral-900">Equipo</h2>
+          <h2 className="font-semibold text-neutral-900">Personal asignado</h2>
           <div className="space-y-2">
             {trabajo.usuarios.map(u => (
               <div key={u.user_id} className="flex items-center justify-between">

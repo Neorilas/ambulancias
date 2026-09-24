@@ -6,6 +6,8 @@ import { EstadoBadge } from '../components/common/StatusBadge.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import { formatDate, formatDateTime, isWorkActive, isOverdue, diaEnEspana }
   from '../utils/dateUtils.js';
+import { TRABAJO_ESTADOS } from '../utils/constants.js';
+import Finalizacion from './trabajos/Finalizacion.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -229,67 +231,100 @@ function VistaCalendarioMes({ trabajos, onSelectTrabajo }) {
   );
 }
 
-// Lo que el usuario tiene pendiente en un trabajo. Con varios vehículos ya no
-// hay un «Finalizar» único: cada responsable cierra el suyo desde la ficha del
-// trabajo, que es quien sabe qué vehículo toca.
-function Pendiente({ trabajo }) {
-  const n = Number(trabajo.mis_vehiculos_pendientes) || 0;
-  if (!n) return null;
-  return (
-    <span className="inline-block mt-1 text-xs text-primary-700 font-medium">
-      {n === 1 ? 'Tienes 1 vehículo por documentar' : `Tienes ${n} vehículos por documentar`}
-    </span>
-  );
-}
-
-function Vehiculos({ trabajo, className = '' }) {
-  if (!trabajo.vehiculos_resumen) return null;
-  return <p className={`text-xs text-neutral-500 ${className}`}>{trabajo.vehiculos_resumen}</p>;
-}
-
 // Tarjeta de trabajo en lista
-function TrabajoCard({ trabajo }) {
+function TrabajoCard({ trabajo, onFinalizar }) {
   const navigate = useNavigate();
+  const { notify } = useNotification();
 
-  const activo        = isWorkActive(trabajo);
-  const vencido       = isOverdue(trabajo);
-  const esResponsable = !!Number(trabajo.soy_responsable);
-  const borderColor   = ESTADO_COLOR[trabajo.estado] || 'border-l-neutral-200';
+  const activo          = isWorkActive(trabajo);
+  const vencido         = isOverdue(trabajo);
+  const esProgramado    = trabajo.estado === TRABAJO_ESTADOS.PROGRAMADO;
+  const esResponsable   = !!trabajo.soy_responsable;
+  const puedeActivar    = esProgramado && esResponsable;
+  const puedeFinz       = esResponsable &&
+    ![TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado) &&
+    (activo || vencido);
+
+  const borderColor = ESTADO_COLOR[trabajo.estado] || 'border-l-neutral-200';
 
   return (
     <div
       className={`card border-l-4 cursor-pointer hover:shadow-md transition-shadow ${borderColor}`}
       onClick={() => navigate(`/trabajos/${trabajo.id}`)}
     >
-      <div className="flex items-center gap-2 flex-wrap">
-        <h3 className="font-semibold text-neutral-900">{trabajo.nombre}</h3>
-        <EstadoBadge estado={trabajo.estado} />
-        {esResponsable && (
-          <span className="badge bg-idle-50 text-idle-600 text-xs">Responsable</span>
-        )}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-semibold text-neutral-900">{trabajo.nombre}</h3>
+            <EstadoBadge estado={trabajo.estado} />
+            {esResponsable && (
+              <span className="badge bg-idle-50 text-idle-600 text-xs">Responsable</span>
+            )}
+          </div>
+          <p className="text-xs text-neutral-500 mt-1 font-mono">{trabajo.identificador}</p>
+          {trabajo.vehiculo_alias && (
+            <p className="text-xs text-neutral-500 mt-0.5">
+              {trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span>
+            </p>
+          )}
+          <p className="text-xs text-neutral-400 mt-1">
+            {formatDateTime(trabajo.fecha_inicio)} → {formatDateTime(trabajo.fecha_fin)}
+          </p>
+          {activo && (
+            <span className="inline-block mt-1 text-xs text-blue-600 font-medium">En curso ahora</span>
+          )}
+          {vencido && trabajo.estado === 'activo' && (
+            <span className="inline-block mt-1 text-xs text-bad-600 font-medium">
+              Tiempo superado — pendiente de finalizar
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {puedeActivar && (
+            <button
+              onClick={async () => {
+                try {
+                  await trabajosService.activar(trabajo.id);
+                  notify.success('Trabajo activado');
+                  window.location.reload();
+                } catch (err) {
+                  notify.error(err.response?.data?.message || 'No se pudo activar');
+                }
+              }}
+              className="btn-secondary text-xs"
+            >
+              Activar
+            </button>
+          )}
+          {puedeFinz && (
+            <button
+              onClick={async () => {
+                try {
+                  const full = await trabajosService.get(trabajo.id);
+                  onFinalizar(full);
+                } catch { notify.error('Error al cargar el trabajo'); }
+              }}
+              className="btn-primary text-xs"
+            >
+              Finalizar
+            </button>
+          )}
+        </div>
       </div>
-      <p className="text-xs text-neutral-500 mt-1 font-mono">{trabajo.identificador}</p>
-      {trabajo.ubicacion && <p className="text-xs text-neutral-600 mt-0.5">{trabajo.ubicacion}</p>}
-      <Vehiculos trabajo={trabajo} className="mt-0.5" />
-      <p className="text-xs text-neutral-400 mt-1">
-        {formatDateTime(trabajo.fecha_inicio)} → {formatDateTime(trabajo.fecha_fin)}
-      </p>
-      {activo && (
-        <span className="inline-block mt-1 mr-2 text-xs text-blue-600 font-medium">En curso ahora</span>
-      )}
-      {vencido && trabajo.estado === 'activo' && (
-        <span className="inline-block mt-1 mr-2 text-xs text-bad-600 font-medium">
-          Tiempo superado — pendiente de cerrar
-        </span>
-      )}
-      <Pendiente trabajo={trabajo} />
     </div>
   );
 }
 
 // ── Modal detalle rápido (desde calendario) ───────────────────────────────────
-function QuickModal({ trabajo, onClose }) {
+function QuickModal({ trabajo, onClose, onFinalizar }) {
   const navigate = useNavigate();
+  const { notify } = useNotification();
+  const activo    = isWorkActive(trabajo);
+  const vencido   = isOverdue(trabajo);
+  const puedeFinz = !!trabajo.soy_responsable &&
+    ![TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO].includes(trabajo.estado) &&
+    (activo || vencido);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center pl-[max(1rem,var(--safe-left))] pr-[max(1rem,var(--safe-right))] pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]" onClick={onClose}>
@@ -304,21 +339,35 @@ function QuickModal({ trabajo, onClose }) {
 
         <EstadoBadge estado={trabajo.estado} />
 
-        {trabajo.ubicacion && <p className="text-sm text-neutral-700">{trabajo.ubicacion}</p>}
-        <Vehiculos trabajo={trabajo} />
+        {trabajo.vehiculo_alias && (
+          <p className="text-sm text-neutral-600">{trabajo.vehiculo_alias} · <span className="data text-neutral-700">{trabajo.matricula}</span></p>
+        )}
         <div className="text-xs text-neutral-500 space-y-0.5">
           <p>Inicio: {formatDateTime(trabajo.fecha_inicio)}</p>
           <p>Fin: {formatDateTime(trabajo.fecha_fin)}</p>
         </div>
-        <Pendiente trabajo={trabajo} />
 
         <div className="flex gap-2 pt-1 border-t border-neutral-100">
           <button
             onClick={() => navigate(`/trabajos/${trabajo.id}`)}
-            className="btn-primary text-xs flex-1"
+            className="btn-secondary text-xs flex-1"
           >
             Ver detalles
           </button>
+          {puedeFinz && (
+            <button
+              onClick={async () => {
+                try {
+                  const full = await trabajosService.get(trabajo.id);
+                  onClose();
+                  onFinalizar(full);
+                } catch { notify.error('Error al cargar el trabajo'); }
+              }}
+              className="btn-primary text-xs flex-1"
+            >
+              Finalizar
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -340,6 +389,7 @@ export default function MisTrabajos() {
   const [pagination, setPagination] = useState(null);
   const [page,       setPage]       = useState(1);
   const [loading,    setLoading]    = useState(false);
+  const [finTrabajo, setFinTrabajo] = useState(null);
   const [quickWork,  setQuickWork]  = useState(null); // modal rápido desde calendario
 
   // Para el calendario, cargamos todos de una vez (sin paginar)
@@ -372,6 +422,21 @@ export default function MisTrabajos() {
       loadCalendario();
     }
   }, [tab, page]);
+
+  // Si estamos en flujo de finalización, mostrar componente
+  if (finTrabajo) {
+    return (
+      <Finalizacion
+        trabajo={finTrabajo}
+        onDone={() => {
+          setFinTrabajo(null);
+          setAllTrabajos([]);
+          loadLista();
+        }}
+        onCancel={() => setFinTrabajo(null)}
+      />
+    );
+  }
 
   const activos    = tab !== 'lista' ? allTrabajos.filter(t => t.estado === 'activo').length : 0;
   const progCount  = tab !== 'lista' ? allTrabajos.filter(t => t.estado === 'programado').length : 0;
@@ -424,7 +489,7 @@ export default function MisTrabajos() {
               ) : (
                 <div className="space-y-3">
                   {trabajos.map(t => (
-                    <TrabajoCard key={t.id} trabajo={t} />
+                    <TrabajoCard key={t.id} trabajo={t} onFinalizar={setFinTrabajo} />
                   ))}
                 </div>
               )}
@@ -461,6 +526,7 @@ export default function MisTrabajos() {
         <QuickModal
           trabajo={quickWork}
           onClose={() => setQuickWork(null)}
+          onFinalizar={(t) => { setQuickWork(null); setFinTrabajo(t); }}
         />
       )}
     </div>

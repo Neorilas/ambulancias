@@ -77,10 +77,7 @@ export default function Sidebar({ isOpen, onClose }) {
     : [
         {
           label: null,
-          items: [
-            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: true },
-            { to: '/mis-trabajos',     label: 'Mis trabajos',     show: isFeatureEnabled('menu_mis_trabajos') },
-          ],
+          items: [{ to: '/mis-asignaciones', label: 'Mis asignaciones', show: true }],
         },
       ];
 

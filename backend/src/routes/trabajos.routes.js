@@ -8,33 +8,15 @@ const express = require('express');
 const { body, param, query: qv } = require('express-validator');
 const ctrl    = require('../controllers/trabajos.controller');
 const { authenticate }             = require('../middleware/auth.middleware');
-const { requireAdminOrGestor, requirePermission } = require('../middleware/roles.middleware');
+const { requireAdminOrGestor }     = require('../middleware/roles.middleware');
 const { handleValidation }         = require('../middleware/validate.middleware');
 const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
 const { requireTrabajoEvidenciaAccess } = require('../middleware/ownership.middleware');
-const { TRABAJO_TIPOS, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
+const { TRABAJO_TIPOS, IMAGEN_TIPOS, IMAGEN_MOMENTOS } = require('../config/constants');
 
 const router = express.Router();
 router.use(authenticate);
-
-// Campos comunes de crear/editar. Que cada vehículo lleve al menos un
-// responsable, sin repetir, lo comprueba el controlador (`leerVehiculos`),
-// porque también acepta el `responsable_user_id` suelto del formulario viejo.
-const validarCamposTrabajo = [
-  body('descripcion').optional({ nullable: true }).isString().isLength({ max: 5000 }),
-  body('ubicacion').optional({ nullable: true }).isString().isLength({ max: 255 })
-    .withMessage('La ubicación no puede pasar de 255 caracteres'),
-  body('vehiculos').optional().isArray(),
-  body('vehiculos.*.vehicle_id').optional().isInt({ min: 1 }),
-  body('vehiculos.*.responsables').optional().isArray({ min: 1 })
-    .withMessage('Cada vehículo necesita al menos un responsable'),
-  body('vehiculos.*.responsables.*').optional().isInt({ min: 1 }),
-  body('vehiculos.*.responsable_user_id').optional().isInt({ min: 1 }),
-  body('vehiculos.*.kilometros_inicio').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }),
-  body('usuarios').optional().isArray(),
-  body('usuarios.*').optional().isInt({ min: 1 }),
-];
 
 // GET /trabajos/mis-trabajos  (para personal operacional)
 router.get('/mis-trabajos', ctrl.misTrab);
@@ -67,7 +49,10 @@ router.post('/',
     body('tipo').notEmpty().isIn(Object.values(TRABAJO_TIPOS)).withMessage(`tipo inválido. Valores válidos: ${Object.values(TRABAJO_TIPOS).join(', ')}`),
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida'),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida'),
-    ...validarCamposTrabajo,
+    body('vehiculos').optional().isArray(),
+    body('vehiculos.*.vehicle_id').optional().isInt({ min: 1 }),
+    body('vehiculos.*.responsable_user_id').optional().isInt({ min: 1 }),
+    body('usuarios').optional().isArray(),
   ],
   handleValidation,
   ctrl.createTrabajo
@@ -76,14 +61,7 @@ router.post('/',
 // PUT /trabajos/:id  (admin o gestor)
 router.put('/:id',
   requireAdminOrGestor,
-  [
-    param('id').isInt({ min: 1 }),
-    body('nombre').optional().trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 255 }),
-    body('tipo').optional().isIn(Object.values(TRABAJO_TIPOS)),
-    body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida'),
-    body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida'),
-    ...validarCamposTrabajo,
-  ],
+  [param('id').isInt({ min: 1 })],
   handleValidation,
   ctrl.updateTrabajo
 );
@@ -96,43 +74,21 @@ router.delete('/:id',
   ctrl.deleteTrabajo
 );
 
-// Ciclo de vida POR VEHÍCULO: cada responsable activa y cierra el suyo. El
-// permiso lo decide el controlador (responsable de ESE vehículo, o gestión).
-const paramsVehiculo = [param('id').isInt({ min: 1 }), param('vehicleId').isInt({ min: 1 })];
-
-// POST /trabajos/:id/vehiculos/:vehicleId/activar
-router.post('/:id/vehiculos/:vehicleId/activar',
-  paramsVehiculo,
-  handleValidation,
-  ctrl.activarVehiculo
-);
-
-// POST /trabajos/:id/vehiculos/:vehicleId/finalize  - cerrar un vehículo con evidencias
-router.post('/:id/vehiculos/:vehicleId/finalize',
-  [
-    ...paramsVehiculo,
-    body('kilometros_fin').notEmpty().withMessage('Faltan los kilómetros finales')
-      .isInt({ min: 0 }).toInt(),
-    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString(),
-  ],
-  handleValidation,
-  ctrl.finalizeVehiculo
-);
-
-// POST /trabajos/:id/activar y /finalize — solo trabajos SIN vehículos, y
-// solo gestión: no hay responsable de vehículo que lo haga.
+// POST /trabajos/:id/activar  - activar trabajo programado
 router.post('/:id/activar',
-  requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [param('id').isInt({ min: 1 })],
   handleValidation,
   ctrl.activarTrabajo
 );
 
+// POST /trabajos/:id/finalize  - finalizar trabajo con evidencias
 router.post('/:id/finalize',
-  requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [
     param('id').isInt({ min: 1 }),
-    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString(),
+    body('motivo_finalizacion_anticipada').optional().isString(),
+    body('vehiculos_km').optional().isArray(),
+    body('vehiculos_km.*.vehicle_id').optional().isInt({ min: 1 }),
+    body('vehiculos_km.*.kilometros_fin').optional().isInt({ min: 0 }),
   ],
   handleValidation,
   ctrl.finalizeTrabajo
