@@ -354,7 +354,8 @@ reintenta. Todos los servicios cuelgan de ella.
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5 |
+| `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
 | `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
@@ -373,6 +374,61 @@ Gotcha en `sessionStorage.test.js`: el módulo lee `VITE_APP_ENV` y ejecuta la
 migración de claves antiguas **al importarse**, así que cada caso necesita
 `vi.resetModules()` + `vi.stubEnv()` y un `import()` dinámico; con un import
 estático arriba todos los tests compartirían el primer entorno cargado.
+
+### 3.5 Revisión de las fotos de evidencia (calidad y encuadre)
+
+Al hacer cada foto, `CameraCapture` la revisa en el propio móvil y, si algo no
+cuadra, lo dice bajo la previsualización («La foto ha salido movida» + cómo
+arreglarlo) con dos botones: **Repetir** (destacado) y **Usar igualmente**.
+
+**Regla que no se negocia: nunca bloquea.** Lo pidió así el usuario y es lo
+correcto: los umbrales son heurísticos y un falso positivo que impidiera
+avanzar dejaría un servicio sin cerrar. Los botones están activos también
+mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
+
+| Pieza | Qué hace |
+|---|---|
+| `utils/calidadFoto.js` | Borrosa, movida, oscura, quemada. Umbrales en `UMBRALES`, perfil de luz por tipo en `PERFIL_POR_TIPO` |
+| `utils/encuadreVehiculo.js` | Solo frontal/trasera/laterales: sin vehículo, cortada (dice por qué lado), demasiado cerca, lejos |
+| `components/camera/analizarFoto.js` | Reduce la foto a 512 px de lado largo y llama a lo anterior. Dos tiempos: la calidad sale al momento (`onCalidad`), el encuadre cuando responde el detector |
+| `components/camera/detectorVehiculo.js` | COCO-SSD sobre TensorFlow.js, con `import()` dinámico. Se precarga al abrir la cámara si hay alguna foto exterior. Cualquier fallo (sin WebGL, sin red) = sin aviso de encuadre, nunca un error |
+| `public/modelos/coco-ssd-v1/` | El modelo (7 MB), servido desde nuestro hosting, no desde Google. Lo genera `scripts/cuantizar-modelo.js` |
+| `scripts/calibrar-calidad-foto.mjs` | Banco de pruebas de los umbrales (escenas sintéticas degradadas). Correr antes y después de tocar `UMBRALES` |
+
+**Los porqués y las trampas:**
+
+- **La nitidez no es el laplaciano de siempre.** Se probó y daba «borrosa» a
+  toda foto nocturna del cuentakilómetros (casi todo negro) y no veía las
+  movidas. Ahora se mide la *anchura de los bordes* (salto máximo / contraste
+  del borde), que no depende de la luz ni de cuánto ocupa el contenido.
+- **Movida se detecta por dos vías.** Los bordes gruesos se ensanchan en la
+  dirección del movimiento, pero los trazos *finos* (dígitos, agujas del
+  cuadro) no: dejan una estela de bordes nítidos. Para esos está la
+  «estela» (autocorrelación negativa de la derivada, en 4 direcciones). Un
+  damero nítido de la carrocería también da estela a medio periodo; se
+  descuenta porque vuelve a correlar en positivo al periodo entero.
+- **Cuentakilómetros de noche.** El perfil `cuadro` no mira el brillo medio
+  (lo normal es que casi todo esté negro), solo que haya *algo* encendido
+  (percentil 99,5). Con poca luz, el consejo de «movida» es apoyar el móvil.
+- **El modelo NO va todo a uint8.** Cuantizado entero (4,3 MB) se degrada
+  mucho (correlación 0,58 con el original) porque MobileNet lleva la
+  normalización fundida en las convoluciones. Va en float16 salvo las capas de
+  clasificación (uint8): 7 MB, correlación 0,9994. Detalle en el script.
+- **Qué sabe el detector y qué no.** Sabe si hay un coche/camión/autobús (una
+  ambulancia sale como «truck» o «car») y su recuadro. No sabe si es ESTA
+  ambulancia ni si es el lateral izquierdo o el derecho; no se intenta.
+- **Calibración.** Umbrales ajustados con escenas sintéticas y verificados con
+  6 fotos reales de ambulancias (Wikimedia) degradadas a propósito: ninguna
+  nítida da aviso; todas las borrosas, movidas y recortadas avisan. **No hay
+  aún fotos malas reales de campo**: si avisa de más o de menos, se toca
+  `UMBRALES` y se pasa el banco de pruebas. El análisis no se guarda en BD
+  (de momento solo avisa).
+- **Empaquetado.** TensorFlow va en el chunk `deteccion` (`vite.config.js`),
+  **excluido del precache** del PWA: si no, lo bajaría todo el que instala la
+  app aunque nunca abra la cámara. Chunk y modelo los cachea `sw.js` para
+  siempre en el primer uso (CacheFirst `deteccion-cache`). Por eso el modelo
+  lleva versión en la carpeta: un modelo nuevo va en `coco-ssd-v2/` y se
+  cambia la ruta en `detectorVehiculo.js`.
 
 ---
 
@@ -599,7 +655,8 @@ solo actúa en el navegador no es un control de acceso.
 
 | Si cambias… | Toca |
 |---|---|
-| Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración) |
+| Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
+| Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
 | El orden del listado de asignaciones | `ORDEN_LISTADO` en `asignaciones.controller` (es un `ORDER BY` de SQL, **no** un `sort` en el navegador: `AsignacionList` pagina de 20 en 20 y ordenar solo la página que ha llegado daría un orden distinto en cada página). Hoy: cerradas (finalizada/cancelada) al final; las `activa` encabezan las abiertas; el resto por `fecha_inicio` ASC, la más próxima a activarse arriba; entre las cerradas, la que se cerró más tarde primero (`COALESCE(finalizado_at, fecha_fin)` — una cancelada no tiene `finalizado_at`). **El criterio de las `activa` parece redundante y no lo es**: `activarAsignacion` no mira el reloj, así que quien pulsa «Inicio de servicio» antes de hora deja una `activa` con `fecha_inicio` futura, y sin él el servicio EN CURSO se hunde bajo los que no han empezado. `al.id` cierra el orden para que la paginación no repita ni pierda filas. Quien consume ese orden sin tocarlo: `AsignacionList`, y `MisAsignaciones` y `Dashboard`, que piden 50 y descartan las cerradas en el cliente (por eso mandarlas al final les llena la ventana de filas útiles) |
