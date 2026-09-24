@@ -7,12 +7,19 @@ const FeaturesContext = createContext(null);
 export function FeaturesProvider({ children }) {
   const { isAuthenticated, isSuperAdmin } = useAuth();
   const [features, setFeatures] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // ¿Ya se han cargado los flags CON sesión? `loading` se deriva de esto y no
+  // se guarda aparte: entre el render en que llega la sesión y el efecto que
+  // lanza la carga hay un render intermedio, y en él un `loading` guardado
+  // seguía en false (de cuando no había sesión). ProtectedRoute decidía ahí
+  // con la lista vacía y echaba a /mis-asignaciones a quien recargaba o abría
+  // un enlace a una pantalla con flag.
+  const [cargadoConSesion, setCargadoConSesion] = useState(false);
+  const loading = isAuthenticated && !cargadoConSesion;
 
   const load = useCallback(async () => {
     if (!isAuthenticated) {
       setFeatures([]);
-      setLoading(false);
+      setCargadoConSesion(false);
       return;
     }
     try {
@@ -21,7 +28,7 @@ export function FeaturesProvider({ children }) {
     } catch {
       setFeatures([]);
     } finally {
-      setLoading(false);
+      setCargadoConSesion(true);
     }
   }, [isAuthenticated]);
 
