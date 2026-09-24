@@ -3,7 +3,10 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
-import { formatDateTime } from '../../utils/dateUtils.js';
+import {
+  formatDateTime, formatDateTimeShort, inicioServicioPermitidoDesde, esProntoParaIniciar,
+} from '../../utils/dateUtils.js';
+import useAhora from '../../hooks/useAhora.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
 import { resumenNombres } from '../../utils/miembrosAsignacion.js';
@@ -32,6 +35,8 @@ export default function MisAsignaciones() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const ahora = useAhora();
 
   const handleActivar = async (id) => {
     try {
@@ -123,12 +128,19 @@ export default function MisAsignaciones() {
                   {/* Acciones: fila full-width en móvil, columna lateral en sm+ */}
                   <div className="flex flex-row sm:flex-col gap-2 sm:shrink-0">
                     {isProgramada && !esPersonal && (
-                      <button
-                        onClick={() => handleActivar(a.id)}
-                        className="btn-secondary flex-1 sm:flex-none"
-                      >
-                        Activar
-                      </button>
+                      esProntoParaIniciar(a.fecha_inicio, ahora) ? (
+                        // Media hora antes de la hora prevista, no antes (backend)
+                        <button disabled className="btn-secondary flex-1 sm:flex-none">
+                          Desde {formatDateTimeShort(inicioServicioPermitidoDesde(a.fecha_inicio))}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleActivar(a.id)}
+                          className="btn-secondary flex-1 sm:flex-none"
+                        >
+                          Activar
+                        </button>
+                      )
                     )}
                     <button
                       onClick={() => setDetalleId(a.id)}

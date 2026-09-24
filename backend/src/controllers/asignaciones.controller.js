@@ -8,13 +8,14 @@
 const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
-const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS } =
+const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS,
+  INICIO_ANTICIPADO_MAX_MINUTOS } =
   require('../config/constants');
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
-const { ahora, fechaEnEspana }   = require('../utils/fecha.utils');
+const { ahora, fechaEnEspana, diaYHoraEnEspana } = require('../utils/fecha.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 
 // ============================================================
@@ -617,6 +618,21 @@ async function activarAsignacion(req, res, next) {
     // hasta que el responsable pulse el botón).
     if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
       return error(res, `No se puede iniciar una asignación en estado "${asig.estado}"`, 400);
+    }
+
+    // No antes de media hora de la hora prevista, para nadie: la hora real que
+    // se sella es la evidencia de cuándo empezó el servicio. Si ya está sellada
+    // la pulsación es un no-op y no se le pone pega.
+    if (!asig.inicio_real_at) {
+      const desde = new Date(new Date(asig.fecha_inicio).getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
+      if (ahora() < desde) {
+        return error(
+          res,
+          `Aún no puedes iniciar el servicio: se puede a partir del ${diaYHoraEnEspana(desde)} ` +
+          `(${INICIO_ANTICIPADO_MAX_MINUTOS} min antes de la hora prevista)`,
+          400
+        );
+      }
     }
 
     // Se mira ANTES de tocar la fila: el endpoint es idempotente y pulsar dos

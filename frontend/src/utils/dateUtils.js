@@ -1,5 +1,6 @@
 import { format, parseISO, isValid, differenceInMinutes, isPast } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { INICIO_ANTICIPADO_MAX_MINUTOS } from './constants.js';
 
 /**
  * CONTRATO DE FECHAS
@@ -193,6 +194,23 @@ export function toInputDate(date) {
   const d = aInstante(date);
   if (!d) return '';
   return format(aHoraEspanola(d), 'yyyy-MM-dd');
+}
+
+/**
+ * Instante desde el que se puede pulsar «Inicio de servicio»: la hora prevista
+ * menos INICIO_ANTICIPADO_MAX_MINUTOS. null si la fecha no es válida (entonces
+ * no se bloquea en pantalla; el backend decide igual).
+ */
+export function inicioServicioPermitidoDesde(fechaInicio) {
+  const d = aInstante(fechaInicio);
+  if (!d) return null;
+  return new Date(d.getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
+}
+
+/** ¿Todavía es pronto para iniciar el servicio? */
+export function esProntoParaIniciar(fechaInicio, ahora = new Date()) {
+  const desde = inicioServicioPermitidoDesde(fechaInicio);
+  return !!desde && ahora < desde;
 }
 
 /**

@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
-import { formatDateTime } from '../../utils/dateUtils.js';
+import { formatDateTime, inicioServicioPermitidoDesde, esProntoParaIniciar } from '../../utils/dateUtils.js';
+import useAhora from '../../hooks/useAhora.js';
 import {
   IMAGEN_TIPOS_INICIO,
   IMAGEN_TIPOS_INICIO_MECANICA,
@@ -61,6 +62,11 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
   const [camTipos,    setCamTipos]    = useState([]);
   const [camIndex,    setCamIndex]    = useState(0);
   const [camTarget,   setCamTarget]   = useState('inicio'); // 'inicio' | 'incidencia'
+
+  // No se puede iniciar antes de media hora de la hora prevista (lo corta el
+  // backend; aquí solo se explica y se deshabilita). El reloj refresca solo.
+  const ahora     = useAhora();
+  const esPronto  = !activado && esProntoParaIniciar(asignacion?.fecha_inicio, ahora);
 
   const seccion = SECCIONES[step];
   const esUltima = step === SECCIONES.length - 1;
@@ -205,19 +211,33 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
             </span>
           </div>
           <div className="flex items-center justify-between">
+            <span className="text-neutral-500 text-sm">Inicio previsto</span>
+            <span className="text-neutral-700 text-sm">{formatDateTime(asignacion.fecha_inicio)}</span>
+          </div>
+          <div className="flex items-center justify-between">
             <span className="text-neutral-500 text-sm">Fin previsto</span>
             <span className="text-neutral-700 text-sm">{formatDateTime(asignacion.fecha_fin)}</span>
           </div>
         </div>
-        <div className="card bg-primary-50 border border-primary-200">
-          <p className="text-primary-800 text-sm">
-            Al pulsar <strong>Inicio de servicio</strong> se registra la fecha y la hora reales.
-            Después documenta el estado del vehículo antes de arrancar.
-          </p>
-        </div>
+        {esPronto ? (
+          <div className="card bg-warn-50 border border-warn-200">
+            <p className="text-warn-700 text-sm">
+              Aún es pronto. Podrás iniciar el servicio a partir del{' '}
+              <strong className="data">{formatDateTime(inicioServicioPermitidoDesde(asignacion.fecha_inicio))}</strong>,
+              media hora antes de la hora prevista.
+            </p>
+          </div>
+        ) : (
+          <div className="card bg-primary-50 border border-primary-200">
+            <p className="text-primary-800 text-sm">
+              Al pulsar <strong>Inicio de servicio</strong> se registra la fecha y la hora reales.
+              Después documenta el estado del vehículo antes de arrancar.
+            </p>
+          </div>
+        )}
         <div className="flex gap-3">
           <button onClick={onCancel} className="btn-secondary flex-1" disabled={activando}>Cancelar</button>
-          <button onClick={handleInicioServicio} className="btn-primary flex-1" disabled={activando}>
+          <button onClick={handleInicioServicio} className="btn-primary flex-1" disabled={activando || esPronto}>
             {activando ? 'Iniciando…' : activado ? 'Continuar →' : '▶ Inicio de servicio'}
           </button>
         </div>

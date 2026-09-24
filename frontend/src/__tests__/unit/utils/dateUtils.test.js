@@ -4,6 +4,7 @@ import {
   toUtcIso, toInputDatetime, toInputDate,
   isWorkActive, isOverdue, duration,
   diaEnEspana, formatFechaSola, formatDiaCalendario, sumarDias, sumarMeses, diasHasta,
+  inicioServicioPermitidoDesde, esProntoParaIniciar,
 } from '../../../utils/dateUtils';
 
 describe('dateUtils', () => {
@@ -191,6 +192,26 @@ describe('dateUtils', () => {
       const fin = '2026-04-13T08:45:00Z';
       const result = duration(inicio, fin);
       expect(result).toContain('45');
+    });
+  });
+
+  describe('inicio de servicio: no antes de media hora', () => {
+    const INICIO = '2026-09-25T06:00:00.000Z';   // 08:00 en España
+
+    it('se puede desde 30 min antes de la hora prevista', () => {
+      expect(inicioServicioPermitidoDesde(INICIO).toISOString()).toBe('2026-09-25T05:30:00.000Z');
+      expect(formatHora(inicioServicioPermitidoDesde(INICIO))).toBe('07:30');
+    });
+
+    it('es pronto antes de las 7:30 y deja de serlo a las 7:30 en punto', () => {
+      expect(esProntoParaIniciar(INICIO, new Date('2026-09-25T05:29:00.000Z'))).toBe(true);
+      expect(esProntoParaIniciar(INICIO, new Date('2026-09-25T05:30:00.000Z'))).toBe(false);
+      expect(esProntoParaIniciar(INICIO, new Date('2026-09-25T07:00:00.000Z'))).toBe(false);
+    });
+
+    it('sin fecha válida no bloquea (decide el backend)', () => {
+      expect(inicioServicioPermitidoDesde(null)).toBeNull();
+      expect(esProntoParaIniciar(undefined)).toBe(false);
     });
   });
 });

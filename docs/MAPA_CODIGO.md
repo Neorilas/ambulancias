@@ -566,6 +566,26 @@ botones (`mi_rol` en el listado, `rolEnAsignacion` del util en el detalle).
 Que una persona se solape en fechas con otra asignación abierta **no se
 bloquea**: create/update devuelven `solapes` y el formulario pinta un aviso.
 
+**«Inicio de servicio» no antes de media hora de la hora prevista, para
+nadie** (gestión incluida): un servicio de las 8:00 se inicia desde las 7:30.
+`activarAsignacion` devuelve 400 con la hora desde la que se puede
+(`diaYHoraEnEspana`, en hora española). El porqué: `inicio_real_at` es la
+evidencia de cuándo empezó el servicio, y pulsarlo la noche antes la falseaba.
+El corte es `INICIO_ANTICIPADO_MAX_MINUTOS` (backend `config/constants.js`,
+espejo en `frontend/utils/constants.js`); en pantalla lo aplican
+`inicioServicioPermitidoDesde`/`esProntoParaIniciar` (`dateUtils`) con
+`useAhora`, que refresca cada 30 s para que el botón se habilite solo:
+`InicioAsignacion` deshabilita el botón y explica desde cuándo, y los
+«Activar» de `MisAsignaciones` y `AsignacionList` pasan a «Desde dd/MM HH:mm».
+Trampas: (1) solo se mira mientras `inicio_real_at` es NULL, para que repetir
+la pulsación siga siendo idempotente; (2) **no** se mira el estado: el cron
+pasa a `activa` a la hora prevista, así que una `activa` sin hora real ya está
+dentro de la ventana, y una que gestión puso `activa` a mano por `PUT` antes de
+tiempo sigue sin poder sellarse antes de la media hora; (3) `uploadEvidencia`
+no exige la ventana — el asistente no deja llegar a las fotos sin pasar por el
+botón, pero la API a pelo sí. Los trabajos (feature oculta) conservan su
+propia regla de 24 h en `activarTrabajo`.
+
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 `responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
@@ -689,6 +709,7 @@ solo actúa en el navegador no es un control de acceso.
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel` |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
