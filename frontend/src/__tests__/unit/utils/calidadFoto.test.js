@@ -175,9 +175,25 @@ describe('evaluarCalidad — luz', () => {
 
   it('los niveles usan el perfil de motor, más tolerante que el exterior', () => {
     expect(PERFIL_POR_TIPO.nivel_aceite).toBe('motor');
-    const m = { brillo: 35, p98: 80, p995: 90, quemados: 0, nitidez: null };
+    const m = { brillo: 35, p98: 55, p995: 70, quemados: 0, nitidez: 0.8, nitidezX: 0.8, nitidezY: 0.8 };
     expect(evaluarCalidad(m, 'nivel_aceite')).toEqual([]);
     expect(evaluarCalidad(m, 'frontal').map(a => a.codigo)).toEqual(['oscura']);
+  });
+
+  // Fotos reales de PRO: de noche, la ambulancia bien visible con brillo medio
+  // de 12 a 43. Lo que cuenta es que haya algo iluminado, no la media.
+  it('una exterior de noche con la ambulancia iluminada no es oscura', () => {
+    const m = { brillo: 20, p98: 150, p995: 230, quemados: 0.005, nitidez: 0.55, nitidezX: 0.55, nitidezY: 0.6, estela: { valor: -0.1, contraste: 0.03 } };
+    expect(evaluarCalidad(m, 'lateral_izquierdo')).toEqual([]);
+  });
+
+  it('una foto lisa y con luz (lente tapada con el dedo) avisa', () => {
+    const avisos = evaluarCalidad(medirImagen(lienzo(140), W, H), 'nivel_aceite');
+    expect(avisos.map(a => a.codigo)).toEqual(['sin_detalle']);
+  });
+
+  it('una foto lisa y negra solo dice que está oscura', () => {
+    expect(codigos(lienzo(2))).toEqual(['oscura']);
   });
 });
 

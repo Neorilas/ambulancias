@@ -36,9 +36,30 @@ describe('evaluarEncuadre', () => {
     expect(aviso.titulo).toBe('La ambulancia sale cortada por la izquierda');
   });
 
-  it('cortada por varios lados los enumera', () => {
-    const [aviso] = evaluarEncuadre([det([40, 0, 472, 288])], W, H, 'frontal');
-    expect(aviso.titulo).toBe('La ambulancia sale cortada por la derecha, arriba y abajo');
+  it('cortada por la derecha', () => {
+    const [aviso] = evaluarEncuadre([det([40, 20, 472, 200])], W, H, 'lateral_derecho');
+    expect(aviso.titulo).toBe('La ambulancia sale cortada por la derecha');
+  });
+
+  // Fotos reales: el recuadro llega al suelo y al techo aunque la ambulancia
+  // esté entera, así que arriba y abajo no cuentan.
+  it('tocar el borde de arriba o el de abajo no es estar cortada', () => {
+    expect(codigos([det([19, 0, 429, 288])])).toEqual([]);
+  });
+
+  it('de frente el margen es menor: la furgoneta llena casi todo el ancho', () => {
+    const V = [288, 512];
+    expect(evaluarEncuadre([det([6, 100, 276, 300])], ...V, 'frontal')).toEqual([]);
+    expect(evaluarEncuadre([det([6, 100, 276, 300])], ...V, 'lateral_izquierdo').map(a => a.codigo)).toEqual(['girada']);
+    expect(evaluarEncuadre([det([1, 100, 250, 300])], ...V, 'trasera').map(a => a.codigo)).toEqual(['cortada']);
+  });
+
+  // Móvil en horizontal con la rotación de pantalla bloqueada: la foto sale
+  // de lado y la ambulancia, más alta que larga.
+  it('un lateral con la ambulancia más alta que ancha es una foto girada', () => {
+    const [aviso] = evaluarEncuadre([det([20, 5, 250, 500])], 288, 512, 'lateral_izquierdo');
+    expect(aviso.codigo).toBe('girada');
+    expect(aviso.consejo).toMatch(/bloqueo de rotación/);
   });
 
   it('tocando los dos lados es que no cabe: demasiado cerca', () => {
