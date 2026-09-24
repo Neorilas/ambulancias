@@ -388,8 +388,8 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 
 | Pieza | Qué hace |
 |---|---|
-| `utils/calidadFoto.js` | Borrosa, movida, oscura, quemada. Umbrales en `UMBRALES`, perfil de luz por tipo en `PERFIL_POR_TIPO` |
-| `utils/encuadreVehiculo.js` | Solo frontal/trasera/laterales: sin vehículo, cortada (dice por qué lado), demasiado cerca, lejos |
+| `utils/calidadFoto.js` | Borrosa, movida, oscura, quemada, lisa (lente tapada). Umbrales en `UMBRALES`, perfil de luz por tipo en `PERFIL_POR_TIPO` |
+| `utils/encuadreVehiculo.js` | Solo frontal/trasera/laterales: sin vehículo, girada (lateral de lado), cortada por la izquierda/derecha, demasiado cerca, lejos |
 | `components/camera/analizarFoto.js` | Reduce la foto a 512 px de lado largo y llama a lo anterior. Dos tiempos: la calidad sale al momento (`onCalidad`), el encuadre cuando responde el detector |
 | `components/camera/detectorVehiculo.js` | COCO-SSD sobre TensorFlow.js, con `import()` dinámico. Se precarga al abrir la cámara si hay alguna foto exterior. Cualquier fallo (sin WebGL, sin red) = sin aviso de encuadre, nunca un error |
 | `public/modelos/coco-ssd-v1/` | El modelo (7 MB), servido desde nuestro hosting, no desde Google. Lo genera `scripts/cuantizar-modelo.js` |
@@ -417,12 +417,25 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 - **Qué sabe el detector y qué no.** Sabe si hay un coche/camión/autobús (una
   ambulancia sale como «truck» o «car») y su recuadro. No sabe si es ESTA
   ambulancia ni si es el lateral izquierdo o el derecho; no se intenta.
-- **Calibración.** Umbrales ajustados con escenas sintéticas y verificados con
-  6 fotos reales de ambulancias (Wikimedia) degradadas a propósito: ninguna
-  nítida da aviso; todas las borrosas, movidas y recortadas avisan. **No hay
-  aún fotos malas reales de campo**: si avisa de más o de menos, se toca
-  `UMBRALES` y se pasa el banco de pruebas. El análisis no se guarda en BD
-  (de momento solo avisa).
+- **Calibración.** Umbrales ajustados con escenas sintéticas, verificados con
+  6 fotos de ambulancias de Wikimedia degradadas a propósito y **revisados con
+  254 fotos reales de PRO** (2026-09-24, mirándolas una a una). Lo que cambió
+  por las reales:
+  - *Oscura* es «no hay nada iluminado» (percentil 98), no «brillo medio
+    bajo». Las exteriores de noche buenas tienen brillo medio 12-43 y con el
+    criterio inicial daban aviso las 16.
+  - *Cortada* solo por los lados. Arriba/abajo daban falsos avisos: el
+    recuadro del detector llega al suelo y al techo aunque haya margen. De
+    frente/detrás el margen es del 1 % (la foto es vertical y la furgoneta
+    llena el ancho); en laterales, del 2 %.
+  - *Girada*: 5 de 41 laterales de PRO están guardados de lado (móvil en
+    horizontal con la rotación de pantalla bloqueada). Se detecta porque la
+    ambulancia sale más alta que ancha, y el consejo habla del bloqueo de
+    rotación; decir «cortada» ahí despistaba.
+  - *Lisa*: foto sin ningún borde y con luz (el dedo tapando la lente; 3 en
+    PRO).
+  En PRO muchas fotos son de pruebas (suelo, salón, teclado, negro); ahí los
+  avisos aciertan. El análisis no se guarda en BD (de momento solo avisa).
 - **Empaquetado.** TensorFlow va en el chunk `deteccion` (`vite.config.js`),
   **excluido del precache** del PWA: si no, lo bajaría todo el que instala la
   app aunque nunca abra la cámara. Chunk y modelo los cachea `sw.js` para

@@ -78,9 +78,14 @@ export const UMBRALES = {
   // mayor desfase (px a LADO_ANALISIS) en que se busca la estela: ~90 px
   // de la foto original, un tirón muy exagerado
   estelaMax:      24,
+  // Oscura = no hay casi nada iluminado (p98), NO que el brillo medio sea
+  // bajo. Con fotos reales de PRO (2026-09-24): las exteriores de noche con
+  // la ambulancia bien visible tienen brillo medio 12-43 pero p98 ≥ 82; con el
+  // criterio anterior (p98 < 90 o brillo < 45) las 16 daban aviso sin motivo.
+  // Las realmente inservibles (tapadas, habitación a oscuras) quedan en p98 ≤ 44.
   luz: {
-    exterior: { oscura: { p98: 90, brillo: 45 }, quemados: 0.30 },
-    motor:    { oscura: { p98: 70, brillo: 30 }, quemados: 0.30 },
+    exterior: { oscura: { p98: 60, brillo: 0 }, quemados: 0.30 },
+    motor:    { oscura: { p98: 50, brillo: 0 }, quemados: 0.30 },
     // de noche el brillo medio no dice nada; solo cuenta que haya algo
     // encendido, aunque sea poco (los dígitos): percentil 99,5
     cuadro:   { oscura: { p995: 60, brillo: 0 }, quemados: 0.25 },
@@ -279,6 +284,16 @@ export function evaluarCalidad(m, tipoKey) {
       consejo: perfil === 'cuadro'
         ? 'Cambia un poco el ángulo para que el reflejo no tape los números.'
         : 'Evita tener el sol o un foco de frente.',
+    });
+  }
+
+  // Sin bordes que medir y con luz: una foto lisa (lente tapada, una pared, el
+  // suelo de cerca). Si además está oscura, ya lo dice el aviso de luz.
+  if (m.nitidez == null && !oscura) {
+    avisos.push({
+      codigo: 'sin_detalle',
+      titulo: 'No se distingue nada en la foto',
+      consejo: 'Comprueba que no hay nada tapando la cámara y encuadra lo que hay que fotografiar.',
     });
   }
 

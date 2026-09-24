@@ -13,6 +13,14 @@
  *
  * Con varios vehículos en la foto (otra ambulancia aparcada al lado) se toma
  * el de mayor recuadro, que es el que se está fotografiando.
+ *
+ * Ajustado con 164 fotos exteriores reales de PRO (2026-09-24):
+ *  - Solo se mira si se corta por los LADOS. El borde de arriba y el de abajo
+ *    daban falsos «cortada» con la ambulancia entera: el recuadro del detector
+ *    llega hasta el suelo y el techo aunque haya un palmo de margen.
+ *  - Un lateral con el recuadro más alto que ancho es una foto girada 90°:
+ *    salieron 4 así, con el móvil en horizontal pero la pantalla sin girar
+ *    (rotación bloqueada). Avisar de «cortada» ahí despistaba.
  */
 
 export const TIPOS_CON_ENCUADRE = ['frontal', 'trasera', 'lateral_izquierdo', 'lateral_derecho'];
@@ -25,13 +33,15 @@ export const UMBRALES_ENCUADRE = {
   areaMinima: 0.15,
   // en los laterales lo que importa es que la ambulancia llene el ancho
   anchoMinimoLateral: 0.45,
-  // un recuadro a menos de esto del borde se considera cortado por ese lado.
-  // Con 1 % se escapaban ambulancias cortadas: el detector deja el recuadro
-  // unos píxeles por dentro de la foto aunque el vehículo siga fuera
-  margenBorde: 0.02,
+  // un recuadro a menos de esto del borde (fracción del ancho) se considera
+  // cortado por ese lado. En los laterales, 2 %: con 1 % se escapaban
+  // ambulancias cortadas, porque el detector deja el recuadro unos píxeles
+  // por dentro aunque el vehículo siga fuera. De frente/detrás, 1 %: la foto
+  // va en vertical, la furgoneta llena casi todo el ancho y con 2 % avisaba
+  // de fotos correctas
+  margenLateral: 0.02,
+  margenFrente:  0.01,
 };
-
-const LADOS = { izquierda: 'la izquierda', derecha: 'la derecha', arriba: 'arriba', abajo: 'abajo' };
 
 /**
  * @param detecciones [{ class, score, bbox: [x, y, ancho, alto] }] en píxeles
@@ -54,34 +64,37 @@ export function evaluarEncuadre(detecciones, ancho, alto, tipoKey) {
   }
 
   const area = d => d.bbox[2] * d.bbox[3];
-  const [x, y, w, h] = vehiculos.reduce((a, b) => (area(b) > area(a) ? b : a)).bbox;
+  const [x, , w, h] = vehiculos.reduce((a, b) => (area(b) > area(a) ? b : a)).bbox;
+  const lateral = tipoKey.startsWith('lateral');
 
-  const mx = ancho * U.margenBorde;
-  const my = alto * U.margenBorde;
-  const cortes = [];
-  if (x <= mx)              cortes.push('izquierda');
-  if (x + w >= ancho - mx)  cortes.push('derecha');
-  if (y <= my)              cortes.push('arriba');
-  if (y + h >= alto - my)   cortes.push('abajo');
+  // Una ambulancia de lado siempre es más larga que alta
+  if (lateral && h > w) {
+    return [{
+      codigo: 'girada',
+      titulo: 'La foto ha salido girada',
+      consejo: 'Pon el móvil en horizontal y comprueba que la pantalla gira con él. Si no gira, quita el bloqueo de rotación del móvil.',
+    }];
+  }
 
-  if (cortes.includes('izquierda') && cortes.includes('derecha')) {
+  const mx = ancho * (lateral ? U.margenLateral : U.margenFrente);
+  const izquierda = x <= mx;
+  const derecha   = x + w >= ancho - mx;
+
+  if (izquierda && derecha) {
     return [{
       codigo: 'cerca',
       titulo: 'La ambulancia no cabe entera',
       consejo: 'Aléjate un par de pasos hasta que se vea de un extremo a otro.',
     }];
   }
-  if (cortes.length) {
-    const lados = cortes.map(c => LADOS[c]);
-    const texto = lados.length > 1 ? `${lados.slice(0, -1).join(', ')} y ${lados.at(-1)}` : lados[0];
+  if (izquierda || derecha) {
     return [{
       codigo: 'cortada',
-      titulo: `La ambulancia sale cortada por ${texto}`,
+      titulo: `La ambulancia sale cortada por la ${izquierda ? 'izquierda' : 'derecha'}`,
       consejo: 'Muévete o aléjate un poco para que quepa entera, con algo de margen alrededor.',
     }];
   }
 
-  const lateral = tipoKey.startsWith('lateral');
   const pequena = lateral ? w / ancho < U.anchoMinimoLateral : (w * h) / (ancho * alto) < U.areaMinima;
   if (pequena) {
     return [{
