@@ -173,6 +173,17 @@ describe('push.service', () => {
       expect(sellados).toHaveLength(2);
     });
 
+    it('la prioridad viaja en el payload solo cuando se pide', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[SUSCRIPCION(1, 9)]]);
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      await push.notificarAdmins({ titulo: 'x', cuerpo: 'y', tag: 't', prioridad: 'alta' });
+
+      expect(JSON.parse(webpush.sendNotification.mock.calls[0][1]).prioridad).toBe('alta');
+    });
+
     it('manda urgencia alta y TTL: sin eso Android aparca el aviso hasta salir de reposo', async () => {
       const push = cargarPush();
       query.mockResolvedValueOnce([[SUSCRIPCION(1, 9)]]);

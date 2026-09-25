@@ -106,10 +106,22 @@ describe('avisosAsignacion.service', () => {
     it('dice el vehículo, el responsable y cuánto se ha pasado de la hora', async () => {
       await avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 30 });
       const { titulo, cuerpo } = push.notificarAdmins.mock.calls[0][0];
-      expect(titulo).toBe('Alfa 1 · servicio sin iniciar');
+      expect(titulo).toBe('URGENTE · Alfa 1 sin iniciar');
       expect(cuerpo).toBe(
         'Juan López no ha iniciado el servicio y ya han pasado 30 min de la hora prevista.'
       );
+    });
+  });
+
+  describe('prioridad', () => {
+    it('solo el de «sin iniciar» va como urgente', async () => {
+      await avisos.avisarAsignacionActivada(ASIGNACION);
+      await avisos.avisarFotosInicioCompletas(ASIGNACION);
+      await avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 15 });
+      await avisos.avisarAsignacionFinalizada(ASIGNACION);
+
+      const prioridades = push.notificarAdmins.mock.calls.map(c => c[0].prioridad);
+      expect(prioridades).toEqual([undefined, undefined, 'alta', undefined]);
     });
   });
 

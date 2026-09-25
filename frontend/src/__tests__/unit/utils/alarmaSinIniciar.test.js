@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   CLAVE_ATENDIDAS,
   claveAlarma,
+  tagAviso,
   leerAtendidas,
   marcarAtendidas,
   alarmasPendientes,
@@ -20,6 +21,10 @@ describe('alarmaSinIniciar', () => {
   it('la clave junta asignación y momento del aviso', () => {
     expect(claveAlarma(A)).toBe('1@2026-09-25T08:15:00.000Z');
     expect(claveAlarma({ id: 3 })).toBe('3@');
+  });
+
+  it('el tag coincide con el del push del backend (asig-<id>-sin-iniciar)', () => {
+    expect(tagAviso(A)).toBe('asig-1-sin-iniciar');
   });
 
   it('sin nada guardado, todas las alarmas suenan', () => {

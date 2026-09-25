@@ -2,16 +2,26 @@
  * components/common/AlarmaSinIniciar.jsx
  *
  * Alarma SONORA para administradores: un servicio que lleva más de
- * `AVISO_SIN_INICIAR_MINUTOS` (15) pasado de su hora sin que nadie pulse
+ * `AVISO_SIN_INICIAR_MINUTOS` (30) pasado de su hora sin que nadie pulse
  * «Inicio de servicio».
  *
  * Complementa al aviso push, no lo sustituye. El push llega con la app
  * cerrada, pero suena UNA vez con el tono que el sistema tenga puesto, que no
  * se puede elegir desde una web (§2.5 del mapa). Esto otro solo funciona con
  * la app abierta —en primer plano en el móvil, o en una pestaña del
- * ordenador de la oficina— y ahí sí se controla el sonido: una sirena de dos
- * tonos generada con Web Audio que se repite hasta que alguien pulsa
- * «Enterado», sin fichero de audio que descargar ni cachear.
+ * ordenador de la oficina— y ahí sí se controla el sonido: un «ding-dong»
+ * suave generado con Web Audio (sin fichero que descargar ni cachear).
+ *
+ * Suena POCO y se calla solo: una campanada cada `CADA_MS` durante
+ * `SONAR_MAX_MS`, y después el diálogo sigue en pantalla pero en silencio.
+ * Solo vuelve a sonar si aparece una alarma nueva. Así una ventana olvidada
+ * en segundo plano —o un panel oculto— no puede sonar sin fin sin que nadie
+ * vea el botón para pararla (pasó probándolo).
+ *
+ * «Enterado» se propaga al resto de ventanas de la app en el mismo
+ * dispositivo (evento `storage`) y quita la notificación del sistema de esas
+ * asignaciones: con el acceso de la pantalla de inicio y una pestaña abiertos
+ * a la vez, la otra seguía sonando hasta su siguiente consulta.
  *
  * El navegador no deja sonar nada hasta que el usuario ha tocado la página
  * (política de autoplay). Por eso el contexto de audio se desbloquea con el
@@ -26,6 +36,9 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { PERMISSIONS } from '../../utils/constants.js';
 import { formatHora } from '../../utils/dateUtils.js';
 import {
+  CLAVE_ATENDIDAS,
+  claveAlarma,
+  tagAviso,
   alarmasPendientes,
   marcarAtendidas,
   etiquetaVehiculo,
@@ -35,39 +48,46 @@ import {
 
 const POLL_MS = 30 * 1000;
 
-// Sirena: dos tonos alternos, fuerte pero no al máximo para no saturar el
-// altavoz del móvil. Onda cuadrada porque se oye mucho más que una senoidal
-// al mismo volumen.
-const TONOS_HZ   = [880, 660];
-const TONO_S     = 0.35;
-const PAUSA_S    = 0.6;   // silencio entre ráfagas
-const RAFAGA     = 4;     // tonos por ráfaga
-const VOLUMEN    = 0.35;
+// Campanada: dos notas senoidales (sol → mi) con caída de campana. Suave a
+// propósito: la pidieron menos agresiva que la sirena cuadrada del principio.
+const NOTAS_HZ      = [784, 659];
+const NOTA_S        = 0.9;    // lo que tarda en apagarse cada nota
+const ENTRE_NOTAS_S = 0.35;
+const VOLUMEN       = 0.25;
+const CADA_MS       = 2000;   // una campanada cada 2 s…
+const SONAR_MAX_MS  = 6000;   // …durante 6 s (3 campanadas), y silencio
 
 function crearContextoAudio() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   return Ctx ? new Ctx() : null;
 }
 
-/** Programa una ráfaga de la sirena en el contexto y devuelve cuánto dura. */
-function sonarRafaga(ctx) {
+/** Programa una campanada «ding-dong» en el contexto. */
+function sonarCampanada(ctx) {
   const t0 = ctx.currentTime + 0.05;
-  for (let i = 0; i < RAFAGA; i++) {
+  NOTAS_HZ.forEach((hz, i) => {
     const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.value = TONOS_HZ[i % TONOS_HZ.length];
-    const ini = t0 + i * TONO_S;
-    // Rampa corta de entrada y salida: sin ella cada tono suena con un chasquido.
-    gain.gain.setValueAtTime(0, ini);
-    gain.gain.linearRampToValueAtTime(VOLUMEN, ini + 0.02);
-    gain.gain.setValueAtTime(VOLUMEN, ini + TONO_S - 0.03);
-    gain.gain.linearRampToValueAtTime(0, ini + TONO_S);
+    osc.type = 'sine';
+    osc.frequency.value = hz;
+    const ini = t0 + i * ENTRE_NOTAS_S;
+    // Ataque corto y caída exponencial: suena a timbre, no a pitido.
+    gain.gain.setValueAtTime(0.0001, ini);
+    gain.gain.exponentialRampToValueAtTime(VOLUMEN, ini + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ini + NOTA_S);
     osc.connect(gain).connect(ctx.destination);
     osc.start(ini);
-    osc.stop(ini + TONO_S);
-  }
-  return RAFAGA * TONO_S + PAUSA_S;
+    osc.stop(ini + NOTA_S);
+  });
+}
+
+/** Quita de la bandeja la notificación push de esas alarmas, si sigue ahí. */
+function cerrarNotificaciones(alarmas) {
+  const tags = new Set(alarmas.map(tagAviso));
+  Promise.resolve(navigator.serviceWorker?.getRegistration?.())
+    .then(reg => reg?.getNotifications?.())
+    .then(avisos => (avisos || []).forEach(n => { if (tags.has(n.tag)) n.close(); }))
+    .catch(() => { /* sin SW o sin permiso: no hay nada que cerrar */ });
 }
 
 export default function AlarmaSinIniciar() {
@@ -78,8 +98,10 @@ export default function AlarmaSinIniciar() {
   const [pendientes, setPendientes] = useState([]);   // lo que suena aquí
   const [bloqueado, setBloqueado]   = useState(false); // autoplay sin desbloquear
 
-  const ctxRef   = useRef(null);
-  const timerRef = useRef(null);
+  const [sonido, setSonido]         = useState(false); // dentro de la ventana de sonido
+
+  const ctxRef     = useRef(null);
+  const sonadasRef = useRef(new Set());  // alarmas que ya han sonado aquí
 
   // ── Datos ────────────────────────────────────────────────
   const cargar = useCallback(async () => {
@@ -103,10 +125,16 @@ export default function AlarmaSinIniciar() {
     // El service worker avisa cuando llega un push con la app abierta.
     const alMensaje = (e) => { if (e.data?.type === 'AVISO_PUSH') cargar(); };
     navigator.serviceWorker?.addEventListener?.('message', alMensaje);
+    // «Enterado» pulsado en OTRA ventana de la app en este dispositivo.
+    const alGuardar = (e) => {
+      if (e.key && e.key.endsWith(CLAVE_ATENDIDAS)) setPendientes(p => alarmasPendientes(p));
+    };
+    window.addEventListener('storage', alGuardar);
     return () => {
       clearInterval(id);
       document.removeEventListener('visibilitychange', alVolver);
       navigator.serviceWorker?.removeEventListener?.('message', alMensaje);
+      window.removeEventListener('storage', alGuardar);
     };
   }, [activo, cargar]);
 
@@ -132,49 +160,67 @@ export default function AlarmaSinIniciar() {
     ctxRef.current = null;
   }, []);
 
-  // ── La sirena ────────────────────────────────────────────
-  const sonando = pendientes.length > 0;
+  // ── El sonido ────────────────────────────────────────────
+  const hayAlarma = pendientes.length > 0;
+
+  // Solo se abre una ventana de sonido cuando aparece una alarma que aún no
+  // ha sonado aquí; las consultas cada 30 s de la misma alarma no la reabren.
+  useEffect(() => {
+    if (!hayAlarma) { setSonido(false); return; }
+    const nuevas = pendientes.filter(a => !sonadasRef.current.has(claveAlarma(a)));
+    if (!nuevas.length) return;
+    nuevas.forEach(a => sonadasRef.current.add(claveAlarma(a)));
+    setSonido(true);
+  }, [pendientes, hayAlarma]);
 
   useEffect(() => {
-    if (!sonando) return undefined;
-    let parado = false;
+    if (!sonido) return undefined;
 
-    const ciclo = () => {
-      if (parado) return;
+    const campanada = () => {
       if (!ctxRef.current) ctxRef.current = crearContextoAudio();
       const ctx = ctxRef.current;
-      let espera = 2000;
       if (ctx && ctx.state === 'running') {
         setBloqueado(false);
-        espera = sonarRafaga(ctx) * 1000;
+        sonarCampanada(ctx);
       } else if (ctx) {
         ctx.resume?.().catch(() => {});
         setBloqueado(true);
       }
-      // Vibración en Android; iOS no la implementa y la ignora.
-      try { navigator.vibrate?.([400, 150, 400]); } catch { /* sin vibración */ }
-      timerRef.current = setTimeout(ciclo, espera);
+      // Vibración corta en Android; iOS no la implementa y la ignora.
+      try { navigator.vibrate?.(200); } catch { /* sin vibración */ }
     };
-    ciclo();
+    // Se cuentan las campanadas en vez de cortar con un setTimeout aparte:
+    // el intervalo y el corte caerían en el mismo instante (a los 6 s) y cuál
+    // gana es cosa del navegador — a veces sonaría una cuarta.
+    const total = Math.ceil(SONAR_MAX_MS / CADA_MS);
+    let dadas = 0;
+    const tocar = () => {
+      campanada();
+      if (++dadas >= total) { clearInterval(repetir); setSonido(false); }
+    };
+    const repetir = setInterval(tocar, CADA_MS);
+    tocar();
 
     return () => {
-      parado = true;
-      clearTimeout(timerRef.current);
+      clearInterval(repetir);
       try { navigator.vibrate?.(0); } catch { /* sin vibración */ }
     };
-  }, [sonando]);
+  }, [sonido]);
 
   const enterado = () => {
     marcarAtendidas(pendientes, vigentes);
+    cerrarNotificaciones(pendientes);
     setPendientes([]);
   };
 
   const activarSonido = () => {
     if (!ctxRef.current) ctxRef.current = crearContextoAudio();
-    ctxRef.current?.resume?.().then(() => setBloqueado(false)).catch(() => {});
+    ctxRef.current?.resume?.()
+      .then(() => { setBloqueado(false); setSonido(true); })
+      .catch(() => {});
   };
 
-  if (!sonando) return null;
+  if (!hayAlarma) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 safe-x">

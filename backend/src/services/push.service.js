@@ -240,17 +240,22 @@ async function enviarA(suscripciones, payload) {
  * @param {string} [aviso.tag]           Agrupador: un tag por asignación y evento,
  *                                       para que dos avisos distintos no se pisen
  *                                       y el mismo no se apile duplicado
+ * @param {string} [aviso.prioridad]     'alta' = se pinta distinto en el móvil
+ *                                       (título, icono, vibración, botón; ver
+ *                                       `opcionesNotificacion` en frontend/utils/swAvisos.js)
  * @param {number} [aviso.excluirUserId] Usuario que NO debe recibirlo (el responsable)
  * @returns {Promise<{enviados:number, borrados:number, fallidos:number, omitido?:string}>}
  */
-async function notificarAdmins({ titulo, cuerpo, url = '/', tag, excluirUserId = null } = {}) {
+async function notificarAdmins({ titulo, cuerpo, url = '/', tag, prioridad, excluirUserId = null } = {}) {
   if (!configurado) return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'sin-claves-vapid' };
 
   try {
     const subs = await suscripcionesDeAdmins(excluirUserId);
     if (!subs.length) return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'sin-suscripciones' };
 
-    const resumen = await enviarA(subs, { titulo, cuerpo, url, tag });
+    // `prioridad` sin valor desaparece al serializar: el resto de avisos
+    // mandan exactamente el mismo payload que antes.
+    const resumen = await enviarA(subs, { titulo, cuerpo, url, tag, prioridad });
     logger.info(
       `Push "${tag || titulo}": ${resumen.enviados} enviado(s), ` +
       `${resumen.fallidos} fallido(s), ${resumen.borrados} caducado(s)`

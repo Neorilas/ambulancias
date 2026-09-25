@@ -1,6 +1,6 @@
 /**
  * utils/swAvisos.js
- * Las dos decisiones del service worker que conviene poder probar sueltas.
+ * Las decisiones del service worker que conviene poder probar sueltas.
  *
  * Vive fuera de `sw.js` a propósito: un service worker no se puede montar en
  * jsdom, así que todo lo que se quede dentro es código sin red. Y justo estas
@@ -42,6 +42,49 @@ export function leerAviso(datos) {
     try { texto = datos.text(); } catch { texto = ''; }
     return texto ? { ...AVISO_POR_DEFECTO, cuerpo: texto } : { ...AVISO_POR_DEFECTO };
   }
+}
+
+/**
+ * Las opciones de `showNotification` para un aviso.
+ *
+ * Todo aviso pide sonido y vibración (`silent: false`): el objetivo es que el
+ * teléfono suene. Lo que NO se puede desde una web: elegir el tono, subir el
+ * volumen o hacer que se repita — en Android lo decide el canal de
+ * notificaciones del sistema, y una web no puede crear canales (§2.5 del mapa).
+ *
+ * Lo único que sí distingue un aviso urgente (`prioridad: 'alta'`, hoy solo el
+ * de «servicio sin iniciar») de los demás: otro icono en la barra de estado
+ * (`badge`, un triángulo de aviso), una vibración más larga y un botón «Ver
+ * servicio». El «URGENTE» del título lo pone el backend.
+ *
+ * @param {object} aviso  lo que devuelve `leerAviso`
+ * @param {string} base   carpeta de la app ('/app/', '/app-pre/' o '/')
+ */
+export function opcionesNotificacion(aviso, base) {
+  const urgente = aviso?.prioridad === 'alta';
+  const opciones = {
+    body:  aviso?.cuerpo,
+    icon:  `${base}icons/icon-192x192.png`,
+    badge: urgente ? `${base}icons/badge-urgente-96x96.png` : `${base}icons/icon-96x96.png`,
+    silent: false,
+    // Con el móvil en el bolsillo, dos vibraciones de 200 ms pasan
+    // desapercibidas; la urgente es todavía más larga.
+    vibrate: urgente ? [600, 200, 600, 200, 600, 200, 600] : [300, 150, 300, 150, 300],
+    // En escritorio el aviso se queda en pantalla hasta que alguien lo cierra.
+    // Chrome en Android lo ignora (allí ya se quedan en la bandeja).
+    requireInteraction: true,
+    data: { url: aviso?.url },
+  };
+  // Cualquier botón abre lo mismo que tocar el aviso (`notificationclick`).
+  if (urgente) opciones.actions = [{ action: 'ver', title: 'Ver servicio' }];
+  // `renotify` sin `tag` es un TypeError en Chrome, así que van juntos o no
+  // van. Con ambos, un aviso nuevo del mismo suceso reemplaza al anterior en
+  // la bandeja y vuelve a sonar, en vez de apilar duplicados.
+  if (aviso?.tag) {
+    opciones.tag = aviso.tag;
+    opciones.renotify = true;
+  }
+  return opciones;
 }
 
 /**

@@ -111,13 +111,19 @@ function avisarFotosInicioCompletas(asig) {
  * «Inicio de servicio». Que el cron la haya puesto en `activa` al llegar la
  * hora no cuenta: eso lo hace el reloj, no una persona, y la asignación
  * activada sola a la que nadie entra es exactamente el caso a vigilar.
+ *
+ * Es el único con `prioridad: 'alta'`: el móvil lo pinta distinto del resto
+ * (URGENTE en el título, icono de aviso en la barra de estado, vibración más
+ * larga y botón «Ver servicio»). El sonido NO cambia — lo pone el sistema y
+ * una web no puede elegirlo (§2.5 del mapa).
  */
 function avisarAsignacionSinIniciar(asig, { minutos } = {}) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · servicio sin iniciar`,
+    titulo:        `URGENTE · ${etiquetaVehiculo(asig)} sin iniciar`,
     cuerpo:        `${etiquetaResponsable(asig)} no ha iniciado el servicio y ya han pasado ${minutos} min de la hora prevista.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-sin-iniciar`,
+    prioridad:     'alta',
     excluirUserId: asig.user_id,
   }));
 }

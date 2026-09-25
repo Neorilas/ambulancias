@@ -24,6 +24,15 @@ export function claveAlarma(alarma) {
   return `${alarma.id}@${alarma.aviso_sin_iniciar_at ?? ''}`;
 }
 
+/**
+ * Tag de la notificación push de esta alarma. Tiene que coincidir con el que
+ * pone el backend (`avisosAsignacion.avisarAsignacionSinIniciar`): con él,
+ * «Enterado» quita de la bandeja la notificación del sistema.
+ */
+export function tagAviso(alarma) {
+  return `asig-${alarma.id}-sin-iniciar`;
+}
+
 /** Claves ya atendidas en este dispositivo. Un valor corrupto vale por vacío. */
 export function leerAtendidas() {
   try {
