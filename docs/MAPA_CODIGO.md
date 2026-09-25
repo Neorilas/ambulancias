@@ -630,6 +630,34 @@ exigen**, porque quien olvide pulsarla tiene que poder cerrar el servicio igual.
 No convertirla en obligatoria sin preguntar. Una asignación sin llegada
 (olvido, o anterior a v26) tiene NULL («no consta») y se pinta con `—`.
 
+**Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
+no deja el servicio atascado: se pueden subir hasta que se finaliza
+(`uploadEvidencia` solo corta en `finalizada`), y `finalizarAsignacion` exige
+la tanda completa. La contrapartida es que una foto «de inicio» subida al
+final del turno ya no enseña la ambulancia al recogerla. Por eso, cuando llega
+más de `FOTOS_INICIO_TARDE_MINUTOS` (30, backend `config/constants.js`)
+después de `inicio_real_at`, **se marca para gestión, sin bloquear nada**:
+- `getAsignacionCompleta` → `marcarFotosInicioTarde`: cada evidencia de inicio
+  lleva `retraso_min` y `tardia`, y la asignación `fotos_inicio_tarde`
+  (`{fotos, max_retraso_min, umbral_min}` o null).
+- `listAsignaciones` → columna `fotos_inicio_tarde` (recuento, subconsulta).
+- `AsignacionDetalle`: aviso sobre la tanda de inicio y la marca `+1h 35min`
+  en cada miniatura tardía. `AsignacionList`: badge «Fotos inicio tarde».
+  **Solo `manage_trabajos`**: el técnico no lo ve.
+- **Se calcula al leer, no se guarda**: sale de dos horas que ya están en BD.
+  Vale para las asignaciones antiguas sin migración, y un cambio del umbral
+  afecta también al pasado. Rehacer una foto vuelve a sellar su `created_at`,
+  y es lo correcto porque la imagen que se conserva es la tardía.
+- Sin `inicio_real_at` (nadie pulsó «Inicio de servicio») no hay referencia y
+  no se marca. Una foto subida antes del botón sale con retraso negativo y
+  tampoco se marca.
+- **Trampa del corte:** en la ficha es «más de N min» en milisegundos, y en el
+  listado `created_at > inicio_real_at + INTERVAL N MINUTE`. Tienen que decir
+  lo mismo; comparar minutos redondeados dejaba discrepar la ficha y la lista
+  con una foto subida a los 30 min y 20 s.
+- El frontend no tiene espejo de la constante: pinta el `umbral_min` que le
+  llega. El `title` del badge del listado no lleva la cifra por eso mismo.
+
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 `responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
@@ -845,6 +873,7 @@ solo actúa en el navegador no es un control de acceso.
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel`. **Una acción nueva necesita su entrada en `ACTION_LABEL` de `AdminPanel.jsx`**: sin ella sale en crudo (`update_asignacion`) y no aparece en el filtro «Acción», que se construye con ese mismo diccionario. `update_asignacion` guarda `details.cambios` (`{campo: {antes, despues}}`, de `cambiosAsignacion`) y solo se registra si algo cambió |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |

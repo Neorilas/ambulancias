@@ -69,6 +69,11 @@ module.exports = {
   // real que sella el botón es la evidencia de cuándo empezó el servicio.
   // Vale para todos, gestión incluida. Espejo en frontend/src/utils/constants.js.
   INICIO_ANTICIPADO_MAX_MINUTOS: 30,
+  // Una foto de inicio subida más de estos minutos después de «Inicio de
+  // servicio» (`inicio_real_at`) ya no enseña la ambulancia al recogerla: se
+  // marca como tardía para los administradores. No bloquea nada. Lo calcula el
+  // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
+  FOTOS_INICIO_TARDE_MINUTOS: 30,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

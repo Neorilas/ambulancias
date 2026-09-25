@@ -202,6 +202,73 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(404);
     });
 
+    describe('fotos de inicio subidas tarde', () => {
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      const INICIO = new Date('2026-09-25T06:00:00Z');
+      const aLos = (min, seg = 0) => new Date(INICIO.getTime() + min * 60000 + seg * 1000);
+
+      async function leer(overrides) {
+        mockAsignacionCompleta(overrides);
+        const res = mockRes();
+        await getAsignacion(mockReq({ params: { id: '1' }, user: ADMIN }), res, mockNext());
+        return res._json.data;
+      }
+
+      it('marca las que llegan más de 30 min después de «Inicio de servicio»', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [
+            { id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(5) },
+            { id: 2, tipo_imagen: 'trasera', momento: 'inicio', uploaded_at: aLos(30) },
+            { id: 3, tipo_imagen: 'cuentakilometros', momento: 'inicio', uploaded_at: aLos(95) },
+            { id: 4, tipo_imagen: 'frontal', momento: 'fin', uploaded_at: aLos(300) },
+          ],
+        });
+        const [a, b, c, fin] = data.evidencias;
+        expect(a).toMatchObject({ retraso_min: 5, tardia: false });
+        // Justo 30 min no es «más de 30»
+        expect(b).toMatchObject({ retraso_min: 30, tardia: false });
+        expect(c).toMatchObject({ retraso_min: 95, tardia: true });
+        // Las de fin no se marcan: que lleguen tarde es lo normal
+        expect(fin.tardia).toBeUndefined();
+        expect(data.fotos_inicio_tarde).toEqual({ fotos: 1, max_retraso_min: 95, umbral_min: 30 });
+      });
+
+      it('30 min y unos segundos ya es tarde (mismo corte que el listado)', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(30, 20) }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: 30, tardia: true });
+        expect(data.fotos_inicio_tarde.fotos).toBe(1);
+      });
+
+      it('sin retraso no hay resumen', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(2) }],
+        });
+        expect(data.fotos_inicio_tarde).toBeNull();
+      });
+
+      it('sin «Inicio de servicio» no hay referencia y no se marca', async () => {
+        const data = await leer({
+          inicio_real_at: null,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(500) }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: null, tardia: false });
+        expect(data.fotos_inicio_tarde).toBeNull();
+      });
+
+      it('lee las horas de BD como UTC aunque lleguen en texto', async () => {
+        const data = await leer({
+          inicio_real_at: '2026-09-25 06:00:00',
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: '2026-09-25 06:45:00' }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: 45, tardia: true });
+      });
+    });
+
     it('incluye las incidencias registradas en la asignación', async () => {
       query.mockResolvedValueOnce([[{
         id: 1, vehicle_id: 3, user_id: 9, estado: 'activa',
@@ -1571,6 +1638,16 @@ describe('asignaciones.controller', () => {
       // al.user_id queda solo como respaldo, junto a la pertenencia
       expect(query.mock.calls[0][1]).toEqual([7, 7]);
       expect(res._json.data[0].mi_rol).toBe('personal');
+    });
+
+    it('el listado cuenta las fotos de inicio tardías con el umbral, en su sitio', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, fotos_inicio_tarde: 2 }]]);
+      await listAsignaciones(mockReq({ query: {}, user: personal }), mockRes(), mockNext());
+      const [sql, params] = query.mock.calls[1];
+      expect(sql).toContain('AS fotos_inicio_tarde');
+      // Los ? del SELECT van antes que los del WHERE: mi_rol y luego el umbral
+      expect(params.slice(0, 4)).toEqual([7, 30, 7, 7]);
     });
 
     it('crea con varios responsables y personal; el principal es el primero', async () => {

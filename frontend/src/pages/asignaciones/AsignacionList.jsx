@@ -146,6 +146,16 @@ export default function AsignacionList() {
                         <span className={ASIGNACION_ESTADO_COLORS[a.estado] || 'badge-gray'}>
                           {ASIGNACION_ESTADO_LABELS[a.estado] || a.estado}
                         </span>
+                        {/* Fotos de inicio subidas más de N min tarde (backend,
+                            `fotos_inicio_tarde`). El detalle dice cuáles y cuánto. */}
+                        {a.fotos_inicio_tarde > 0 && (
+                          <div className="mt-1">
+                            <span className="badge-yellow whitespace-nowrap"
+                                  title="Fotos de inicio subidas tarde respecto al inicio de servicio. En el detalle, cuáles y cuánto">
+                              Fotos inicio tarde
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
