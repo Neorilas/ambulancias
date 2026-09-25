@@ -613,22 +613,19 @@ propia regla de 24 h en `activarTrabajo`.
 
 **«Llegada al servicio» (v26).** Entre el inicio (recoger la ambulancia y
 fotografiarla) y el trabajo en el sitio va el desplazamiento; la llegada es la
-hora real a la que empieza el servicio en el punto establecido. Orden en
-`AsignacionDetalle`: fotos de inicio completas → tarjeta «¿Has llegado al
-servicio?» → solo entonces «Finalizar servicio» (`faltaLlegada` oculta
-`puedeFin`). `registrarLlegada` pide responsable o `manage_trabajos` (el
+hora real a la que empieza el servicio en el punto establecido. En
+`AsignacionDetalle`, con las fotos de inicio completas y sin llegada aparece
+la tarjeta «¿Has llegado al servicio?» (`faltaLlegada`) **junto a** «Finalizar
+servicio», no en su lugar. `registrarLlegada` pide responsable o `manage_trabajos` (el
 personal no), `estado = 'activa'` con `inicio_real_at`, y la tanda de inicio
 completa (`getProgreso`); si ya hay hora devuelve 200 sin tocar nada, antes de
 mirar el estado, para que un reintento no dé error. El `UPDATE` lleva
 `llegada_servicio_at IS NULL` y solo audita (`arrive_asignacion`) si afectó a
-la fila: dos toques cruzados sellan y auditan una vez. **Trampa, a propósito:
-`finalizarAsignacion` NO exige la llegada.** El frontend se sube a mano y un
-frontend viejo no tiene el botón; exigirla en la API dejaría a sus técnicos sin
-poder cerrar. La obligación vive solo en la pantalla, y tampoco la aplica el
-«Finalizar asignación» del `Dashboard`, que abre el cierre directamente. Si se
-quiere obligatoria de verdad, va en `finalizarAsignacion` cuando el frontend
-nuevo esté en todas partes; las asignaciones anteriores a v26 tienen NULL
-(«no consta») y se pintan con `—`.
+la fila: dos toques cruzados sellan y auditan una vez. **Es OPCIONAL, por
+decisión del usuario (2026-09-25): ni la pantalla ni `finalizarAsignacion` la
+exigen**, porque quien olvide pulsarla tiene que poder cerrar el servicio igual.
+No convertirla en obligatoria sin preguntar. Una asignación sin llegada
+(olvido, o anterior a v26) tiene NULL («no consta») y se pinta con `—`.
 
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba

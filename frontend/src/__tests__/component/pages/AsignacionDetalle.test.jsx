@@ -142,15 +142,16 @@ describe('AsignacionDetalle — llegada al servicio', () => {
 
   beforeEach(() => { vi.clearAllMocks(); comoTecnico(); });
 
-  it('con las fotos de inicio hechas pide la llegada antes de dejar finalizar', async () => {
+  it('con las fotos de inicio hechas ofrece la llegada, sin impedir finalizar', async () => {
+    // Opcional a propósito: quien se olvide de pulsarla tiene que poder cerrar.
     asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
     montar();
 
     expect(await screen.findByRole('button', { name: 'Llegada al servicio' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Finalizar servicio' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finalizar servicio' })).toBeInTheDocument();
   });
 
-  it('al pulsarla registra la llegada y aparece «Finalizar servicio»', async () => {
+  it('al pulsarla registra la llegada y el botón desaparece', async () => {
     asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
     asignacionesService.registrarLlegada.mockResolvedValue({
       ...ACTIVA_TRAS_INICIO, llegada_servicio_at: '2026-09-21T06:40:00.000Z',

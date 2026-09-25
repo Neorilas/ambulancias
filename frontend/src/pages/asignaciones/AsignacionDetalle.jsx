@@ -306,12 +306,12 @@ export default function AsignacionDetalle({ id, onClose }) {
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
-  // Tras las fotos de inicio va el desplazamiento; «Finalizar» no sale hasta
-  // registrar la llegada. Solo si el servicio se inició con el botón: la API
-  // no la exige al cerrar (un frontend viejo no sabe de ella, §6.1 del mapa).
+  // Tras las fotos de inicio va el desplazamiento; al llegar se pulsa
+  // «Llegada al servicio». Es OPCIONAL a propósito: quien se olvide tiene que
+  // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
   const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
-  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto && !faltaLlegada;
+  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
 
   return (
     <div className="fixed inset-0 z-50 flex">
