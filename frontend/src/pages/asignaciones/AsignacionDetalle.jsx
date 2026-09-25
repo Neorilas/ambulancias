@@ -4,7 +4,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { formatDateTime, formatHora, duration } from '../../utils/dateUtils.js';
+import { formatDateTime, formatHora, duration, formatMinutos } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import {
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
@@ -294,6 +294,11 @@ export default function AsignacionDetalle({ id, onClose }) {
     return { desde, hasta: hasta === desde.slice(-5) ? null : hasta };
   };
   const rangoInicio = rangoFotos(Object.values(evInicio));
+  // Fotos de inicio subidas más de N min después de «Inicio de servicio»: ya
+  // no enseñan la ambulancia al recogerla. Lo calcula el backend
+  // (`fotos_inicio_tarde`, `ev.tardia`) y solo lo ve gestión: al técnico no le
+  // sirve de nada y la marca es para quien revisa la evidencia.
+  const inicioTarde = puedeGestionar ? asig?.fotos_inicio_tarde : null;
   const rangoFin    = rangoFotos(Object.values(evFin));
 
   const incidencias = asig?.incidencias || [];
@@ -637,6 +642,18 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {rangoInicio.desde}{rangoInicio.hasta ? ` – ${rangoInicio.hasta}` : ''}
                 </p>
               )}
+              {inicioTarde && (
+                <div className="mb-3 rounded-lg border border-warn-200 bg-warn-50 px-3 py-2 text-xs text-warn-600"
+                     data-testid="aviso-fotos-inicio-tarde">
+                  <p className="font-semibold">Fotos de inicio subidas tarde</p>
+                  <p>
+                    {inicioTarde.fotos === 1 ? '1 foto se subió' : `${inicioTarde.fotos} fotos se subieron`}{' '}
+                    más de {inicioTarde.umbral_min} min después del inicio de servicio
+                    (hasta {formatMinutos(inicioTarde.max_retraso_min)} después). Puede que no muestren
+                    el estado del vehículo al recogerlo.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {IMAGEN_TIPOS_INICIO.map(tipo => {
                   const ev = evInicio[tipo.key];
@@ -654,6 +671,12 @@ export default function AsignacionDetalle({ id, onClose }) {
                               fecha:  ev.uploaded_at,
                             })}
                           />
+                          {inicioTarde && ev.tardia && (
+                            <span className="absolute top-1 right-1 bg-warn-600 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                  title={`Subida ${formatMinutos(ev.retraso_min)} después del inicio de servicio`}>
+                              +{formatMinutos(ev.retraso_min)}
+                            </span>
+                          )}
                           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 flex items-center justify-between gap-1">
                             <span className="truncate">{tipo.label}</span>
                             <span className="font-mono text-[10px] flex-shrink-0">{formatHora(ev.uploaded_at)}</span>

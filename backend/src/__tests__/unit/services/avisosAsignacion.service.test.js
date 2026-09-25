@@ -8,7 +8,8 @@
  */
 
 jest.mock('../../../services/push.service', () => ({
-  notificarAdmins: jest.fn(),
+  notificarAdmins:   jest.fn(),
+  notificarUsuarios: jest.fn(),
 }));
 
 const push   = require('../../../services/push.service');
@@ -105,10 +106,22 @@ describe('avisosAsignacion.service', () => {
     it('dice el vehículo, el responsable y cuánto se ha pasado de la hora', async () => {
       await avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 30 });
       const { titulo, cuerpo } = push.notificarAdmins.mock.calls[0][0];
-      expect(titulo).toBe('Alfa 1 · servicio sin iniciar');
+      expect(titulo).toBe('URGENTE · Alfa 1 sin iniciar');
       expect(cuerpo).toBe(
         'Juan López no ha iniciado el servicio y ya han pasado 30 min de la hora prevista.'
       );
+    });
+  });
+
+  describe('prioridad', () => {
+    it('solo el de «sin iniciar» va como urgente', async () => {
+      await avisos.avisarAsignacionActivada(ASIGNACION);
+      await avisos.avisarFotosInicioCompletas(ASIGNACION);
+      await avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 15 });
+      await avisos.avisarAsignacionFinalizada(ASIGNACION);
+
+      const prioridades = push.notificarAdmins.mock.calls.map(c => c[0].prioridad);
+      expect(prioridades).toEqual([undefined, undefined, 'alta', undefined]);
     });
   });
 
@@ -122,6 +135,74 @@ describe('avisosAsignacion.service', () => {
     it('sin nombre del responsable el aviso sigue siendo legible', async () => {
       await avisos.avisarAsignacionActivada({ id: 1, user_id: 2, matricula: 'X' });
       expect(push.notificarAdmins.mock.calls[0][0].cuerpo).toContain('Sin responsable');
+    });
+  });
+
+  // ── Nuevo servicio: a los miembros, no a los admins ─────
+  describe('avisarAsignacionNueva', () => {
+    // 2026-09-26 06:00 UTC = 08:00 en España (horario de verano).
+    const EQUIPO = {
+      ...ASIGNACION,
+      fecha_inicio: new Date('2026-09-26T06:00:00Z'),
+      responsables: [{ id: 7, nombre: 'Juan', apellidos: 'López' }, { id: 8, nombre: 'Ana', apellidos: 'Ruiz' }],
+      personal:     [{ id: 9, nombre: 'Luis', apellidos: 'Gil' }],
+    };
+
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1, borrados: 0, fallidos: 0 });
+    });
+
+    it('avisa a responsables y personal por separado, cada uno con su texto', async () => {
+      await avisos.avisarAsignacionNueva(EQUIPO, [7, 8, 9], { asignadoPor: 1 });
+
+      expect(push.notificarAdmins).not.toHaveBeenCalled();
+      expect(push.notificarUsuarios).toHaveBeenCalledTimes(2);
+      const [[resp, avisoResp], [pers, avisoPers]] = push.notificarUsuarios.mock.calls;
+      expect(resp).toEqual([7, 8]);
+      expect(avisoResp).toMatchObject({
+        titulo: 'Alfa 1 · nuevo servicio',
+        cuerpo: 'Te han asignado un servicio como responsable. Empieza el 26/09 08:00.',
+        url:    '/mis-asignaciones',
+        tag:    'asig-12-asignada',
+      });
+      expect(pers).toEqual([9]);
+      expect(avisoPers.cuerpo).toBe('Te han asignado un servicio con Juan López y Ana Ruiz. Empieza el 26/09 08:00.');
+    });
+
+    it('solo a los que se le pasan (los que entran al editar)', async () => {
+      await avisos.avisarAsignacionNueva(EQUIPO, [9]);
+      expect(push.notificarUsuarios).toHaveBeenCalledTimes(1);
+      expect(push.notificarUsuarios.mock.calls[0][0]).toEqual([9]);
+    });
+
+    it('no avisa a quien la asigna aunque se ponga a sí mismo', async () => {
+      await avisos.avisarAsignacionNueva(EQUIPO, [7, 8], { asignadoPor: 7 });
+      expect(push.notificarUsuarios.mock.calls[0][0]).toEqual([8]);
+    });
+
+    it('nadie a quien avisar: no llama al servicio', async () => {
+      await avisos.avisarAsignacionNueva(EQUIPO, [7], { asignadoPor: 7 });
+      await avisos.avisarAsignacionNueva(EQUIPO, []);
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+    });
+
+    it('sin filas de miembros, el responsable principal cuenta como responsable', async () => {
+      await avisos.avisarAsignacionNueva({ ...ASIGNACION, responsables: [], personal: [] }, [7]);
+      expect(push.notificarUsuarios.mock.calls[0][0]).toEqual([7]);
+      expect(push.notificarUsuarios.mock.calls[0][1].cuerpo).toMatch(/como responsable\.$/);
+    });
+
+    it('una fecha imposible no lanza: el controlador ya ha guardado', async () => {
+      const rota = { ...EQUIPO, fecha_inicio: 'no-es-fecha' };
+      expect(() => avisos.avisarAsignacionNueva(rota, [7])).not.toThrow();
+      await expect(avisos.avisarAsignacionNueva(rota, [7])).resolves.toEqual([]);
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+    });
+
+    it('un fallo del servicio de push no se propaga', async () => {
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarAsignacionNueva(EQUIPO, [7])).resolves.toBeDefined();
     });
   });
 });

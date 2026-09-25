@@ -195,3 +195,56 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });
+
+describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
+  const CON_TARDIA = {
+    ...BASE,
+    evidencias: [
+      { id: 1, tipo_imagen: 'frontal', momento: 'inicio', image_url: 'a.jpg',
+        uploaded_at: '2026-09-21T06:10:00.000Z', retraso_min: 3, tardia: false },
+      { id: 2, tipo_imagen: 'trasera', momento: 'inicio', image_url: 'b.jpg',
+        uploaded_at: '2026-09-21T07:42:00.000Z', retraso_min: 95, tardia: true },
+    ],
+    fotos_inicio_tarde: { fotos: 1, max_retraso_min: 95, umbral_min: 30 },
+  };
+
+  function comoUsuario(u) {
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify(u));
+  }
+
+  it('gestión ve el aviso y la marca en la foto tardía', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue(CON_TARDIA);
+    montar();
+
+    const aviso = await screen.findByTestId('aviso-fotos-inicio-tarde');
+    expect(aviso).toHaveTextContent('1 foto se subió más de 30 min después del inicio de servicio');
+    expect(aviso).toHaveTextContent('hasta 1h 35min después');
+    // Solo la tardía lleva la marca
+    expect(screen.getByText('+1h 35min')).toBeInTheDocument();
+    expect(screen.queryByText('+3 min')).not.toBeInTheDocument();
+  });
+
+  it('el técnico no ve nada', async () => {
+    comoUsuario({ id: 2, username: 'jlopez', roles: ['tecnico'], permissions: [] });
+    asignacionesService.get.mockResolvedValue({
+      ...CON_TARDIA, responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    });
+    montar();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByTestId('aviso-fotos-inicio-tarde')).not.toBeInTheDocument();
+    expect(screen.queryByText('+1h 35min')).not.toBeInTheDocument();
+  });
+
+  it('sin fotos tardías no hay aviso', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue({ ...CON_TARDIA, fotos_inicio_tarde: null });
+    montar();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByTestId('aviso-fotos-inicio-tarde')).not.toBeInTheDocument();
+  });
+});

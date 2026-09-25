@@ -1,11 +1,12 @@
 /**
  * routes/push.routes.js
- * Avisos Web Push: alta y baja del dispositivo del administrador.
+ * Avisos Web Push: alta y baja del dispositivo.
  *
- * Todo cuelga de MANAGE_TRABAJOS porque solo se avisa a quien gestiona la
- * flota. La clave pública también: no es un secreto, pero publicarla a
- * cualquier autenticado invitaría a que un técnico intentase suscribirse y se
- * comiera un 403 más adelante, sin entender por qué.
+ * Abierto a cualquier autenticado (hasta 2026-09-25 exigía MANAGE_TRABAJOS):
+ * los técnicos también reciben avisos — el de «te han asignado un servicio».
+ * Suscribirse no da acceso a nada: QUÉ avisos le llegan a cada uno lo decide
+ * push.service al enviar (admins por permiso, miembros por asignación). Cada
+ * endpoint solo actúa sobre las suscripciones del propio usuario.
  */
 
 'use strict';
@@ -15,15 +16,12 @@ const { body, query: q } = require('express-validator');
 
 const ctrl                  = require('../controllers/push.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
-const { requirePermission } = require('../middleware/roles.middleware');
 const { handleValidation }  = require('../middleware/validate.middleware');
 const { pushLimiter }       = require('../middleware/rateLimiter.middleware');
-const { PERMISSIONS }       = require('../config/constants');
 
 const router = express.Router();
 
 router.use(authenticate);
-router.use(requirePermission(PERMISSIONS.MANAGE_TRABAJOS));
 
 // GET /push/vapid-public-key
 router.get('/vapid-public-key', ctrl.getClavePublica);

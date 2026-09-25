@@ -24,6 +24,13 @@ router.use(authenticate);
 // GET /asignaciones  (todos autenticados; admin/gestor ven todas, operacionales solo las suyas)
 router.get('/', ctrl.listAsignaciones);
 
+// GET /asignaciones/alarmas  (admin/gestor) — la alarma sonora de «sin iniciar».
+// Antes de `/:id`, o Express la tomaría por un id y la rechazaría el validador.
+router.get('/alarmas',
+  requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
+  ctrl.listAlarmas
+);
+
 // GET /asignaciones/:id
 router.get('/:id',
   [param('id').isInt({ min: 1 })],

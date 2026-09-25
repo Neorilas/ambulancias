@@ -10,15 +10,9 @@
 import React from 'react';
 import { useAuth }      from '../context/AuthContext.jsx';
 import AvisosPush       from '../components/common/AvisosPush.jsx';
-import { PERMISSIONS }  from '../utils/constants.js';
 
 export default function Perfil() {
-  const { user, hasPermission } = useAuth();
-
-  // Solo se avisa a quien gestiona la flota, así que a los demás ni se les
-  // enseña la sección: el endpoint les devolvería un 403 y quedaría un botón
-  // que no hace nada.
-  const recibeAvisos = hasPermission(PERMISSIONS.MANAGE_TRABAJOS);
+  const { user } = useAuth();
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -71,7 +65,8 @@ export default function Perfil() {
         </p>
       </section>
 
-      {recibeAvisos && <AvisosPush />}
+      {/* Para todos: los técnicos reciben el aviso de «nuevo servicio». */}
+      <AvisosPush />
     </div>
   );
 }

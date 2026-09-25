@@ -9,7 +9,7 @@ const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS,
-  INICIO_ANTICIPADO_MAX_MINUTOS } =
+  INICIO_ANTICIPADO_MAX_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } =
   require('../config/constants');
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
@@ -17,6 +17,7 @@ const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
 const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
+const vigilancia                 = require('../services/vigilancia.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -42,6 +43,44 @@ async function getProgreso(asignacionId) {
     completo:   IMAGEN_TIPOS_FIN.every(t => finSubidos.includes(t)),
   };
   return { inicio, fin };
+}
+
+/**
+ * Fotos de inicio subidas tarde: más de FOTOS_INICIO_TARDE_MINUTOS después de
+ * «Inicio de servicio». Marca cada evidencia de inicio con `retraso_min` (null
+ * si no hay con qué comparar) y `tardia`, y devuelve el resumen para la
+ * asignación, o null si ninguna llega tarde.
+ *
+ * Se calcula al leer, no se guarda: las dos horas ya están en BD y no cambian
+ * salvo al rehacer la foto, que vuelve a sellar `created_at` — y entonces la
+ * imagen que se conserva ES tardía, así que la marca es la correcta. Sin
+ * `inicio_real_at` (nadie pulsó el botón; la API a pelo deja subir igual) no
+ * hay referencia y no se marca.
+ */
+function marcarFotosInicioTarde(asig, evidencias) {
+  const inicioReal = asig.inicio_real_at ? instanteUtc(asig.inicio_real_at).getTime() : null;
+  let maxRetraso = null;
+  let tardias = 0;
+  for (const ev of evidencias) {
+    if (ev.momento !== 'inicio') continue;
+    ev.retraso_min = null;
+    ev.tardia = false;
+    if (inicioReal == null || !ev.uploaded_at) continue;
+    // El corte es «más de N minutos» en milisegundos, igual que el
+    // `> inicio_real_at + INTERVAL N MINUTE` del listado: si no, la ficha y
+    // la lista discrepan con una foto subida a los 30 min y 20 s.
+    const diffMs  = instanteUtc(ev.uploaded_at).getTime() - inicioReal;
+    const retraso = Math.floor(diffMs / 60000);
+    ev.retraso_min = retraso;
+    if (diffMs > FOTOS_INICIO_TARDE_MINUTOS * 60000) {
+      ev.tardia = true;
+      tardias += 1;
+      if (maxRetraso == null || retraso > maxRetraso) maxRetraso = retraso;
+    }
+  }
+  return tardias
+    ? { fotos: tardias, max_retraso_min: maxRetraso, umbral_min: FOTOS_INICIO_TARDE_MINUTOS }
+    : null;
 }
 
 // Helper: obtener asignación completa con relaciones
@@ -138,6 +177,7 @@ async function getAsignacionCompleta(id) {
   }
 
   asig.evidencias  = evidencias;
+  asig.fotos_inicio_tarde = marcarFotosInicioTarde(asig, evidencias);
   asig.incidencias = incidencias.map(r => ({
     id:          r.id,
     tipo:        r.tipo,
@@ -363,17 +403,40 @@ async function listAsignaciones(req, res, next) {
                  FROM asignacion_usuarios pa JOIN users pu ON pa.user_id = pu.id
                 WHERE pa.asignacion_id = al.id AND pa.rol = 'personal') AS personal_nombres,
               (SELECT ma.rol FROM asignacion_usuarios ma
-                WHERE ma.asignacion_id = al.id AND ma.user_id = ?) AS mi_rol
+                WHERE ma.asignacion_id = al.id AND ma.user_id = ?) AS mi_rol,
+              -- Fotos de inicio subidas tarde: mismo corte que
+              -- marcarFotosInicioTarde en la ficha (ver ahí el porqué).
+              (SELECT COUNT(*) FROM vehicle_images ti
+                WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'
+                  AND al.inicio_real_at IS NOT NULL
+                  AND ti.created_at > al.inicio_real_at + INTERVAL ? MINUTE) AS fotos_inicio_tarde
        FROM asignaciones_libres al
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
        ${where}
        ORDER BY ${ORDEN_LISTADO}
        LIMIT ? OFFSET ?`,
-      [req.user.id, ...params, limit, offset]
+      [req.user.id, FOTOS_INICIO_TARDE_MINUTOS, ...params, limit, offset]
     );
 
     return paginated(res, { data: rows, total, page, limit });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// GET /asignaciones/alarmas
+// ============================================================
+/**
+ * Asignaciones con la alarma de «sin iniciar» sonando (ver
+ * `vigilancia.listarAlarmasSinIniciar`). Solo gestión: la ruta exige
+ * MANAGE_TRABAJOS, los mismos que reciben el push.
+ */
+async function listAlarmas(req, res, next) {
+  try {
+    const filas = await vigilancia.listarAlarmasSinIniciar({ excluirUserId: req.user.id });
+    return success(res, filas);
   } catch (err) {
     next(err);
   }
@@ -454,6 +517,8 @@ async function createAsignacion(req, res, next) {
       },
       ip: req.ip,
     });
+    // Sin await: el aviso no retrasa la respuesta ni puede tumbarla.
+    avisos.avisarAsignacionNueva(asig, [...responsables, ...personal], { asignadoPor: req.user.id });
     return created(res, { ...asig, solapes }, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
@@ -552,7 +617,13 @@ async function updateAsignacion(req, res, next) {
 
     await transaction(async (conn) => {
       await conn.execute(
+        // La marca del aviso «sin iniciar» se limpia si cambia la hora
+        // prevista: una asignación aplazada tiene que poder volver a avisar
+        // a su nueva hora. Va la PRIMERA porque MySQL aplica el SET de
+        // izquierda a derecha: detrás de `fecha_inicio = …` ya compararía
+        // contra el valor nuevo y nunca vería el cambio.
         `UPDATE asignaciones_libres SET
+           aviso_sin_iniciar_at = IF(? <> fecha_inicio, NULL, aviso_sin_iniciar_at),
            vehicle_id   = COALESCE(?, vehicle_id),
            fecha_inicio = COALESCE(?, fecha_inicio),
            fecha_fin    = COALESCE(?, fecha_fin),
@@ -561,6 +632,7 @@ async function updateAsignacion(req, res, next) {
            estado       = COALESCE(?, estado)
          WHERE id = ?`,
         [
+          fecha_inicio || null,
           vehicle_id   || null,
           fecha_inicio || null,
           fecha_fin    || null,
@@ -593,6 +665,16 @@ async function updateAsignacion(req, res, next) {
         details:  { vehiculo: updated.matricula, cambios },
         ip: req.ip,
       });
+    }
+
+    // Aviso de «nuevo servicio» solo a quien ENTRA en la asignación: quien ya
+    // iba no tiene nada nuevo que saber. Pasar de personal a responsable no
+    // cuenta como entrar. Una edición que la cancela no avisa a nadie.
+    if (cambiaMiembros && updated.estado !== 'cancelada') {
+      const antes = new Set([...actualesResp, ...actualesPers]);
+      const entran = [...updated.responsables, ...updated.personal]
+        .map(m => m.id).filter(id => !antes.has(id));
+      if (entran.length) avisos.avisarAsignacionNueva(updated, entran, { asignadoPor: req.user.id });
     }
     return success(res, { ...updated, solapes }, 'Asignación actualizada');
   } catch (err) {
@@ -1079,6 +1161,7 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
 
 module.exports = {
   listAsignaciones,
+  listAlarmas,
   getAsignacion,
   createAsignacion,
   updateAsignacion,

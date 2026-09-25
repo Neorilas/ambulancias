@@ -58,8 +58,10 @@ module.exports = {
 
   // Minutos de margen desde la hora prevista antes de dar por hecho que la
   // asignación no la ha iniciado nadie. Pasados, los administradores reciben
-  // un aviso push (una sola vez por asignación, ver v19 y vigilancia.service).
-  // Se puede bajar por entorno para probarlo sin esperar media hora.
+  // un aviso push (una sola vez por asignación, ver v19 y vigilancia.service)
+  // y, con la app abierta, la alarma sonora (`GET /asignaciones/alarmas`).
+  // Se puede bajar por entorno para probarlo sin esperar media hora. 30 desde
+  // 2026-09-25 (hubo unas horas a 15 y se volvió a 30 por petición).
   AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
     ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
     : 30,
@@ -68,6 +70,11 @@ module.exports = {
   // real que sella el botón es la evidencia de cuándo empezó el servicio.
   // Vale para todos, gestión incluida. Espejo en frontend/src/utils/constants.js.
   INICIO_ANTICIPADO_MAX_MINUTOS: 30,
+  // Una foto de inicio subida más de estos minutos después de «Inicio de
+  // servicio» (`inicio_real_at`) ya no enseña la ambulancia al recogerla: se
+  // marca como tardía para los administradores. No bloquea nada. Lo calcula el
+  // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
+  FOTOS_INICIO_TARDE_MINUTOS: 30,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatDate, formatDateTime, formatDateTimeShort, formatHora,
   toUtcIso, toInputDatetime, toInputDate,
-  isWorkActive, isOverdue, duration,
+  isWorkActive, isOverdue, duration, formatMinutos,
   diaEnEspana, formatFechaSola, formatDiaCalendario, sumarDias, sumarMeses, diasHasta,
   inicioServicioPermitidoDesde, esProntoParaIniciar,
 } from '../../../utils/dateUtils';
@@ -212,6 +212,14 @@ describe('dateUtils', () => {
     it('sin fecha válida no bloquea (decide el backend)', () => {
       expect(inicioServicioPermitidoDesde(null)).toBeNull();
       expect(esProntoParaIniciar(undefined)).toBe(false);
+    });
+  });
+
+  describe('formatMinutos', () => {
+    it('minutos, horas justas y horas con minutos', () => {
+      expect(formatMinutos(45)).toBe('45 min');
+      expect(formatMinutos(120)).toBe('2h');
+      expect(formatMinutos(95)).toBe('1h 35min');
     });
   });
 });

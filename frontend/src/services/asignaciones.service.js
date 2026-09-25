@@ -4,6 +4,10 @@ export const asignacionesService = {
   list(params = {}) {
     return api.get('/asignaciones', { params }).then(r => r.data);
   },
+  /** Asignaciones con la alarma de «sin iniciar» sonando (solo gestión). */
+  alarmas() {
+    return api.get('/asignaciones/alarmas').then(r => r.data.data);
+  },
   get(id) {
     return api.get(`/asignaciones/${id}`).then(r => r.data.data);
   },

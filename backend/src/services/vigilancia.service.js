@@ -101,4 +101,45 @@ async function revisarAsignacionesSinIniciar() {
   return resumen;
 }
 
-module.exports = { revisarAsignacionesSinIniciar };
+/**
+ * Las asignaciones que hoy tienen la alarma sonando: las que ya se avisaron por
+ * push como «sin iniciar» y siguen sin iniciarse. Es lo que pinta la alarma
+ * sonora de la app (`AlarmaSinIniciar` en el frontend), que vuelve a preguntar
+ * cada poco mientras un administrador tiene la app abierta.
+ *
+ * Se apoya en la MISMA marca que el push (`aviso_sin_iniciar_at`) para que los
+ * dos canales digan lo mismo: suena en la app lo que ya se avisó al teléfono,
+ * ni antes ni otra cosa. Deja de salir sola en cuanto el responsable pulsa
+ * «Inicio de servicio» o la asignación se cierra, se cancela o se borra.
+ *
+ * El `fecha_inicio <= límite` se repite a propósito: si alguien aplaza la
+ * asignación después del aviso, `updateAsignacion` limpia la marca, pero
+ * aunque no lo hiciera una asignación que ahora es futura no puede sonar.
+ *
+ * `excluirUserId`: igual que el push, al responsable no se le avisa de lo suyo.
+ */
+async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
+  const limite = new Date(ahora().getTime() - AVISO_SIN_INICIAR_MINUTOS * 60 * 1000);
+  const [filas] = await query(
+    `SELECT al.id, al.fecha_inicio, al.estado, al.aviso_sin_iniciar_at,
+            v.alias AS vehiculo_alias, v.matricula,
+            CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
+            (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
+               FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
+              WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
+       FROM asignaciones_libres al
+       JOIN vehicles v ON v.id = al.vehicle_id
+       JOIN users u    ON u.id = al.user_id
+      WHERE al.aviso_sin_iniciar_at IS NOT NULL
+        AND al.inicio_real_at IS NULL
+        AND al.estado IN ('programada', 'activa')
+        AND al.deleted_at IS NULL
+        AND al.fecha_inicio <= ?
+        AND al.user_id <> ?
+      ORDER BY al.fecha_inicio ASC, al.id ASC`,
+    [limite, excluirUserId]
+  );
+  return filas;
+}
+
+module.exports = { revisarAsignacionesSinIniciar, listarAlarmasSinIniciar };

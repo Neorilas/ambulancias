@@ -236,7 +236,11 @@ export function isOverdue(trabajo) {
 export function duration(inicio, fin) {
   const d = typeof inicio === 'string' ? parseISO(inicio) : inicio;
   const f = typeof fin    === 'string' ? parseISO(fin)    : fin;
-  const mins = differenceInMinutes(f, d);
+  return formatMinutos(differenceInMinutes(f, d));
+}
+
+/** Minutos como «45 min», «2h» o «1h 35min» (mismo formato que `duration`). */
+export function formatMinutos(mins) {
   if (mins < 60) return `${mins} min`;
   const hours = Math.floor(mins / 60);
   const rem   = mins % 60;

@@ -24,7 +24,7 @@ import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { clientsClaim } from 'workbox-core';
-import { leerAviso, rutaDestino } from './utils/swAvisos.js';
+import { leerAviso, rutaDestino, opcionesNotificacion } from './utils/swAvisos.js';
 
 // Carpeta donde vive la app: '/app/' en producción, '/app-pre/' en PRE, '/' en
 // local. Se deduce de dónde se está sirviendo este propio fichero en vez de
@@ -100,45 +100,22 @@ registerRoute(
 // Avisos push
 // ============================================================
 
-// `leerAviso` y `rutaDestino` viven en utils/swAvisos.js: son las dos piezas
-// que más fácil se rompen y aquí dentro no habría forma de probarlas.
+// `leerAviso`, `opcionesNotificacion` y `rutaDestino` viven en
+// utils/swAvisos.js: son las piezas que más fácil se rompen y aquí dentro no
+// habría forma de probarlas.
 
 self.addEventListener('push', (event) => {
   const aviso = leerAviso(event.data);
 
-  const opciones = {
-    body:  aviso.cuerpo,
-    icon:  `${BASE}icons/icon-192x192.png`,
-    badge: `${BASE}icons/icon-96x96.png`,
-    // El objetivo de todo esto es que el teléfono SUENE. `silent: false` pide
-    // el sonido y la vibración por defecto del dispositivo; si el móvil está
-    // en silencio o en «No molestar» no hay nada que Web Push pueda hacer.
-    //
-    // Lo que NO se puede hacer desde aquí, por mucho que se intente: elegir el
-    // tono o subir el volumen. En Android eso lo decide el canal de
-    // notificaciones del sistema, y una web no puede crear canales. Con la PWA
-    // instalada, el canal es el de la propia app y se configura en los ajustes
-    // del teléfono (ver docs/PLAN_NOTIFICACIONES_PUSH.md).
-    silent:  false,
-    // Patrón más largo que un pitido corto: con el móvil en el bolsillo, dos
-    // vibraciones de 200 ms pasan desapercibidas.
-    vibrate: [300, 150, 300, 150, 300],
-    // En escritorio, el aviso se queda en pantalla hasta que alguien lo cierra
-    // en vez de desvanecerse a los pocos segundos. En Android lo ignora Chrome
-    // (allí los avisos web ya se quedan en la bandeja), pero no estorba.
-    requireInteraction: true,
-    data:    { url: aviso.url },
-  };
+  const opciones = opcionesNotificacion(aviso, BASE);
 
-  // `renotify` sin `tag` es un TypeError en Chrome, así que van juntos o no
-  // van. Con ambos, un aviso nuevo del mismo suceso reemplaza al anterior en
-  // la bandeja y vuelve a sonar, en vez de apilar duplicados.
-  if (aviso.tag) {
-    opciones.tag = aviso.tag;
-    opciones.renotify = true;
-  }
-
-  event.waitUntil(self.registration.showNotification(aviso.titulo, opciones));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(aviso.titulo, opciones),
+    // Con la app abierta, que `AlarmaSinIniciar` vuelva a preguntar ya en vez
+    // de esperar a su ciclo de 30 s: la campanada suena a la vez que el aviso.
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(ventanas => ventanas.forEach(v => v.postMessage({ type: 'AVISO_PUSH', tag: aviso.tag }))),
+  ]));
 });
 
 self.addEventListener('notificationclick', (event) => {

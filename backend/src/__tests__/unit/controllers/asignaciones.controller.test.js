@@ -16,13 +16,14 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 // interesa SI se disparan y con qué asignación; el envío tiene sus propios
 // tests en services/push.service.test.js.
 jest.mock('../../../services/avisosAsignacion.service', () => ({
+  avisarAsignacionNueva:      jest.fn(),
   avisarAsignacionActivada:   jest.fn(),
   avisarFotosInicioCompletas: jest.fn(),
   avisarAsignacionFinalizada: jest.fn(),
 }));
 
 const {
-  listAsignaciones, getAsignacion, createAsignacion, updateAsignacion,
+  listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
   deleteAsignacion, activarAsignacion, registrarLlegada, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
@@ -83,6 +84,27 @@ describe('asignaciones.controller', () => {
   });
 
   // ── listAsignaciones ───────────────────────────────────
+  describe('listAlarmas', () => {
+    it('devuelve las alarmas sin incluir las del propio usuario', async () => {
+      query.mockResolvedValueOnce([[{ id: 5, vehiculo_alias: 'AMB-1' }]]);
+      const res = mockRes();
+      await listAlarmas(mockReq({ user: { id: 9, roles: ['administrador'] } }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].data).toEqual([{ id: 5, vehiculo_alias: 'AMB-1' }]);
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toMatch(/aviso_sin_iniciar_at IS NOT NULL/);
+      expect(params[1]).toBe(9);
+    });
+
+    it('un fallo de BD va al manejador de errores', async () => {
+      query.mockRejectedValueOnce(new Error('boom'));
+      const next = mockNext();
+      await listAlarmas(mockReq({ user: { id: 9 } }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
   describe('listAsignaciones', () => {
     it('returns paginated list', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
@@ -179,6 +201,73 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await getAsignacion(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    describe('fotos de inicio subidas tarde', () => {
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      const INICIO = new Date('2026-09-25T06:00:00Z');
+      const aLos = (min, seg = 0) => new Date(INICIO.getTime() + min * 60000 + seg * 1000);
+
+      async function leer(overrides) {
+        mockAsignacionCompleta(overrides);
+        const res = mockRes();
+        await getAsignacion(mockReq({ params: { id: '1' }, user: ADMIN }), res, mockNext());
+        return res._json.data;
+      }
+
+      it('marca las que llegan más de 30 min después de «Inicio de servicio»', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [
+            { id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(5) },
+            { id: 2, tipo_imagen: 'trasera', momento: 'inicio', uploaded_at: aLos(30) },
+            { id: 3, tipo_imagen: 'cuentakilometros', momento: 'inicio', uploaded_at: aLos(95) },
+            { id: 4, tipo_imagen: 'frontal', momento: 'fin', uploaded_at: aLos(300) },
+          ],
+        });
+        const [a, b, c, fin] = data.evidencias;
+        expect(a).toMatchObject({ retraso_min: 5, tardia: false });
+        // Justo 30 min no es «más de 30»
+        expect(b).toMatchObject({ retraso_min: 30, tardia: false });
+        expect(c).toMatchObject({ retraso_min: 95, tardia: true });
+        // Las de fin no se marcan: que lleguen tarde es lo normal
+        expect(fin.tardia).toBeUndefined();
+        expect(data.fotos_inicio_tarde).toEqual({ fotos: 1, max_retraso_min: 95, umbral_min: 30 });
+      });
+
+      it('30 min y unos segundos ya es tarde (mismo corte que el listado)', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(30, 20) }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: 30, tardia: true });
+        expect(data.fotos_inicio_tarde.fotos).toBe(1);
+      });
+
+      it('sin retraso no hay resumen', async () => {
+        const data = await leer({
+          inicio_real_at: INICIO,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(2) }],
+        });
+        expect(data.fotos_inicio_tarde).toBeNull();
+      });
+
+      it('sin «Inicio de servicio» no hay referencia y no se marca', async () => {
+        const data = await leer({
+          inicio_real_at: null,
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(500) }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: null, tardia: false });
+        expect(data.fotos_inicio_tarde).toBeNull();
+      });
+
+      it('lee las horas de BD como UTC aunque lleguen en texto', async () => {
+        const data = await leer({
+          inicio_real_at: '2026-09-25 06:00:00',
+          evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: '2026-09-25 06:45:00' }],
+        });
+        expect(data.evidencias[0]).toMatchObject({ retraso_min: 45, tardia: true });
+      });
     });
 
     it('incluye las incidencias registradas en la asignación', async () => {
@@ -337,14 +426,44 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    // Las notas no van por COALESCE: el tercer parámetro de la sentencia es
-    // la bandera "vienen notas" y el cuarto el valor.
+    // Las notas no van por COALESCE: tras la marca del aviso y los cuatro
+    // COALESCE, un parámetro es la bandera "vienen notas" y el siguiente el valor.
     const paramsNotas = () => {
       const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
       expect(upd[0]).toContain('notas        = IF(?, ?, notas)');
-      return upd[1].slice(4, 6);
+      return upd[1].slice(5, 7);
     };
     const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+
+    it('cambiar la hora prevista limpia la marca del aviso «sin iniciar» (y va la primera del SET)', async () => {
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([[]]); // solapes
+
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { fecha_inicio: '2030-01-01 09:00:00' }, user: ADMIN }),
+        mockRes(), mockNext());
+
+      const [sql, params] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+      // MySQL aplica el SET de izquierda a derecha: detrás de `fecha_inicio = …`
+      // la comparación vería ya el valor nuevo y nunca limpiaría la marca.
+      expect(sql.indexOf('aviso_sin_iniciar_at = IF(? <> fecha_inicio'))
+        .toBeLessThan(sql.indexOf('fecha_inicio = COALESCE'));
+      expect(params[0]).toBe('2030-01-01 09:00:00');
+    });
+
+    it('sin fecha_inicio en el body la marca del aviso no se toca', async () => {
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([[]]);
+
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: 'x' }, user: ADMIN }),
+        mockRes(), mockNext());
+
+      const [, params] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+      expect(params[0]).toBeNull();   // NULL <> x es NULL → IF conserva la marca
+    });
 
     it('vaciar las notas las borra (antes un null las conservaba)', async () => {
       mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });
@@ -1522,6 +1641,16 @@ describe('asignaciones.controller', () => {
       expect(res._json.data[0].mi_rol).toBe('personal');
     });
 
+    it('el listado cuenta las fotos de inicio tardías con el umbral, en su sitio', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, fotos_inicio_tarde: 2 }]]);
+      await listAsignaciones(mockReq({ query: {}, user: personal }), mockRes(), mockNext());
+      const [sql, params] = query.mock.calls[1];
+      expect(sql).toContain('AS fotos_inicio_tarde');
+      // Los ? del SELECT van antes que los del WHERE: mi_rol y luego el umbral
+      expect(params.slice(0, 4)).toEqual([7, 30, 7, 7]);
+    });
+
     it('crea con varios responsables y personal; el principal es el primero', async () => {
       query.mockResolvedValueOnce([[{ id: 1 }]]);                     // vehículo
       query.mockResolvedValueOnce([[{ id: 2 }, { id: 3 }, { id: 7 }]]); // usuarios
@@ -1544,6 +1673,61 @@ describe('asignaciones.controller', () => {
       expect(insertAsig[1][1]).toBe(2);
       const insertMiembros = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO asignacion_usuarios'));
       expect(insertMiembros[1]).toEqual([5, 2, 'responsable', 0, 5, 3, 'responsable', 1, 5, 7, 'personal', 0]);
+      // Aviso de «nuevo servicio» a todo el equipo; quien crea se excluye allí.
+      expect(avisos.avisarAsignacionNueva).toHaveBeenCalledTimes(1);
+      expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 5 }), [2, 3, 7], { asignadoPor: 1 });
+    });
+
+    describe('aviso de nuevo servicio al editar', () => {
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      // Antes: responsable 2, personal 7. Después: los que diga `despues`.
+      const editar = async (body, despues, { estadoDespues = 'programada' } = {}) => {
+        mockAsignacionCompleta({ estado: 'programada', miembros: [
+          { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 7, rol: 'personal', orden: 0 },
+        ] });
+        query.mockResolvedValueOnce([[...despues.map(m => ({ id: m.user_id }))]]); // usuariosNoValidos
+        query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+        query.mockResolvedValueOnce([]); // DELETE miembros
+        query.mockResolvedValueOnce([]); // INSERT miembros
+        query.mockResolvedValueOnce([]); // UPDATE principal
+        mockAsignacionCompleta({ estado: estadoDespues, miembros: despues });
+        query.mockResolvedValue([[]]);   // solapes
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('solo a quien entra; quien ya iba (aunque cambie de papel) no', async () => {
+        const res = await editar({ responsables: [2, 7], personal: [9] }, [
+          { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 7, rol: 'responsable', orden: 1 },
+          { user_id: 9, rol: 'personal', orden: 0 },
+        ]);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 1 }), [9], { asignadoPor: 1 });
+      });
+
+      it('si solo sale gente, no avisa a nadie', async () => {
+        await editar({ responsables: [2], personal: [] }, [{ user_id: 2, rol: 'responsable', orden: 0 }]);
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
+
+      it('una edición que la cancela no avisa aunque entre alguien', async () => {
+        await editar({ responsables: [9], estado: 'cancelada' },
+          [{ user_id: 9, rol: 'responsable', orden: 0 }], { estadoDespues: 'cancelada' });
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
+
+      it('sin tocar los miembros no avisa', async () => {
+        mockAsignacionCompleta({ estado: 'programada' });
+        query.mockResolvedValueOnce([]); // UPDATE
+        mockAsignacionCompleta({ estado: 'programada' });
+        query.mockResolvedValue([[]]);
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: 'x' }, user: ADMIN }),
+          mockRes(), mockNext());
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
     });
 
     it('rechaza a la misma persona dos veces sin tocar la BD', async () => {

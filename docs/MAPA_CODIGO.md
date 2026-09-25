@@ -77,11 +77,11 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
-| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Todo el grupo exige `MANAGE_TRABAJOS` |
+| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
@@ -121,7 +121,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
-| `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. Hoy solo `revisarAsignacionesSinIniciar` |
+| `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
@@ -135,16 +135,20 @@ asignación. Sin app nativa ni Firebase.
 |---|---|
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único |
-| Destinatarios | Se calculan en CADA envío: permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo. El responsable de la asignación se excluye |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **asignación sin iniciar 30 min después de su hora** · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) |
-| Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de servicio»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; bajarlo por entorno es la forma de probarlo sin esperar media hora). Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
-| Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`) |
+| Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) |
+| Aviso de «nuevo servicio» | El único que va al TÉCNICO, no a gestión (desde 2026-09-25). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
+| Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de servicio»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
+| Alarma sonora en la app | `components/common/AlarmaSinIniciar.jsx`, montado en `Layout`, solo con `MANAGE_TRABAJOS`. Existe porque el push suena UNA vez y con el tono del sistema, que no se puede elegir: con la app abierta (móvil en primer plano u ordenador de la oficina) esto hace sonar un **«ding-dong» suave con Web Audio: 3 campanadas en 6 s y silencio** (más una vibración corta en Android); el diálogo se queda en pantalla, callado, hasta «Enterado», y solo vuelve a sonar si aparece una alarma nueva. Antes era una sirena en bucle hasta «Enterado»; se cambió porque una ventana olvidada en segundo plano sonaba sin fin sin que nadie viera el botón. «Enterado» se propaga a las otras ventanas del mismo dispositivo (evento `storage`) y cierra la notificación del sistema de esas asignaciones. Pregunta a `GET /asignaciones/alarmas` cada 30 s, al volver a la pestaña y cuando el SW le reenvía un push (`postMessage` `AVISO_PUSH`). Usa **la misma marca** `aviso_sin_iniciar_at` que el push: suena lo que ya se avisó, y se apaga sola al pulsar el técnico «Inicio de servicio». «Enterado» es **por dispositivo** (localStorage, `utils/alarmaSinIniciar.js`), con clave `id@aviso_sin_iniciar_at` para que una asignación aplazada que vuelve a vencer suene de nuevo. Trampa: **autoplay** — el navegador no deja sonar nada sin un toque previo en la página; el contexto de audio se desbloquea con el primer `pointerdown`/`keydown` y, si la alarma salta antes, se pinta «Activar sonido». Con la app en segundo plano en el móvil no suena: ahí solo queda el push |
+| Aplazar tras el aviso | `updateAsignacion` limpia `aviso_sin_iniciar_at` si cambia `fecha_inicio`, para que vuelva a avisar a la nueva hora. La asignación del SET va **la primera**: MySQL aplica el SET de izquierda a derecha y detrás de `fecha_inicio = …` compararía con el valor ya nuevo |
+| Service worker | `frontend/src/sw.js` (handlers `push` y `notificationclick`; el `push` además avisa a las ventanas abiertas con `postMessage`) |
+| Aviso urgente | Solo el de «sin iniciar» va con `prioridad: 'alta'` (`avisosAsignacion` → `notificarAdmins` → payload). El SW (`opcionesNotificacion` en `utils/swAvisos.js`) lo pinta distinto: «URGENTE» en el título, icono propio en la barra (`public/icons/badge-urgente-96x96.png`), vibración más larga y botón «Ver servicio». El sonido NO cambia: lo pone el sistema |
 | Entrega | Todo envío va con `urgency: 'high'` y `TTL` de 1 h. Con la urgencia `normal` que pone `web-push` por defecto, Android APARCA el aviso mientras el móvil está en reposo (Doze) y lo suelta en la siguiente ventana de mantenimiento: es el «el primero llegó y los demás no» |
 | «Solo llegan al abrir la app» (Android) | **No es código**: el aviso sale bien del servidor y FCM lo acepta, pero en Android quien lo recibe y ejecuta `sw.js` es **Chrome**, no la WebAPK de VAPSS, que es solo un envoltorio. Si el sistema tiene a Chrome restringido de batería, en suspensión (Samsung), sin inicio automático (Xiaomi/Huawei) o detenido por haberlo deslizado de recientes, FCM no le entrega nada y todo lo pendiente cae de golpe al abrir la app (abrirla arranca Chrome). Quitar la restricción solo a VAPSS no sirve. Las instrucciones están en `AjustesAndroid` |
 | `topic` | Derivado del tag (`normalizarTopic`, 32 caracteres base64url). Sustituye el aviso del mismo suceso que siga sin entregar, en vez de encolarlo detrás |
 | Volumen y tono | **No se pueden fijar desde el código.** En Android los decide el canal de notificaciones del sistema y una web no puede crear canales. Con la PWA instalada (WebAPK) la app tiene su propia entrada en los ajustes del teléfono y ahí sí se elige tono e importancia. Las instrucciones están en la UI, en `AvisosPush` → `AjustesDelTelefono`, que enseña las de Android o las de iPhone según `esIOS()` porque los dos sistemas no dan las mismas palancas |
 | iPhone | iOS 16.4+ y **solo con la PWA en la pantalla de inicio**. No hay tono propio para ninguna app web ni avisos «urgentes». Lo que sí importa tocar: quitar VAPSS del **Resumen programado** (retiene y agrupa) y de los modos de concentración. Volumen = el del timbre |
-| Alta/baja | Sección «Avisos en este dispositivo» del perfil (`components/common/AvisosPush.jsx`) |
+| Alta/baja | Sección «Avisos en este dispositivo» del perfil (`components/common/AvisosPush.jsx`), **para todos** los usuarios. El texto de la cabecera cambia con `MANAGE_TRABAJOS` (gestión: todos los avisos; técnico: solo «nuevo servicio»). Suscribirse no da acceso a nada: qué le llega a cada uno lo decide `push.service` al enviar |
 
 El aviso de prueba lleva **tag fijo** (`test-<userId>`), no uno por envío: con
 un tag distinto cada vez las pruebas se apilan en la bandeja y Android deja de
@@ -347,7 +351,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 | `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
-| `Perfil` → `AvisosPush` (solo con `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
+| `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
 | `TrabajoList/Detail/Form`, `MisTrabajos`, `InicioTrabajo`, `Finalizacion`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos`. `InicioTrabajo`/`Finalizacion` operan sobre UN vehículo (`vehicleIdFilter`/`vehicleId`) y cierran con `finalizeVehiculo` |
 
@@ -363,6 +367,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
+| `utils/alarmaSinIniciar.js` | Qué alarmas de «sin iniciar» suenan en este dispositivo: lo atendido con «Enterado» (localStorage, se poda solo) y las etiquetas. El sonido está en el componente `AlarmaSinIniciar` (§2.5) |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `validarTrabajo`, `payloadTrabajo`) y qué botones toca en cada vehículo (`accionesVehiculo`). Solo traduce `detalle`/`soy_responsable`/`mi_rol`, que calcula el backend |
 | `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en los responsables de cada vehículo de `TrabajoForm` |
@@ -377,7 +382,7 @@ reintenta. Todos los servicios cuelgan de ella.
 | `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
-| `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush` |
+| `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
 | `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
 | `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
 
@@ -627,6 +632,34 @@ exigen**, porque quien olvide pulsarla tiene que poder cerrar el servicio igual.
 No convertirla en obligatoria sin preguntar. Una asignación sin llegada
 (olvido, o anterior a v26) tiene NULL («no consta») y se pinta con `—`.
 
+**Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
+no deja el servicio atascado: se pueden subir hasta que se finaliza
+(`uploadEvidencia` solo corta en `finalizada`), y `finalizarAsignacion` exige
+la tanda completa. La contrapartida es que una foto «de inicio» subida al
+final del turno ya no enseña la ambulancia al recogerla. Por eso, cuando llega
+más de `FOTOS_INICIO_TARDE_MINUTOS` (30, backend `config/constants.js`)
+después de `inicio_real_at`, **se marca para gestión, sin bloquear nada**:
+- `getAsignacionCompleta` → `marcarFotosInicioTarde`: cada evidencia de inicio
+  lleva `retraso_min` y `tardia`, y la asignación `fotos_inicio_tarde`
+  (`{fotos, max_retraso_min, umbral_min}` o null).
+- `listAsignaciones` → columna `fotos_inicio_tarde` (recuento, subconsulta).
+- `AsignacionDetalle`: aviso sobre la tanda de inicio y la marca `+1h 35min`
+  en cada miniatura tardía. `AsignacionList`: badge «Fotos inicio tarde».
+  **Solo `manage_trabajos`**: el técnico no lo ve.
+- **Se calcula al leer, no se guarda**: sale de dos horas que ya están en BD.
+  Vale para las asignaciones antiguas sin migración, y un cambio del umbral
+  afecta también al pasado. Rehacer una foto vuelve a sellar su `created_at`,
+  y es lo correcto porque la imagen que se conserva es la tardía.
+- Sin `inicio_real_at` (nadie pulsó «Inicio de servicio») no hay referencia y
+  no se marca. Una foto subida antes del botón sale con retraso negativo y
+  tampoco se marca.
+- **Trampa del corte:** en la ficha es «más de N min» en milisegundos, y en el
+  listado `created_at > inicio_real_at + INTERVAL N MINUTE`. Tienen que decir
+  lo mismo; comparar minutos redondeados dejaba discrepar la ficha y la lista
+  con una foto subida a los 30 min y 20 s.
+- El frontend no tiene espejo de la constante: pinta el `umbral_min` que le
+  llega. El `title` del badge del listado no lleva la cifra por eso mismo.
+
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 `responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
@@ -842,9 +875,12 @@ solo actúa en el navegador no es un control de acceso.
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel`. **Una acción nueva necesita su entrada en `ACTION_LABEL` de `AdminPanel.jsx`**: sin ella sale en crudo (`update_asignacion`) y no aparece en el filtro «Acción», que se construye con ese mismo diccionario. `update_asignacion` guarda `details.cambios` (`{campo: {antes, despues}}`, de `cambiosAsignacion`) y solo se registra si algo cambió |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
-| El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte |
-| Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta) |
+| El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
+| La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
+| Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `/mis-asignaciones`, nunca `/asignaciones` |
+| A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | Algo del mapa de flota | `services/cartrack.service` (lo que se lee de Cartrack) → `utils/flota.utils` (el cruce y el estado) → `flota.controller` (lo que se junta con nuestra BD) → `frontend/utils/flota.js` (nombres y colores) → `MapaFlota` / `MapaLeaflet`. **Antes de tocar nada, correr `scripts/sonda-cartrack.js`**: dice qué manda la API hoy, que no es lo que dice su documentación (§2.6) |

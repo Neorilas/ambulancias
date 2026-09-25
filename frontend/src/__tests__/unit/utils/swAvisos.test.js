@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { leerAviso, rutaDestino, AVISO_POR_DEFECTO } from '../../../utils/swAvisos.js';
+import { leerAviso, rutaDestino, opcionesNotificacion, AVISO_POR_DEFECTO } from '../../../utils/swAvisos.js';
 
 /**
  * Las dos decisiones del service worker (src/sw.js) que se pueden probar sin
@@ -114,5 +114,43 @@ describe('rutaDestino', () => {
     ['vacía',     ''],
   ])('sin ruta (%s) lleva a la raíz de la app', (_caso, url) => {
     expect(rutaDestino('/app/', url)).toBe('/app/');
+  });
+});
+
+describe('opcionesNotificacion', () => {
+  const normal  = { titulo: 't', cuerpo: 'c', url: '/asignaciones?id=1', tag: 'asig-1-activada' };
+  const urgente = { ...normal, tag: 'asig-1-sin-iniciar', prioridad: 'alta' };
+
+  it('todo aviso pide sonido y lleva la ruta en data', () => {
+    const o = opcionesNotificacion(normal, '/app/');
+    expect(o.silent).toBe(false);
+    expect(o.body).toBe('c');
+    expect(o.data).toEqual({ url: '/asignaciones?id=1' });
+    expect(o.icon).toBe('/app/icons/icon-192x192.png');
+  });
+
+  it('uno normal lleva el icono de la app y sin botones', () => {
+    const o = opcionesNotificacion(normal, '/app/');
+    expect(o.badge).toBe('/app/icons/icon-96x96.png');
+    expect(o.actions).toBeUndefined();
+  });
+
+  it('el urgente se distingue: icono de aviso, vibración más larga y botón', () => {
+    const o = opcionesNotificacion(urgente, '/app/');
+    const n = opcionesNotificacion(normal, '/app/');
+    expect(o.badge).toBe('/app/icons/badge-urgente-96x96.png');
+    expect(o.vibrate.reduce((a, b) => a + b, 0)).toBeGreaterThan(n.vibrate.reduce((a, b) => a + b, 0));
+    expect(o.actions).toEqual([{ action: 'ver', title: 'Ver servicio' }]);
+  });
+
+  it('tag y renotify van juntos o no van (renotify sin tag es TypeError en Chrome)', () => {
+    expect(opcionesNotificacion(normal, '/')).toMatchObject({ tag: 'asig-1-activada', renotify: true });
+    const sinTag = opcionesNotificacion({ ...normal, tag: undefined }, '/');
+    expect(sinTag.tag).toBeUndefined();
+    expect(sinTag.renotify).toBeUndefined();
+  });
+
+  it('el aviso por defecto también se puede pintar', () => {
+    expect(opcionesNotificacion(AVISO_POR_DEFECTO, '/').body).toBe(AVISO_POR_DEFECTO.cuerpo);
   });
 });
