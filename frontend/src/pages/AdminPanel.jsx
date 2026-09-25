@@ -49,6 +49,7 @@ const ACTION_LABEL = {
   finalize_trabajo:    'Finalizó un trabajo',
   activate_trabajo:    'Activó un trabajo',
   create_asignacion:   'Creó una asignación',
+  update_asignacion:   'Editó una asignación',
   activate_asignacion: 'Activó una asignación',
   finalize_asignacion: 'Finalizó una asignación',
   delete_asignacion:   'Eliminó una asignación',
