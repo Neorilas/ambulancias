@@ -152,13 +152,27 @@ async function startServer() {
       // devolvía la hora del servidor, así que los programados se activaban
       // una o dos horas antes de tiempo.
       const ahoraUtc = ahora();
+      // Trabajos: el ciclo de vida va por vehículo (v25). Primero se activan
+      // los vehículos cuyo trabajo ya ha llegado a su hora — sin sellar
+      // inicio_real_at, que es la pulsación del responsable, igual que en
+      // asignaciones — y después el propio trabajo: cualquiera que siga
+      // `programado` con la hora pasada. Eso cubre a la vez el que acaba de
+      // activar sus vehículos (estadoTrabajoDesde: alguno activo → activo) y
+      // el que no tiene ninguno, que no tiene fila de la que derivar nada.
+      // No hay avisos de trabajos, así que basta con dos UPDATE masivos.
+      const [trabVeh] = await dbQuery(
+        `UPDATE trabajo_vehiculos tv JOIN trabajos t ON t.id = tv.trabajo_id
+            SET tv.estado = 'activo'
+          WHERE tv.estado = 'programado' AND t.fecha_inicio <= ? AND t.deleted_at IS NULL`,
+        [ahoraUtc]
+      );
       const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
          WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL`,
         [ahoraUtc]
       );
-      if (trab.affectedRows > 0) {
-        logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) programados`);
+      if (trab.affectedRows > 0 || trabVeh.affectedRows > 0) {
+        logger.info(`Auto-activados ${trab.affectedRows} trabajo(s) y ${trabVeh.affectedRows} vehículo(s) de trabajo`);
       }
       // Las asignaciones ya no se activan de un UPDATE masivo: hay que avisar
       // por push de cada una, y para eso hace falta saber CUÁLES han cambiado.

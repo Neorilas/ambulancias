@@ -290,8 +290,10 @@ describe('runMigrations', () => {
     expect(fallida).toBeNull();
     // Se mira el ADD COLUMN en concreto: sobre asignaciones_libres hay más
     // ALTERs posteriores (v18) y uno de ellos NOMBRA a inicio_real_at en su
-    // cláusula AFTER, así que un `includes` a secas lo daría por este.
-    expect(ejecutadas.some(sql => sql.includes('ADD COLUMN inicio_real_at'))).toBe(false);
+    // cláusula AFTER, así que un `includes` a secas lo daría por este. Y v25
+    // añade una columna con el mismo nombre, pero a trabajo_vehiculos.
+    expect(ejecutadas.some(sql =>
+      sql.includes('ADD COLUMN inicio_real_at') && sql.includes('asignaciones_libres'))).toBe(false);
     expect(ledger).toContain('v12_inicio_real_at');
   });
 
@@ -625,7 +627,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // alguien, tambien como responsable y personal a la vez. Y el relleno
     // conserva al usuario de cada asignacion existente como responsable.
     const { ejecutadas } = mockDb({
-      aplicadas: [...hasta('v22_rol_tes_conductor'), 'v24_liberar_email_borrados'],
+      aplicadas: [...hasta('v22_rol_tes_conductor'), ...TODAS.slice(TODAS.indexOf('v24_liberar_email_borrados'))],
     });
     const { aplicadas, fallida } = await runMigrations();
 
@@ -646,7 +648,9 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // deleteUser sufijaba username y dni al borrar pero no el email, que
     // tambien es UNIQUE (uq_email): un usuario borrado se quedaba bloqueando
     // para siempre el alta de otro con su mismo correo.
-    const { ejecutadas } = mockDb({ aplicadas: hasta('v23_asignacion_usuarios') });
+    const { ejecutadas } = mockDb({
+      aplicadas: [...hasta('v23_asignacion_usuarios'), 'v25_trabajos_multivehiculo'],
+    });
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
@@ -656,5 +660,49 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     expect(libera).toContain("CONCAT(email, '__del_', id)");
     expect(libera).toContain('deleted_at IS NOT NULL');
     expect(libera).toContain("email NOT LIKE CONCAT('%__del_', id)");
+  });
+
+  it('v25 prepara trabajos multi-vehiculo: ciclo por vehiculo y varios responsables', async () => {
+    // El trabajo deja de cerrarse de golpe: cada fila trabajo_vehiculos lleva
+    // su propio estado, y los responsables pasan a una tabla N:M con el
+    // principal de siempre rellenado como orden 0.
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v24_liberar_email_borrados') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v25_trabajos_multivehiculo']);
+
+    for (const col of ['descripcion', 'ubicacion']) {
+      expect(ejecutadas.some(q => q.includes('ALTER TABLE trabajos ADD COLUMN ' + col))).toBe(true);
+    }
+    expect(ejecutadas.some(q =>
+      q.includes('ALTER TABLE trabajo_vehiculos') &&
+      q.includes("ENUM('programado','activo','finalizado','finalizado_anticipado')"))).toBe(true);
+
+    // Un trabajo ya empezado o cerrado no puede quedarse con sus vehiculos en
+    // «programado»: heredan el estado del trabajo.
+    const herencia = ejecutadas.find(q => q.includes('SET tv.estado = t.estado'));
+    expect(herencia).toBeDefined();
+
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS trabajo_vehiculo_responsables'));
+    expect(tabla).toContain('PRIMARY KEY (trabajo_vehiculo_id, user_id)');
+    expect(tabla).toContain('ON DELETE CASCADE');
+
+    const relleno = ejecutadas.find(q => q.includes('INSERT IGNORE INTO trabajo_vehiculo_responsables'));
+    expect(relleno).toContain('responsable_user_id, 0');
+  });
+
+  it('v25 no repite columnas que ya existen', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v24_liberar_email_borrados'),
+      columnas: ['trabajos.descripcion', 'trabajos.ubicacion', 'trabajo_vehiculos.estado',
+                 'trabajo_vehiculos.inicio_real_at', 'trabajo_vehiculos.finalizado_at',
+                 'trabajo_vehiculos.motivo_finalizacion_anticipada'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ALTER TABLE trabajos ADD COLUMN'))).toBe(false);
+    expect(ejecutadas.some(q => q.includes('ALTER TABLE trabajo_vehiculos'))).toBe(false);
   });
 });

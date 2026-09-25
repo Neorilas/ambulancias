@@ -893,6 +893,66 @@ const MIGRATIONS = [
       logger.info(`v24: ${resultado.affectedRows} usuario(s) borrado(s) con el email liberado`);
     },
   },
+
+  // ----------------------------------------------------------
+  {
+    name: 'v25_trabajos_multivehiculo',
+    description: 'Trabajos: descripción, ubicación, ciclo de vida y varios responsables por vehículo',
+    async run() {
+      // Datos del trabajo que ve TODO el equipo, no solo quien lleva vehículo.
+      await ensureColumn('trabajos', 'descripcion',
+        `ALTER TABLE trabajos ADD COLUMN descripcion TEXT NULL DEFAULT NULL AFTER nombre`);
+      await ensureColumn('trabajos', 'ubicacion',
+        `ALTER TABLE trabajos ADD COLUMN ubicacion VARCHAR(255) NULL DEFAULT NULL
+           COMMENT 'Texto libre: nombre del sitio o dirección' AFTER descripcion`);
+
+      // Ciclo de vida POR VEHÍCULO. Antes el trabajo entero se cerraba de
+      // golpe: con dos vehículos y dos responsables, el primero en cerrar el
+      // suyo daba por finalizado el trabajo aunque el otro no tuviera ni una
+      // foto. Ahora cada responsable activa y cierra su vehículo, y
+      // `trabajos.estado` se recalcula a partir de estas filas
+      // (sincronizarEstadoTrabajo en trabajos.controller).
+      await ensureColumn('trabajo_vehiculos', 'estado',
+        `ALTER TABLE trabajo_vehiculos
+           ADD COLUMN estado ENUM('programado','activo','finalizado','finalizado_anticipado')
+               NOT NULL DEFAULT 'programado'`);
+      await ensureColumn('trabajo_vehiculos', 'inicio_real_at',
+        `ALTER TABLE trabajo_vehiculos ADD COLUMN inicio_real_at DATETIME NULL DEFAULT NULL`);
+      await ensureColumn('trabajo_vehiculos', 'finalizado_at',
+        `ALTER TABLE trabajo_vehiculos ADD COLUMN finalizado_at DATETIME NULL DEFAULT NULL`);
+      await ensureColumn('trabajo_vehiculos', 'motivo_finalizacion_anticipada',
+        `ALTER TABLE trabajo_vehiculos ADD COLUMN motivo_finalizacion_anticipada TEXT NULL DEFAULT NULL`);
+
+      // Las filas que ya existieran heredan el estado de su trabajo: si no,
+      // un trabajo ya cerrado aparecería con todos sus vehículos «programados».
+      await query(`UPDATE trabajo_vehiculos tv JOIN trabajos t ON t.id = tv.trabajo_id
+                      SET tv.estado = t.estado
+                    WHERE tv.estado = 'programado' AND t.estado <> 'programado'`);
+
+      // Uno o varios responsables por vehículo del trabajo. Mismo patrón que
+      // asignacion_usuarios (v23), pero la clave es la fila trabajo↔vehículo:
+      // el responsable lo es de UN vehículo dentro del trabajo.
+      // `trabajo_vehiculos.responsable_user_id` se conserva como el principal
+      // (orden 0): lo leen la vista v_trabajos_activos y el historial.
+      await query(`CREATE TABLE IF NOT EXISTS trabajo_vehiculo_responsables (
+        trabajo_vehiculo_id INT UNSIGNED NOT NULL,
+        user_id             INT UNSIGNED NOT NULL,
+        orden               SMALLINT UNSIGNED NOT NULL DEFAULT 0
+                            COMMENT 'El 0 es el principal (trabajo_vehiculos.responsable_user_id)',
+        created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (trabajo_vehiculo_id, user_id),
+        INDEX idx_tvr_user (user_id),
+        CONSTRAINT fk_tvr_trabajo_vehiculo FOREIGN KEY (trabajo_vehiculo_id)
+          REFERENCES trabajo_vehiculos(id) ON DELETE CASCADE,
+        CONSTRAINT fk_tvr_user FOREIGN KEY (user_id)
+          REFERENCES users(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await query(`INSERT IGNORE INTO trabajo_vehiculo_responsables (trabajo_vehiculo_id, user_id, orden)
+                   SELECT id, responsable_user_id, 0 FROM trabajo_vehiculos
+                    WHERE responsable_user_id IS NOT NULL`);
+    },
+  },
 ];
 
 // ============================================================
