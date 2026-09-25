@@ -22,6 +22,13 @@ vi.mock('../../../utils/push.js', () => ({
   desuscribir:       vi.fn(),
 }));
 
+// El texto de la cabecera cambia según gestione o no (el técnico solo recibe
+// el aviso de «nuevo servicio»). Por defecto, gestión.
+const auth = { gestiona: true };
+vi.mock('../../../context/AuthContext.jsx', () => ({
+  useAuth: () => ({ hasPermission: () => auth.gestiona }),
+}));
+
 import { pushService } from '../../../services/push.service.js';
 import * as navegador  from '../../../utils/push.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
@@ -51,7 +58,22 @@ function escenarioNormal() {
 describe('AvisosPush', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    auth.gestiona = true;
     escenarioNormal();
+  });
+
+  describe('qué avisos anuncia', () => {
+    it('gestión: los de la flota y el de nuevo servicio', async () => {
+      montar();
+      expect(await screen.findByText(/se inicia un servicio.*te asignan uno/i)).toBeInTheDocument();
+    });
+
+    it('técnico: solo el de nuevo servicio', async () => {
+      auth.gestiona = false;
+      montar();
+      expect(await screen.findByText('Suena cuando te asignan un servicio nuevo.')).toBeInTheDocument();
+      expect(screen.queryByText(/se inicia un servicio/i)).not.toBeInTheDocument();
+    });
   });
 
   describe('estados de arranque', () => {

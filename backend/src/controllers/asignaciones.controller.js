@@ -517,6 +517,8 @@ async function createAsignacion(req, res, next) {
       },
       ip: req.ip,
     });
+    // Sin await: el aviso no retrasa la respuesta ni puede tumbarla.
+    avisos.avisarAsignacionNueva(asig, [...responsables, ...personal], { asignadoPor: req.user.id });
     return created(res, { ...asig, solapes }, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
@@ -663,6 +665,16 @@ async function updateAsignacion(req, res, next) {
         details:  { vehiculo: updated.matricula, cambios },
         ip: req.ip,
       });
+    }
+
+    // Aviso de «nuevo servicio» solo a quien ENTRA en la asignación: quien ya
+    // iba no tiene nada nuevo que saber. Pasar de personal a responsable no
+    // cuenta como entrar. Una edición que la cancela no avisa a nadie.
+    if (cambiaMiembros && updated.estado !== 'cancelada') {
+      const antes = new Set([...actualesResp, ...actualesPers]);
+      const entran = [...updated.responsables, ...updated.personal]
+        .map(m => m.id).filter(id => !antes.has(id));
+      if (entran.length) avisos.avisarAsignacionNueva(updated, entran, { asignadoPor: req.user.id });
     }
     return success(res, { ...updated, solapes }, 'Asignación actualizada');
   } catch (err) {

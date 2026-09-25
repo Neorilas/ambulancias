@@ -19,6 +19,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { pushService }      from '../../services/push.service.js';
 import { useNotification }  from '../../context/NotificationContext.jsx';
+import { useAuth }          from '../../context/AuthContext.jsx';
+import { PERMISSIONS }      from '../../utils/constants.js';
 import {
   soportaPush, estaInstalada, esIOS, permisoActual,
   suscripcionActual, suscribir, desuscribir,
@@ -141,6 +143,10 @@ function AjustesDelTelefono({ ios }) {
 
 export default function AvisosPush() {
   const { notify } = useNotification();
+  const { hasPermission } = useAuth();
+  // Los avisos de gestión solo llegan a quien gestiona; el de «nuevo
+  // servicio», a cualquiera que vaya en una asignación.
+  const gestiona = hasPermission(PERMISSIONS.MANAGE_TRABAJOS);
 
   const [estado,    setEstado]    = useState('cargando');
   const [ocupado,   setOcupado]   = useState(false);
@@ -233,8 +239,9 @@ export default function AvisosPush() {
         <div>
           <h2 className="text-[15px] font-semibold text-neutral-900">Avisos en este dispositivo</h2>
           <p className="text-[12.5px] text-neutral-500 mt-0.5">
-            Suena cuando se inicia un servicio, cuando se completan las fotos de inicio
-            y cuando se finaliza.
+            {gestiona
+              ? 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio y cuando se finaliza, y cuando te asignan uno.'
+              : 'Suena cuando te asignan un servicio nuevo.'}
           </p>
         </div>
         {estado === 'activo'    && <Estado tono="green">Activos</Estado>}

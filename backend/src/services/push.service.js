@@ -1,6 +1,7 @@
 /**
  * services/push.service.js
- * Avisos Web Push (VAPID) a los administradores.
+ * Avisos Web Push (VAPID) a los administradores y, desde 2026-09-25, a los
+ * miembros de una asignación cuando se les asigna (`notificarUsuarios`).
  *
  * Qué resuelve: que el teléfono de quien gestiona la flota suene cuando pasa
  * algo en una asignación, sin app nativa ni Firebase. El navegador del admin
@@ -95,6 +96,26 @@ async function suscripcionesDeAdmins(excluirUserId = null) {
         AND (p.nombre = ? OR r.nombre IN (?, ?))
         AND (? IS NULL OR ps.user_id <> ?)`,
     [PERMISSIONS.MANAGE_TRABAJOS, ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, excluir, excluir]
+  );
+  return rows;
+}
+
+/**
+ * Suscripciones de una lista de usuarios (los miembros de una asignación).
+ * Solo usuarios activos: a quien han dado de baja no se le avisa de nada,
+ * aunque su teléfono siga suscrito.
+ */
+async function suscripcionesDeUsuarios(userIds = []) {
+  const ids = [...new Set((userIds || []).map(Number).filter(Number.isInteger))];
+  if (!ids.length) return [];
+  const [rows] = await query(
+    `SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+       FROM push_subscriptions ps
+       JOIN users u ON u.id = ps.user_id
+      WHERE ps.user_id IN (${ids.map(() => '?').join(',')})
+        AND u.activo = 1
+        AND u.deleted_at IS NULL`,
+    ids
   );
   return rows;
 }
@@ -256,6 +277,29 @@ async function notificarUsuario(userId, { titulo, cuerpo, url = '/', tag } = {})
   }
 }
 
+/**
+ * Avisa a unos usuarios concretos, tengan el rol que tengan. Es el canal de
+ * los técnicos (p. ej. «te han asignado un servicio»), que no entran en
+ * `notificarAdmins`. Mismas reglas: nunca lanza, devuelve un resumen.
+ */
+async function notificarUsuarios(userIds, { titulo, cuerpo, url = '/', tag } = {}) {
+  if (!configurado) return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'sin-claves-vapid' };
+  try {
+    const subs = await suscripcionesDeUsuarios(userIds);
+    if (!subs.length) return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'sin-suscripciones' };
+
+    const resumen = await enviarA(subs, { titulo, cuerpo, url, tag });
+    logger.info(
+      `Push "${tag || titulo}" a usuarios [${userIds.join(',')}]: ${resumen.enviados} enviado(s), ` +
+      `${resumen.fallidos} fallido(s), ${resumen.borrados} caducado(s)`
+    );
+    return resumen;
+  } catch (err) {
+    logger.error(`Push: fallo al notificar a usuarios [${(userIds || []).join(',')}] — ${err.message}`);
+    return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'error' };
+  }
+}
+
 // ============================================================
 // Alta y baja de suscripciones
 // ============================================================
@@ -320,6 +364,7 @@ module.exports = {
   clavePublica,
   notificarAdmins,
   notificarUsuario,
+  notificarUsuarios,
   guardarSuscripcion,
   borrarSuscripcion,
   tieneSuscripcion,
@@ -327,6 +372,7 @@ module.exports = {
   // Expuestos para los tests
   suscripcionesDeAdmins,
   suscripcionesDeUsuario,
+  suscripcionesDeUsuarios,
   enviarA,
   normalizarTopic,
 };

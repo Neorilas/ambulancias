@@ -16,6 +16,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 // interesa SI se disparan y con qué asignación; el envío tiene sus propios
 // tests en services/push.service.test.js.
 jest.mock('../../../services/avisosAsignacion.service', () => ({
+  avisarAsignacionNueva:      jest.fn(),
   avisarAsignacionActivada:   jest.fn(),
   avisarFotosInicioCompletas: jest.fn(),
   avisarAsignacionFinalizada: jest.fn(),
@@ -1672,6 +1673,61 @@ describe('asignaciones.controller', () => {
       expect(insertAsig[1][1]).toBe(2);
       const insertMiembros = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO asignacion_usuarios'));
       expect(insertMiembros[1]).toEqual([5, 2, 'responsable', 0, 5, 3, 'responsable', 1, 5, 7, 'personal', 0]);
+      // Aviso de «nuevo servicio» a todo el equipo; quien crea se excluye allí.
+      expect(avisos.avisarAsignacionNueva).toHaveBeenCalledTimes(1);
+      expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 5 }), [2, 3, 7], { asignadoPor: 1 });
+    });
+
+    describe('aviso de nuevo servicio al editar', () => {
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      // Antes: responsable 2, personal 7. Después: los que diga `despues`.
+      const editar = async (body, despues, { estadoDespues = 'programada' } = {}) => {
+        mockAsignacionCompleta({ estado: 'programada', miembros: [
+          { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 7, rol: 'personal', orden: 0 },
+        ] });
+        query.mockResolvedValueOnce([[...despues.map(m => ({ id: m.user_id }))]]); // usuariosNoValidos
+        query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+        query.mockResolvedValueOnce([]); // DELETE miembros
+        query.mockResolvedValueOnce([]); // INSERT miembros
+        query.mockResolvedValueOnce([]); // UPDATE principal
+        mockAsignacionCompleta({ estado: estadoDespues, miembros: despues });
+        query.mockResolvedValue([[]]);   // solapes
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('solo a quien entra; quien ya iba (aunque cambie de papel) no', async () => {
+        const res = await editar({ responsables: [2, 7], personal: [9] }, [
+          { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 7, rol: 'responsable', orden: 1 },
+          { user_id: 9, rol: 'personal', orden: 0 },
+        ]);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 1 }), [9], { asignadoPor: 1 });
+      });
+
+      it('si solo sale gente, no avisa a nadie', async () => {
+        await editar({ responsables: [2], personal: [] }, [{ user_id: 2, rol: 'responsable', orden: 0 }]);
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
+
+      it('una edición que la cancela no avisa aunque entre alguien', async () => {
+        await editar({ responsables: [9], estado: 'cancelada' },
+          [{ user_id: 9, rol: 'responsable', orden: 0 }], { estadoDespues: 'cancelada' });
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
+
+      it('sin tocar los miembros no avisa', async () => {
+        mockAsignacionCompleta({ estado: 'programada' });
+        query.mockResolvedValueOnce([]); // UPDATE
+        mockAsignacionCompleta({ estado: 'programada' });
+        query.mockResolvedValue([[]]);
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: 'x' }, user: ADMIN }),
+          mockRes(), mockNext());
+        expect(avisos.avisarAsignacionNueva).not.toHaveBeenCalled();
+      });
     });
 
     it('rechaza a la misma persona dos veces sin tocar la BD', async () => {

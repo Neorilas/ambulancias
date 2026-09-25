@@ -297,6 +297,45 @@ describe('push.service', () => {
     });
   });
 
+  // ── Aviso a los miembros de una asignación ──────────────
+  describe('notificarUsuarios', () => {
+    it('consulta solo esos usuarios (sin repetir) y solo activos', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[SUSCRIPCION(3, 42), SUSCRIPCION(4, 43)]]);
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      const res = await push.notificarUsuarios([42, 43, 42], { titulo: 'Nuevo', cuerpo: 'servicio', tag: 't' });
+
+      expect(res.enviados).toBe(2);
+      const [sql, params] = query.mock.calls[0];
+      expect(params).toEqual([42, 43]);
+      expect(sql).toMatch(/u\.activo = 1/);
+      expect(sql).toMatch(/u\.deleted_at IS NULL/);
+    });
+
+    it('lista vacía: no toca la BD', async () => {
+      const push = cargarPush();
+      const res = await push.notificarUsuarios([], { titulo: 'x', cuerpo: 'y' });
+      expect(res).toMatchObject({ enviados: 0, omitido: 'sin-suscripciones' });
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('sin claves VAPID no hace nada', async () => {
+      const push = cargarPush({ conClaves: false });
+      const res = await push.notificarUsuarios([42], { titulo: 'x', cuerpo: 'y' });
+      expect(res.omitido).toBe('sin-claves-vapid');
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('no lanza si la BD falla', async () => {
+      const push = cargarPush();
+      query.mockRejectedValueOnce(new Error('BD caída'));
+      await expect(push.notificarUsuarios([42], { titulo: 'x', cuerpo: 'y' }))
+        .resolves.toMatchObject({ omitido: 'error' });
+    });
+  });
+
   // ── Alta y baja ──────────────────────────────────────────
   describe('guardarSuscripcion', () => {
     it('inserta actualizando si el endpoint ya existía', async () => {
