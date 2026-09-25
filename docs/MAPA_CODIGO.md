@@ -35,8 +35,12 @@ frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2�
 
 Dominio: **vehículos** (ambulancias) + **asignaciones libres** (1..N
 responsables usan un vehículo entre dos fechas, con 0..N personal que va con
-ellos; evidencia fotográfica al inicio y al fin). **Trabajos** (vehículo(s)+usuarios para un servicio) existe pero está
-oculto por feature flags (§7).
+ellos; evidencia fotográfica al inicio y al fin). **Trabajos** (v25): un
+servicio con título, descripción, ubicación y fechas, 0..N vehículos —cada uno
+con 1..N responsables que lo activan, documentan y cierran por su cuenta— y un
+equipo de 0..N personas que ve la ficha. Listo pero oculto tras los flags
+`menu_trabajos`/`menu_mis_trabajos` hasta que un superadmin los encienda (§6.2,
+§7).
 
 ---
 
@@ -54,7 +58,10 @@ Errores: `middleware/error.middleware.js` (5xx van a `error_logs`).
 `server.js` además: espera la BD con reintentos, corre `config/migrations.js` al
 arrancar, y lanza el cron `autoActivar` (al arrancar y cada 60 s): pasa a
 `activo`/`activa` los trabajos/asignaciones programados cuya `fecha_inicio` ya
-llegó. Los trabajos van de un `UPDATE` masivo; **las asignaciones no**: se
+llegó. Los trabajos van de dos `UPDATE` masivos: primero sus filas de
+`trabajo_vehiculos` (sin sellar `inicio_real_at`, que es la pulsación del
+responsable) y después el propio trabajo, lo que cubre también los que no
+tienen vehículos. **Las asignaciones no**: se
 seleccionan primero y se actualizan una a una con el guard `estado =
 'programada'`, porque de cada una hay que mandar un aviso push y hace falta
 saber cuáles ha cambiado de verdad (§2.5).
@@ -71,7 +78,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
-| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/activar` · POST `/:id/finalize` · POST `/:id/evidencias` |
+| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Todo el grupo exige `MANAGE_TRABAJOS` |
@@ -85,7 +92,10 @@ formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
 §8);
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
-`generateIdentificador`, `getTrabajoCompleto`.
+`generateIdentificador`, `getTrabajoCompleto` (sin recortar),
+`vistaParaUsuario` (el recorte por persona, §6.2), `leerVehiculos`,
+`guardarResponsables`, `estadoTrabajoDesde` + `sincronizarEstadoTrabajo`,
+`FILTRO_PROPIOS` (el «es mío» de los listados).
 
 ### 2.3 Middleware (`backend/src/middleware/`)
 
@@ -93,7 +103,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 |---|---|---|
 | `auth.middleware.js` | `authenticate` | Verifica JWT y **consulta permisos en BD en cada request** (no van en el token) |
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
-| `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. En asignaciones solo cuentan los **responsables**, nunca el personal. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
+| `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. Solo cuentan los **responsables**: nunca el personal de una asignación ni el equipo de un trabajo. En trabajos se mira el estado de la fila `trabajo_vehiculos`, no el del trabajo. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
 | `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
 | `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
@@ -308,11 +318,18 @@ de funcionar sin cobertura.
 | `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
-| `/mis-trabajos` | `MisTrabajos.jsx` | ídem | `menu_mis_trabajos` (off) |
-| `/trabajos`, `/trabajos/:id` | `trabajos/TrabajoList.jsx`, `TrabajoDetail.jsx` | ídem | `menu_trabajos` (off) |
+| `/mis-trabajos` | `MisTrabajos.jsx` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
+| `/trabajos` | `trabajos/TrabajoList.jsx` | admin, gestor, super | `menu_trabajos` (off) |
+| `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
 
 Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
-`requiredFeature`). Menú: `components/Layout/Sidebar.jsx` (usa
+`requiredFeature`, que acepta una lista: vale con uno encendido). **Espera a
+que carguen los flags** antes de decidir: antes decidía con la lista vacía y
+echaba a `/mis-asignaciones` a cualquiera que no fuera superadmin al recargar o
+abrir un enlace a una pantalla con flag. El «cargando» de `FeaturesContext` se
+deriva de si ya se cargó CON sesión (`cargadoConSesion`), no se guarda aparte:
+entre el render en que llega la sesión y el efecto que lanza la carga hay un
+render intermedio en que un `loading` guardado seguía en false. Menú: `components/Layout/Sidebar.jsx` (usa
 `AuthContext` + `FeaturesContext`).
 
 ### 3.3 Página → servicios que usa → endpoint
@@ -331,7 +348,7 @@ Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (solo con `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
-| `TrabajoList/Detail/Form`, `MisTrabajos`, `InicioTrabajo`, `Finalizacion`, `CalendarioTrab` | `trabajos.service` | `/trabajos` |
+| `TrabajoList/Detail/Form`, `MisTrabajos`, `InicioTrabajo`, `Finalizacion`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos`. `InicioTrabajo`/`Finalizacion` operan sobre UN vehículo (`vehicleIdFilter`/`vehicleId`) y cierran con `finalizeVehiculo` |
 
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
 reintenta. Todos los servicios cuelgan de ella.
@@ -346,6 +363,8 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
+| `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `validarTrabajo`, `payloadTrabajo`) y qué botones toca en cada vehículo (`accionesVehiculo`). Solo traduce `detalle`/`soy_responsable`/`mi_rol`, que calcula el backend |
+| `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en los responsables de cada vehículo de `TrabajoForm` |
 | `utils/miembrosAsignacion.js` | Responsables/personal en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
@@ -456,7 +475,8 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
-`schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
+`trabajo_vehiculo_responsables` (v25), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -470,11 +490,15 @@ vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento 
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
 vehicles 1─N vehicle_revisiones
 users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
-trabajos N:M vehicles (trabajo_vehiculos) · trabajos N:M users (trabajo_usuarios)
+trabajos N:M vehicles (trabajo_vehiculos: estado, inicio_real_at, finalizado_at, km, motivo)
+trabajo_vehiculos N:M users (trabajo_vehiculo_responsables: orden; 0 = responsable_user_id)
+trabajos N:M users (trabajo_usuarios = el EQUIPO: ve la ficha, no la evidencia)
 ```
 
 Estados: asignación `programada → activa → finalizada | cancelada`; trabajo
-`programado → activo → finalizado | finalizado_anticipado`; incidencia
+y cada `trabajo_vehiculos` `programado → activo → finalizado |
+finalizado_anticipado` (el del trabajo se DERIVA de los de sus vehículos,
+§6.2); incidencia
 `pendiente → en_revision → resuelto`. Borrado lógico con `deleted_at`.
 `vehicles.alias` es el titular visible; `matricula` es única.
 
@@ -517,7 +541,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v24_liberar_email_borrados**. (En alguna BD local puede
+Última migración: **v25_trabajos_multivehiculo**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -659,6 +683,65 @@ y la ventana se abre sesenta veces por hora. Aquí no hay reintento: se ha
 aceptado el riesgo en vez de meter un `SELECT ... FOR UPDATE` dentro de la
 transacción. Si se quiere cerrar del todo, es ahí donde iría.
 
+### 6.2 Quién hace qué en un trabajo (v25)
+
+| Acción | Responsable de un vehículo | Equipo (`trabajo_usuarios`) | Gestión |
+|---|---|---|---|
+| Ver la ficha (título, descripción, ubicación, fechas, qué vehículos van y quién los lleva) | sí | sí | sí (`view_all_trabajos` o `manage_trabajos`) |
+| Ver km, progreso y fotos de un vehículo | **solo del suyo** | no | todos |
+| Activar / fotos / cerrar un vehículo | **solo el suyo** | no | cualquiera |
+| Activar / cerrar un trabajo SIN vehículos | no | no | sí (`manage_trabajos`) |
+| Crear / editar / borrar | no | no | sí (admin o gestor) |
+
+El recorte lo hace el backend en `vistaParaUsuario`: cada vehículo sale con
+`soy_responsable` y `detalle`, y el trabajo con `mi_rol`. El frontend
+(`utils/trabajos.js`) solo lo convierte en botones. Un responsable **no tiene
+por qué** estar también en el equipo: los listados (`FILTRO_PROPIOS`) y el 403
+miran las dos cosas.
+
+**Ciclo de vida por vehículo.** Antes `finalizeTrabajo` comprobaba las fotos
+solo de los vehículos de quien llamaba, pero cerraba el trabajo ENTERO: con
+dos vehículos y dos responsables, el primero en cerrar el suyo lo daba por
+finalizado aunque el otro no tuviera ni una foto. Ahora cada fila
+`trabajo_vehiculos` tiene su estado, y `trabajos.estado` se recalcula tras cada
+cambio (`sincronizarEstadoTrabajo`): todos cerrados → finalizado (anticipado si
+alguno lo fue); alguno empezado o cerrado → activo; ninguno → programado. Se
+guarda en vez de calcularse al leer para que listado y calendario sigan
+filtrando por una columna. **No se escribe a mano**: `PUT /trabajos/:id` ya no
+acepta `estado`.
+
+Activar un vehículo es idempotente y sella `inicio_real_at` con la primera
+pulsación, como «Inicio de servicio» en asignaciones: vale también si el cron
+ya lo pasó a `activo`. Quien no gestiona solo puede adelantarse 24 h. Cerrarlo
+exige las fotos de inicio y de fin **de ese vehículo**, km finales que no bajen
+ni de los de inicio ni del cuentakilómetros actual (mismo criterio que
+asignaciones, §6.1) y motivo si es antes de `fecha_fin`. Igual que en
+asignaciones, cerrar **no** exige haberlo activado antes. Un vehículo cerrado
+ya no admite fotos, aunque el trabajo siga abierto por otro.
+
+**Editar no borra y reinserta los vehículos**: se compara con lo que hay.
+Borrar la fila se llevaría su estado, su hora real y sus responsables. Quitar un
+vehículo que ya ha empezado o tiene fotos da 400 (su evidencia se quedaría
+colgando de un trabajo que ya no lo lleva); el formulario lo marca como
+bloqueado. El km de inicio solo se reescribe mientras el vehículo sigue
+`programado`.
+
+**Trabajo sin vehículos** (p. ej. una cobertura sin ambulancia): no hay fila de
+la que colgar el ciclo, así que lo activa y lo cierra gestión con
+`/:id/activar` y `/:id/finalize`, que con vehículos devuelven 400.
+
+**Quién ve la lista cambió de criterio.** Antes el recorte colgaba de
+`isOperacional`, y un usuario **sin ningún rol** —la mayoría de la plantilla—
+no era «operacional» y veía todos los trabajos. Ahora sin `view_all_trabajos`
+ni `manage_trabajos` solo se ven los propios. `/vehicles` para operacionales y
+`tieneElVehiculoAsignado` pasan a mirar también a los responsables y el estado
+de la fila, no el equipo ni el estado del trabajo.
+
+Trampa de las fechas: el backend guarda `fecha_inicio`/`fecha_fin` tal cual
+llegan y MySQL rechaza (500) un ISO con milisegundos y `Z`. El frontend manda
+`YYYY-MM-DDTHH:mm` (`toUtcIso`) y funciona; un cliente que mande
+`toISOString()` entero no. Ya pasaba antes de v25.
+
 ## 7. Feature flags
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.
@@ -675,7 +758,14 @@ Trabajos.** El personal en asignaciones libres (rol `personal` de
 bueno es Trabajo → vehículo(s) → personal: el responsable de cada vehículo
 activa el trabajo y evidencia el estado del vehículo, y todo el personal ve los
 detalles del trabajo. Al encender `menu_trabajos`, el personal se retira de las
-asignaciones.
+asignaciones. Trabajos ya está hecho (v25, §6.2); la retirada del personal
+queda como tarea aparte, a propósito, para no mezclarla con este cambio.
+
+**Encender Trabajos es un acto deliberado**, igual que `menu_flota`: la
+migración no toca los flags. Tras desplegar, un superadmin enciende
+`menu_trabajos` (lista de gestión) y `menu_mis_trabajos` (lo que ve el personal
+de campo, que ahora sí aparece en su menú). Mientras estén apagados, el
+backend responde igual: los flags de Trabajos son de menú, no de acceso.
 
 **`menu_flota` es la excepción a todo lo anterior y conviene no copiarla sin
 pensar.** Los demás flags solo deciden si una pantalla aparece en el menú, y
@@ -696,6 +786,9 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
+| Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por vehículo, no por campo del trabajo) |
+| Responsables de un vehículo en un trabajo | v25 → `trabajos.controller` (`leerVehiculos`, `guardarResponsables`, `vistaParaUsuario`, `cargarVehiculoDelTrabajo`, `FILTRO_PROPIOS`) + `ownership.middleware` + `vehicles.controller` (`canOperacionalAccess`, listado de operacionales) → `TrabajoForm` (`ListaMiembros`) + `utils/trabajos.js`. Reglas en §6.2 |
+| El ciclo de vida por vehículo de un trabajo | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, `estadoTrabajoDesde`, `sincronizarEstadoTrabajo`, candado de `uploadEvidencia`) + cron de `server.js` → `TrabajoDetail` (`VehiculoTrabajo`), `InicioTrabajo`, `Finalizacion`, `MisTrabajos` (`mis_vehiculos_pendientes`), `Dashboard` |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
@@ -780,7 +873,12 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-22** (§6.1 y §8: el km al cerrar un servicio no
+Última revisión: **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
+§2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por
+vehículo, varios responsables, visibilidad del equipo, rutas abiertas al
+personal de campo y `ProtectedRoute` esperando a los flags).
+
+Antes, **2026-09-22** (§6.1 y §8: el km al cerrar un servicio no
 puede bajar del actual del vehículo — se rechaza en `finalizarAsignacion`,
 también desde el Dashboard (`listAsignaciones` trae `vehiculo_km_actual`
 igual que el detalle); bajarlo a propósito solo desde la ficha del vehículo,

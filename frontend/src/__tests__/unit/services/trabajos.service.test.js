@@ -66,6 +66,20 @@ describe('trabajos.service', () => {
     expect(api.post).toHaveBeenCalledWith('/trabajos/1/finalize', { vehiculos_km: [] });
   });
 
+  it('activarVehiculo', async () => {
+    api.post.mockResolvedValueOnce(mockData({ id: 1 }));
+    const r = await trabajosService.activarVehiculo(1, 7);
+    expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/activar');
+    expect(r).toEqual({ id: 1 });
+  });
+
+  it('finalizeVehiculo', async () => {
+    api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
+    const r = await trabajosService.finalizeVehiculo(1, 7, { kilometros_fin: 1200 });
+    expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/finalize', { kilometros_fin: 1200 });
+    expect(r).toEqual({ message: 'ok' });
+  });
+
   it('uploadEvidencia', async () => {
     api.post.mockResolvedValueOnce(mockData({}));
     const fd = new FormData();

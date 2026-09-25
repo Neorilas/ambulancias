@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../../components/common/Modal.jsx';
+import ListaMiembros from '../../components/common/ListaMiembros.jsx';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
+import {
+  formularioInicial, vehiculoVacio, validarTrabajo, payloadTrabajo,
+} from '../../utils/trabajos.js';
 
 export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const isEdit = !!trabajo;
@@ -14,19 +17,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const [users,    setUsers]    = useState([]);
   const [saving,   setSaving]   = useState(false);
   const [errors,   setErrors]   = useState({});
-
-  const [form, setForm] = useState({
-    nombre:      trabajo?.nombre      || '',
-    tipo:        trabajo?.tipo        || 'traslado',
-    fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
-    fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
-    vehiculos:   trabajo?.vehiculos?.map(v => ({
-      vehicle_id:           v.vehicle_id,
-      responsable_user_id:  v.responsable_user_id,
-      kilometros_inicio:    v.kilometros_inicio || '',
-    })) || [],
-    usuarios:    trabajo?.usuarios?.map(u => u.user_id) || [],
-  });
+  const [form,     setForm]     = useState(() => formularioInicial(trabajo));
 
   useEffect(() => {
     Promise.all([
@@ -44,10 +35,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   };
 
   const addVehicle = () => {
-    setForm(f => ({
-      ...f,
-      vehiculos: [...f.vehiculos, { vehicle_id: '', responsable_user_id: '', kilometros_inicio: '' }],
-    }));
+    setForm(f => ({ ...f, vehiculos: [...f.vehiculos, vehiculoVacio()] }));
   };
 
   const removeVehicle = (i) => {
@@ -60,6 +48,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
       vs[i] = { ...vs[i], [field]: val };
       return { ...f, vehiculos: vs };
     });
+    setErrors(er => ({ ...er, vehiculos: '' }));
   };
 
   const toggleUser = (uid) => {
@@ -71,42 +60,21 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     }));
   };
 
-  const validate = () => {
-    const e = {};
-    if (!form.nombre.trim())     e.nombre      = 'Nombre requerido';
-    if (!form.fecha_inicio)      e.fecha_inicio = 'Fecha inicio requerida';
-    if (!form.fecha_fin)         e.fecha_fin    = 'Fecha fin requerida';
-    if (form.fecha_fin && form.fecha_inicio && form.fecha_fin <= form.fecha_inicio) {
-      e.fecha_fin = 'Fecha fin debe ser posterior a fecha inicio';
-    }
-    for (const v of form.vehiculos) {
-      if (!v.vehicle_id || !v.responsable_user_id) {
-        e.vehiculos = 'Cada vehículo necesita vehículo y responsable asignados';
-        break;
-      }
-    }
-    setErrors(e);
-    return Object.keys(e).length === 0;
+  // Un vehículo solo puede ir una vez: cada selector ofrece los que no estén
+  // ya elegidos en otra fila (más el suyo, para poder mostrarlo).
+  const vehiculosLibres = (propio) => {
+    const usados = new Set(form.vehiculos.map(v => String(v.vehicle_id)).filter(Boolean));
+    return vehicles.filter(v => String(v.id) === String(propio) || !usados.has(String(v.id)));
   };
 
   const handleSubmit = async (ev) => {
     ev.preventDefault();
-    if (!validate()) return;
+    const e = validarTrabajo(form);
+    setErrors(e);
+    if (Object.keys(e).length) return;
     setSaving(true);
     try {
-      const payload = {
-        nombre:       form.nombre,
-        tipo:         form.tipo,
-        fecha_inicio: toUtcIso(form.fecha_inicio),
-        fecha_fin:    toUtcIso(form.fecha_fin),
-        vehiculos:    form.vehiculos.map(v => ({
-          vehicle_id:          parseInt(v.vehicle_id),
-          responsable_user_id: parseInt(v.responsable_user_id),
-          kilometros_inicio:   v.kilometros_inicio ? parseInt(v.kilometros_inicio) : null,
-        })).filter(v => v.vehicle_id && v.responsable_user_id),
-        usuarios: form.usuarios.map(Number),
-      };
-
+      const payload = payloadTrabajo(form);
       if (isEdit) await trabajosService.update(trabajo.id, payload);
       else        await trabajosService.create(payload);
 
@@ -135,22 +103,39 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Nombre */}
+        {/* Título */}
         <div>
-          <label className="label">Nombre <span className="text-bad-500">*</span></label>
+          <label className="label">Título <span className="text-bad-500">*</span></label>
           <input type="text" className={`input ${errors.nombre ? 'input-error' : ''}`}
-            value={form.nombre} onChange={set('nombre')} placeholder="Nombre descriptivo del trabajo" />
+            value={form.nombre} onChange={set('nombre')} placeholder="Ej.: Cobertura maratón de Madrid" />
           {errors.nombre && <p className="field-error">{errors.nombre}</p>}
         </div>
 
-        {/* Tipo */}
+        {/* Descripción */}
         <div>
-          <label className="label">Tipo</label>
-          <select className="input" value={form.tipo} onChange={set('tipo')}>
-            <option value="traslado">Traslado</option>
-            <option value="cobertura_evento">Cobertura de evento</option>
-            <option value="otro">Otro</option>
-          </select>
+          <label className="label">Descripción</label>
+          <textarea className="input min-h-20 resize-y" value={form.descripcion}
+            onChange={set('descripcion')}
+            placeholder="Qué hay que hacer, punto de encuentro, contacto…" />
+        </div>
+
+        {/* Ubicación y tipo */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Ubicación</label>
+            <input type="text" className={`input ${errors.ubicacion ? 'input-error' : ''}`}
+              value={form.ubicacion} onChange={set('ubicacion')} maxLength={255}
+              placeholder="Nombre del sitio o dirección" />
+            {errors.ubicacion && <p className="field-error">{errors.ubicacion}</p>}
+          </div>
+          <div>
+            <label className="label">Tipo</label>
+            <select className="input" value={form.tipo} onChange={set('tipo')}>
+              <option value="traslado">Traslado</option>
+              <option value="cobertura_evento">Cobertura de evento</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
         </div>
 
         {/* Fechas */}
@@ -172,57 +157,71 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
         {/* Vehículos */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">Vehículos asignados</label>
+            <label className="label mb-0">Vehículos</label>
             <button type="button" onClick={addVehicle} className="btn-secondary text-xs px-2 py-1">
               + Añadir vehículo
             </button>
           </div>
+          <p className="text-xs text-neutral-500 mb-2">
+            Cada responsable activa, documenta y cierra su vehículo por su cuenta.
+          </p>
           {errors.vehiculos && <p className="field-error mb-2">{errors.vehiculos}</p>}
           <div className="space-y-3">
             {form.vehiculos.map((veh, i) => (
-              <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-2">
+              <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-neutral-600">Vehículo {i + 1}</span>
-                  <button type="button" onClick={() => removeVehicle(i)}
-                    className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
+                  {veh.bloqueado ? (
+                    <span className="text-xs text-neutral-400">Ya en servicio: no se puede quitar</span>
+                  ) : (
+                    <button type="button" onClick={() => removeVehicle(i)}
+                      className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="label text-xs">Vehículo</label>
-                    <select className="input text-sm" value={veh.vehicle_id}
+                    <select className="input text-sm" value={veh.vehicle_id} disabled={veh.bloqueado}
                       onChange={e => setVehicleField(i, 'vehicle_id', e.target.value)}>
                       <option value="">Seleccionar...</option>
-                      {vehicles.map(v => (
+                      {vehiculosLibres(veh.vehicle_id).map(v => (
                         <option key={v.id} value={v.id}>{v.alias} ({v.matricula})</option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="label text-xs">Responsable</label>
-                    <select className="input text-sm" value={veh.responsable_user_id}
-                      onChange={e => setVehicleField(i, 'responsable_user_id', e.target.value)}>
-                      <option value="">Seleccionar...</option>
-                      {users.map(u => (
-                        <option key={u.id} value={u.id}>{u.nombre} {u.apellidos}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
                     <label className="label text-xs">Km inicio</label>
-                    <input type="number" className="input text-sm" min={0}
-                      value={veh.kilometros_inicio}
+                    <input type="text" inputMode="numeric" className="input text-sm"
+                      value={veh.kilometros_inicio} disabled={veh.bloqueado}
                       onChange={e => setVehicleField(i, 'kilometros_inicio', e.target.value)}
                       placeholder="Opcional" />
                   </div>
+                </div>
+                <div>
+                  <label className="label text-xs">Responsables <span className="text-bad-500">*</span></label>
+                  <ListaMiembros
+                    users={users}
+                    lista={veh.responsables}
+                    ocupados={veh.responsables}
+                    onChange={lista => setVehicleField(i, 'responsables', lista)}
+                    minimo={1}
+                    textoAnadir="Añadir otro responsable"
+                    error={!!errors.vehiculos}
+                  />
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Personal */}
+        {/* Equipo */}
         <div>
-          <label className="label">Personal asignado</label>
+          <label className="label">Equipo</label>
+          <p className="text-xs text-neutral-500 mb-2">
+            Ven el título, la descripción, la ubicación y las fechas del trabajo,
+            pero no la evidencia de los vehículos. Los responsables de un
+            vehículo no hace falta marcarlos aquí.
+          </p>
           <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-neutral-50 rounded-lg border border-neutral-200">
             {users.map(u => {
               const sel = form.usuarios.includes(u.id);

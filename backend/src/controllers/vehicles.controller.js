@@ -35,11 +35,11 @@ async function canOperacionalAccess(userId, vehicleId) {
   const [rows] = await query(
     `SELECT tv.id
      FROM trabajo_vehiculos tv
-     JOIN trabajos t         ON tv.trabajo_id = t.id
-     JOIN trabajo_usuarios tu ON t.id = tu.trabajo_id
+     JOIN trabajos t ON tv.trabajo_id = t.id
+     JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
      WHERE tv.vehicle_id = ?
-       AND tu.user_id    = ?
-       AND t.estado      = 'activo'
+       AND tvr.user_id   = ?
+       AND tv.estado     = 'activo'
        AND t.deleted_at  IS NULL`,
     [vehicleId, userId]
   );
@@ -59,16 +59,18 @@ async function listVehicles(req, res, next) {
     let where  = 'WHERE v.deleted_at IS NULL';
     const params = [];
 
-    // Operacionales: solo ven vehículos asignados en trabajo ACTIVO ahora mismo
+    // Operacionales: solo ven los vehículos de los que son responsables en un
+    // trabajo, con ese vehículo ACTIVO ahora mismo. El equipo del trabajo no:
+    // ve la ficha del trabajo, no la del vehículo (§6.2 del mapa).
     if (isOperacional(req.user)) {
       where += `
         AND EXISTS (
           SELECT 1 FROM trabajo_vehiculos tv
-          JOIN trabajos t         ON tv.trabajo_id = t.id
-          JOIN trabajo_usuarios tu ON t.id = tu.trabajo_id
+          JOIN trabajos t ON tv.trabajo_id = t.id
+          JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
           WHERE tv.vehicle_id = v.id
-            AND tu.user_id    = ?
-            AND t.estado      = 'activo'
+            AND tvr.user_id   = ?
+            AND tv.estado     = 'activo'
             AND t.deleted_at  IS NULL
         )`;
       params.push(req.user.id);
@@ -301,7 +303,7 @@ async function deleteVehicle(req, res, next) {
     const [activeJobs] = await query(
       `SELECT t.id FROM trabajo_vehiculos tv
        JOIN trabajos t ON tv.trabajo_id = t.id
-       WHERE tv.vehicle_id = ? AND t.estado IN ('programado','activo') AND t.deleted_at IS NULL`,
+       WHERE tv.vehicle_id = ? AND tv.estado IN ('programado','activo') AND t.deleted_at IS NULL`,
       [id]
     );
     if (activeJobs.length) {
