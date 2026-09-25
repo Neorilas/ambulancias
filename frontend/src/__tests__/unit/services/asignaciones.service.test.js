@@ -17,6 +17,13 @@ describe('asignaciones.service', () => {
     expect(api.get).toHaveBeenCalledWith('/asignaciones', { params: {} });
   });
 
+  it('alarmas', async () => {
+    api.get.mockResolvedValueOnce(mockData([{ id: 3 }]));
+    const r = await asignacionesService.alarmas();
+    expect(api.get).toHaveBeenCalledWith('/asignaciones/alarmas');
+    expect(r).toEqual([{ id: 3 }]);
+  });
+
   it('get', async () => {
     api.get.mockResolvedValueOnce(mockData({ id: 1 }));
     const r = await asignacionesService.get(1);

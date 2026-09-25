@@ -58,11 +58,12 @@ module.exports = {
 
   // Minutos de margen desde la hora prevista antes de dar por hecho que la
   // asignación no la ha iniciado nadie. Pasados, los administradores reciben
-  // un aviso push (una sola vez por asignación, ver v19 y vigilancia.service).
-  // Se puede bajar por entorno para probarlo sin esperar media hora.
+  // un aviso push (una sola vez por asignación, ver v19 y vigilancia.service)
+  // y, con la app abierta, la alarma sonora (`GET /asignaciones/alarmas`).
+  // Se puede bajar por entorno para probarlo sin esperar un cuarto de hora.
   AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
     ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
-    : 30,
+    : 15,
   // Cuánto antes de la hora prevista se puede pulsar «Inicio de servicio».
   // Un servicio de las 8:00 se puede iniciar desde las 7:30, no antes: la hora
   // real que sella el botón es la evidencia de cuándo empezó el servicio.

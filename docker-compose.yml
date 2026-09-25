@@ -85,7 +85,7 @@ services:
       # Minutos de margen sobre la hora prevista antes de avisar a los admins
       # de que nadie ha iniciado la asignacion. Se puede bajar desde el .env
       # del entorno para probarlo sin esperar media hora.
-      AVISO_SIN_INICIAR_MINUTOS: ${AVISO_SIN_INICIAR_MINUTOS:-30}
+      AVISO_SIN_INICIAR_MINUTOS: ${AVISO_SIN_INICIAR_MINUTOS:-15}
 
       # ── Cartrack: mapa de flota (solo superadmin) ───────────────────────────
       # Credenciales HTTP Basic del API de la flota. Salen del .env del

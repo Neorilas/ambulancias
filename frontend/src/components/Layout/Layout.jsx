@@ -5,6 +5,7 @@ import Sidebar from './Sidebar.jsx';
 import ToastContainer from '../common/Toast.jsx';
 import InstallPWAButton from '../common/InstallPWAButton.jsx';
 import VehicleExpirationAlerts from '../common/VehicleExpirationAlerts.jsx';
+import AlarmaSinIniciar from '../common/AlarmaSinIniciar.jsx';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -29,6 +30,9 @@ export default function Layout() {
 
       {/* Alertas flotantes de caducidad de documentos (solo admin) */}
       <VehicleExpirationAlerts />
+
+      {/* Alarma sonora: servicio sin iniciar pasada su hora (solo gestión) */}
+      <AlarmaSinIniciar />
 
       {/* Botón flotante instalar PWA (solo si no está instalada) */}
       <InstallPWAButton variant="float" />

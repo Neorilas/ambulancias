@@ -17,6 +17,7 @@ const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
 const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
+const vigilancia                 = require('../services/vigilancia.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -380,6 +381,23 @@ async function listAsignaciones(req, res, next) {
 }
 
 // ============================================================
+// GET /asignaciones/alarmas
+// ============================================================
+/**
+ * Asignaciones con la alarma de «sin iniciar» sonando (ver
+ * `vigilancia.listarAlarmasSinIniciar`). Solo gestión: la ruta exige
+ * MANAGE_TRABAJOS, los mismos que reciben el push.
+ */
+async function listAlarmas(req, res, next) {
+  try {
+    const filas = await vigilancia.listarAlarmasSinIniciar({ excluirUserId: req.user.id });
+    return success(res, filas);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // GET /asignaciones/:id
 // ============================================================
 async function getAsignacion(req, res, next) {
@@ -552,7 +570,13 @@ async function updateAsignacion(req, res, next) {
 
     await transaction(async (conn) => {
       await conn.execute(
+        // La marca del aviso «sin iniciar» se limpia si cambia la hora
+        // prevista: una asignación aplazada tiene que poder volver a avisar
+        // a su nueva hora. Va la PRIMERA porque MySQL aplica el SET de
+        // izquierda a derecha: detrás de `fecha_inicio = …` ya compararía
+        // contra el valor nuevo y nunca vería el cambio.
         `UPDATE asignaciones_libres SET
+           aviso_sin_iniciar_at = IF(? <> fecha_inicio, NULL, aviso_sin_iniciar_at),
            vehicle_id   = COALESCE(?, vehicle_id),
            fecha_inicio = COALESCE(?, fecha_inicio),
            fecha_fin    = COALESCE(?, fecha_fin),
@@ -561,6 +585,7 @@ async function updateAsignacion(req, res, next) {
            estado       = COALESCE(?, estado)
          WHERE id = ?`,
         [
+          fecha_inicio || null,
           vehicle_id   || null,
           fecha_inicio || null,
           fecha_fin    || null,
@@ -1079,6 +1104,7 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
 
 module.exports = {
   listAsignaciones,
+  listAlarmas,
   getAsignacion,
   createAsignacion,
   updateAsignacion,

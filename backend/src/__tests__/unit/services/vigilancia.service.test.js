@@ -121,3 +121,31 @@ describe('vigilancia.service · asignaciones sin iniciar', () => {
     expect(avisos.avisarAsignacionSinIniciar).not.toHaveBeenCalled();
   });
 });
+
+describe('vigilancia.service · alarmas sonando (listarAlarmasSinIniciar)', () => {
+  beforeEach(() => query.mockReset());
+
+  it('usa la misma marca que el push y descarta lo iniciado, cerrado o borrado', async () => {
+    query.mockResolvedValueOnce([[{ id: 12 }]]);
+
+    const filas = await vigilancia.listarAlarmasSinIniciar({ excluirUserId: 3 });
+
+    expect(filas).toEqual([{ id: 12 }]);
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/aviso_sin_iniciar_at IS NOT NULL/);
+    expect(sql).toMatch(/inicio_real_at IS NULL/);
+    expect(sql).toMatch(/estado IN \('programada', 'activa'\)/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+    // Una asignación aplazada después del aviso no puede sonar.
+    expect(sql).toMatch(/fecha_inicio <= \?/);
+    const minutosAtras = (Date.now() - params[0].getTime()) / 60000;
+    expect(minutosAtras).toBeCloseTo(AVISO_SIN_INICIAR_MINUTOS, 1);
+    expect(params[1]).toBe(3);
+  });
+
+  it('sin usuario que excluir no excluye a nadie', async () => {
+    query.mockResolvedValueOnce([[]]);
+    await vigilancia.listarAlarmasSinIniciar();
+    expect(query.mock.calls[0][1][1]).toBe(0);
+  });
+});

@@ -22,7 +22,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 }));
 
 const {
-  listAsignaciones, getAsignacion, createAsignacion, updateAsignacion,
+  listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
   deleteAsignacion, activarAsignacion, registrarLlegada, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
@@ -83,6 +83,27 @@ describe('asignaciones.controller', () => {
   });
 
   // ── listAsignaciones ───────────────────────────────────
+  describe('listAlarmas', () => {
+    it('devuelve las alarmas sin incluir las del propio usuario', async () => {
+      query.mockResolvedValueOnce([[{ id: 5, vehiculo_alias: 'AMB-1' }]]);
+      const res = mockRes();
+      await listAlarmas(mockReq({ user: { id: 9, roles: ['administrador'] } }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].data).toEqual([{ id: 5, vehiculo_alias: 'AMB-1' }]);
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toMatch(/aviso_sin_iniciar_at IS NOT NULL/);
+      expect(params[1]).toBe(9);
+    });
+
+    it('un fallo de BD va al manejador de errores', async () => {
+      query.mockRejectedValueOnce(new Error('boom'));
+      const next = mockNext();
+      await listAlarmas(mockReq({ user: { id: 9 } }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
   describe('listAsignaciones', () => {
     it('returns paginated list', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
@@ -337,14 +358,44 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    // Las notas no van por COALESCE: el tercer parámetro de la sentencia es
-    // la bandera "vienen notas" y el cuarto el valor.
+    // Las notas no van por COALESCE: tras la marca del aviso y los cuatro
+    // COALESCE, un parámetro es la bandera "vienen notas" y el siguiente el valor.
     const paramsNotas = () => {
       const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
       expect(upd[0]).toContain('notas        = IF(?, ?, notas)');
-      return upd[1].slice(4, 6);
+      return upd[1].slice(5, 7);
     };
     const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+
+    it('cambiar la hora prevista limpia la marca del aviso «sin iniciar» (y va la primera del SET)', async () => {
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([[]]); // solapes
+
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { fecha_inicio: '2030-01-01 09:00:00' }, user: ADMIN }),
+        mockRes(), mockNext());
+
+      const [sql, params] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+      // MySQL aplica el SET de izquierda a derecha: detrás de `fecha_inicio = …`
+      // la comparación vería ya el valor nuevo y nunca limpiaría la marca.
+      expect(sql.indexOf('aviso_sin_iniciar_at = IF(? <> fecha_inicio'))
+        .toBeLessThan(sql.indexOf('fecha_inicio = COALESCE'));
+      expect(params[0]).toBe('2030-01-01 09:00:00');
+    });
+
+    it('sin fecha_inicio en el body la marca del aviso no se toca', async () => {
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([[]]);
+
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: 'x' }, user: ADMIN }),
+        mockRes(), mockNext());
+
+      const [, params] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+      expect(params[0]).toBeNull();   // NULL <> x es NULL → IF conserva la marca
+    });
 
     it('vaciar las notas las borra (antes un null las conservaba)', async () => {
       mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });

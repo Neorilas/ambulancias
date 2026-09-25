@@ -138,7 +138,13 @@ self.addEventListener('push', (event) => {
     opciones.renotify = true;
   }
 
-  event.waitUntil(self.registration.showNotification(aviso.titulo, opciones));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(aviso.titulo, opciones),
+    // Con la app abierta, que `AlarmaSinIniciar` vuelva a preguntar ya en vez
+    // de esperar a su ciclo de 30 s: la sirena arranca a la vez que el aviso.
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(ventanas => ventanas.forEach(v => v.postMessage({ type: 'AVISO_PUSH', tag: aviso.tag }))),
+  ]));
 });
 
 self.addEventListener('notificationclick', (event) => {
