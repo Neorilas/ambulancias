@@ -613,7 +613,21 @@ propia regla de 24 h en `activarTrabajo`.
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 `responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
-que crear/borrar).
+que crear/borrar). **Vale también con el servicio en curso y las fotos de
+inicio ya subidas**: cambiar quién va no toca la evidencia — las fotos cuelgan
+de `asignacion_id`, no de quien las subió, así que el nuevo responsable sigue
+desde donde está (fotos de fin y cierre). Solo el vehículo queda bloqueado
+(abajo). Se edita desde el «Editar» del listado (`AsignacionList`) **y** desde
+la cabecera de `AsignacionDetalle` (solo `manage_trabajos`, no en
+finalizada/cancelada); los dos abren el mismo `AsignacionForm`, que en una
+`activa` avisa de lo anterior.
+
+**Trampa de las notas:** el `UPDATE` de `updateAsignacion` usa `COALESCE(?, col)`
+para «lo que no venga se conserva», y el formulario manda `notas: null` cuando
+se vacían — así que borrar las notas no las borraba nunca. Las notas van aparte
+con `IF(?, ?, notas)`: bandera «vienen notas» (`notas !== undefined`) y valor
+recortado (vacío → `NULL`). El resto de campos sigue con `COALESCE`; si otro
+campo necesita poder vaciarse, hay que sacarlo igual.
 
 **El vehículo, en cambio, solo se puede reasignar si la asignación sigue
 `programada` y no tiene ni una foto subida.** La trampa: `getProgreso`
@@ -780,7 +794,7 @@ solo actúa en el navegador no es un control de acceso.
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
-| Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
+| Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
 | El orden del listado de asignaciones | `ORDEN_LISTADO` en `asignaciones.controller` (es un `ORDER BY` de SQL, **no** un `sort` en el navegador: `AsignacionList` pagina de 20 en 20 y ordenar solo la página que ha llegado daría un orden distinto en cada página). Hoy: cerradas (finalizada/cancelada) al final; las `activa` encabezan las abiertas; el resto por `fecha_inicio` ASC, la más próxima a activarse arriba; entre las cerradas, la que se cerró más tarde primero (`COALESCE(finalizado_at, fecha_fin)` — una cancelada no tiene `finalizado_at`). **El criterio de las `activa` parece redundante y no lo es**: `activarAsignacion` no mira el reloj, así que quien pulsa «Inicio de servicio» antes de hora deja una `activa` con `fecha_inicio` futura, y sin él el servicio EN CURSO se hunde bajo los que no han empezado. `al.id` cierra el orden para que la paginación no repita ni pierda filas. Quien consume ese orden sin tocarlo: `AsignacionList`, y `MisAsignaciones` y `Dashboard`, que piden 50 y descartan las cerradas en el cliente (por eso mandarlas al final les llena la ventana de filas útiles) |
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |

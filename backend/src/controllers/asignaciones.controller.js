@@ -530,7 +530,7 @@ async function updateAsignacion(req, res, next) {
            fecha_inicio = COALESCE(?, fecha_inicio),
            fecha_fin    = COALESCE(?, fecha_fin),
            km_inicio    = COALESCE(?, km_inicio),
-           notas        = COALESCE(?, notas),
+           notas        = IF(?, ?, notas),
            estado       = COALESCE(?, estado)
          WHERE id = ?`,
         [
@@ -538,7 +538,10 @@ async function updateAsignacion(req, res, next) {
           fecha_inicio || null,
           fecha_fin    || null,
           km_inicio    !== undefined ? km_inicio : null,
-          notas        !== undefined ? notas : null,
+          // Las notas no van por COALESCE: vaciarlas (`null` o '') tiene que
+          // borrarlas, y con COALESCE un null conservaba las de antes.
+          notas !== undefined ? 1 : 0,
+          notas !== undefined ? (String(notas ?? '').trim() || null) : null,
           estado       || null,
           asig.id,
         ]

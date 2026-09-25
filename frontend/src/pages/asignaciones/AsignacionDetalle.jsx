@@ -13,6 +13,7 @@ import {
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
+import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
 
 const TIPO_INC_OPTS = [
@@ -200,6 +201,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [lightbox, setLightbox] = useState(null);
   const [showInicio, setShowInicio] = useState(false);
   const [showFin,    setShowFin]    = useState(false);
+  const [showEditar, setShowEditar] = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -309,11 +311,21 @@ export default function AsignacionDetalle({ id, onClose }) {
               </span>
             )}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100">
+          <div className="flex items-center gap-2">
+          {/* Gestión puede editar mientras siga abierta, también ya activa y
+              con las fotos de inicio subidas: cambiar el personal, el
+              responsable o las notas no toca la evidencia (§6.1 del mapa). */}
+          {asig && puedeGestionar && !finalizada && (
+            <button onClick={() => setShowEditar(true)} className="btn-secondary btn-sm">
+              Editar
+            </button>
+          )}
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100">
             <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>
+          </div>
         </div>
 
         {loading ? (
@@ -683,6 +695,14 @@ export default function AsignacionDetalle({ id, onClose }) {
           </div>
         )}
       </div>
+
+      {showEditar && asig && (
+        <AsignacionForm
+          asignacion={asig}
+          onSaved={() => { setShowEditar(false); load(); }}
+          onClose={() => setShowEditar(false)}
+        />
+      )}
 
       {/* Lightbox */}
       {lightbox && (
