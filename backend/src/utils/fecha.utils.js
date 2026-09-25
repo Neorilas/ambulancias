@@ -136,9 +136,25 @@ function fechaApiAMysql(valor) {
   return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+/**
+ * Instante (Date) de una fecha que viene de la API o de la BD, para COMPARAR
+ * o pasar como parámetro. Por contrato, una fecha sin zona es UTC — pero
+ * `new Date('2026-09-25T08:00')` la toma como hora LOCAL del proceso, y el
+ * backend de producción corre con TZ=Europe/Madrid (docker-compose.yml): se
+ * desplazaba 1-2 h. Aquí se le añade la Z. Un Date (lo que devuelve mysql2)
+ * o una fecha con zona se respetan tal cual.
+ */
+function instanteUtc(valor) {
+  if (valor == null || valor instanceof Date) return valor;
+  const txt = String(valor).trim();
+  if (CON_ZONA.test(txt)) return new Date(txt);
+  return new Date(`${txt.replace(' ', 'T')}Z`);
+}
+
 module.exports = {
   ZONA_ESPANA,
   fechaApiAMysql,
+  instanteUtc,
   diaYHoraEnEspana,
   ahora,
   fechaEnEspana,

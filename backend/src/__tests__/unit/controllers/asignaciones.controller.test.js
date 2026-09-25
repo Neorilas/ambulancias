@@ -293,6 +293,31 @@ describe('asignaciones.controller', () => {
     });
   });
 
+  // ── buscarSolapes en hora española ─────────────────────
+  // createAsignacion pasa los textos del body (UTC sin zona). Con TZ Madrid,
+  // new Date() los desplazaba 2 h y los solapes se buscaban con desfase.
+  describe('solapes con el proceso en hora española', () => {
+    const tzOriginal = process.env.TZ;
+    beforeAll(() => { process.env.TZ = 'Europe/Madrid'; });
+    afterAll(() => { process.env.TZ = tzOriginal; });
+
+    it('busca los solapes con las horas UTC que se guardan', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);  // vehículo
+      query.mockResolvedValueOnce([[{ id: 2 }]]);  // usuarios válidos
+      query.mockResolvedValue([[]]);
+      transaction.mockImplementationOnce(async () => 1);
+      await createAsignacion(mockReq({
+        body: { vehicle_id: 1, responsables: [2], fecha_inicio: '2026-07-15T08:00', fecha_fin: '2026-07-15T16:00' },
+        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      }), mockRes(), mockNext());
+
+      const sol = query.mock.calls.find(([sql]) => sql.includes('FROM asignacion_usuarios au'));
+      const [fin, inicio] = sol[1].slice(-2);
+      expect(fin.toISOString()).toBe('2026-07-15T16:00:00.000Z');
+      expect(inicio.toISOString()).toBe('2026-07-15T08:00:00.000Z');
+    });
+  });
+
   // ── updateAsignacion ───────────────────────────────────
   describe('updateAsignacion', () => {
     it('updates asignacion fields', async () => {
