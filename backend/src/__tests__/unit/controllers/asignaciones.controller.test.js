@@ -311,6 +311,76 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
+    // Las notas no van por COALESCE: el tercer parámetro de la sentencia es
+    // la bandera "vienen notas" y el cuarto el valor.
+    const paramsNotas = () => {
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
+      expect(upd[0]).toContain('notas        = IF(?, ?, notas)');
+      return upd[1].slice(4, 6);
+    };
+    const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+
+    it('vaciar las notas las borra (antes un null las conservaba)', async () => {
+      mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' }); // recarga
+      query.mockResolvedValue([[]]); // solapes
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: null }, user: ADMIN }),
+        res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(paramsNotas()).toEqual([1, null]);
+    });
+
+    it('unas notas solo con espacios cuentan como vacías', async () => {
+      mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValue([[]]);
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: '   ' }, user: ADMIN }),
+        mockRes(), mockNext());
+      expect(paramsNotas()).toEqual([1, null]);
+    });
+
+    it('si no vienen notas, se conservan', async () => {
+      mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValue([[]]);
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { fecha_fin: '2030-01-01T10:00:00Z' }, user: ADMIN }),
+        mockRes(), mockNext());
+      expect(paramsNotas()).toEqual([0, null]);
+    });
+
+    it('en una activa con las fotos de inicio subidas deja cambiar responsable, personal y notas', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', user_id: 2, inicio_real_at: new Date(),
+        evidencias: [{ id: 9, tipo_imagen: 'delantera', momento: 'inicio' }],
+      });
+      query.mockResolvedValueOnce([[{ id: 1 }]]);            // el vehículo existe (es el mismo)
+      query.mockResolvedValueOnce([[{ id: 3 }, { id: 4 }]]); // usuariosNoValidos: 3 y 4 existen
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      query.mockResolvedValueOnce([]); // DELETE asignacion_usuarios
+      query.mockResolvedValueOnce([]); // INSERT asignacion_usuarios
+      query.mockResolvedValueOnce([]); // UPDATE user_id (principal)
+      mockAsignacionCompleta({
+        estado: 'activa', user_id: 3,
+        miembros: [{ user_id: 3, rol: 'responsable', orden: 0 }, { user_id: 4, rol: 'personal', orden: 0 }],
+      });
+      query.mockResolvedValue([[]]); // solapes
+      const res = mockRes();
+      await updateAsignacion(mockReq({
+        params: { id: '1' },
+        body: { vehicle_id: 1, responsables: [3], personal: [4], notas: 'Cambio de turno' },
+        user: ADMIN,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(paramsNotas()).toEqual([1, 'Cambio de turno']);
+      const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO asignacion_usuarios'));
+      expect(insert[1]).toEqual([1, 3, 'responsable', 0, 1, 4, 'personal', 0]);
+    });
+
     it('returns 400 for finalizada', async () => {
       mockAsignacionCompleta({ estado: 'finalizada' });
       const res = mockRes();

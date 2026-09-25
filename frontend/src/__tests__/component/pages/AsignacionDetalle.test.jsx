@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn() },
+}));
+vi.mock('../../../services/vehicles.service.js', () => ({
+  vehiclesService: { list: vi.fn().mockResolvedValue({ data: [] }) },
 }));
 vi.mock('../../../services/users.service.js', () => ({
   usersService: { list: vi.fn().mockResolvedValue({ data: [] }) },
@@ -73,5 +76,50 @@ describe('AsignacionDetalle — horas reales', () => {
 
     await screen.findByText('Fin previsto');
     expect(screen.queryByText('Fin real de servicio')).not.toBeInTheDocument();
+  });
+});
+
+describe('AsignacionDetalle — editar', () => {
+  const ACTIVA_CON_FOTOS = {
+    ...BASE, estado: 'activa', finalizado_at: null, notas: 'Llevar camilla',
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    personal: [],
+    evidencias: [{ id: 9, tipo_imagen: 'delantera', momento: 'inicio', image_url: 'x.jpg' }],
+    progreso: { inicio: { completado: 7, total: 7, completo: true }, fin: { completado: 0, total: 7 } },
+  };
+
+  function comoUsuario(u) {
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify(u));
+  }
+
+  it('gestión puede editar una activa con las fotos de inicio ya subidas', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue(ACTIVA_CON_FOTOS);
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }));
+    expect(await screen.findByText('Editar asignación')).toBeInTheDocument();
+    expect(screen.getByText(/Servicio en curso/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Llevar camilla')).toBeInTheDocument();
+  });
+
+  it('una finalizada no se edita', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue(BASE);
+    montar();
+
+    await screen.findByText('Fin real de servicio');
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+  });
+
+  it('el técnico responsable no ve el botón', async () => {
+    comoUsuario({ id: 2, username: 'jlopez', roles: ['tecnico'], permissions: [] });
+    asignacionesService.get.mockResolvedValue(ACTIVA_CON_FOTOS);
+    montar();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 });

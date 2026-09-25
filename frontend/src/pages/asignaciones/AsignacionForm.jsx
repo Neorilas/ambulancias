@@ -142,6 +142,13 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {isEdit && asignacion.estado === 'activa' && (
+          <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
+            Servicio en curso. Puedes cambiar responsables, personal y notas;
+            las fotos ya subidas se quedan en la asignación y el nuevo
+            responsable sigue desde donde está.
+          </p>
+        )}
         {/* Vehículo */}
         <div>
           <label className="label">Vehículo <span className="text-bad-500">*</span></label>
