@@ -748,6 +748,15 @@ describe('asignaciones.controller', () => {
       expect(huboUpdate()).toBe(false);
     });
 
+    it('400 con mensaje propio en una asignación ya cerrada sin llegada', async () => {
+      mockConInicio({ estado: 'finalizada' });
+      const res = mockRes();
+      await registrarLlegada(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/finalizada/);
+      expect(huboUpdate()).toBe(false);
+    });
+
     it('ya registrada: 200 sin volver a sellar', async () => {
       mockConInicio({ estado: 'finalizada', llegada_servicio_at: new Date() });
       const res = mockRes();

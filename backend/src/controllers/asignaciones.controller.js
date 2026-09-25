@@ -717,6 +717,9 @@ async function registrarLlegada(req, res, next) {
       return success(res, asig, 'La llegada ya estaba registrada');
     }
 
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede registrar la llegada en una asignación ${asig.estado}`, 400);
+    }
     if (asig.estado !== 'activa' || !asig.inicio_real_at) {
       return error(res, 'Primero hay que pulsar «Inicio de servicio»', 400);
     }
