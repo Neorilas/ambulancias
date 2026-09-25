@@ -125,6 +125,13 @@ export default function AlarmaSinIniciar() {
     };
   }, [activo]);
 
+  // Al desmontar (cerrar sesión) se libera el contexto: Chrome admite muy
+  // pocos a la vez y cada login dejaría uno abierto.
+  useEffect(() => () => {
+    ctxRef.current?.close?.().catch(() => {});
+    ctxRef.current = null;
+  }, []);
+
   // ── La sirena ────────────────────────────────────────────
   const sonando = pendientes.length > 0;
 
