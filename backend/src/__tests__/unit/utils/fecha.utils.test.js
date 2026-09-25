@@ -4,7 +4,7 @@ const {
   ahora, fechaEnEspana, instanteEnEspana, inicioDelDiaEnEspana,
   diaCalendarioEnEspana, anioMesEnEspana, haceHoras, offsetEspanaMinutos,
   diaYHoraEnEspana,
-  fechaApiAMysql,
+  fechaApiAMysql, instanteUtc,
 } = require('../../../utils/fecha.utils');
 
 // Estas funciones son el único sitio del backend donde se calcula la hora, así
@@ -129,6 +129,31 @@ describe('fecha.utils', () => {
     it('lo que no es texto no se toca', () => {
       expect(fechaApiAMysql(undefined)).toBeUndefined();
       expect(fechaApiAMysql(null)).toBeNull();
+    });
+  });
+
+  describe('instanteUtc', () => {
+    const tzOriginal = process.env.TZ;
+    beforeAll(() => { process.env.TZ = 'Europe/Madrid'; });
+    afterAll(() => { process.env.TZ = tzOriginal; });
+
+    it('una fecha sin zona es UTC aunque el proceso esté en hora española', () => {
+      // La trampa: new Date() la leería como 08:00 de Madrid = 06:00Z.
+      expect(new Date('2026-07-15T08:00').toISOString()).toBe('2026-07-15T06:00:00.000Z');
+      expect(instanteUtc('2026-07-15T08:00').toISOString()).toBe('2026-07-15T08:00:00.000Z');
+      expect(instanteUtc('2026-07-15 08:00:00').toISOString()).toBe('2026-07-15T08:00:00.000Z');
+    });
+
+    it('respeta la zona si la trae', () => {
+      expect(instanteUtc('2026-07-15T10:00:00+02:00').toISOString()).toBe('2026-07-15T08:00:00.000Z');
+      expect(instanteUtc('2026-07-15T08:00:00.000Z').toISOString()).toBe('2026-07-15T08:00:00.000Z');
+    });
+
+    it('un Date (lo que devuelve mysql2) o un vacío pasan tal cual', () => {
+      const d = new Date('2026-07-15T08:00:00Z');
+      expect(instanteUtc(d)).toBe(d);
+      expect(instanteUtc(null)).toBeNull();
+      expect(instanteUtc(undefined)).toBeUndefined();
     });
   });
 });

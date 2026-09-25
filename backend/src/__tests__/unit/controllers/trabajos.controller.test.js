@@ -479,6 +479,32 @@ describe('trabajos.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
+    // Producción corre con TZ=Europe/Madrid. El frontend manda UTC SIN zona;
+    // con new Date() ese texto se leía como hora española (2 h antes en
+    // octubre) y un fin 1 h después del inicio salía "antes" del inicio.
+    describe('con el proceso en hora española', () => {
+      const tzOriginal = process.env.TZ;
+      beforeAll(() => { process.env.TZ = 'Europe/Madrid'; });
+      afterAll(() => { process.env.TZ = tzOriginal; });
+
+      it('un fin sin zona 1 h después del inicio guardado NO se rechaza', async () => {
+        bd([existente(), ...trabajoDosVehiculos()]);
+        conexion();
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' },
+          body: { fecha_fin: '2026-10-15T09:00' }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+      });
+
+      it('un fin sin zona 1 h antes del inicio guardado sí se rechaza', async () => {
+        bd([existente()]);
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' },
+          body: { fecha_fin: '2026-10-15T07:00' }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+    });
+
     it('actualiza los campos y NO acepta un estado puesto a mano', async () => {
       bd([existente(), ...trabajoDosVehiculos()]);
       const { ejecutadas } = conexion();
