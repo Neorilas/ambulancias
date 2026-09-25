@@ -953,6 +953,20 @@ const MIGRATIONS = [
                     WHERE responsable_user_id IS NOT NULL`);
     },
   },
+
+  {
+    name: 'v26_llegada_servicio_at',
+    description: 'Hora real de llegada al punto del servicio en asignaciones_libres',
+    async run() {
+      // NULL-able: las asignaciones cerradas antes de esta migración nunca
+      // tuvieron el botón, y NULL es justo «no consta», no «no llegó».
+      await ensureColumn('asignaciones_libres', 'llegada_servicio_at',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN llegada_servicio_at DATETIME NULL DEFAULT NULL
+             COMMENT 'Instante real en que se pulsó Llegada al servicio (UTC)'
+             AFTER inicio_real_at`);
+    },
+  },
 ];
 
 // ============================================================
