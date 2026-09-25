@@ -740,6 +740,15 @@ colgando de un trabajo que ya no lo lleva); el formulario lo marca como
 bloqueado. El km de inicio solo se reescribe mientras el vehículo sigue
 `programado`.
 
+**Los responsables SÍ se pueden cambiar con el vehículo ya en servicio**
+(decisión del 2026-09-25, igual que en asignaciones, §6.1): es el relevo de
+conductor a mitad de servicio. Por eso `guardarResponsables` corre en todo
+`PUT` sin mirar el estado de la fila y `TrabajoForm` no bloquea la lista de
+responsables aunque bloquee vehículo y km. No es un olvido: la revisión de
+código lo señaló como inconsistencia y se decidió dejarlo así. La evidencia ya
+subida no cambia de dueño (`vehicle_images.uploaded_by` sigue siendo quien la
+subió); solo cambia quién puede seguir operando el vehículo.
+
 **Trabajo sin vehículos** (p. ej. una cobertura sin ambulancia): no hay fila de
 la que colgar el ciclo, así que lo activa y lo cierra gestión con
 `/:id/activar` y `/:id/finalize`, que con vehículos devuelven 400.
