@@ -351,7 +351,7 @@ async function listAsignaciones(req, res, next) {
 
     const [rows] = await query(
       `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
-              al.estado, al.inicio_real_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
+              al.estado, al.inicio_real_at, al.llegada_servicio_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               v.matricula, v.alias AS vehiculo_alias,
               v.kilometros_actuales AS vehiculo_km_actual,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
@@ -694,6 +694,69 @@ async function activarAsignacion(req, res, next) {
 }
 
 // ============================================================
+// POST /asignaciones/:id/llegada
+// ============================================================
+// «Llegada al servicio»: sella la hora real a la que la ambulancia llega al
+// punto donde se presta el servicio. Entre el inicio (recoger el vehículo y
+// revisarlo) y la llegada va el desplazamiento; sin este sello no hay forma de
+// saber cuándo empezó de verdad el trabajo en el sitio.
+async function registrarLlegada(req, res, next) {
+  try {
+    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
+    const asig = await getAsignacionCompleta(req.params.id);
+    if (!asig) return notFound(res, 'Asignación');
+
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+      return forbidden(res, 'Solo un responsable puede registrar la llegada al servicio');
+    }
+
+    // Ya sellada: no-op. Se mira antes que el estado para que repetir la
+    // pulsación (doble toque, reintento con mala red) no dé error aunque la
+    // asignación se haya cerrado mientras tanto.
+    if (asig.llegada_servicio_at) {
+      return success(res, asig, 'La llegada ya estaba registrada');
+    }
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede registrar la llegada en una asignación ${asig.estado}`, 400);
+    }
+    if (asig.estado !== 'activa' || !asig.inicio_real_at) {
+      return error(res, 'Primero hay que pulsar «Inicio de servicio»', 400);
+    }
+    if (!asig.progreso.inicio.completo) {
+      return error(
+        res,
+        `Antes de la llegada sube las fotos de inicio (faltan: ${asig.progreso.inicio.faltantes.join(', ')})`,
+        400
+      );
+    }
+
+    // `IS NULL` en el WHERE: si dos pulsaciones se cruzan, solo la primera
+    // sella la hora y solo ella deja rastro en la auditoría.
+    const [result] = await query(
+      'UPDATE asignaciones_libres SET llegada_servicio_at = ? WHERE id = ? AND llegada_servicio_at IS NULL',
+      [ahora(), asig.id]
+    );
+
+    if (result?.affectedRows) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'arrive_asignacion',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula },
+        ip: req.ip,
+      });
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    return success(res, updated, 'Llegada al servicio registrada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // POST /asignaciones/:id/finalizar
 // ============================================================
 async function finalizarAsignacion(req, res, next) {
@@ -1021,6 +1084,7 @@ module.exports = {
   updateAsignacion,
   deleteAsignacion,
   activarAsignacion,
+  registrarLlegada,
   finalizarAsignacion,
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,

@@ -627,7 +627,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // alguien, tambien como responsable y personal a la vez. Y el relleno
     // conserva al usuario de cada asignacion existente como responsable.
     const { ejecutadas } = mockDb({
-      aplicadas: [...hasta('v22_rol_tes_conductor'), ...TODAS.slice(TODAS.indexOf('v24_liberar_email_borrados'))],
+      aplicadas: TODAS.filter(n => n !== 'v23_asignacion_usuarios'),
     });
     const { aplicadas, fallida } = await runMigrations();
 
@@ -649,7 +649,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // tambien es UNIQUE (uq_email): un usuario borrado se quedaba bloqueando
     // para siempre el alta de otro con su mismo correo.
     const { ejecutadas } = mockDb({
-      aplicadas: [...hasta('v23_asignacion_usuarios'), 'v25_trabajos_multivehiculo'],
+      aplicadas: TODAS.filter(n => n !== 'v24_liberar_email_borrados'),
     });
     const { aplicadas, fallida } = await runMigrations();
 
@@ -666,7 +666,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     // El trabajo deja de cerrarse de golpe: cada fila trabajo_vehiculos lleva
     // su propio estado, y los responsables pasan a una tabla N:M con el
     // principal de siempre rellenado como orden 0.
-    const { ejecutadas } = mockDb({ aplicadas: hasta('v24_liberar_email_borrados') });
+    const { ejecutadas } = mockDb({ aplicadas: TODAS.filter(n => n !== 'v25_trabajos_multivehiculo') });
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
@@ -704,5 +704,24 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     expect(fallida).toBeNull();
     expect(ejecutadas.some(q => q.includes('ALTER TABLE trabajos ADD COLUMN'))).toBe(false);
     expect(ejecutadas.some(q => q.includes('ALTER TABLE trabajo_vehiculos'))).toBe(false);
+  });
+
+  it('v26 añade llegada_servicio_at como DATETIME NULL-able', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v25_trabajos_multivehiculo') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v26_llegada_servicio_at']);
+    const sql = ejecutadas.find(q => q.includes('ADD COLUMN llegada_servicio_at'));
+    expect(sql).toContain('DATETIME NULL DEFAULT NULL');
+  });
+
+  it('v26 no repite el ALTER si la columna ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v25_trabajos_multivehiculo'),
+      columnas:  ['asignaciones_libres.llegada_servicio_at'],
+    });
+    await runMigrations();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN llegada_servicio_at'))).toBe(false);
   });
 });
