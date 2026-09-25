@@ -99,7 +99,9 @@
     @apply w-full h-[42px] px-3 rounded-md border border-neutral-300 bg-white
            text-neutral-900 text-sm placeholder-neutral-400
            focus:outline-none focus:border-primary-600 focus:ring-1 focus:ring-primary-600
-           transition-colors duration-150;
+           transition-colors duration-150
+           disabled:bg-neutral-100 disabled:text-neutral-500 disabled:border-neutral-200
+           disabled:cursor-not-allowed;
     font-size: 16px; /* Evita auto-zoom en iOS Safari al hacer focus */
   }
   textarea.input,

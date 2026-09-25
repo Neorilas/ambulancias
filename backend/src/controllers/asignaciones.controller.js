@@ -461,6 +461,31 @@ async function createAsignacion(req, res, next) {
 // ============================================================
 // PUT /asignaciones/:id
 // ============================================================
+// Qué ha cambiado entre dos lecturas de getAsignacionCompleta, para la
+// auditoría: { campo: { antes, despues } }. Fechas como ISO para comparar el
+// instante y no el objeto; miembros como lista de usernames.
+function cambiosAsignacion(antes, despues) {
+  const iso = v => (v == null ? null : new Date(v).toISOString());
+  const nombres = lista => (lista || []).map(m => m.username);
+  const campos = {
+    vehiculo:     [a => a.matricula],
+    fecha_inicio: [a => iso(a.fecha_inicio)],
+    fecha_fin:    [a => iso(a.fecha_fin)],
+    km_inicio:    [a => a.km_inicio ?? null],
+    notas:        [a => a.notas || null],
+    estado:       [a => a.estado],
+    responsables: [a => nombres(a.responsables)],
+    personal:     [a => nombres(a.personal)],
+  };
+  const cambios = {};
+  for (const [campo, [leer]] of Object.entries(campos)) {
+    const a = leer(antes);
+    const d = leer(despues);
+    if (JSON.stringify(a) !== JSON.stringify(d)) cambios[campo] = { antes: a, despues: d };
+  }
+  return cambios;
+}
+
 async function updateAsignacion(req, res, next) {
   try {
     const asig = await getAsignacionCompleta(req.params.id);
@@ -553,17 +578,17 @@ async function updateAsignacion(req, res, next) {
     const solapes = await buscarSolapes(
       [...responsables, ...personal], updated.fecha_inicio, updated.fecha_fin, asig.id);
 
-    if (cambiaMiembros) {
+    // Se audita TODA edición que cambie algo, con el antes y el después de
+    // cada campo tocado. Antes solo se registraba si cambiaban los miembros y
+    // sin las notas: dos ediciones distintas dejaban entradas idénticas.
+    const cambios = cambiosAsignacion(asig, updated);
+    if (Object.keys(cambios).length) {
       logAudit({
         userId:   req.user.id,
         userInfo: req.user.username,
         action:   'update_asignacion',
         entityType: 'asignacion', entityId: asig.id,
-        details:  {
-          vehiculo:     updated.matricula,
-          responsables: updated.responsables.map(r => r.username),
-          personal:     updated.personal.map(p => p.username),
-        },
+        details:  { vehiculo: updated.matricula, cambios },
         ip: req.ip,
       });
     }

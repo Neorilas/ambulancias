@@ -120,8 +120,25 @@ function diaYHoraEnEspana(instante) {
   return `${dos(dia)}/${dos(mes)} ${dos(hora)}:${dos(minuto)}`;
 }
 
+/**
+ * Fecha que llega por la API → la forma que MySQL acepta en una DATETIME.
+ * El frontend manda ya UTC sin zona ('YYYY-MM-DDTHH:mm', `toUtcIso`) y eso
+ * se deja tal cual. Pero `isISO8601` da por buena también una ISO completa
+ * con zona ('...:21.279Z', '+02:00'), y MySQL la rechaza con un 500
+ * («Incorrect datetime value»). Si trae zona, se pasa a UTC y se le quita.
+ * Se usa como `customSanitizer` detrás del `isISO8601` de las rutas.
+ */
+const CON_ZONA = /(Z|[+-]\d{2}:?\d{2})$/i;
+function fechaApiAMysql(valor) {
+  if (typeof valor !== 'string' || !CON_ZONA.test(valor.trim())) return valor;
+  const d = new Date(valor.trim());
+  if (Number.isNaN(d.getTime())) return valor;
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 module.exports = {
   ZONA_ESPANA,
+  fechaApiAMysql,
   diaYHoraEnEspana,
   ahora,
   fechaEnEspana,
