@@ -193,6 +193,13 @@ describe('avisosAsignacion.service', () => {
       expect(push.notificarUsuarios.mock.calls[0][1].cuerpo).toMatch(/como responsable\.$/);
     });
 
+    it('una fecha imposible no lanza: el controlador ya ha guardado', async () => {
+      const rota = { ...EQUIPO, fecha_inicio: 'no-es-fecha' };
+      expect(() => avisos.avisarAsignacionNueva(rota, [7])).not.toThrow();
+      await expect(avisos.avisarAsignacionNueva(rota, [7])).resolves.toEqual([]);
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+    });
+
     it('un fallo del servicio de push no se propaga', async () => {
       push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
       await expect(avisos.avisarAsignacionNueva(EQUIPO, [7])).resolves.toBeDefined();

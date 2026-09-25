@@ -165,7 +165,20 @@ function avisarAsignacionFinalizada(asig, { km_fin } = {}) {
  * La ruta es `/mis-asignaciones`, que es la que el técnico tiene; el
  * `/asignaciones` de los demás avisos es de gestión y le rebotaría.
  */
-function avisarAsignacionNueva(asig, nuevos = [], { asignadoPor = null } = {}) {
+function avisarAsignacionNueva(asig, nuevos = [], opciones = {}) {
+  // El controlador la llama sin await y DESPUÉS de guardar: si la parte
+  // síncrona (fecha, forma de `asig`) lanzara, el error subiría a su catch y
+  // la API contestaría error con la asignación ya creada. `disparar` solo
+  // cubre la promesa, así que aquí va un segundo cierre.
+  try {
+    return componerAsignacionNueva(asig, nuevos, opciones);
+  } catch (err) {
+    logger.error(`Aviso de nuevo servicio no enviado: ${err?.message || err}`);
+    return Promise.resolve([]);
+  }
+}
+
+function componerAsignacionNueva(asig, nuevos, { asignadoPor = null } = {}) {
   const avisar = new Set((nuevos || []).map(Number).filter(id => id !== Number(asignadoPor)));
   if (!avisar.size) return Promise.resolve([]);
 
