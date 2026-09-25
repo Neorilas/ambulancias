@@ -4,7 +4,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { formatDateTime, formatHora } from '../../utils/dateUtils.js';
+import { formatDateTime, formatHora, duration } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import {
   ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
@@ -202,6 +202,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [showInicio, setShowInicio] = useState(false);
   const [showFin,    setShowFin]    = useState(false);
   const [showEditar, setShowEditar] = useState(false);
+  const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -257,6 +258,19 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
+  // «Llegada al servicio»: la hora la pone el servidor, no el móvil.
+  const handleLlegada = async () => {
+    setRegistrandoLlegada(true);
+    try {
+      setAsig(await asignacionesService.registrarLlegada(id));
+      notify.success('Llegada al servicio registrada');
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se pudo registrar la llegada');
+    } finally {
+      setRegistrandoLlegada(false);
+    }
+  };
+
   // Evidencias indexadas por (momento, tipo)
   const evInicio = {};
   const evFin    = {};
@@ -292,7 +306,12 @@ export default function AsignacionDetalle({ id, onClose }) {
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
-  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
+  // Tras las fotos de inicio va el desplazamiento; «Finalizar» no sale hasta
+  // registrar la llegada. Solo si el servicio se inició con el botón: la API
+  // no la exige al cerrar (un frontend viejo no sabe de ella, §6.1 del mapa).
+  const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
+                           && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
+  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto && !faltaLlegada;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -383,6 +402,19 @@ export default function AsignacionDetalle({ id, onClose }) {
                     <p className="text-neutral-400 text-xs mb-0.5">Fin real de servicio</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
+                  {/* Hora a la que se llegó al punto del servicio: el trabajo
+                      en el sitio empieza aquí, no en el «Inicio real». */}
+                  <div className="col-span-2">
+                    <p className="text-neutral-400 text-xs mb-0.5">Llegada al servicio</p>
+                    <p className="text-neutral-900">
+                      {asig.llegada_servicio_at ? formatDateTime(asig.llegada_servicio_at) : '—'}
+                      {asig.llegada_servicio_at && asig.inicio_real_at && (
+                        <span className="text-neutral-500 text-xs ml-2">
+                          ({duration(asig.inicio_real_at, asig.llegada_servicio_at)} desde el inicio)
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </>
               )}
               <div>
@@ -442,8 +474,28 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
             )}
 
+            {/* Fotos de inicio hechas: al llegar al punto del servicio */}
+            {faltaLlegada && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has llegado al servicio?</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Púlsalo al llegar al punto donde se presta el servicio: se guarda la hora real
+                    a la que empieza el trabajo en el sitio.
+                  </p>
+                </div>
+                <button
+                  onClick={handleLlegada}
+                  disabled={registrandoLlegada}
+                  className="btn-primary w-full"
+                >
+                  {registrandoLlegada ? 'Registrando…' : 'Llegada al servicio'}
+                </button>
+              </div>
+            )}
+
             {/* Botones de acción */}
-            {(puedeFin || (soyResponsable && !finalizada && !inicioIncompleto)) && (
+            {puedeFin && (
               <div className="flex gap-2">
                 <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
                   Finalizar servicio

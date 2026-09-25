@@ -106,6 +106,12 @@ export default function MisAsignaciones() {
                           {formatDateTime(a.inicio_real_at || a.fecha_inicio)}
                         </span>
                       </span>
+                      {a.llegada_servicio_at && (
+                        <span>
+                          <span className="kv-k">Llegada</span>
+                          <span className="kv-v data whitespace-nowrap">{formatDateTime(a.llegada_servicio_at)}</span>
+                        </span>
+                      )}
                       <span>
                         <span className="kv-k">Fin previsto</span>
                         <span className="kv-v data whitespace-nowrap">{formatDateTime(a.fecha_fin)}</span>

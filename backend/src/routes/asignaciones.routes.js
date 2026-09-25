@@ -90,6 +90,13 @@ router.post('/:id/activar',
   ctrl.activarAsignacion
 );
 
+// POST /asignaciones/:id/llegada  (responsables o admin/gestor; el personal no)
+router.post('/:id/llegada',
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.registrarLlegada
+);
+
 // POST /asignaciones/:id/finalizar
 router.post('/:id/finalizar',
   [

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
-  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn() },
+  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn() },
 }));
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn().mockResolvedValue({ data: [] }) },
@@ -121,5 +121,76 @@ describe('AsignacionDetalle — editar', () => {
 
     await screen.findByText('Fin previsto');
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AsignacionDetalle — llegada al servicio', () => {
+  const ACTIVA_TRAS_INICIO = {
+    ...BASE, estado: 'activa', finalizado_at: null, llegada_servicio_at: null,
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    personal: [],
+    progreso: { inicio: { completado: 7, total: 7, completo: true }, fin: { completado: 0, total: 7 } },
+  };
+
+  function comoTecnico() {
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({
+      id: 2, username: 'jlopez', roles: ['tecnico'], permissions: [],
+    }));
+  }
+
+  beforeEach(() => { vi.clearAllMocks(); comoTecnico(); });
+
+  it('con las fotos de inicio hechas pide la llegada antes de dejar finalizar', async () => {
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Llegada al servicio' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Finalizar servicio' })).not.toBeInTheDocument();
+  });
+
+  it('al pulsarla registra la llegada y aparece «Finalizar servicio»', async () => {
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    asignacionesService.registrarLlegada.mockResolvedValue({
+      ...ACTIVA_TRAS_INICIO, llegada_servicio_at: '2026-09-21T06:40:00.000Z',
+    });
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Llegada al servicio' }));
+    await waitFor(() => expect(asignacionesService.registrarLlegada).toHaveBeenCalledWith(5));
+    expect(await screen.findByRole('button', { name: 'Finalizar servicio' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Llegada al servicio' })).not.toBeInTheDocument();
+  });
+
+  it('sin las fotos de inicio no ofrece la llegada', async () => {
+    asignacionesService.get.mockResolvedValue({
+      ...ACTIVA_TRAS_INICIO,
+      progreso: { inicio: { completado: 3, total: 7, completo: false }, fin: { completado: 0, total: 7 } },
+    });
+    montar();
+
+    await screen.findByText('Faltan fotos de inicio');
+    expect(screen.queryByRole('button', { name: 'Llegada al servicio' })).not.toBeInTheDocument();
+  });
+
+  it('en una finalizada, el admin ve la hora de llegada y lo que tardó desde el inicio', async () => {
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({
+      id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'],
+    }));
+    asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: '2026-09-21T06:40:00.000Z' });
+    montar();
+
+    const etiqueta = await screen.findByText('Llegada al servicio');
+    expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T06:40:00.000Z'));
+    expect(etiqueta.nextElementSibling).toHaveTextContent('33 min desde el inicio');
+  });
+
+  it('una finalizada sin llegada registrada (anterior al botón) sale con guion', async () => {
+    asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: null });
+    montar();
+
+    const etiqueta = await screen.findByText('Llegada al servicio');
+    expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });

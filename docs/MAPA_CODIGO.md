@@ -77,7 +77,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
@@ -338,6 +338,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 |---|---|---|
 | `MisAsignaciones`, `AsignacionList`, `AsignacionDetalle`, `AsignacionForm` | `asignaciones.service` (+ `vehicles`, `users` para selectores) | `/asignaciones` |
 | `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia` | `/asignaciones/:id/{activar,finalizar,evidencias}` |
+| `AsignacionDetalle` → «Llegada al servicio» | `asignaciones.service.registrarLlegada` | `POST /asignaciones/:id/llegada` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
 | `VehicleList`, `VehicleForm` | `vehicles.service` | `/vehicles` |
 | `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
@@ -476,7 +477,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -541,7 +542,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v25_trabajos_multivehiculo**. (En alguna BD local puede
+Última migración: **v26_llegada_servicio_at**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -609,6 +610,25 @@ tiempo sigue sin poder sellarse antes de la media hora; (3) `uploadEvidencia`
 no exige la ventana — el asistente no deja llegar a las fotos sin pasar por el
 botón, pero la API a pelo sí. Los trabajos (feature oculta) conservan su
 propia regla de 24 h en `activarTrabajo`.
+
+**«Llegada al servicio» (v26).** Entre el inicio (recoger la ambulancia y
+fotografiarla) y el trabajo en el sitio va el desplazamiento; la llegada es la
+hora real a la que empieza el servicio en el punto establecido. Orden en
+`AsignacionDetalle`: fotos de inicio completas → tarjeta «¿Has llegado al
+servicio?» → solo entonces «Finalizar servicio» (`faltaLlegada` oculta
+`puedeFin`). `registrarLlegada` pide responsable o `manage_trabajos` (el
+personal no), `estado = 'activa'` con `inicio_real_at`, y la tanda de inicio
+completa (`getProgreso`); si ya hay hora devuelve 200 sin tocar nada, antes de
+mirar el estado, para que un reintento no dé error. El `UPDATE` lleva
+`llegada_servicio_at IS NULL` y solo audita (`arrive_asignacion`) si afectó a
+la fila: dos toques cruzados sellan y auditan una vez. **Trampa, a propósito:
+`finalizarAsignacion` NO exige la llegada.** El frontend se sube a mano y un
+frontend viejo no tiene el botón; exigirla en la API dejaría a sus técnicos sin
+poder cerrar. La obligación vive solo en la pantalla, y tampoco la aplica el
+«Finalizar asignación» del `Dashboard`, que abre el cierre directamente. Si se
+quiere obligatoria de verdad, va en `finalizarAsignacion` cuando el frontend
+nuevo esté en todas partes; las asignaciones anteriores a v26 tienen NULL
+(«no consta») y se pintan con `—`.
 
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
@@ -815,7 +835,7 @@ solo actúa en el navegador no es un control de acceso.
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
-| Las horas reales de un servicio | `inicio_real_at` lo sella `activarAsignacion` (botón del técnico, no el cron) y `finalizado_at` lo sella `finalizarAsignacion`, los dos con `ahora()`. `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) solo trae `inicio_real_at`. Se pintan en pareja bajo las previstas en `AsignacionDetalle` («Inicio/Fin real de servicio», `—` si falta una; la fila no sale si faltan las dos). Antes el fin real no se mostraba aunque estuviera en BD y el admin lo sacaba de la hora de las fotos de fin |
+| Las horas reales de un servicio | Tres sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio») y `finalizado_at` (`finalizarAsignacion`). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio y llegada, no el fin. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`); `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta la llegada en la tarjeta. Reglas de la llegada en §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación |
