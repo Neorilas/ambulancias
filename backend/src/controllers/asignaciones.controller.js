@@ -15,7 +15,7 @@ const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
-const { ahora, fechaEnEspana, diaYHoraEnEspana } = require('../utils/fecha.utils');
+const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 
 // ============================================================
@@ -272,7 +272,9 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
        AND al.estado IN ('programada','activa')
        AND al.fecha_inicio < ? AND al.fecha_fin > ?
      ORDER BY al.fecha_inicio ASC`,
-    [...userIds, excluirId, new Date(fechaFin), new Date(fechaInicio)]
+    // instanteUtc y no new Date: desde createAsignacion llegan los textos
+    // del body, UTC sin zona, y new Date los leería en hora española.
+    [...userIds, excluirId, instanteUtc(fechaFin), instanteUtc(fechaInicio)]
   );
   return rows || [];
 }
@@ -421,7 +423,7 @@ async function createAsignacion(req, res, next) {
     }
 
     // Validar fechas
-    if (new Date(fecha_fin) <= new Date(fecha_inicio)) {
+    if (instanteUtc(fecha_fin) <= instanteUtc(fecha_inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 

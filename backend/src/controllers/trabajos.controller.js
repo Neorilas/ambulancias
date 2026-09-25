@@ -19,7 +19,7 @@ const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX, PERMISSIONS,
   require('../config/constants');
 const { hasPermission }               = require('../middleware/roles.middleware');
 const { logAudit }                    = require('./admin.controller');
-const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana } =
+const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana, instanteUtc } =
   require('../utils/fecha.utils');
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
@@ -484,7 +484,7 @@ async function createTrabajo(req, res, next) {
   try {
     const { nombre, tipo, fecha_inicio, fecha_fin, usuarios = [] } = req.body;
 
-    if (new Date(fecha_fin) <= new Date(fecha_inicio)) {
+    if (instanteUtc(fecha_fin) <= instanteUtc(fecha_inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 
@@ -562,7 +562,9 @@ async function updateTrabajo(req, res, next) {
 
     const inicio = fecha_inicio !== undefined ? fecha_inicio : actual.fecha_inicio;
     const fin    = fecha_fin    !== undefined ? fecha_fin    : actual.fecha_fin;
-    if (new Date(fin) <= new Date(inicio)) {
+    // Aquí se mezcla el texto del body (UTC sin zona) con el Date leído de BD
+    // si solo se cambia una fecha: instanteUtc los pone en la misma escala.
+    if (instanteUtc(fin) <= instanteUtc(inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 
