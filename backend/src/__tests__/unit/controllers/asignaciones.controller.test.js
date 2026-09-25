@@ -523,6 +523,46 @@ describe('asignaciones.controller', () => {
       await activarAsignacion(mockReq({ params: { id: '1' }, user: { id: 99, roles: ['tecnico'], permissions: [] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(403);
     });
+
+    describe('no antes de media hora de la hora prevista', () => {
+      const TECNICO = { id: 2, roles: ['tecnico'], permissions: [] };
+      const enMinutos = (m) => new Date(Date.now() + m * 60000);
+
+      it('400 si faltan más de 30 min, y no toca la fila', async () => {
+        mockAsignacionCompleta({ estado: 'programada', fecha_inicio: enMinutos(31) });
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toMatch(/a partir del \d{2}\/\d{2} \d{2}:\d{2}/);
+        expect(query.mock.calls.some(([sql]) => /UPDATE asignaciones_libres/.test(sql))).toBe(false);
+      });
+
+      it('200 dentro de la media hora previa', async () => {
+        mockAsignacionCompleta({ estado: 'programada', fecha_inicio: enMinutos(29) });
+        query.mockResolvedValueOnce([]); // UPDATE
+        mockAsignacionCompleta({ estado: 'activa' });
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+      });
+
+      it('también vale para gestión', async () => {
+        mockAsignacionCompleta({ estado: 'programada', fecha_inicio: enMinutos(120) });
+        const res = mockRes();
+        const admin = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+
+      it('con la hora real ya sellada, repetir la pulsación no da error', async () => {
+        mockAsignacionCompleta({ estado: 'activa', fecha_inicio: enMinutos(120), inicio_real_at: new Date() });
+        query.mockResolvedValueOnce([]); // UPDATE (COALESCE, no cambia nada)
+        mockAsignacionCompleta({ estado: 'activa' });
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+      });
+    });
   });
 
   // ── finalizarAsignacion ────────────────────────────────

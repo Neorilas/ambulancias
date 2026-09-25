@@ -113,8 +113,16 @@ function haceHoras(horas, instante = new Date()) {
   return new Date(instante.getTime() - horas * 60 * 60 * 1000);
 }
 
+/** 'dd/MM HH:mm' en hora española. Para mensajes de error que citan una hora. */
+function diaYHoraEnEspana(instante) {
+  const { mes, dia, hora, minuto } = _partesEnEspana(instante);
+  const dos = (n) => String(n).padStart(2, '0');
+  return `${dos(dia)}/${dos(mes)} ${dos(hora)}:${dos(minuto)}`;
+}
+
 module.exports = {
   ZONA_ESPANA,
+  diaYHoraEnEspana,
   ahora,
   fechaEnEspana,
   instanteEnEspana,

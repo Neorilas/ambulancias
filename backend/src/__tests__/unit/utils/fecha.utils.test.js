@@ -3,6 +3,7 @@
 const {
   ahora, fechaEnEspana, instanteEnEspana, inicioDelDiaEnEspana,
   diaCalendarioEnEspana, anioMesEnEspana, haceHoras, offsetEspanaMinutos,
+  diaYHoraEnEspana,
 } = require('../../../utils/fecha.utils');
 
 // Estas funciones son el único sitio del backend donde se calcula la hora, así
@@ -97,6 +98,15 @@ describe('fecha.utils', () => {
   describe('haceHoras', () => {
     it('resta horas al instante dado', () => {
       expect(haceHoras(24, VERANO).toISOString()).toBe('2026-07-14T10:00:00.000Z');
+    });
+  });
+
+  describe('diaYHoraEnEspana', () => {
+    it('pinta día y hora españoles, no UTC', () => {
+      expect(diaYHoraEnEspana(VERANO)).toBe('15/07 12:00');
+      expect(diaYHoraEnEspana(INVIERNO)).toBe('15/01 11:00');
+      // 23:30 UTC ya es el día siguiente en España
+      expect(diaYHoraEnEspana(new Date('2026-07-14T22:30:00.000Z'))).toBe('15/07 00:30');
     });
   });
 });

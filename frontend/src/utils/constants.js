@@ -82,6 +82,11 @@ export const IMAGEN_TIPO_CUENTAKILOMETROS = CUENTAKILOMETROS;
 // Fotos de incidencia/observación (momento = 'general')
 export const IMAGEN_TIPOS_GENERAL = [DANOS];
 
+// Cuánto antes de la hora prevista se puede pulsar «Inicio de servicio»
+// (un servicio de las 8:00, desde las 7:30). Espejo de
+// backend/src/config/constants.js, que es quien manda.
+export const INICIO_ANTICIPADO_MAX_MINUTOS = 30;
+
 // Fotos opcionales fuera del flujo principal
 export const IMAGEN_TIPOS_OPCIONALES = [DANOS];
 

@@ -63,6 +63,11 @@ module.exports = {
   AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
     ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
     : 30,
+  // Cuánto antes de la hora prevista se puede pulsar «Inicio de servicio».
+  // Un servicio de las 8:00 se puede iniciar desde las 7:30, no antes: la hora
+  // real que sella el botón es la evidencia de cuándo empezó el servicio.
+  // Vale para todos, gestión incluida. Espejo en frontend/src/utils/constants.js.
+  INICIO_ANTICIPADO_MAX_MINUTOS: 30,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

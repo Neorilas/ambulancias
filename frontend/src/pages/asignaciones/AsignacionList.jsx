@@ -3,7 +3,10 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
-import { formatDateTime } from '../../utils/dateUtils.js';
+import {
+  formatDateTime, formatDateTimeShort, inicioServicioPermitidoDesde, esProntoParaIniciar,
+} from '../../utils/dateUtils.js';
+import useAhora from '../../hooks/useAhora.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
 import AsignacionForm from './AsignacionForm.jsx';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
@@ -55,6 +58,8 @@ export default function AsignacionList() {
       setDeleting(false);
     }
   };
+
+  const ahora = useAhora();
 
   const handleActivar = async (id) => {
     try {
@@ -145,12 +150,20 @@ export default function AsignacionList() {
                       <td onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           {a.estado === 'programada' && (
-                            <button
-                              onClick={() => handleActivar(a.id)}
-                              className="btn-ghost text-xs px-2 py-1 text-blue-600 hover:bg-blue-50"
-                            >
-                              Activar
-                            </button>
+                            esProntoParaIniciar(a.fecha_inicio, ahora) ? (
+                              // Media hora antes de la hora prevista, no antes (backend)
+                              <span className="text-xs px-2 py-1 text-neutral-400 whitespace-nowrap"
+                                    title="Se puede iniciar media hora antes de la hora prevista">
+                                Desde {formatDateTimeShort(inicioServicioPermitidoDesde(a.fecha_inicio))}
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleActivar(a.id)}
+                                className="btn-ghost text-xs px-2 py-1 text-blue-600 hover:bg-blue-50"
+                              >
+                                Activar
+                              </button>
+                            )
                           )}
                           {(a.estado === 'programada' || a.estado === 'activa') && (
                             <button
