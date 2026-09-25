@@ -5,6 +5,7 @@
 'use strict';
 
 const express = require('express');
+const { fechaApiAMysql } = require('../utils/fecha.utils');
 const { body, param, query: qv } = require('express-validator');
 const ctrl    = require('../controllers/trabajos.controller');
 const { authenticate }             = require('../middleware/auth.middleware');
@@ -65,8 +66,8 @@ router.post('/',
   [
     body('nombre').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 255 }),
     body('tipo').notEmpty().isIn(Object.values(TRABAJO_TIPOS)).withMessage(`tipo inválido. Valores válidos: ${Object.values(TRABAJO_TIPOS).join(', ')}`),
-    body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida'),
-    body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida'),
+    body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
+    body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
     ...validarCamposTrabajo,
   ],
   handleValidation,
@@ -80,8 +81,8 @@ router.put('/:id',
     param('id').isInt({ min: 1 }),
     body('nombre').optional().trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 255 }),
     body('tipo').optional().isIn(Object.values(TRABAJO_TIPOS)),
-    body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida'),
-    body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida'),
+    body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
+    body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
     ...validarCamposTrabajo,
   ],
   handleValidation,

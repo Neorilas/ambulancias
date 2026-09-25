@@ -381,6 +381,34 @@ describe('asignaciones.controller', () => {
       expect(insert[1]).toEqual([1, 3, 'responsable', 0, 1, 4, 'personal', 0]);
     });
 
+    it('audita la edición con el antes y el después, notas incluidas', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      mockAsignacionCompleta({ estado: 'activa', notas: 'viejas' });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa', notas: null }); // recarga
+      query.mockResolvedValue([[]]);
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: '' }, user: ADMIN }),
+        mockRes(), mockNext());
+
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'update_asignacion',
+        details: { vehiculo: 'ABC1234', cambios: { notas: { antes: 'viejas', despues: null } } },
+      }));
+    });
+
+    it('una edición que no cambia nada no deja rastro en auditoría', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      const fijas = { estado: 'activa', notas: 'igual', fecha_inicio: new Date('2026-09-25T06:00:00Z'),
+        fecha_fin: new Date('2026-09-25T14:00:00Z') };
+      mockAsignacionCompleta(fijas);
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta(fijas);
+      query.mockResolvedValue([[]]);
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { notas: 'igual' }, user: ADMIN }),
+        mockRes(), mockNext());
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
     it('returns 400 for finalizada', async () => {
       mockAsignacionCompleta({ estado: 'finalizada' });
       const res = mockRes();

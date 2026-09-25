@@ -6,6 +6,7 @@
 'use strict';
 
 const express = require('express');
+const { fechaApiAMysql } = require('../utils/fecha.utils');
 const { body, param } = require('express-validator');
 const ctrl = require('../controllers/asignaciones.controller');
 const { authenticate }          = require('../middleware/auth.middleware');
@@ -44,8 +45,8 @@ router.post('/',
     body('responsables.*').isInt({ min: 1 }),
     body('personal').optional().isArray({ max: 30 }),
     body('personal.*').isInt({ min: 1 }),
-    body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida'),
-    body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida'),
+    body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
+    body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
     body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
   ],
@@ -64,8 +65,8 @@ router.put('/:id',
     body('responsables.*').isInt({ min: 1 }),
     body('personal').optional().isArray({ max: 30 }),
     body('personal.*').isInt({ min: 1 }),
-    body('fecha_inicio').optional().isISO8601(),
-    body('fecha_fin').optional().isISO8601(),
+    body('fecha_inicio').optional().isISO8601().customSanitizer(fechaApiAMysql),
+    body('fecha_fin').optional().isISO8601().customSanitizer(fechaApiAMysql),
     body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
     body('estado').optional().isIn(['programada', 'activa', 'cancelada']),

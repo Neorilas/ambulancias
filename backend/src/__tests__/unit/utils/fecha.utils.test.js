@@ -4,6 +4,7 @@ const {
   ahora, fechaEnEspana, instanteEnEspana, inicioDelDiaEnEspana,
   diaCalendarioEnEspana, anioMesEnEspana, haceHoras, offsetEspanaMinutos,
   diaYHoraEnEspana,
+  fechaApiAMysql,
 } = require('../../../utils/fecha.utils');
 
 // Estas funciones son el único sitio del backend donde se calcula la hora, así
@@ -107,6 +108,27 @@ describe('fecha.utils', () => {
       expect(diaYHoraEnEspana(INVIERNO)).toBe('15/01 11:00');
       // 23:30 UTC ya es el día siguiente en España
       expect(diaYHoraEnEspana(new Date('2026-07-14T22:30:00.000Z'))).toBe('15/07 00:30');
+    });
+  });
+
+  describe('fechaApiAMysql', () => {
+    it('deja tal cual lo que manda el frontend (UTC sin zona)', () => {
+      expect(fechaApiAMysql('2026-09-25T12:55')).toBe('2026-09-25T12:55');
+      expect(fechaApiAMysql('2026-09-25')).toBe('2026-09-25');
+    });
+
+    it('una ISO con Z pasa a DATETIME en UTC (antes daba 500 en MySQL)', () => {
+      expect(fechaApiAMysql('2026-09-25T12:55:21.279Z')).toBe('2026-09-25 12:55:21');
+    });
+
+    it('un desfase horario se convierte a UTC', () => {
+      expect(fechaApiAMysql('2026-09-25T14:55:00+02:00')).toBe('2026-09-25 12:55:00');
+      expect(fechaApiAMysql('2026-09-25T14:55:00+0200')).toBe('2026-09-25 12:55:00');
+    });
+
+    it('lo que no es texto no se toca', () => {
+      expect(fechaApiAMysql(undefined)).toBeUndefined();
+      expect(fechaApiAMysql(null)).toBeNull();
     });
   });
 });
