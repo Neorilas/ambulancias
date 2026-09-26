@@ -105,6 +105,10 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
     }).addTo(mapa.current);
 
     return () => {
+      // stop() antes de remove(): si se sale de la página a mitad de una
+      // animación (el setView de un clic), Leaflet la remata sobre un mapa
+      // ya destruido y lanza «reading '_leaflet_pos'».
+      mapa.current?.stop();
       mapa.current?.remove();
       mapa.current = null;
       marcadores.current.clear();
@@ -146,7 +150,11 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
     // Encuadre automático: solo la primera vez que hay algo que encuadrar.
     if (!yaEncuadrado.current && vivos.size > 0) {
       const limites = L.latLngBounds([...marcadores.current.values()].map(m => m.getLatLng()));
-      mapa.current.fitBounds(limites, { padding: [40, 40], maxZoom: 14 });
+      // Sin animación: llega ~1 s después de entrar (cuando responde la API),
+      // y salir justo entonces dejaba la animación colgando del mapa
+      // desmontado (el mismo error de arriba). El primer encuadre no necesita
+      // transición.
+      mapa.current.fitBounds(limites, { padding: [40, 40], maxZoom: 14, animate: false });
       yaEncuadrado.current = true;
     }
   }, [entradas]);

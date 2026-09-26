@@ -1,6 +1,6 @@
 name: Deploy Backend
 
-# develop → PRE (automático)   ·   master → PRODUCCIÓN (requiere autorización)
+# develop → PRE (automático)   ·   master → PRODUCCIÓN (automático, SIN aprobación)
 #
 # El código YA NO lo trae el servidor con `git pull`: se empaqueta aquí y se
 # sube por SSH. Así el servidor no necesita credenciales de GitHub (el pull
@@ -82,14 +82,53 @@ jobs:
             echo 'desplegar develop en PRE sin tocar nada más.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # ── Tests y dependencias: corre SIEMPRE y el deploy lo espera ────────────
+  # Hasta 2026-09-26 el backend se desplegaba sin pasar un solo test en CI: lo
+  # que no se comprobaba a mano en local llegaba a producción tal cual.
+  # `npm audit` para en seco si una dependencia de producción tiene una
+  # vulnerabilidad alta o crítica conocida; las moderadas no bloquean (se ven
+  # en el log). Si bloquea: `npm audit` en local, actualizar, y si no hay
+  # arreglo, decidirlo — no quitar el paso.
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Tests
+        working-directory: backend
+        # En hora española, como los equipos donde se escriben: el contrato de
+        # fechas (fecha.utils) tiene tests que comprueban justo la trampa de
+        # leer una fecha sin zona como hora local, y el runner va en UTC.
+        env:
+          TZ: Europe/Madrid
+        run: npm test
+
+      - name: Dependencias sin vulnerabilidades altas
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
   desplegar:
-    needs: destino
-    if: needs.destino.outputs.activo == 'true'
+    needs: [destino, comprobar]
+    # `success()` explícito: GitHub ya lo aplica por defecto a un `if` sin
+    # funciones de estado, pero así se lee que sin `comprobar` en verde no hay
+    # despliegue.
+    if: success() && needs.destino.outputs.activo == 'true'
     runs-on: ubuntu-latest
 
-    # Aquí está la puerta de autorización: el Environment `produccion` lleva
-    # required reviewers en la configuración del repo, así que el job se queda
-    # esperando aprobación. `pre` no tiene reviewers y pasa directo.
+    # OJO: el Environment `produccion` NO tiene required reviewers (comprobado
+    # 2026-09): la única puerta antes de producción es el job `comprobar`.
     environment:
       name: ${{ needs.destino.outputs.entorno }}
       url:  ${{ needs.destino.outputs.api_url }}

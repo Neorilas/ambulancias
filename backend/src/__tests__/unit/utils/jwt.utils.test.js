@@ -28,6 +28,11 @@ describe('jwt.utils', () => {
       expect(decoded.type).toBe('access');
       expect(decoded.jti).toBeDefined();
     });
+
+    it('no mete los permisos en el token (se leen de BD en cada petición)', () => {
+      const decoded = decodeToken(generateAccessToken(payload));
+      expect(decoded.permissions).toBeUndefined();
+    });
   });
 
   describe('verifyAccessToken', () => {

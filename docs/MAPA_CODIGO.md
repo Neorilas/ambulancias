@@ -531,8 +531,13 @@ miembros, solo la ve su `user_id` (el listado y `ownership` lo aceptan de
 respaldo). Le pasó a `scripts/seed-local.js`, que corre después de las
 migraciones y por tanto no recibe el relleno de v23: ahora lo repite él.
 
-**Ojo:** `schema.sql` está desincronizado (le faltan `asignaciones_libres` y
-otras). La fuente real es `schema.sql` + `migrations.js`.
+**Ojo:** `schema.sql` es solo la base (10 tablas de la v1); le faltan
+`asignaciones_libres` y otras 12. La fuente real es `schema.sql` +
+`migrations.js`, que reescribe también las v2–v8 antiguas con guardas.
+`scripts/setup-db.js` hace las tres cosas (schema, seed y migraciones) y sale en
+rojo si una migración falla; comprobado 2026-09-26 contra una base vacía: queda
+idéntica a la local (23 tablas, 25 migraciones, 16 filas de `role_permissions`)
+y una segunda pasada no aplica nada.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
@@ -883,7 +888,7 @@ solo actúa en el navegador no es un control de acceso.
 | Las horas reales de un servicio | Tres sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio») y `finalizado_at` (`finalizarAsignacion`). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio y llegada, no el fin. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`); `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta la llegada en la tarjeta. Reglas de la llegada en §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
-| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación |
+| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10 |
 | Un rol nuevo **de campo** (sale de servicio con la ambulancia) | Migración que lo da de alta + `ROLES` en `backend/config/constants.js` **y** `frontend/utils/constants.js` + `tieneRolDeCampo` (`roles.middleware.js`) + `isOperacional` (`AuthContext.jsx`) + `ROL_LABELS` y color en `RolBadge`. Crearlo solo desde `/usuarios` deja un rol que el código no reconoce: 403 al subir la evidencia de su propia asignación (§6) |
 | Menú / nueva pantalla | `App.jsx` (ruta + `requiredFeature`) + `Sidebar.jsx` + feature en `migrations.js` |
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL. **Fechas de entrada por la API:** el frontend manda UTC sin zona (`toUtcIso`, `YYYY-MM-DDTHH:mm`), pero `isISO8601` acepta también una ISO con `Z` o `+02:00`, que MySQL rechaza en una DATETIME (500 «Incorrect datetime value»). Por eso los `fecha_inicio`/`fecha_fin` de `asignaciones.routes` y `trabajos.routes` pasan por `customSanitizer(fechaApiAMysql)`: con zona → UTC sin zona; sin zona → intacto. Un campo de fecha nuevo en una ruta necesita lo mismo. **Para comparar o pasar como parámetro, `instanteUtc`, nunca `new Date(texto)`**: el backend de producción corre con `TZ=Europe/Madrid` (`docker-compose.yml`) y `new Date('2026-09-25T08:00')` lo lee como hora española, 1-2 h desplazado. Pasaba en `buscarSolapes` (desde `createAsignacion`, con los textos del body) y en `updateTrabajo` al cambiar una sola fecha (texto del body contra `Date` de BD). Un `Date` de mysql2 no tiene el problema. Los tests fijan `process.env.TZ = 'Europe/Madrid'` para reproducirlo |
@@ -898,6 +903,7 @@ solo actúa en el navegador no es un control de acceso.
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
+| El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas) |
 | Algo del mapa de flota | `services/cartrack.service` (lo que se lee de Cartrack) → `utils/flota.utils` (el cruce y el estado) → `flota.controller` (lo que se junta con nuestra BD) → `frontend/utils/flota.js` (nombres y colores) → `MapaFlota` / `MapaLeaflet`. **Antes de tocar nada, correr `scripts/sonda-cartrack.js`**: dice qué manda la API hoy, que no es lo que dice su documentación (§2.6) |
 | Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + el botón «Ver en el mapa» de `VehicleHistory` (comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
 | Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
@@ -909,7 +915,10 @@ solo actúa en el navegador no es un control de acceso.
 `develop → PRE`, `master → PRODUCCIÓN`. Workflows:
 `.github/workflows/deploy-backend.yml` (empaqueta `backend database
 docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
-`/health`) y `deploy-frontend.yml` (job `build`: tests + build; job `publicar`:
+`/health`; **antes, el job `comprobar`: `npm test` + `npm audit --omit=dev
+--audit-level=high`, y si falla no se despliega** — hasta 2026-09-26 el backend
+llegaba a producción sin pasar un test en CI) y `deploy-frontend.yml` (job
+`build`: tests + el mismo `npm audit` + build; job `publicar`:
 subida por FTPS al hosting de `vapss.net/app[-pre]/`).
 **La subida la hace `frontend/scripts/publicador/publicar-ftp.mjs`, no FTP-Deploy-Action**
 (desde 2026-09-26): `FTP_HOST` es una IP y el certificado del FTP es el de

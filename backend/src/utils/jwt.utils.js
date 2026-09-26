@@ -19,6 +19,11 @@ if (!ACCESS_SECRET || !REFRESH_SECRET) {
 
 /**
  * Genera access token JWT (vida corta)
+ *
+ * Los permisos NO van en el token a propósito: auth.middleware los consulta en
+ * role_permissions en cada petición, así que quitar un permiso a un rol tiene
+ * efecto en el acto y no a los 15 minutos. Un `permissions` en el payload se
+ * ignora.
  * @param {{ id, username, roles }} payload
  * @returns {string}
  */

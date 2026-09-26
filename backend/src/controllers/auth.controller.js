@@ -117,8 +117,10 @@ async function login(req, res, next) {
     const roles       = user.roles ? user.roles.split(',') : [];
     const permissions = await getUserPermissions(user.id);
 
-    // Generar tokens
-    const accessToken = generateAccessToken({ id: user.id, username: user.username, roles, permissions });
+    // Generar tokens. Los permisos NO van en el token: auth.middleware los lee
+    // de role_permissions en cada petición. Aquí solo viajan en la respuesta,
+    // para que el frontend pinte el menú.
+    const accessToken = generateAccessToken({ id: user.id, username: user.username, roles });
     const { token: refreshToken, tokenHash } = generateRefreshToken();
     const expiresAt = refreshTokenExpiresAt();
 
@@ -198,7 +200,6 @@ async function refresh(req, res, next) {
     if (!rt.activo || rt.deleted_at)             return unauthorized(res, 'Cuenta inactiva');
 
     const roles       = rt.roles ? rt.roles.split(',') : [];
-    const permissions = await getUserPermissions(rt.user_id);
 
     // Rotar refresh token (invalidar el viejo, emitir uno nuevo)
     const { token: newRefreshToken, tokenHash: newTokenHash } = generateRefreshToken();
@@ -215,7 +216,7 @@ async function refresh(req, res, next) {
       );
     });
 
-    const accessToken = generateAccessToken({ id: rt.user_id, username: rt.username, roles, permissions });
+    const accessToken = generateAccessToken({ id: rt.user_id, username: rt.username, roles });
 
     return success(res, {
       accessToken,

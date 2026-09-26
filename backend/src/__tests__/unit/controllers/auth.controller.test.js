@@ -132,7 +132,6 @@ describe('auth.controller', () => {
         id: 1, user_id: 1, expires_at: new Date(Date.now() + 86400000), revoked: 0,
         username: 'admin', activo: 1, deleted_at: null, roles: 'administrador',
       }]]);
-      query.mockResolvedValueOnce([[]]); // getUserPermissions
       transaction.mockImplementation(async (cb) => cb({ execute: jest.fn().mockResolvedValue([]) }));
 
       const res = mockRes();
