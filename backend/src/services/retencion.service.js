@@ -47,8 +47,8 @@ function corteRetencion(meses, instante = ahora()) {
 
 /**
  * Borra una asignación y todo lo suyo en una transacción. Devuelve las URLs de
- * sus fotos, para borrar los ficheros DESPUÉS del commit: si la transacción
- * fallara, las filas seguirían apuntando a ficheros que ya no existen.
+ * sus fotos (o null si la fila ya no estaba), para borrar los ficheros
+ * DESPUÉS del commit: si la transacción fallara, las filas seguirían apuntando a ficheros que ya no existen.
  */
 async function purgarUna(asig) {
   return transaction(async (conn) => {
@@ -65,7 +65,8 @@ async function purgarUna(asig) {
         [asig.vehicle_id]
       );
     }
-    return res.affectedRows > 0 ? fotos.map(f => f.image_url) : [];
+    // null = no había nada que borrar (otra pasada se adelantó): no cuenta.
+    return res.affectedRows > 0 ? fotos.map(f => f.image_url) : null;
   });
 }
 
@@ -101,6 +102,7 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
       for (const asig of candidatas) {
         try {
           const urls = await purgarUna({ ...asig, contaba: Boolean(asig.contaba) });
+          if (urls === null) continue;
           for (const url of urls) deleteFile(url);
           resultado.asignaciones++;
           resultado.fotos += urls.length;
@@ -125,8 +127,11 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
     );
     // Rastro en la auditoría: quien busque una asignación que ya no está tiene
     // que poder ver que la borró la retención y no una persona.
-    const { logAudit } = require('../controllers/admin.controller');
-    await logAudit({
+    // Con su propio try: la purga ya está hecha y confirmada; un fallo aquí no
+    // puede convertirla en «error en retención» en el log del cron.
+    try {
+      const { logAudit } = require('../controllers/admin.controller');
+      await logAudit({
       userId: null,
       userInfo: 'sistema (retención)',
       action: 'purga_retencion',
@@ -139,7 +144,10 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
         ids: resultado.ids.slice(0, 500),
       },
       impersonadoPor: null,
-    });
+      });
+    } catch (err) {
+      logger.warn(`Retención: purga hecha pero sin rastro en audit_logs: ${err.message}`);
+    }
   }
   return resultado;
 }
