@@ -979,7 +979,7 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, pu
             {/* A quien no pueda entrar al mapa ni se le ofrece el enlace,
                 que acabaría en un redirect. Misma condición que el menú. */}
             {puedeVerMapa && !editando && (
-              <Link to="/flota" className="btn-secondary btn-sm">Ver en el mapa</Link>
+              <Link to={`/flota?vehiculo=${vehicle.id}`} className="btn-secondary btn-sm">Ver en el mapa</Link>
             )}
             {puedeEditar && !editando && (
               <button onClick={edicion.abrir} className="btn-secondary btn-sm">Editar</button>
@@ -1326,6 +1326,8 @@ export default function VehicleHistory() {
   const vehicle      = ficha.vehicle || data.vehicle;
   const asignaciones = ficha.vehicle?.asignaciones || null;
   const activa       = asignaciones?.activa || null;
+  // Misma condición que el menú y la ruta /flota (§2.6 del mapa).
+  const puedeVerMapa = isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin());
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
@@ -1339,23 +1341,45 @@ export default function VehicleHistory() {
       </div>
 
       {/* De un vistazo: uso del vehículo, no fotos */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card text-center py-3">
-          <p className="text-[19px] font-semibold text-neutral-900">
+      {/* En móvil cada tarjeta mide ~100 px: con el padding de .card y el
+          texto a 19 px, «Asignada» no cabía y salía cortada o pegada al borde.
+          Por eso el padding lateral y la cifra encogen por debajo de sm. */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="card text-center py-3 px-2 sm:px-4">
+          <p className="text-[16px] sm:text-[19px] font-semibold text-neutral-900">
             {asignaciones ? asignaciones.total : '—'}
           </p>
           <p className="text-xs text-neutral-500 mt-1">Asignaciones históricas</p>
         </div>
-        <div className="card text-center py-3">
-          <p className={`text-[19px] font-semibold ${activa ? 'text-ok-600' : 'text-neutral-900'}`}>
-            {!asignaciones ? '—' : activa ? 'Asignada' : 'Libre'}
-          </p>
-          <p className="text-xs text-neutral-500 mt-1 truncate">
-            {activa ? activa.responsable_nombre : 'Ahora mismo'}
-          </p>
-        </div>
-        <div className="card text-center py-3">
-          <p className="text-[19px] font-semibold text-neutral-900">
+        {(() => {
+          const contenido = (
+            <>
+              <p className={`text-[16px] sm:text-[19px] font-semibold truncate ${activa ? 'text-ok-600' : 'text-neutral-900'}`}>
+                {!asignaciones ? '—' : activa ? 'Asignada' : 'Libre'}
+              </p>
+              <p className="text-xs text-neutral-500 mt-1 truncate">
+                {activa ? activa.responsable_nombre : 'Ahora mismo'}
+              </p>
+              {puedeVerMapa && (
+                <p className="text-xs text-primary-700 font-medium mt-1 truncate">Ver mapa →</p>
+              )}
+            </>
+          );
+          // Quien puede entrar al mapa va de aquí a esta ambulancia en concreto
+          // (`?vehiculo=`); a quien no, ni se le ofrece (acabaría en un redirect).
+          return puedeVerMapa ? (
+            <Link
+              to={`/flota?vehiculo=${vehicle.id}`}
+              className="card text-center py-3 px-2 sm:px-4 min-w-0 hover:border-primary-300 transition-colors"
+            >
+              {contenido}
+            </Link>
+          ) : (
+            <div className="card text-center py-3 px-2 sm:px-4 min-w-0">{contenido}</div>
+          );
+        })()}
+        <div className="card text-center py-3 px-2 sm:px-4">
+          <p className="text-[16px] sm:text-[19px] font-semibold text-neutral-900">
             {vehicle.kilometros_actuales != null ? vehicle.kilometros_actuales.toLocaleString() : '—'}
           </p>
           <p className="text-xs text-neutral-500 mt-1">Km actuales</p>
@@ -1383,7 +1407,7 @@ export default function VehicleHistory() {
           revisiones={ficha.revisiones}
           edicion={edicion}
           puedeEditar={canManageVehicles()}
-          puedeVerMapa={isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin())}
+          puedeVerMapa={puedeVerMapa}
           onVerIncidencias={() => ir({ tab: 'incidencias' })}
           onVerRevisiones={() => ir({ tab: 'revisiones' })}
         />

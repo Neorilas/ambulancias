@@ -131,6 +131,36 @@ describe('vehicles.controller', () => {
       expect(query.mock.calls[1][0]).not.toContain('vehicle_incidencias');
     });
 
+    // En servicio o con un servicio por delante, a la vista en el listado.
+    it('trae el estado de asignación (activa gana a programada) a quien ve la flota', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, alias: 'AMB-1', asignacion_estado: 'activa' }]]);
+
+      const req = mockReq({ query: {}, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
+      const res = mockRes();
+      await listVehicles(req, res, mockNext());
+
+      const sql = query.mock.calls[1][0];
+      expect(sql).toMatch(/FROM asignaciones_libres al/);
+      expect(sql).toMatch(/al\.estado IN \('programada', 'activa'\)/);
+      expect(sql).toMatch(/WHEN asg\.activas > 0 THEN 'activa'\s+WHEN asg\.proxima IS NOT NULL THEN 'programada'/);
+      // Un borrado lógico no cuenta como asignación.
+      expect(sql).toMatch(/al\.deleted_at IS NULL/);
+      // Es una columna, no un filtro: el total no cambia.
+      expect(query.mock.calls[0][0]).not.toContain('asignaciones_libres');
+      expect(res._json.data[0].asignacion_estado).toBe('activa');
+    });
+
+    it('no calcula el estado de asignación para un técnico', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ query: {}, user: { id: 5, roles: ['tecnico'] } });
+      await listVehicles(req, mockRes(), mockNext());
+
+      expect(query.mock.calls[1][0]).not.toContain('asignaciones_libres');
+    });
+
     it('applies LIKE filter when search param provided', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'AMB1234', alias: 'AMB-1' }]]);
