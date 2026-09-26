@@ -531,8 +531,13 @@ miembros, solo la ve su `user_id` (el listado y `ownership` lo aceptan de
 respaldo). Le pasó a `scripts/seed-local.js`, que corre después de las
 migraciones y por tanto no recibe el relleno de v23: ahora lo repite él.
 
-**Ojo:** `schema.sql` está desincronizado (le faltan `asignaciones_libres` y
-otras). La fuente real es `schema.sql` + `migrations.js`.
+**Ojo:** `schema.sql` es solo la base (10 tablas de la v1); le faltan
+`asignaciones_libres` y otras 12. La fuente real es `schema.sql` +
+`migrations.js`, que reescribe también las v2–v8 antiguas con guardas.
+`scripts/setup-db.js` hace las tres cosas (schema, seed y migraciones) y sale en
+rojo si una migración falla; comprobado 2026-09-26 contra una base vacía: queda
+idéntica a la local (23 tablas, 25 migraciones, 16 filas de `role_permissions`)
+y una segunda pasada no aplica nada.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
