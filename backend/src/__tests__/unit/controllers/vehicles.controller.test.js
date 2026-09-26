@@ -88,6 +88,49 @@ describe('vehicles.controller', () => {
       expect(query.mock.calls[0][1]).not.toContain(7);
     });
 
+    // Las incidencias abiertas se ven desde el listado, sin entrar en cada ficha.
+    it('trae el recuento de incidencias abiertas y su gravedad para un administrador', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, alias: 'AMB-1', incidencias_abiertas: 2, incidencias_gravedad_max: 'grave' }]]);
+
+      const req = mockReq({ query: {}, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
+      const res = mockRes();
+      await listVehicles(req, res, mockNext());
+
+      const sql = query.mock.calls[1][0];
+      expect(sql).toMatch(/LEFT JOIN \(/);
+      expect(sql).toMatch(/estado <> 'resuelto'/);
+      // Por posición en el ENUM: MAX sobre el texto pondría 'moderado' encima de 'grave'.
+      expect(sql).toMatch(/MAX\(vi\.gravedad \+ 0\)/);
+      expect(sql).toMatch(/ELT\(inc\.gravedad_max, 'leve', 'moderado', 'grave'\)/);
+      expect(res._json.data[0].incidencias_abiertas).toBe(2);
+    });
+
+    it('filtra a los vehículos con incidencias abiertas', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ query: { incidencias: 'abiertas' }, user: { id: 1, roles: ['gestor'], permissions: ADMIN_PERMS } });
+      await listVehicles(req, mockRes(), mockNext());
+
+      // El filtro va en el WHERE, así que también cuenta para el total.
+      expect(query.mock.calls[0][0]).toMatch(/EXISTS \(\s*SELECT 1 FROM vehicle_incidencias/);
+      expect(query.mock.calls[1][0]).toMatch(/EXISTS \(\s*SELECT 1 FROM vehicle_incidencias/);
+    });
+
+    // La ficha le niega las incidencias (requireAdminOrGestor): el listado no
+    // puede contárselas por la puerta de atrás.
+    it('no calcula ni filtra incidencias para un técnico', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ query: { incidencias: 'abiertas' }, user: { id: 5, roles: ['tecnico'] } });
+      await listVehicles(req, mockRes(), mockNext());
+
+      expect(query.mock.calls[0][0]).not.toContain('vehicle_incidencias');
+      expect(query.mock.calls[1][0]).not.toContain('vehicle_incidencias');
+    });
+
     it('applies LIKE filter when search param provided', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'AMB1234', alias: 'AMB-1' }]]);
