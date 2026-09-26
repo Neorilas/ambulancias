@@ -1,0 +1,22 @@
+# /etc/ambulancia-backup.conf — configuración de backup-ambulancia.sh
+# Se instala con: install -m 600 ambulancia-backup.conf.ejemplo /etc/ambulancia-backup.conf
+# Aquí no hay contraseñas: la de MySQL la lee el script dentro del contenedor.
+
+# Prefijo de los contenedores (<STACK_NAME>-mysql, <STACK_NAME>-backend).
+STACK_NAME=ambulancia
+
+# Dumps de la BD en local. Solo root los lee (llevan datos personales).
+BACKUP_DIR=/root/ambulancia-backups
+RETENCION_DIAS=14
+
+# Copia fuera del servidor (Storage Box de Hetzner). Vacío = sin copia externa:
+# el script sale con código 2 y lo dice en el log.
+#   usuario@host:carpeta — la carpeta tiene que existir (docs/BACKUPS.md §2.1)
+DESTINO_REMOTO=
+# El Storage Box escucha SSH/rsync en el 23, no en el 22.
+DESTINO_PUERTO=23
+DESTINO_CLAVE=/root/.ssh/ambulancia_backup
+
+# Opcional: URL de un monitor tipo healthchecks.io. Recibe /start, OK o /fail,
+# y avisa si un día no llega el ping (el cron no se ejecutó o el servidor cayó).
+AVISO_URL=

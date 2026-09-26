@@ -1006,6 +1006,13 @@ El mapa de flota necesita `CARTRACK_USER`/`CARTRACK_KEY` **en el `.env` de
 cada servidor**, igual que las claves VAPID: no están en el repo y el workflow
 no las toca. Sin ellas la pantalla se explica sola y el resto de la app
 funciona igual. En local van en `backend/.env`, que está en `.gitignore`.
+**Backups: `scripts/backup/` + `docs/BACKUPS.md`** (desde 2026-09-26; **escrito y
+probado en local, pendiente de instalar en el Hetzner**: hasta entonces no hay
+ninguna copia). Van por cron del servidor, no por el workflow, porque el deploy
+no toca MySQL ni los volúmenes. Se hace un `mysqldump` diario, que se verifica
+antes de darlo por bueno, y un `rsync` de las fotos. Las dos copias van a un
+Storage Box **sin `--delete`**. El `cron.d/maraya-pg-backup` del servidor es de
+otro proyecto (Postgres) y no copia nada de ambulancia.
 Local: `docker-compose.local.yml` (MySQL en **3307**),
 `npm run local:db`, `seed:local`, y los comandos `/local`, `/verifica`,
 `/a-pro`. Detalle en `docs/ENTORNOS.md` y `docs/LOCAL.md`.
@@ -1019,6 +1026,7 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 | `docs/PLAN_TRABAJO.md` | Plan por bloques con verificación |
 | `docs/PLAN_SEGURIDAD.md` | Lo que queda de seguridad (servidor, CSP obligatoria, retirar `GET /push/estado`, refresh en cookie) con pasos y verificación; y la prueba en carpeta aparte del hosting |
 | `docs/ENTORNOS.md`, `docs/LOCAL.md` | Despliegue y entorno local |
+| `docs/BACKUPS.md` | Backup de BD y fotos: instalación, vigilancia, prueba de restauración y restauración |
 | `docs/FLUJO_SERVICIO.md` | Rediseño inicio → jornada → cierre |
 | `docs/PLAN_NOTIFICACIONES_PUSH.md` | Plan de los avisos push (implementado; ver §2.5) |
 | `docs/API.md`, `docs/README.md`, `docs/DEPLOY.md` | Legado; `DEPLOY.md` está obsoleto (nginx+PM2) |
