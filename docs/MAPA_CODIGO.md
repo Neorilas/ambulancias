@@ -1028,12 +1028,10 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 |---|---|
 | `docs/MAPA_CODIGO.md` | Este fichero |
 | `docs/ESTADO_PROYECTO.md` | Alcance actual y problemas conocidos |
-| `docs/PLAN_TRABAJO.md` | Plan por bloques con verificación |
-| `docs/PLAN_SEGURIDAD.md` | Lo que queda de seguridad (servidor, CSP obligatoria, retirar `GET /push/estado`, refresh en cookie) con pasos y verificación; y la prueba en carpeta aparte del hosting |
+| `docs/PLAN_*.md` | Planes (trabajo, seguridad, push, Cartrack). **Solo en local**: están en `.gitignore` desde 2026-09-27, para que `/a-pro` pueda subir con merge y no con cherry-pick |
 | `docs/ENTORNOS.md`, `docs/LOCAL.md` | Despliegue y entorno local |
 | `docs/BACKUPS.md` | Backup de BD y fotos: instalación, vigilancia, prueba de restauración y restauración |
 | `docs/FLUJO_SERVICIO.md` | Rediseño inicio → jornada → cierre |
-| `docs/PLAN_NOTIFICACIONES_PUSH.md` | Plan de los avisos push (implementado; ver §2.5) |
 | `docs/API.md`, `docs/README.md`, `docs/DEPLOY.md` | Legado; `DEPLOY.md` está obsoleto (nginx+PM2) |
 | `docs/AUDITORIA_SEGURIDAD.md` | Informe de seguridad (no se commitea, repo público) |
 | `docs/rediseno/estilo-v2.html` | Mockup del diseño v2 |
