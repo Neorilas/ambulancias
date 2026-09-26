@@ -53,7 +53,7 @@ async function subscribe(req, res, next) {
     return success(res, { suscrito: true }, 'Avisos activados en este dispositivo');
   } catch (err) {
     // Una suscripción mal formada es culpa del cliente, no del servidor.
-    if (/Suscripción incompleta/.test(err.message)) {
+    if (/^Suscripción (incompleta|rechazada)/.test(err.message)) {
       return error(res, err.message, 400);
     }
     next(err);
@@ -80,14 +80,16 @@ async function unsubscribe(req, res, next) {
 }
 
 // ============================================================
-// GET /push/estado
+// POST /push/estado  (y GET, solo para PWAs aún sin actualizar)
 // ============================================================
+// El endpoint va en el body: en la query string acababa escrito en el log de
+// peticiones, y es la credencial de entrega del dispositivo.
 // Responde si ESTE navegador (por su endpoint) está dado de alta. El frontend
 // no puede deducirlo solo: el navegador puede conservar una PushSubscription
 // que el servidor ya borró por caducada.
 async function estado(req, res, next) {
   try {
-    const endpoint = req.query?.endpoint;
+    const endpoint = req.body?.endpoint || req.query?.endpoint;
     const registrado = endpoint
       ? await push.tieneSuscripcion({ userId: req.user.id, endpoint })
       : false;

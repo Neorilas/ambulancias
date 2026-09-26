@@ -355,7 +355,7 @@ async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
 async function listTrabajos(req, res, next) {
   try {
     const page   = Math.max(1, parseInt(req.query.page)  || PAGINATION.DEFAULT_PAGE);
-    const limit  = Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+    const limit  = Math.max(1, Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT));
     const offset = (page - 1) * limit;
 
     const { estado, tipo, fecha_desde, fecha_hasta, search } = req.query;
@@ -1069,7 +1069,7 @@ async function uploadEvidencia(req, res, next) {
 async function misTrab(req, res, next) {
   try {
     const page   = Math.max(1, parseInt(req.query.page) || 1);
-    const limit  = Math.min(parseInt(req.query.limit) || 20, PAGINATION.MAX_LIMIT);
+    const limit  = Math.max(1, Math.min(parseInt(req.query.limit) || 20, PAGINATION.MAX_LIMIT));
     const offset = (page - 1) * limit;
     const uid    = req.user.id;
 

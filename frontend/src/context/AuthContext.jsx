@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { authService } from '../services/auth.service.js';
 import { ROLES, PERMISSIONS } from '../utils/constants.js';
 import { getItem, setItem, removeItem, clear as clearSesion } from '../utils/sessionStorage.js';
+import { vaciarCachesDeSesion } from '../utils/cachesSesion.js';
 
 const AuthContext = createContext(null);
 
@@ -52,6 +53,7 @@ export function AuthProvider({ children }) {
     removeItem('accessToken');
     removeItem('refreshToken');
     removeItem('user');
+    await vaciarCachesDeSesion();
     setUser(null);
   }, []);
 

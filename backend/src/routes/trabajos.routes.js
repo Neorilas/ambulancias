@@ -114,7 +114,8 @@ router.post('/:id/vehiculos/:vehicleId/finalize',
     ...paramsVehiculo,
     body('kilometros_fin').notEmpty().withMessage('Faltan los kilómetros finales')
       .isInt({ min: 0 }).toInt(),
-    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString(),
+    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString()
+      .isLength({ max: 2000 }).withMessage('Motivo demasiado largo (máx. 2000)'),
   ],
   handleValidation,
   ctrl.finalizeVehiculo
@@ -133,7 +134,8 @@ router.post('/:id/finalize',
   requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [
     param('id').isInt({ min: 1 }),
-    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString(),
+    body('motivo_finalizacion_anticipada').optional({ nullable: true }).isString()
+      .isLength({ max: 2000 }).withMessage('Motivo demasiado largo (máx. 2000)'),
   ],
   handleValidation,
   ctrl.finalizeTrabajo

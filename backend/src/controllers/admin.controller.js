@@ -47,7 +47,7 @@ async function logError({ method, url, statusCode, errorMessage, stackTrace, use
 async function listAuditLogs(req, res, next) {
   try {
     const page    = Math.max(1, parseInt(req.query.page)  || PAGINATION.DEFAULT_PAGE);
-    const limit   = Math.min(parseInt(req.query.limit)    || 50, 200);
+    const limit   = Math.max(1, Math.min(parseInt(req.query.limit)    || 50, 200));
     const offset  = (page - 1) * limit;
     const action  = req.query.action  || null;
     const userId  = req.query.user_id ? parseInt(req.query.user_id) : null;
@@ -86,7 +86,7 @@ async function listAuditLogs(req, res, next) {
 async function listErrorLogs(req, res, next) {
   try {
     const page   = Math.max(1, parseInt(req.query.page) || PAGINATION.DEFAULT_PAGE);
-    const limit  = Math.min(parseInt(req.query.limit)   || 50, 200);
+    const limit  = Math.max(1, Math.min(parseInt(req.query.limit)   || 50, 200));
     const offset = (page - 1) * limit;
     const desde  = req.query.desde || null;
     const hasta  = req.query.hasta || null;

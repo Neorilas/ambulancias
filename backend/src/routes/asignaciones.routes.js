@@ -127,7 +127,8 @@ router.post('/:id/finalizar',
 router.post('/:id/incidencias',
   [
     param('id').isInt({ min: 1 }),
-    body('descripcion').trim().notEmpty().withMessage('Descripción requerida'),
+    body('descripcion').trim().notEmpty().withMessage('Descripción requerida')
+      .isLength({ max: 2000 }).withMessage('Descripción demasiado larga (máx. 2000)'),
     body('tipo').optional().isIn(['dano_exterior','dano_interior','mecanico','fluido','electrico','otro']),
     body('gravedad').optional().isIn(['leve','moderado','grave']),
     body('responsable_user_id').optional({ nullable: true }).isInt({ min: 1 }),

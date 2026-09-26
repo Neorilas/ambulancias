@@ -77,10 +77,10 @@ async function resolverRoles(conn, nombres) {
 async function listUsers(req, res, next) {
   try {
     const page  = Math.max(1, parseInt(req.query.page)  || PAGINATION.DEFAULT_PAGE);
-    const limit = Math.min(
+    const limit = Math.max(1, Math.min(
       parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT,
       PAGINATION.MAX_LIMIT
-    );
+    ));
     const offset = (page - 1) * limit;
     const search = req.query.search ? `%${req.query.search}%` : null;
     const roleFilter = req.query.role || null;

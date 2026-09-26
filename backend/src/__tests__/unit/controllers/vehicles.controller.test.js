@@ -23,16 +23,33 @@ const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 const { IMAGEN_TIPOS } = require('../../../config/constants');
 
+// Lo que el auth.middleware carga de role_permissions para administrador/gestor.
+const ADMIN_PERMS = ['manage_vehicles', 'manage_users', 'manage_trabajos',
+  'view_all_trabajos', 'manage_incidencias'];
+
 describe('vehicles.controller', () => {
   beforeEach(() => jest.clearAllMocks());
 
   // ── listVehicles ───────────────────────────────────────
   describe('listVehicles', () => {
+    // SEC-10: sin rol (o con un rol creado a mano) no es «operacional», y el
+    // recorte viejo colgaba de isOperacional: veía la flota entera.
+    it('recorta la flota a un usuario sin ningún rol', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ query: {}, user: { id: 42, roles: [], permissions: [] } });
+      await listVehicles(req, mockRes(), mockNext());
+
+      expect(query.mock.calls[0][0]).toMatch(/EXISTS/);
+      expect(query.mock.calls[0][1]).toContain(42);
+    });
+
     it('returns paginated list for admin', async () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234', alias: 'AMB-1' }]]);
 
-      const req = mockReq({ query: {}, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ query: {}, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await listVehicles(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
@@ -61,7 +78,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'ABC1234', alias: 'AMB-1' },
                                     { id: 2, matricula: 'XYZ9999', alias: 'AMB-2' }]]);
 
-      const req = mockReq({ query: {}, user: { id: 7, roles: ['administrador', 'tecnico'] } });
+      const req = mockReq({ query: {}, user: { id: 7, roles: ['administrador', 'tecnico'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await listVehicles(req, res, mockNext());
 
@@ -75,7 +92,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: 'AMB1234', alias: 'AMB-1' }]]);
 
-      const req = mockReq({ query: { search: 'AMB' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ query: { search: 'AMB' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await listVehicles(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
@@ -90,7 +107,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ total: 1 }]]);
       query.mockResolvedValueOnce([[{ id: 1, matricula: '1234BCD', alias: 'Ambulancia 1' }]]);
 
-      const req = mockReq({ query: { search: '1234 bcd' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ query: { search: '1234 bcd' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await listVehicles(req, res, mockNext());
 
@@ -104,7 +121,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[]]);
 
       await listVehicles(
-        mockReq({ query: {}, user: { id: 1, roles: ['administrador'] } }),
+        mockReq({ query: {}, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } }),
         mockRes(), mockNext()
       );
 
@@ -124,7 +141,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ total: 0 }]]);   // asignaciones historicas
       query.mockResolvedValueOnce([[]]);               // ninguna activa
 
-      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await getVehicle(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
@@ -143,7 +160,7 @@ describe('vehicles.controller', () => {
         inicio_real_at: '2026-09-18T06:05:00.000Z', responsable_nombre: 'Jose Lopez',
       }]]);
 
-      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await getVehicle(req, res, mockNext());
       expect(res._json.data.asignaciones.total).toBe(12);
@@ -156,7 +173,7 @@ describe('vehicles.controller', () => {
       query.mockResolvedValueOnce([[{ total: 3 }]]);
       query.mockResolvedValueOnce([[]]);
 
-      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ params: { id: '1' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await getVehicle(req, res, mockNext());
       expect(res._json.data.asignaciones).toEqual({ total: 3, activa: null });
@@ -165,7 +182,7 @@ describe('vehicles.controller', () => {
     it('returns 404 when not found', async () => {
       query.mockResolvedValueOnce([[]]);
       const res = mockRes();
-      await getVehicle(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+      await getVehicle(mockReq({ params: { id: '999' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
     });
 
@@ -268,7 +285,7 @@ describe('vehicles.controller', () => {
       // admin, no operacional check; just the images query
       query.mockResolvedValueOnce([[{ id: 1, tipo_imagen: 'frontal', image_url: '/img1.jpg' }]]);
 
-      const req = mockReq({ params: { id: '1' }, query: { trabajo_id: '5' }, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ params: { id: '1' }, query: { trabajo_id: '5' }, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await getVehicleImages(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
@@ -391,17 +408,55 @@ describe('vehicles.controller', () => {
     it('uploads image for vehicle', async () => {
       query.mockResolvedValueOnce([[{ id: 1 }]]);      // vehicle exists
       query.mockResolvedValueOnce([[{ ok: 1 }]]);      // el trabajo es de este vehiculo
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);      // y es responsable en ese trabajo
       query.mockResolvedValueOnce([{ insertId: 20 }]); // insert image
 
       const req = mockReq({
         params: { id: '1' },
         body: { trabajo_id: 5, tipo_imagen: 'frontal' },
         processedFile: { url: '/uploads/test.jpg' },
-        user: { id: 1 },
+        user: { id: 1, roles: ['tecnico'], permissions: [] },
       });
       const res = mockRes();
       await uploadImages(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(201);
+      expect(query.mock.calls[2][1]).toEqual([5, 1, 1]);
+    });
+
+    it('403 si el trabajo lleva el vehículo pero no es suyo (SEC-11)', async () => {
+      const { deleteFile } = require('../../../middleware/upload.middleware');
+      query.mockResolvedValueOnce([[{ id: 1 }]]);  // vehicle exists
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);  // el trabajo lleva este vehiculo
+      query.mockResolvedValueOnce([[]]);           // pero no es responsable en él
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { trabajo_id: 5, tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/test.jpg' },
+        user: { id: 9, roles: ['tecnico'], permissions: [] },
+      });
+      const res = mockRes();
+      await uploadImages(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(deleteFile).toHaveBeenCalledWith('/uploads/test.jpg');
+      expect(query).toHaveBeenCalledTimes(3);
+    });
+
+    it('quien gestiona vehículos no necesita ser responsable del trabajo', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+      query.mockResolvedValueOnce([[{ ok: 1 }]]);
+      query.mockResolvedValueOnce([{ insertId: 21 }]);
+
+      const req = mockReq({
+        params: { id: '1' },
+        body: { trabajo_id: 5, tipo_imagen: 'frontal' },
+        processedFile: { url: '/uploads/test.jpg' },
+        user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS },
+      });
+      const res = mockRes();
+      await uploadImages(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(query).toHaveBeenCalledTimes(3);
     });
 
     it('returns 400 when trabajo_id belongs to another vehicle (SEC-02)', async () => {
@@ -475,13 +530,25 @@ describe('vehicles.controller', () => {
 
   // ── getVehicleImages ───────────────────────────────────
   describe('getVehicleImages', () => {
+    it('403 a un usuario sin rol que no lleva el vehículo (SEC-10)', async () => {
+      query.mockResolvedValueOnce([[]]); // canOperacionalAccess: no
+
+      const res = mockRes();
+      await getVehicleImages(
+        mockReq({ params: { id: '1' }, query: {}, user: { id: 42, roles: [], permissions: [] } }),
+        res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(query).toHaveBeenCalledTimes(1);
+    });
+
     it('returns images for vehicle', async () => {
       query.mockResolvedValueOnce([[
         { id: 1, tipo_imagen: 'frontal', image_url: '/img1.jpg' },
         { id: 2, tipo_imagen: 'trasera', image_url: '/img2.jpg' },
       ]]);
 
-      const req = mockReq({ params: { id: '1' }, query: {}, user: { id: 1, roles: ['administrador'] } });
+      const req = mockReq({ params: { id: '1' }, query: {}, user: { id: 1, roles: ['administrador'], permissions: ADMIN_PERMS } });
       const res = mockRes();
       await getVehicleImages(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);

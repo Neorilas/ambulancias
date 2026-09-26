@@ -197,6 +197,7 @@ describe('push.service', () => {
         urgency: 'high',
         TTL:     3600,
         topic:   'asig-1-activada',
+        timeout: 10000,
       });
     });
 
@@ -355,13 +356,13 @@ describe('push.service', () => {
 
       await push.guardarSuscripcion({
         userId: 5,
-        subscription: { endpoint: 'https://push.example/abc', keys: { p256dh: 'P', auth: 'A' } },
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'P', auth: 'A' } },
         userAgent: 'Chrome/128 Android',
       });
 
       const [sql, params] = query.mock.calls[0];
       expect(sql).toMatch(/ON DUPLICATE KEY UPDATE/);
-      expect(params.slice(0, 5)).toEqual([5, 'https://push.example/abc', 'P', 'A', 'Chrome/128 Android']);
+      expect(params.slice(0, 5)).toEqual([5, 'https://fcm.googleapis.com/fcm/send/abc', 'P', 'A', 'Chrome/128 Android']);
       // El instante lo pone Node, no la BD (contrato de fechas).
       expect(params[5]).toBeInstanceOf(Date);
     });
@@ -372,7 +373,7 @@ describe('push.service', () => {
 
       await push.guardarSuscripcion({
         userId: 5,
-        subscription: { endpoint: 'e', keys: { p256dh: 'P', auth: 'A' } },
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/e', keys: { p256dh: 'P', auth: 'A' } },
         userAgent: 'x'.repeat(400),
       });
 
@@ -385,10 +386,66 @@ describe('push.service', () => {
 
       await push.guardarSuscripcion({
         userId: 5,
-        subscription: { endpoint: 'e', keys: { p256dh: 'P', auth: 'A' } },
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/e', keys: { p256dh: 'P', auth: 'A' } },
       });
 
       expect(query.mock.calls[0][1][4]).toBeNull();
+    });
+
+    it('no deja apropiarse del endpoint de otro sin sus claves', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+      await push.guardarSuscripcion({
+        userId: 5,
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'P', auth: 'A' } },
+      });
+
+      const [sql] = query.mock.calls[0];
+      expect(sql).toMatch(/user_id\s*=\s*IF\(p256dh = VALUES\(p256dh\) AND auth = VALUES\(auth\)/);
+      // user_id se decide ANTES de tocar las claves (MySQL asigna en orden).
+      expect(sql.indexOf('user_id    = IF')).toBeLessThan(sql.indexOf('p256dh     = IF'));
+    });
+
+    it('recorta a los dispositivos más recientes del usuario', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+      await push.guardarSuscripcion({
+        userId: 5,
+        subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'P', auth: 'A' } },
+      });
+
+      const [sql, params] = query.mock.calls[1];
+      expect(sql).toMatch(/DELETE FROM push_subscriptions/);
+      expect(sql).toMatch(/LIMIT 10/);
+      expect(params).toEqual([5, 5]);
+    });
+
+    it.each([
+      'https://127.0.0.1:3306/x',
+      'https://ambulancia-mysql/x',
+      'http://fcm.googleapis.com/fcm/send/abc',
+      'https://fcm.googleapis.com:8443/fcm/send/abc',
+      'https://fcm.googleapis.com.evil.tld/abc',
+      'https://evilpush.apple.com.attacker.io/x',
+      'https://user:pw@fcm.googleapis.com/x',
+      'no-es-una-url',
+    ])('rechaza el endpoint %s sin tocar la BD', async (endpoint) => {
+      const push = cargarPush();
+      await expect(push.guardarSuscripcion({
+        userId: 5, subscription: { endpoint, keys: { p256dh: 'P', auth: 'A' } },
+      })).rejects.toThrow(/^Suscripción rechazada/);
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'https://fcm.googleapis.com/fcm/send/abc',
+      'https://updates.push.services.mozilla.com/wpush/v2/abc',
+      'https://wns2-par02p.notify.windows.com/w/?token=abc',
+      'https://web.push.apple.com/abc',
+    ])('acepta el servicio de push real %s', (endpoint) => {
+      expect(cargarPush().endpointValido(endpoint)).toBe(true);
     });
 
     it('rechaza una suscripción sin claves', async () => {
