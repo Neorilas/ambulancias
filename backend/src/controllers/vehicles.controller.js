@@ -14,7 +14,7 @@
 const { query, transaction }  = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } = require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
-const { isAdmin, isOperacional, hasPermission } = require('../middleware/roles.middleware');
+const { hasPermission } = require('../middleware/roles.middleware');
 const { normalizarMatricula, esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const { deleteFile }               = require('../middleware/upload.middleware');
 const { logAudit }                 = require('./admin.controller');
@@ -30,7 +30,23 @@ const ORDEN_POR_NOMBRE = `
   CAST(REGEXP_SUBSTR(v.alias, '[0-9]+') AS UNSIGNED) ASC,
   v.alias ASC`;
 
-// ── Helper: ¿puede un operacional acceder a este vehículo? ────
+/**
+ * Ve la flota entera: quien gestiona vehículos o servicios (superadmin
+ * incluido, `hasPermission` lo deja pasar). El resto, solo los vehículos de
+ * los que es responsable ahora mismo.
+ *
+ * Es una lista BLANCA a propósito. Antes el recorte colgaba de
+ * `isOperacional` (lista negra de roles de campo) y un usuario sin ningún rol
+ * —la mayoría de la plantilla— o con un rol creado a mano no cumplía la
+ * condición y veía toda la flota y todas las fotos de evidencia. Es el mismo
+ * fallo que `trabajos.controller` ya corrigió con `veTodo`.
+ */
+const veFlota = (user) =>
+  hasPermission(user, PERMISSIONS.MANAGE_VEHICLES) ||
+  hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS) ||
+  hasPermission(user, PERMISSIONS.VIEW_ALL_TRABAJOS);
+
+// ── Helper: ¿puede quien no ve la flota acceder a este vehículo? ────
 async function canOperacionalAccess(userId, vehicleId) {
   const [rows] = await query(
     `SELECT tv.id
@@ -52,17 +68,17 @@ async function canOperacionalAccess(userId, vehicleId) {
 async function listVehicles(req, res, next) {
   try {
     const page   = Math.max(1, parseInt(req.query.page) || PAGINATION.DEFAULT_PAGE);
-    const limit  = Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+    const limit  = Math.max(1, Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT));
     const offset = (page - 1) * limit;
     const search = req.query.search ? `%${req.query.search}%` : null;
 
     let where  = 'WHERE v.deleted_at IS NULL';
     const params = [];
 
-    // Operacionales: solo ven los vehículos de los que son responsables en un
+    // Sin permiso de gestión: solo ven los vehículos de los que son responsables en un
     // trabajo, con ese vehículo ACTIVO ahora mismo. El equipo del trabajo no:
     // ve la ficha del trabajo, no la del vehículo (§6.2 del mapa).
-    if (isOperacional(req.user)) {
+    if (!veFlota(req.user)) {
       where += `
         AND EXISTS (
           SELECT 1 FROM trabajo_vehiculos tv
@@ -112,7 +128,7 @@ async function getVehicle(req, res, next) {
   try {
     const vehicleId = parseInt(req.params.id);
 
-    if (isOperacional(req.user)) {
+    if (!veFlota(req.user)) {
       const ok = await canOperacionalAccess(req.user.id, vehicleId);
       if (!ok) return forbidden(res, 'No tienes acceso a este vehículo');
     }
@@ -142,7 +158,7 @@ async function getVehicle(req, res, next) {
     // Solo para quien gestiona: lo pinta la ficha, que es de admin/gestor, y
     // lleva el nombre de quién tiene el vehículo ahora mismo. Un operacional
     // llega aquí por su propio vehículo y no tiene por qué ver eso.
-    if (isOperacional(req.user)) {
+    if (!veFlota(req.user)) {
       return success(res, { ...rows[0], images });
     }
 
@@ -336,7 +352,7 @@ async function getVehicleImages(req, res, next) {
   try {
     const vehicleId = parseInt(req.params.id);
 
-    if (isOperacional(req.user)) {
+    if (!veFlota(req.user)) {
       const ok = await canOperacionalAccess(req.user.id, vehicleId);
       if (!ok) return forbidden(res, 'No tienes acceso a este vehículo');
     }
@@ -406,6 +422,24 @@ async function uploadImages(req, res, next) {
       if (!rel.length) {
         deleteFile(req.processedFile.url);
         return error(res, 'El vehículo no está asignado a ese trabajo', 400);
+      }
+
+      // Y tiene que ser SU trabajo. El middleware deja subir a quien lleva el
+      // vehículo en cualquier servicio; sin esto, un técnico podía colgar fotos
+      // en el trabajo de otro equipo que lleva el mismo vehículo.
+      if (!hasPermission(req.user, PERMISSIONS.MANAGE_VEHICLES) &&
+          !hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS)) {
+        const [mio] = await query(
+          `SELECT 1 AS ok
+           FROM trabajo_vehiculos tv
+           JOIN trabajo_vehiculo_responsables tvr ON tvr.trabajo_vehiculo_id = tv.id
+           WHERE tv.trabajo_id = ? AND tv.vehicle_id = ? AND tvr.user_id = ?`,
+          [trabajoId, vehicleId, req.user.id]
+        );
+        if (!mio.length) {
+          deleteFile(req.processedFile.url);
+          return forbidden(res, 'No eres el responsable de este vehículo en ese trabajo');
+        }
       }
     }
 

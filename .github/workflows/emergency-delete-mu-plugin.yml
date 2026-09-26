@@ -29,9 +29,11 @@ jobs:
           user = os.environ['FTP_USER']
           pw   = os.environ['FTP_PASS']
 
+          # Verificación TLS completa: son las mismas credenciales FTP con las
+          # que se publica la PWA, y el deploy-frontend ya valida el
+          # certificado de este host, así que no hay motivo para aceptar uno
+          # cualquiera (un MITM se llevaría la contraseña).
           ctx = ssl.create_default_context()
-          ctx.check_hostname = False
-          ctx.verify_mode = ssl.CERT_NONE
 
           ftp = ftplib.FTP_TLS(context=ctx)
           ftp.connect(host, 21, timeout=30)

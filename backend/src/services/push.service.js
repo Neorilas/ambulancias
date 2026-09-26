@@ -156,6 +156,44 @@ const URGENCIA = 'high';
 const TTL_SEGUNDOS = 60 * 60;
 
 /**
+ * Tope de espera de cada envío. Un servicio de push contesta en décimas de
+ * segundo; sin tope, un destino que acepta la conexión y no responde deja la
+ * petición colgada indefinidamente.
+ */
+const TIMEOUT_ENVIO_MS = 10000;
+
+/**
+ * Servicios de push a los que se acepta enviar.
+ *
+ * El `endpoint` lo genera el navegador, pero al servidor le llega en el body
+ * de una petición y es tan manipulable como cualquier otro campo. Sin esta
+ * lista, `web-push` hace un POST HTTPS a cualquier host y puerto que se le
+ * dé: cualquier autenticado podría usar el backend para sondear la red interna
+ * o como reflector hacia terceros. Si un navegador nuevo usa otro servicio, el
+ * alta falla con 400 y hay que añadirlo aquí.
+ */
+const HOSTS_PUSH = [
+  /^fcm\.googleapis\.com$/,               // Chrome, Edge Android, Samsung, Opera
+  /^android\.googleapis\.com$/,           // FCM, endpoint heredado
+  /(^|\.)push\.services\.mozilla\.com$/,  // Firefox
+  /(^|\.)notify\.windows\.com$/,          // Edge escritorio (WNS)
+  /(^|\.)push\.apple\.com$/,              // Safari / iOS (web.push.apple.com)
+];
+
+/** Dispositivos por usuario. Al pasar del tope se descartan los más viejos. */
+const MAX_DISPOSITIVOS = 10;
+
+/** ¿Es un endpoint de un servicio de push conocido, por HTTPS y en el 443? */
+function endpointValido(endpoint) {
+  let u;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  if (u.port && u.port !== '443') return false;
+  if (u.username || u.password) return false;
+  return HOSTS_PUSH.some((re) => re.test(u.hostname));
+}
+
+/**
  * `topic` para el servicio de push, derivado del tag.
  *
  * Hace en el servidor lo mismo que el `tag` hace en la bandeja: si hay un
@@ -188,6 +226,7 @@ async function enviarA(suscripciones, payload) {
     TTL:     TTL_SEGUNDOS,
     urgency: URGENCIA,
     topic:   normalizarTopic(payload?.tag),
+    timeout: TIMEOUT_ENVIO_MS,
   };
   let enviados = 0;
   let borrados = 0;
@@ -312,10 +351,20 @@ async function notificarUsuarios(userIds, { titulo, cuerpo, url = '/', tag } = {
 /**
  * Guarda (o refresca) la suscripción de un dispositivo.
  *
- * El endpoint es único: si el navegador ya estaba suscrito devuelve el mismo y
- * aquí solo se actualizan las claves y el dueño. Eso cubre el caso de dos
- * personas que comparten el ordenador de la oficina — la suscripción pasa a
- * ser de quien la activó el último, que es lo que espera quien pulsa el botón.
+ * El endpoint es único: si el navegador ya estaba suscrito devuelve el mismo
+ * con las MISMAS claves. Eso cubre el caso de dos personas que comparten el
+ * ordenador de la oficina — la suscripción pasa a ser de quien la activó el
+ * último, que es lo que espera quien pulsa el botón.
+ *
+ * El cambio de dueño exige que coincidan las claves: quien solo conoce el
+ * endpoint de otro (sale en logs, por ejemplo) no puede quedárselo con claves
+ * propias y dejar a la víctima sin avisos. En ese caso la fila no cambia.
+ * El propio dueño sí puede renovar las claves. OJO: MySQL evalúa las
+ * asignaciones del UPDATE en orden y cada una ve los valores ya cambiados;
+ * `user_id` va antes que las claves a propósito.
+ *
+ * Los mensajes de error empiezan por «Suscripción …»: el controlador los
+ * devuelve como 400 tal cual.
  */
 async function guardarSuscripcion({ userId, subscription, userAgent }) {
   const endpoint = subscription?.endpoint;
@@ -324,16 +373,37 @@ async function guardarSuscripcion({ userId, subscription, userAgent }) {
   if (!endpoint || !p256dh || !auth) {
     throw new Error('Suscripción incompleta: faltan endpoint o claves');
   }
+  if (!endpointValido(endpoint)) {
+    throw new Error('Suscripción rechazada: servicio de push no reconocido');
+  }
 
   await query(
     `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, created_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
-       user_id    = VALUES(user_id),
-       p256dh     = VALUES(p256dh),
-       auth       = VALUES(auth),
-       user_agent = VALUES(user_agent)`,
+       user_agent = IF(user_id = VALUES(user_id) OR (p256dh = VALUES(p256dh) AND auth = VALUES(auth)),
+                       VALUES(user_agent), user_agent),
+       user_id    = IF(p256dh = VALUES(p256dh) AND auth = VALUES(auth), VALUES(user_id), user_id),
+       p256dh     = IF(user_id = VALUES(user_id), VALUES(p256dh), p256dh),
+       auth       = IF(user_id = VALUES(user_id), VALUES(auth),   auth)`,
     [userId, endpoint, p256dh, auth, (userAgent || '').slice(0, 255) || null, ahora()]
+  );
+
+  // Tope de dispositivos: se quedan los MAX_DISPOSITIVOS más recientes. Se
+  // descarta en vez de rechazar para que quien cambia de móvil a menudo no se
+  // quede bloqueado por suscripciones muertas que nadie borró.
+  await query(
+    `DELETE FROM push_subscriptions
+      WHERE user_id = ?
+        AND id NOT IN (
+          SELECT id FROM (
+            SELECT id FROM push_subscriptions
+             WHERE user_id = ?
+             ORDER BY COALESCE(last_ok_at, created_at) DESC, id DESC
+             LIMIT ${MAX_DISPOSITIVOS}
+          ) recientes
+        )`,
+    [userId, userId]
   );
 }
 
@@ -375,6 +445,7 @@ module.exports = {
   tieneSuscripcion,
   contarDispositivosPorUsuario,
   // Expuestos para los tests
+  endpointValido,
   suscripcionesDeAdmins,
   suscripcionesDeUsuario,
   suscripcionesDeUsuarios,

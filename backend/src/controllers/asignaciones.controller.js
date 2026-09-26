@@ -359,7 +359,7 @@ async function listAsignaciones(req, res, next) {
   try {
     const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
     const page   = Math.max(1, parseInt(req.query.page)  || PAGINATION.DEFAULT_PAGE);
-    const limit  = Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+    const limit  = Math.max(1, Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT));
     const offset = (page - 1) * limit;
     const estado = req.query.estado || null;
 

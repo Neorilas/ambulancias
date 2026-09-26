@@ -5,6 +5,7 @@
 
 import axios from 'axios';
 import { getItem, setItem, removeItem } from '../utils/sessionStorage.js';
+import { vaciarCachesDeSesion } from '../utils/cachesSesion.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -116,6 +117,7 @@ function clearAuth() {
   removeItem('accessToken');
   removeItem('refreshToken');
   removeItem('user');
+  vaciarCachesDeSesion();
   // Redirigir a login sin causar loop
   if (!window.location.pathname.includes('/login')) {
     window.location.href = `${import.meta.env.BASE_URL}login`;

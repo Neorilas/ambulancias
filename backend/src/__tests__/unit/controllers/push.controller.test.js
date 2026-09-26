@@ -95,6 +95,17 @@ describe('push.controller', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
+    it('un servicio de push no reconocido es un 400', async () => {
+      push.guardarSuscripcion.mockRejectedValue(new Error('Suscripción rechazada: servicio de push no reconocido'));
+
+      const res = mockRes();
+      const next = mockNext();
+      await subscribe(mockReq({ user: ADMIN, body: { subscription: SUSCRIPCION } }), res, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(next).not.toHaveBeenCalled();
+    });
+
     it('un fallo inesperado va al manejador de errores', async () => {
       push.guardarSuscripcion.mockRejectedValue(new Error('BD caída'));
 
@@ -134,8 +145,18 @@ describe('push.controller', () => {
     });
   });
 
-  // ── GET /push/estado ─────────────────────────────────────
+  // ── POST/GET /push/estado ────────────────────────────────
   describe('estado', () => {
+    it('lee el endpoint del body (POST)', async () => {
+      push.tieneSuscripcion.mockResolvedValue(true);
+
+      const res = mockRes();
+      await estado(mockReq({ user: ADMIN, body: { endpoint: 'e' }, query: {} }), res, mockNext());
+
+      expect(push.tieneSuscripcion).toHaveBeenCalledWith({ userId: 3, endpoint: 'e' });
+      expect(res.json.mock.calls[0][0].data.registrado).toBe(true);
+    });
+
     it('dice si ESTE endpoint está registrado', async () => {
       push.tieneSuscripcion.mockResolvedValue(true);
 

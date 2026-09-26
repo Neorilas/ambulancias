@@ -18,18 +18,17 @@ describe('push.service', () => {
     expect(r).toEqual({ configurado: true, publicKey: 'K' });
   });
 
-  it('getEstado manda el endpoint como parámetro', async () => {
-    api.get.mockResolvedValueOnce(mockData({ registrado: true }));
+  it('getEstado manda el endpoint en el body, no en la URL', async () => {
+    api.post.mockResolvedValueOnce(mockData({ registrado: true }));
     await pushService.getEstado('https://push.example/x');
-    expect(api.get).toHaveBeenCalledWith('/push/estado', {
-      params: { endpoint: 'https://push.example/x' },
-    });
+    expect(api.post).toHaveBeenCalledWith('/push/estado', { endpoint: 'https://push.example/x' });
+    expect(api.get).not.toHaveBeenCalled();
   });
 
-  it('getEstado sin endpoint no manda un params con undefined dentro', async () => {
-    api.get.mockResolvedValueOnce(mockData({ registrado: false }));
+  it('getEstado sin endpoint no manda un endpoint undefined', async () => {
+    api.post.mockResolvedValueOnce(mockData({ registrado: false }));
     await pushService.getEstado();
-    expect(api.get).toHaveBeenCalledWith('/push/estado', { params: {} });
+    expect(api.post).toHaveBeenCalledWith('/push/estado', {});
   });
 
   it('subscribe serializa el PushSubscription con toJSON', async () => {

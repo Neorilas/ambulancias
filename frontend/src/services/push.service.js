@@ -11,9 +11,12 @@ export const pushService = {
     return api.get('/push/vapid-public-key').then(r => r.data.data);
   },
 
-  /** ¿Está este endpoint dado de alta en el servidor? */
+  /**
+   * ¿Está este endpoint dado de alta en el servidor? Por POST: en la query
+   * string el endpoint acababa en el log de peticiones del backend.
+   */
   getEstado(endpoint) {
-    return api.get('/push/estado', { params: endpoint ? { endpoint } : {} })
+    return api.post('/push/estado', endpoint ? { endpoint } : {})
       .then(r => r.data.data);
   },
 

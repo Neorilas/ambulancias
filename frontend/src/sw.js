@@ -65,9 +65,12 @@ self.addEventListener('message', (event) => {
 // ============================================================
 
 // Listados que se consultan mucho y aguantan estar unos minutos viejos. Solo
-// GET y nada sensible.
+// GET y nada sensible. La regex va ANCLADA al final: sin el `$` cubría también
+// historial, incidencias, revisiones e imágenes de cada vehículo. La caché se
+// indexa por URL, no por usuario, y se vacía al cerrar sesión
+// (utils/cachesSesion.js).
 registerRoute(
-  ({ url }) => /\/api\/v1\/(vehicles|trabajos\/calendario)/.test(url.pathname),
+  ({ url }) => /\/api\/v1\/(vehicles|trabajos\/calendario)\/?$/.test(url.pathname),
   new NetworkFirst({
     cacheName: 'api-cache',
     networkTimeoutSeconds: 5,

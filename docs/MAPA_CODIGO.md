@@ -81,7 +81,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
-| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · GET `/estado` · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario |
+| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
@@ -134,7 +134,7 @@ asignación. Sin app nativa ni Firebase.
 | Pieza | Dónde |
 |---|---|
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
-| Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único |
+| Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
 | Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) |
 | Aviso de «nuevo servicio» | El único que va al TÉCNICO, no a gestión (desde 2026-09-25). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
@@ -305,6 +305,12 @@ configuración. El precio es que `skipWaiting` + `clientsClaim` (que ponía
 `cleanupOutdatedCaches` y las dos reglas de `runtimeCaching` **ahora son código
 de `sw.js`**: si se tocan sin cuidado, la PWA deja de actualizarse sola o deja
 de funcionar sin cobertura.
+
+**Las cachés de Workbox se indexan por URL, no por usuario.** Por eso la regla
+de `api-cache` va anclada al listado (`/vehicles` y `/trabajos/calendario`,
+nunca las subrutas de un vehículo) y `utils/cachesSesion.js` borra `api-cache`
+e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
+`api.js`). Una caché nueva con datos de la API o fotos se añade a esa lista.
 
 ### 3.2 Rutas (`App.jsx`) → página
 
@@ -806,7 +812,14 @@ la que colgar el ciclo, así que lo activa y lo cierra gestión con
 **Quién ve la lista cambió de criterio.** Antes el recorte colgaba de
 `isOperacional`, y un usuario **sin ningún rol** —la mayoría de la plantilla—
 no era «operacional» y veía todos los trabajos. Ahora sin `view_all_trabajos`
-ni `manage_trabajos` solo se ven los propios. `/vehicles` para operacionales y
+ni `manage_trabajos` solo se ven los propios. **La flota igual (2026-09-26):**
+`vehicles.controller` recorta listado, ficha e imágenes con `veFlota`
+(`manage_vehicles`, `manage_trabajos` o `view_all_trabajos`); antes colgaba de
+`isOperacional` y el mismo usuario sin rol veía toda la flota y sus fotos.
+**Regla: un recorte de visibilidad se escribe como lista blanca de permisos,
+nunca como «si es operacional, recorta».** `POST /vehicles/:id/images` con
+`trabajo_id` exige además ser responsable del vehículo en ese trabajo (o
+gestionar vehículos/trabajos). `/vehicles` para operacionales y
 `tieneElVehiculoAsignado` pasan a mirar también a los responsables y el estado
 de la fila, no el equipo ni el estado del trabajo.
 
