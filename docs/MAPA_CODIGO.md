@@ -50,7 +50,7 @@ equipo de 0..N personas que ve la ficha. Listo pero oculto tras los flags
 
 `server.js` → helmet/cors/compress/morgan/json → `/uploads` estático →
 `routes/index.js` (aplica `apiLimiter`, monta `/auth /users /vehicles /trabajos
-/asignaciones /admin /features /push /flota`) → `routes/*.routes.js` (middleware por ruta) →
+/asignaciones /admin /features /push /flota /informes`) → `routes/*.routes.js` (middleware por ruta) →
 `controllers/*.controller.js` → `config/database.js` (`query`) → MySQL.
 Errores: `middleware/error.middleware.js` (5xx van a `error_logs`).
 `/health` en `server.js` devuelve `commit` (`GIT_COMMIT`) y `appEnv`.
@@ -84,6 +84,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
+| `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
@@ -125,7 +126,8 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
-| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en el Storage Box. `server.js` la lanza al arrancar y cada 6 h. Detalle y trampas: `docs/BACKUPS.md` §8 |
+| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en el Storage Box. `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
+| `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
@@ -291,6 +293,56 @@ fallo del cruce —nuestro sin GPS y GPS sin vehículo nuestro— salen en el fi
 
 ---
 
+### 2.7 Informes para administración (2026-09-27)
+
+Pantalla `/informes` (`pages/informes/Informes.jsx`) ← `GET /informes/mensual` ←
+`services/informes.service.js`. Un mes: puntualidad, incidencias, calidad del
+registro, flota y desglose por técnico. Cada cifra del resumen se compara con el
+mes anterior y con el mismo mes del año pasado. No hay bloque de «actividad»
+(volumen de servicios): el usuario no lo quiso. Decisiones del 2026-09-27:
+inicio tardío = **más de 30 min** (`INICIO_TARDIO_MINUTOS`, backend
+`config/constants.js`); desglose por técnico **solo administradores o
+superior** (lo exige la ruta por rol; los gestores se quedan fuera de toda la pantalla).
+
+**Criterios** (comentario de cabecera de `informes.service.js`): un servicio es del
+mes de su `fecha_inicio` **prevista** en hora española; canceladas y borradas
+no cuentan. Tardío = `inicio_real_at` > prevista + 30 min (30 justos, no). Sin
+iniciar = sin `inicio_real_at` y ya pasado ese margen. Cierres
+tardíos/anticipados = `finalizado_at` frente a `fecha_fin` ± el mismo margen.
+Fotos tarde = el mismo corte que `marcarFotosInicioTarde` (§6.1). Por técnico:
+la puntualidad es la de los servicios en que va de **responsable** (si hay
+varios, el retraso cuenta para todos); el personal solo suma «como personal».
+Incidencias: nuevas por `created_at`, resueltas por `resuelto_at`, abiertas al
+cerrar el mes por las dos fechas; una «resuelto» sin fecha no cuenta abierta.
+
+**El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
+100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
+(`METRICAS`, con `mejorSiBaja`). Así un mes archivado y uno en vivo se
+comparan igual. Comparar contra un mes **sin servicios** da «—», no «+2».
+
+**`informe_mensual` (v28): el informe se archiva ANTES de purgar.** La retención
+borra asignaciones cerradas hace N meses, y a partir de la primera que borre de
+un mes, el cálculo en vivo de ese mes miente. Por eso
+`purgarAsignacionesAntiguas` busca primero los meses de TODAS sus candidatas
+(`CONDICION_PURGA`, la misma que usa para borrar, agrupadas por hora para
+situarlas en el mes español) y llama a `archivarMeses`, que guarda el JSON
+completo de cada mes cerrado que no tenga fila. **Si falla, la pasada no purga
+nada** (`bloqueada: true` en el resultado y un error en el log). Una fila
+escrita no se recalcula nunca, y `obtenerInforme` la prefiere al cálculo en
+vivo. Trampas:
+- Se archiva un mes **solo cuando la retención va a tocarlo**, no cada mes. Con
+  la retención apagada (hoy) la tabla está vacía, y es lo correcto.
+- La retención está apagada en todos los entornos, así que ningún mes está a
+  medio purgar. Si alguna vez se purgara sin este código, el primer archivo de
+  ese mes ya saldría incompleto.
+- `datos` lleva `version` (`VERSION_INFORME`). Si cambia la forma del JSON,
+  se sube la versión y el frontend tiene que tolerar la vieja: un campo que
+  falta se pinta «—» (`valorMetrica`).
+- Cambiar `INICIO_TARDIO_MINUTOS` no reescribe los meses archivados: guardan
+  su `umbral_min`, y la pantalla pinta el del mes que enseña.
+- La llegada al servicio existe desde el 25/09/2026 (v26): los meses anteriores
+  la dan baja, y la pantalla lo avisa.
+
 ## 3. Frontend
 
 ### 3.1 Arranque
@@ -330,6 +382,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/alertas` | `AlertsPage.jsx` | admin, super | `menu_alertas` |
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
 | `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
+| `/informes` | `informes/Informes.jsx` | admin, super | `menu_informes` (encendida, v28; §2.7) |
 | `/admin` | `AdminPanel.jsx` | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
@@ -360,6 +413,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
 | `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
+| `Informes` | `informes.service` + `utils/informes.js` | `GET /informes/mensual` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
@@ -503,7 +557,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -573,7 +627,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v26_llegada_servicio_at**. (En alguna BD local puede
+Última migración: **v28_informe_mensual**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -905,7 +959,7 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `requiredFeature` en `ProtectedRoute` + `Sidebar`. Claves: `menu_dashboard`,
 `menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
 `menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
-`menu_usuarios`, `menu_alertas` (encendidas); `menu_flota` (apagada, v20).
+`menu_usuarios`, `menu_alertas`, `menu_informes` (encendidas; la última nace así en v28); `menu_flota` (apagada, v20).
 
 **PENDIENTE — quitar el `personal` de las asignaciones cuando se active
 Trabajos.** El personal en asignaciones libres (rol `personal` de
@@ -962,6 +1016,8 @@ solo actúa en el navegador no es un control de acceso.
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. §6.3 |
 | La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
+| El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. §2.7 |
+| Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
@@ -1070,7 +1126,9 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
+Última revisión: **2026-09-27** (informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+
+Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por
 vehículo, varios responsables, visibilidad del equipo, rutas abiertas al
 personal de campo y `ProtectedRoute` esperando a los flags).

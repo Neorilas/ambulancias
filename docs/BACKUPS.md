@@ -236,6 +236,14 @@ Storage Box.
 | Sus fotos: la fila de `vehicle_images` **y** el fichero | Incidencias: son del vehículo; solo pierden el enlace a la asignación |
 | Sus miembros (`asignacion_usuarios`) | El **total** de la ficha del vehículo: suma `vehicles.asignaciones_purgadas` (v27) |
 
+**Antes de purgar se archiva el informe mensual.** La pantalla de Informes
+calcula cada mes a partir de sus asignaciones; en cuanto se purga una, ese
+cálculo miente. Por eso cada pasada guarda primero en `informe_mensual` el
+informe de cada mes que va a tocar y que aún no esté guardado
+(`informes.service.archivarMeses`). **Si no puede guardarlo, esa pasada no purga
+nada**: el log dice «no se pudo archivar el informe mensual; no se purga nada».
+Detalle en `MAPA_CODIGO.md` §2.7.
+
 Cada pasada deja una línea en `audit_logs` (`action = 'purga_retencion'`) con
 las ids purgadas, para que quien busque una asignación que ya no está vea que
 la borró la retención y no una persona.

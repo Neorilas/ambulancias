@@ -75,6 +75,12 @@ module.exports = {
   // marca como tardía para los administradores. No bloquea nada. Lo calcula el
   // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
   FOTOS_INICIO_TARDE_MINUTOS: 30,
+  // Informes: un servicio se inició tarde si «Inicio de servicio» se pulsó más
+  // de estos minutos después de la hora prevista. El mismo margen decide los
+  // cierres tardíos/anticipados frente a `fecha_fin`. Decisión de
+  // administración (2026-09-27). Cambiarlo no reescribe los meses ya
+  // archivados en `informe_mensual`: esos guardan su `umbral_min`.
+  INICIO_TARDIO_MINUTOS: 30,
   // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
   // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
   // es el valor por defecto a propósito: solo se enciende (en el .env del

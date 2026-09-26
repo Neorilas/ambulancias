@@ -981,6 +981,39 @@ const MIGRATIONS = [
              COMMENT 'Asignaciones borradas por retención (suman al total de la ficha)'`);
     },
   },
+
+  {
+    name: 'v28_informe_mensual',
+    description: 'Informe mensual archivado antes de que la retención purgue sus asignaciones + flag menu_informes',
+    async run() {
+      // El informe de un mes se calcula en vivo a partir de las asignaciones.
+      // Cuando la retención empieza a borrar las de un mes, ese cálculo deja de
+      // ser verdad; por eso, justo antes, `retencion.service` guarda aquí el
+      // informe completo del mes (services/informes.service.js). Una fila por
+      // mes, y una vez escrita no se recalcula: los datos de los que salió ya
+      // no están enteros.
+      //
+      // `datos` es el mismo JSON que devuelve el cálculo en vivo; `version`
+      // dice con qué forma se escribió, para que un cambio futuro del informe
+      // sepa leer los meses archivados con la forma vieja.
+      await query(`CREATE TABLE IF NOT EXISTS informe_mensual (
+        mes          CHAR(7)           NOT NULL COMMENT 'YYYY-MM, mes del calendario español',
+        version      SMALLINT UNSIGNED NOT NULL,
+        datos        JSON              NOT NULL,
+        generado_at  DATETIME          NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (mes)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // La pantalla es para administración (rol, comprobado en el backend);
+      // el flag solo la pone en el menú, y nace encendido porque se pidió.
+      await query(`INSERT IGNORE INTO app_features
+                     (feature_key, label, description, category, enabled, display_order)
+                   VALUES
+                     ('menu_informes', 'Informes',
+                      'Informe mensual de puntualidad, incidencias, flota y técnicos (solo administradores)',
+                      'menu', 1, 95)`);
+    },
+  },
 ];
 
 // ============================================================

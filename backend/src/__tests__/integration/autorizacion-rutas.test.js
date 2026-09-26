@@ -109,6 +109,7 @@ const ACCESO = {
   'GET /features/':                    ['denegada'],
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],
+  'GET /informes/mensual':             ['denegada'],
 };
 
 const USUARIO_ID = 900;
