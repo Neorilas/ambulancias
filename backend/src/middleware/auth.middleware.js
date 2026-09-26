@@ -8,6 +8,7 @@
 const { verifyAccessToken }      = require('../utils/jwt.utils');
 const { unauthorized }           = require('../utils/response.utils');
 const { query }                  = require('../config/database');
+const { conContexto }            = require('../utils/contextoPeticion.utils');
 
 /**
  * Middleware: verifica que el request tenga un access token válido
@@ -68,6 +69,24 @@ async function authenticate(req, res, next) {
       [user.id]
     );
 
+    // Impersonación: el token es del usuario impersonado, pero solo vale
+    // mientras quien está detrás siga siendo superadmin y esté activo. Quitarle
+    // el rol o darle de baja corta en el acto las sesiones que tenga abiertas
+    // como otros, sin esperar a que caduquen.
+    let impersonadoPor = null;
+    if (decoded.imp != null) {
+      const [impRows] = await query(
+        `SELECT u.id, u.username
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         JOIN roles r ON r.id = ur.role_id
+         WHERE u.id = ? AND u.activo = 1 AND u.deleted_at IS NULL AND r.nombre = 'superadmin'`,
+        [decoded.imp]
+      );
+      if (!impRows.length) return unauthorized(res, 'Sesión de impersonación no válida');
+      impersonadoPor = { id: impRows[0].id, username: impRows[0].username };
+    }
+
     // Adjuntar datos del usuario al request
     req.user = {
       id:       user.id,
@@ -76,9 +95,12 @@ async function authenticate(req, res, next) {
       apellidos: user.apellidos,
       roles:    user.roles ? user.roles.split(',') : [],
       permissions: permRows.map(r => r.nombre),
+      ...(impersonadoPor && { impersonadoPor }),
     };
 
-    next();
+    // El resto de la petición corre dentro del contexto: logAudit lo lee para
+    // anotar al superadmin en todo lo que se haga en nombre del otro.
+    conContexto({ impersonadoPor }, next);
   } catch (err) {
     next(err);
   }

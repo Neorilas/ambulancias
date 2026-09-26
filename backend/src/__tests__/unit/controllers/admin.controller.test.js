@@ -1,7 +1,9 @@
 'use strict';
 
 const { query } = require('../../../config/database');
-const { logAudit, logError, listAuditLogs, listAuditUsers, listErrorLogs, getAdminStats } = require('../../../controllers/admin.controller');
+const { logAudit, logError, listAuditLogs, listAuditUsers, listErrorLogs, getAdminStats, impersonar } = require('../../../controllers/admin.controller');
+const { verifyAccessToken } = require('../../../utils/jwt.utils');
+const { conContexto } = require('../../../utils/contextoPeticion.utils');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 describe('admin.controller', () => {
@@ -18,6 +20,93 @@ describe('admin.controller', () => {
     it('does not throw on DB error', async () => {
       query.mockRejectedValueOnce(new Error('DB down'));
       await expect(logAudit({ action: 'test' })).resolves.not.toThrow();
+    });
+
+    it('impersonando, anota al superadmin en user_info y en details', async () => {
+      query.mockResolvedValueOnce([]);
+      await conContexto({ impersonadoPor: { id: 1, username: 'findelias' } }, () =>
+        logAudit({ userId: 5, userInfo: 'jlopez', action: 'update_vehicle', details: { a: 1 } }));
+      const params = query.mock.calls[0][1];
+      expect(params[0]).toBe(5);
+      expect(params[1]).toBe('jlopez (vía findelias)');
+      expect(JSON.parse(params[5])).toEqual({ a: 1, impersonado_por: { id: 1, username: 'findelias' } });
+    });
+
+    it('acepta impersonadoPor explícito (fuera del contexto de la petición)', async () => {
+      query.mockResolvedValueOnce([]);
+      await logAudit({ userId: 5, userInfo: 'jlopez', action: 'access_denied', impersonadoPor: { id: 1, username: 'findelias' } });
+      expect(query.mock.calls[0][1][1]).toBe('jlopez (vía findelias)');
+    });
+
+    it('no se anota a sí mismo cuando la fila ya es del superadmin', async () => {
+      query.mockResolvedValueOnce([]);
+      await conContexto({ impersonadoPor: { id: 1, username: 'findelias' } }, () =>
+        logAudit({ userId: 1, userInfo: 'findelias', action: 'impersonate_end' }));
+      expect(query.mock.calls[0][1][1]).toBe('findelias');
+      expect(query.mock.calls[0][1][5]).toBeNull();
+    });
+  });
+
+  // ── impersonar ─────────────────────────────────────────
+  describe('impersonar', () => {
+    const superadmin = { id: 1, username: 'findelias', roles: ['superadmin'] };
+    const fila = (extra = {}) => [[{ id: 5, username: 'jlopez', nombre: 'J', apellidos: 'L', activo: 1, deleted_at: null, roles: 'tecnico', ...extra }]];
+
+    beforeEach(() => query.mockReset());
+
+    it('devuelve un token del usuario con el superadmin dentro y lo audita', async () => {
+      query
+        .mockResolvedValueOnce(fila())
+        .mockResolvedValueOnce([[{ nombre: 'manage_vehicles' }]])
+        .mockResolvedValueOnce([]);
+      const req = mockReq({ params: { id: '5' }, user: superadmin });
+      const res = mockRes();
+      await impersonar(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res._json.data;
+      expect(data.user).toMatchObject({ id: 5, roles: ['tecnico'], permissions: ['manage_vehicles'] });
+      const payload = verifyAccessToken(data.accessToken);
+      expect(payload).toMatchObject({ sub: 5, imp: 1, type: 'access' });
+      expect(payload.exp - payload.iat).toBe(data.expiraEnMin * 60);
+      expect(data.refreshToken).toBeUndefined();
+      const audit = query.mock.calls[2][1];
+      expect(audit[0]).toBe(1);
+      expect(audit[2]).toBe('impersonate_start');
+    });
+
+    it('permite impersonar a un administrador', async () => {
+      query.mockResolvedValueOnce(fila({ roles: 'administrador' })).mockResolvedValueOnce([[]]).mockResolvedValueOnce([]);
+      const res = mockRes();
+      await impersonar(mockReq({ params: { id: '5' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('403 con otro superadmin', async () => {
+      query.mockResolvedValueOnce(fila({ roles: 'administrador,superadmin' }));
+      const res = mockRes();
+      await impersonar(mockReq({ params: { id: '5' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('400 a uno mismo, 404 si no existe o está borrado, 400 si está desactivado', async () => {
+      let res = mockRes();
+      await impersonar(mockReq({ params: { id: '1' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+
+      query.mockResolvedValueOnce([[]]);
+      res = mockRes();
+      await impersonar(mockReq({ params: { id: '5' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+
+      query.mockResolvedValueOnce(fila({ deleted_at: '2026-01-01' }));
+      res = mockRes();
+      await impersonar(mockReq({ params: { id: '5' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+
+      query.mockResolvedValueOnce(fila({ activo: 0 }));
+      res = mockRes();
+      await impersonar(mockReq({ params: { id: '5' }, user: superadmin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
     });
   });
 

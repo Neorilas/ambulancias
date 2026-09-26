@@ -74,14 +74,14 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 
 | Grupo | Fichero rutas | Controlador | Endpoints |
 |---|---|---|---|
-| `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me |
+| `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
-| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
+| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` · POST `/impersonar/:id` (§6.3) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
-| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario |
+| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
@@ -102,7 +102,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 
 | Fichero | Aporta | Notas |
 |---|---|---|
-| `auth.middleware.js` | `authenticate` | Verifica JWT y **consulta permisos en BD en cada request** (no van en el token) |
+| `auth.middleware.js` | `authenticate` | Verifica JWT y **consulta permisos en BD en cada request** (no van en el token). Con `imp` en el token (impersonación, §6.3) comprueba que ese id sigue siendo superadmin activo, pone `req.user.impersonadoPor` y corre el resto de la petición dentro de `contextoPeticion` |
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. Solo cuentan los **responsables**: nunca el personal de una asignación ni el equipo de un trabajo. En trabajos se mira el estado de la fila `trabajo_vehiculos`, no el del trabajo. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
@@ -119,6 +119,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `config/constants.js` | `ROLES`, estados/tipos de trabajo, `IMAGEN_TIPOS*` (inicio/fin/general), `UPLOAD`, `PAGINATION`, `LOCKOUT`. **Espejo de** `frontend/src/utils/constants.js` |
 | `config/database.js` | Pool mysql2, `query`, transacciones; sesión en UTC |
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
+| `utils/contextoPeticion.utils.js` | `AsyncLocalStorage` de la petición. Hoy solo lleva `impersonadoPor`, que lee `logAudit` (§6.3) |
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
@@ -382,7 +383,8 @@ reintenta. Todos los servicios cuelgan de ella.
 | `utils/miembrosAsignacion.js` | Responsables/personal en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
-| `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission` |
+| `context/AuthContext.jsx` | `useAuth`: usuario, roles, `hasPermission`; `impersonando`, `impersonar(id)`, `terminarImpersonacion()` (§6.3) |
+| `utils/impersonacion.js` + `components/common/FranjaImpersonacion.jsx` | Guardar/restaurar la sesión del superadmin en `imp:*` y la franja ámbar bajo el Navbar mientras dura (§6.3) |
 | `context/FeaturesContext.jsx` | `useFeatures`: flags activos |
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
@@ -847,6 +849,44 @@ llegan y MySQL rechaza (500) un ISO con milisegundos y `Z`. El frontend manda
 `YYYY-MM-DDTHH:mm` (`toUtcIso`) y funciona; un cliente que mande
 `toISOString()` entero no. Ya pasaba antes de v25.
 
+### 6.3 Impersonación: el superadmin «Ver como» (2026-09-26)
+
+El superadmin entra desde `/usuarios` → «Ver como» y usa la app **como ese
+usuario, mirando y actuando**. Se puede a cualquiera activo, administradores
+incluidos; a otro superadmin y a uno mismo, no.
+
+- **Token.** `POST /admin/impersonar/:id` devuelve un access token normal del
+  usuario (`sub` es el suyo) con `imp: <id del superadmin>`, de **60 min**
+  (`IMPERSONATION_EXPIRY_MIN`) y **sin refresh token**. Como los roles y
+  permisos se leen de BD en cada petición, el resto de la API ve al usuario
+  impersonado sin tocar ningún controlador. `auth.middleware` rechaza el token
+  en cuanto `imp` deja de ser superadmin activo. No se puede encadenar:
+  impersonando a un admin ya no eres superadmin y `/admin/*` da 403.
+- **Auditoría: la trampa que hay que conocer.** La fila de lo que se hace
+  impersonando es **del usuario impersonado** (`user_id`), con
+  `user_info = "jlopez (vía findelias)"` y `details.impersonado_por`. Así se
+  ve en su historial y a la vez queda quién fue. Lo hace `logAudit` solo,
+  leyendo `impersonadoPor` de `contextoPeticion` (`AsyncLocalStorage`), que
+  abre `auth.middleware`. Lo que se audita **fuera** de la cadena de la
+  petición no hereda el contexto y debe pasar `impersonadoPor` a mano (lo hace
+  `auditoria403`, que corre en `res.on('finish')`). El filtro por usuario del
+  panel `/admin` agrupa por `user_id`: para ver lo que hizo un superadmin
+  impersonando se busca «vía <superadmin>» o `impersonate_start/_end`, que sí
+  van a su nombre.
+- **Push, no.** Decisión del usuario: el navegador es el del superadmin, y
+  darlo de alta impersonando le mandaría los avisos del técnico (y se los
+  quitaría al técnico en ese dispositivo). `push.routes` da 403 a todo `/push`
+  y `Perfil` no pinta `AvisosPush`.
+- **Frontend.** `guardarYEntrarComo` aparta `accessToken/refreshToken/user` en
+  `imp:*`; `restaurarSesionPropia` los devuelve. **Cada cambio de identidad
+  recarga la app entera y vacía las cachés del SW**: los contextos y la
+  `api-cache` de Workbox van por URL, no por usuario, y sin recargar se
+  mezclarían datos. La vuelta es por el botón de la franja, por la caducidad
+  (la franja la detecta; y un 401 impersonando, en `api.js`, restaura en vez
+  de echar al login) o por «Cerrar sesión», que cierra la sesión **del
+  superadmin** tras restaurarla.
+
+
 ## 7. Feature flags
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.
@@ -909,6 +949,7 @@ solo actúa en el navegador no es un control de acceso.
 | Fechas/horas | `fecha.utils.js` (back) y `dateUtils.js` (front); nunca `NOW()` en SQL. **Fechas de entrada por la API:** el frontend manda UTC sin zona (`toUtcIso`, `YYYY-MM-DDTHH:mm`), pero `isISO8601` acepta también una ISO con `Z` o `+02:00`, que MySQL rechaza en una DATETIME (500 «Incorrect datetime value»). Por eso los `fecha_inicio`/`fecha_fin` de `asignaciones.routes` y `trabajos.routes` pasan por `customSanitizer(fechaApiAMysql)`: con zona → UTC sin zona; sin zona → intacto. Un campo de fecha nuevo en una ruta necesita lo mismo. **Para comparar o pasar como parámetro, `instanteUtc`, nunca `new Date(texto)`**: el backend de producción corre con `TZ=Europe/Madrid` (`docker-compose.yml`) y `new Date('2026-09-25T08:00')` lo lee como hora española, 1-2 h desplazado. Pasaba en `buscarSolapes` (desde `createAsignacion`, con los textos del body) y en `updateTrabajo` al cambiar una sola fecha (texto del body contra `Date` de BD). Un `Date` de mysql2 no tiene el problema. Los tests fijan `process.env.TZ = 'Europe/Madrid'` para reproducirlo |
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel`. **Una acción nueva necesita su entrada en `ACTION_LABEL` de `AdminPanel.jsx`**: sin ella sale en crudo (`update_asignacion`) y no aparece en el filtro «Acción», que se construye con ese mismo diccionario. `update_asignacion` guarda `details.cambios` (`{campo: {antes, despues}}`, de `cambiosAsignacion`) y solo se registra si algo cambió |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
+| Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. §6.3 |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |

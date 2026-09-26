@@ -13,4 +13,8 @@ export const adminService = {
   listErrors(params = {}) {
     return api.get('/admin/errors', { params }).then(r => r.data);
   },
+  /** { accessToken, expiraEnMin, user } para ver la app como ese usuario. */
+  impersonar(userId) {
+    return api.post(`/admin/impersonar/${userId}`).then(r => r.data.data);
+  },
 };

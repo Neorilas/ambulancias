@@ -119,6 +119,26 @@ describe('api service', () => {
       expect(localStorage.getItem(PREFIJO + 'user')).toBeNull();
     });
 
+    it('impersonando, un 401 devuelve la sesión del superadmin en vez de echar al login', async () => {
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-imp');
+      localStorage.setItem(PREFIJO + 'user', '{"id":5}');
+      localStorage.setItem(PREFIJO + 'imp:accessToken', 'at-super');
+      localStorage.setItem(PREFIJO + 'imp:refreshToken', 'rt-super');
+      localStorage.setItem(PREFIJO + 'imp:user', '{"id":1}');
+      localStorage.setItem(PREFIJO + 'impersonacion', '{"id":5}');
+      const error = {
+        response: { status: 401 },
+        config: { url: '/vehicles', headers: {} },
+      };
+      await expect(resRejected(error)).rejects.toEqual(error);
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at-super');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-super');
+      expect(localStorage.getItem(PREFIJO + 'user')).toBe('{"id":1}');
+      expect(localStorage.getItem(PREFIJO + 'impersonacion')).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'imp:accessToken')).toBeNull();
+    });
+
     it('attempts refresh on 401 with refreshToken', async () => {
       localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
       localStorage.setItem(PREFIJO + 'accessToken', 'at-old');

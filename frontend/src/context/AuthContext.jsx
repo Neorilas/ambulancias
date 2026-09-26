@@ -3,12 +3,18 @@ import { authService } from '../services/auth.service.js';
 import { ROLES, PERMISSIONS } from '../utils/constants.js';
 import { getItem, setItem, removeItem, clear as clearSesion } from '../utils/sessionStorage.js';
 import { vaciarCachesDeSesion } from '../utils/cachesSesion.js';
+import { adminService } from '../services/admin.service.js';
+import {
+  impersonacionActiva, guardarYEntrarComo, restaurarSesionPropia, recargarComoOtraIdentidad,
+} from '../utils/impersonacion.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
+  // Se lee una vez: entrar y salir de la impersonación recarga la app entera.
+  const [impersonando] = useState(() => impersonacionActiva());
 
   useEffect(() => {
     const storedUser  = getItem('user');
@@ -47,7 +53,30 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  /**
+   * Superadmin: ver (y usar) la app como otro usuario. Aparta la sesión propia
+   * y recarga; la vuelta es `terminarImpersonacion` o la caducidad del token.
+   */
+  const impersonar = useCallback(async (userId) => {
+    const data = await adminService.impersonar(userId);
+    guardarYEntrarComo(data);
+    await recargarComoOtraIdentidad('/dashboard');
+  }, []);
+
+  /** Vuelve a la sesión del superadmin. `destino` es la ruta tras recargar. */
+  const terminarImpersonacion = useCallback(async (destino = '/usuarios') => {
+    await authService.finImpersonacion();
+    restaurarSesionPropia();
+    await recargarComoOtraIdentidad(destino);
+  }, []);
+
   const logout = useCallback(async () => {
+    // «Cerrar sesión» impersonando cierra la del superadmin: primero se deja
+    // constancia del fin y se recupera su sesión, y luego se cierra esa.
+    if (impersonacionActiva()) {
+      await authService.finImpersonacion();
+      restaurarSesionPropia();
+    }
     const refreshToken = getItem('refreshToken');
     await authService.logout(refreshToken);
     removeItem('accessToken');
@@ -103,6 +132,7 @@ export function AuthProvider({ children }) {
   const value = {
     user, loading,
     login, logout, updateStoredUser,
+    impersonando, impersonar, terminarImpersonacion,
     hasRole, hasPermission,
     isSuperAdmin, isAdmin, isGestor, isOperacional,
     canManageUsers, canManageVehicles, canManageTrabajos, canDeleteAny,

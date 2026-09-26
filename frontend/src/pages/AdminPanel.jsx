@@ -29,6 +29,8 @@ const ACTION_TONE = {
   delete_user:         'bg-bad-500',
   reset_password:      'bg-warn-500',
   toggle_feature:      'bg-warn-500',
+  impersonate_start:   'bg-warn-500',
+  impersonate_end:     'bg-warn-500',
   create_incidencia:   'bg-warn-500',
   update_incidencia:   'bg-warn-500',
   finalize_trabajo:    'bg-ok-500',
@@ -64,6 +66,10 @@ const ACTION_LABEL = {
   update_user:         'Editó un usuario',
   delete_user:         'Eliminó un usuario',
   reset_password:      'Reseteó una contraseña',
+  // Lo hecho DURANTE la impersonación sale a nombre del usuario impersonado
+  // con «(vía superadmin)» en el usuario y `impersonado_por` en los detalles.
+  impersonate_start:   'Entró como otro usuario',
+  impersonate_end:     'Volvió a su sesión',
 };
 
 // El resto de acciones (crear/editar/activar) son rutina: azul de marca.

@@ -39,4 +39,7 @@ router.post('/logout', authenticate, ctrl.logout);
 // GET /auth/me  (requiere autenticación)
 router.get('/me', authenticate, ctrl.me);
 
+// POST /auth/impersonacion/fin — el superadmin vuelve a su sesión (auditoría)
+router.post('/impersonacion/fin', authenticate, ctrl.finImpersonacion);
+
 module.exports = router;

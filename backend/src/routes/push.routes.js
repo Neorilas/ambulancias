@@ -18,10 +18,21 @@ const ctrl                  = require('../controllers/push.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
 const { handleValidation }  = require('../middleware/validate.middleware');
 const { pushLimiter }       = require('../middleware/rateLimiter.middleware');
+const { forbidden }         = require('../utils/response.utils');
 
 const router = express.Router();
 
 router.use(authenticate);
+
+// Impersonando no se tocan los avisos: el navegador es el del superadmin y
+// darlo de alta aquí lo apuntaría a nombre del otro usuario (le llegarían al
+// superadmin los avisos de ese técnico, y a ese técnico se le «movería» el
+// dispositivo). Decisión del 2026-09-26: push fuera de la impersonación.
+router.use((req, res, next) => (
+  req.user.impersonadoPor
+    ? forbidden(res, 'Los avisos push no se gestionan mientras ves la app como otro usuario')
+    : next()
+));
 
 // GET /push/vapid-public-key
 router.get('/vapid-public-key', ctrl.getClavePublica);

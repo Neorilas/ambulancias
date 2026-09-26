@@ -12,6 +12,9 @@ const ACCESS_SECRET  = process.env.JWT_ACCESS_SECRET;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 const ACCESS_EXPIRY  = process.env.JWT_ACCESS_EXPIRES  || '15m';
 const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRES || '7d';
+// Vida de una sesión impersonada. No se renueva: al caducar, el frontend
+// vuelve solo a la sesión del superadmin.
+const IMPERSONATION_EXPIRY_MIN = 60;
 
 if (!ACCESS_SECRET || !REFRESH_SECRET) {
   throw new Error('JWT secrets not configured. Check JWT_ACCESS_SECRET and JWT_REFRESH_SECRET in .env');
@@ -38,6 +41,32 @@ function generateAccessToken(payload) {
     },
     ACCESS_SECRET,
     { expiresIn: ACCESS_EXPIRY, algorithm: 'HS256' }
+  );
+}
+
+/**
+ * Token de acceso de un superadmin que está viendo la app como otro usuario.
+ *
+ * Es un access token normal del usuario impersonado (`sub` es el suyo, así que
+ * auth.middleware carga SUS roles y permisos y el resto de la API no se entera)
+ * más `imp`, el id del superadmin que hay detrás. El middleware comprueba en
+ * cada petición que `imp` sigue siendo superadmin y activo, y la auditoría
+ * anota a los dos. No lleva refresh token.
+ * @param {{ id, username, roles }} payload  el usuario impersonado
+ * @param {number} impersonadorId            el superadmin
+ */
+function generateImpersonationToken(payload, impersonadorId) {
+  return jwt.sign(
+    {
+      sub:      payload.id,
+      username: payload.username,
+      roles:    payload.roles || [],
+      imp:      impersonadorId,
+      jti:      crypto.randomUUID(),
+      type:     'access',
+    },
+    ACCESS_SECRET,
+    { expiresIn: IMPERSONATION_EXPIRY_MIN * 60, algorithm: 'HS256' }
   );
 }
 
@@ -96,6 +125,8 @@ function refreshTokenExpiresAt() {
 
 module.exports = {
   generateAccessToken,
+  generateImpersonationToken,
+  IMPERSONATION_EXPIRY_MIN,
   generateRefreshToken,
   hashRefreshToken,
   verifyAccessToken,

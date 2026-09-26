@@ -6,6 +6,7 @@ import ToastContainer from '../common/Toast.jsx';
 import InstallPWAButton from '../common/InstallPWAButton.jsx';
 import VehicleExpirationAlerts from '../common/VehicleExpirationAlerts.jsx';
 import AlarmaSinIniciar from '../common/AlarmaSinIniciar.jsx';
+import FranjaImpersonacion from '../common/FranjaImpersonacion.jsx';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -13,6 +14,7 @@ export default function Layout() {
   return (
     <div className="flex flex-col h-dvh">
       <Navbar onMenuToggle={() => setSidebarOpen(v => !v)} />
+      <FranjaImpersonacion />
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />

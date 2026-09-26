@@ -37,7 +37,7 @@ function AvisosCelda({ user }) {
 }
 
 export default function UserList() {
-  const { user: yo, isAdmin, isSuperAdmin, isGestor, canDeleteAny } = useAuth();
+  const { user: yo, isAdmin, isSuperAdmin, isGestor, canDeleteAny, impersonar } = useAuth();
   const { notify } = useNotification();
 
   const canResetPassword = isAdmin() || isSuperAdmin();
@@ -58,6 +58,22 @@ export default function UserList() {
   const [showForm,   setShowForm]   = useState(false);
   const [editUser,   setEditUser]   = useState(null);
   const [resetUser,  setResetUser]  = useState(null);
+  const [impersonandoId, setImpersonandoId] = useState(null);
+
+  // «Ver como»: solo superadmin, a cualquiera activo salvo otro superadmin y
+  // uno mismo (el backend lo vuelve a comprobar en /admin/impersonar).
+  const puedeVerComo = (u) => isSuperAdmin() && u.id !== yo?.id && u.activo
+    && !(u.roles || []).includes(ROLES.SUPERADMIN);
+
+  const verComo = async (u) => {
+    setImpersonandoId(u.id);
+    try {
+      await impersonar(u.id);
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se ha podido entrar como ese usuario');
+      setImpersonandoId(null);
+    }
+  };
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
 
@@ -164,6 +180,16 @@ export default function UserList() {
                     <td><ActiveBadge activo={u.activo} /></td>
                     <td>
                       <div className="flex justify-end gap-2">
+                        {puedeVerComo(u) && (
+                          <button
+                            onClick={() => verComo(u)}
+                            disabled={impersonandoId !== null}
+                            className="btn-ghost text-xs px-2 py-1"
+                            title="Ver y usar la app como este usuario"
+                          >
+                            {impersonandoId === u.id ? 'Entrando…' : 'Ver como'}
+                          </button>
+                        )}
                         {puedeEditar(u) && (
                           <button
                             onClick={() => { setEditUser(u); setShowForm(true); }}
