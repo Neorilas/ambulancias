@@ -125,6 +125,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
+| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en el Storage Box. `server.js` la lanza al arrancar y cada 6 h. Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
@@ -492,7 +493,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -950,6 +951,7 @@ solo actúa en el navegador no es un control de acceso.
 | Auditoría | `audit_logs` vía el helper que usan los controladores; visible en `AdminPanel`. **Una acción nueva necesita su entrada en `ACTION_LABEL` de `AdminPanel.jsx`**: sin ella sale en crudo (`update_asignacion`) y no aparece en el filtro «Acción», que se construye con ese mismo diccionario. `update_asignacion` guarda `details.cambios` (`{campo: {antes, despues}}`, de `cambiosAsignacion`) y solo se registra si algo cambió |
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. §6.3 |
+| La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Cuánto antes se puede pulsar «Inicio de servicio» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
@@ -1012,7 +1014,10 @@ ninguna copia). Van por cron del servidor, no por el workflow, porque el deploy
 no toca MySQL ni los volúmenes. Se hace un `mysqldump` diario, que se verifica
 antes de darlo por bueno, y un `rsync` de las fotos. Las dos copias van a un
 Storage Box **sin `--delete`**. El `cron.d/maraya-pg-backup` del servidor es de
-otro proyecto (Postgres) y no copia nada de ambulancia.
+otro proyecto (Postgres) y no copia nada de ambulancia. **El Storage Box es además
+el archivo de la retención** (`retencion.service.js`): el servidor purga las
+asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso el
+rsync no lleva `--delete`: ponérselo borraría el archivo.
 Local: `docker-compose.local.yml` (MySQL en **3307**),
 `npm run local:db`, `seed:local`, y los comandos `/local`, `/verifica`,
 `/a-pro`. Detalle en `docs/ENTORNOS.md` y `docs/LOCAL.md`.

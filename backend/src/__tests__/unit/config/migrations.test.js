@@ -711,7 +711,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v26_llegada_servicio_at']);
+    expect(aplicadas[0]).toBe('v26_llegada_servicio_at');
     const sql = ejecutadas.find(q => q.includes('ADD COLUMN llegada_servicio_at'));
     expect(sql).toContain('DATETIME NULL DEFAULT NULL');
   });
@@ -723,5 +723,16 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     });
     await runMigrations();
     expect(ejecutadas.some(q => q.includes('ADD COLUMN llegada_servicio_at'))).toBe(false);
+  });
+
+  it('v27 añade el contador de purgadas a vehicles, a 0 y no nulo', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v26_llegada_servicio_at') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v27_asignaciones_purgadas']);
+    const sql = ejecutadas.find(q => q.includes('ADD COLUMN asignaciones_purgadas'));
+    expect(sql).toContain('ALTER TABLE vehicles');
+    expect(sql).toContain('INT UNSIGNED NOT NULL DEFAULT 0');
   });
 });

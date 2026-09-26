@@ -37,6 +37,8 @@ const ACTION_TONE = {
   finalize_asignacion: 'bg-ok-500',
   login:               'bg-idle-500',
   logout:              'bg-idle-500',
+  // Borrado, pero automático y esperado: gris de sistema, no rojo de alarma.
+  purga_retencion:     'bg-idle-500',
 };
 
 // Texto legible en español para cada acción registrada
@@ -70,6 +72,8 @@ const ACTION_LABEL = {
   // con «(vía superadmin)» en el usuario y `impersonado_por` en los detalles.
   impersonate_start:   'Entró como otro usuario',
   impersonate_end:     'Volvió a su sesión',
+  // La hace el sistema (user_info «sistema (retención)»); details.ids dice cuáles.
+  purga_retencion:     'Purgó asignaciones antiguas',
 };
 
 // El resto de acciones (crear/editar/activar) son rutina: azul de marca.

@@ -86,6 +86,10 @@ services:
       # de que nadie ha iniciado la asignacion. Se puede bajar desde el .env
       # del entorno para probarlo sin esperar media hora.
       AVISO_SIN_INICIAR_MINUTOS: ${AVISO_SIN_INICIAR_MINUTOS:-30}
+      # Meses tras el cierre para purgar una asignacion con sus fotos. 0 =
+      # apagado. Se pone en el .env SOLO con el backup al Storage Box ya
+      # funcionando: lo purgado solo queda alli (docs/BACKUPS.md §8).
+      RETENCION_ASIGNACIONES_MESES: ${RETENCION_ASIGNACIONES_MESES:-0}
 
       # ── Cartrack: mapa de flota (solo superadmin) ───────────────────────────
       # Credenciales HTTP Basic del API de la flota. Salen del .env del

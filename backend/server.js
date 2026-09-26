@@ -235,6 +235,23 @@ async function startServer() {
     `Vigilancia de asignaciones sin iniciar: aviso a los admins a los ` +
     `${require('./src/config/constants').AVISO_SIN_INICIAR_MINUTOS} min`
   );
+
+  // Retención: borra las asignaciones cerradas hace más de N meses con sus
+  // fotos. Apagada si RETENCION_ASIGNACIONES_MESES no está en el .env (ver
+  // docs/BACKUPS.md §8: solo se enciende con el backup externo funcionando).
+  // Va aparte del tick de cada minuto porque no corre prisa: al arrancar y
+  // cada 6 h basta, y cada deploy la relanza. La función no lanza nunca.
+  const { RETENCION_ASIGNACIONES_MESES } = require('./src/config/constants');
+  if (RETENCION_ASIGNACIONES_MESES > 0) {
+    const retencion = require('./src/services/retencion.service');
+    const pasadaRetencion = () => retencion.purgarAsignacionesAntiguas()
+      .catch(err => logger.error('Error en retención de asignaciones:', err.message));
+    pasadaRetencion();
+    setInterval(pasadaRetencion, 6 * 60 * 60 * 1000);
+    logger.info(`Retención de asignaciones: se purgan las cerradas hace más de ${RETENCION_ASIGNACIONES_MESES} meses`);
+  } else {
+    logger.info('Retención de asignaciones: apagada (RETENCION_ASIGNACIONES_MESES sin definir)');
+  }
 }
 
 // Manejo de errores no capturados

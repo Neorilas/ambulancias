@@ -1,7 +1,7 @@
 # Backups
 
-> Estado a 2026-09-26: **los scripts están en el repo, sin instalar en el
-> servidor.** Hasta que se instalen, ambulancia no tiene ninguna copia: ni de
+> Estado a 2026-09-27: **los scripts están en el repo, sin instalar en el
+> servidor, y la retención (§8) está apagada.** Hasta que se instalen, ambulancia no tiene ninguna copia: ni de
 > la BD ni de las fotos. Lo que hay en el cron del Hetzner
 > (`maraya-pg-backup`) es de otro proyecto y no la toca.
 
@@ -209,11 +209,70 @@ el servidor (§5.1) no hace falta.
   contraseña va por `MYSQL_PWD` dentro del contenedor para que no salga en `ps`.
 - **La ruta de las fotos se le pregunta al contenedor** (`docker inspect`), no
   se adivina: el nombre del volumen depende de `COMPOSE_PROJECT_NAME`.
-- **Sin `--delete` en el remoto, a propósito.** Si se borra una foto en el
-  servidor, por error o por un ataque, sigue en la copia. El precio es que el
-  remoto solo crece, pero con las fotos ya comprimidas por Sharp es poco.
+- **Sin `--delete` en el remoto, a propósito, y ahora obligatorio.** Si se
+  borra una foto en el servidor, por error o por un ataque, sigue en la copia.
+  Y con la retención encendida (§8), el Storage Box es **el único sitio** donde
+  quedan las asignaciones purgadas: añadir `--delete` al rsync borraría el
+  archivo entero de lo purgado. El precio es que el remoto solo crece: unos
+  2 MB por asignación, así que 1 TB da para décadas.
 - **Las limpiezas de Docker del servidor no tocan volúmenes.**
   `/root/docker-cleanup.sh` lleva `--volumes=false` y
   `/usr/local/sbin/docker-cleanup.sh` solo borra caché e imágenes huérfanas. Si
   alguien añade un `prune --volumes`, se lleva los datos de cualquier stack que
   esté parado en ese momento.
+
+## 8. Retención: el servidor purga, el Storage Box archiva
+
+Para que el disco del servidor no se llene, el backend borra las asignaciones
+**cerradas hace más de N meses** con todo lo suyo
+([`retencion.service.js`](../backend/src/services/retencion.service.js)). El
+motivo es el espacio, no la protección de datos: lo purgado sigue en el
+Storage Box.
+
+| Se purga | Se queda |
+|---|---|
+| Asignaciones finalizadas o canceladas cuyo cierre es anterior al corte | Asignaciones programadas o activas, sean de cuando sean |
+| Asignaciones con borrado lógico hace más de N meses | Usuarios y vehículos |
+| Sus fotos: la fila de `vehicle_images` **y** el fichero | Incidencias: son del vehículo; solo pierden el enlace a la asignación |
+| Sus miembros (`asignacion_usuarios`) | El **total** de la ficha del vehículo: suma `vehicles.asignaciones_purgadas` (v27) |
+
+Cada pasada deja una línea en `audit_logs` (`action = 'purga_retencion'`) con
+las ids purgadas, para que quien busque una asignación que ya no está vea que
+la borró la retención y no una persona.
+
+**Encenderla**, solo cuando el backup de §2 lleve días en verde, porque sin él
+lo purgado se pierde del todo:
+
+```bash
+echo "RETENCION_ASIGNACIONES_MESES=9" >> /root/ambulancia/.env
+cd /root/ambulancia && docker compose up -d backend
+docker compose logs backend | grep "Retención"
+```
+
+El log de arranque dice «Retención de asignaciones: se purgan las cerradas hace
+más de 9 meses». Si dice «apagada», la variable no ha llegado al contenedor.
+Corre al arrancar y cada 6 h, y como mucho 1000 asignaciones por pasada: el
+primer día que se encienda con atraso tardará unas pocas pasadas.
+
+**Recuperar una asignación purgada** (una reclamación por un golpe, por
+ejemplo):
+
+- Las fotos están en `<destino>/uploads/`, con el mismo nombre que tenían.
+- Los datos de la asignación están en cualquier dump de `<destino>/db/` de
+  antes de la purga. Se restaura en un MySQL desechable con
+  `CONSERVAR=1 verificar-backup.sh <dump>`, que deja el contenedor vivo y dice
+  cómo entrar, o en local (§6), y se consulta ahí. No se reinyecta en producción: el contador del
+  vehículo ya la cuenta.
+
+**Trampas:**
+
+- **Borrar la asignación no borra sus fotos.** La FK de
+  `vehicle_images.asignacion_id` es `SET NULL`: sin el borrado explícito de
+  `purgarUna` quedarían huérfanas en la BD y en disco. Una tabla nueva que
+  cuelgue de `asignaciones_libres` sin `CASCADE` hay que añadirla ahí.
+- **El cierre de una cancelada es su `updated_at`**, porque `finalizado_at`
+  solo lo pone la finalización. Una cerrada ya no se puede editar, así que no se
+  mueve; si una migración masiva lo tocara, la purga solo se retrasaría.
+- **La variable tiene que estar en el `environment` de `docker-compose.yml`**,
+  y ya lo está, con valor por defecto 0. Si se quita de ahí, el `.env` deja de
+  llegar al contenedor y la retención se apaga sin avisar.

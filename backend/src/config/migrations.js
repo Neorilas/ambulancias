@@ -967,6 +967,20 @@ const MIGRATIONS = [
              AFTER inicio_real_at`);
     },
   },
+
+  {
+    name: 'v27_asignaciones_purgadas',
+    description: 'Contador de asignaciones ya borradas por retención, para que el total del vehículo no baje',
+    async run() {
+      // La retención (services/retencion.service.js) borra las asignaciones
+      // cerradas hace meses; la ficha suma este contador a las vivas para que
+      // «ha tenido 100 asignaciones» siga siendo verdad después de purgar.
+      await ensureColumn('vehicles', 'asignaciones_purgadas',
+        `ALTER TABLE vehicles
+           ADD COLUMN asignaciones_purgadas INT UNSIGNED NOT NULL DEFAULT 0
+             COMMENT 'Asignaciones borradas por retención (suman al total de la ficha)'`);
+    },
+  },
 ];
 
 // ============================================================
