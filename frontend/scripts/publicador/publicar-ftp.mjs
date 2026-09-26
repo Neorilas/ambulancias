@@ -101,6 +101,10 @@ async function main() {
 
   try {
     await client.cd(remoto);
+    // FTP_REMOTE_DIR es RELATIVA a la home del usuario (vapss.net/app): volver
+    // a hacer cd(remoto) desde dentro de una subcarpeta falla con 550. Se
+    // guarda la ruta absoluta y el bucle vuelve siempre a ella.
+    const base = await client.pwd();
     const raiz = await client.list();
     console.log(`Conexión verificada. El destino tiene ${raiz.length} entradas; index.html ${raiz.some((f) => f.name === 'index.html') ? 'presente' : 'AUSENTE'}.`);
     if (soloComprobar) return;
@@ -116,7 +120,7 @@ async function main() {
       const nombre = path.posix.basename(rel);
       const abs    = locales.get(rel);
 
-      await client.cd(remoto);
+      await client.cd(base);
       if (dir !== '.') await client.ensureDir(dir);
 
       if (esInmutable(rel)) {
