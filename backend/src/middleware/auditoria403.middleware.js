@@ -38,6 +38,8 @@ function auditarAccesosDenegados(req, res, next) {
         },
         ip:        req.ip,
         userAgent: req.headers?.['user-agent'],
+        // 'finish' puede dispararse fuera del contexto de la petición
+        impersonadoPor: req.user.impersonadoPor || null,
       });
     } catch { /* la auditoría nunca rompe una respuesta ya enviada */ }
   });

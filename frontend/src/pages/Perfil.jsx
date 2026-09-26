@@ -12,7 +12,7 @@ import { useAuth }      from '../context/AuthContext.jsx';
 import AvisosPush       from '../components/common/AvisosPush.jsx';
 
 export default function Perfil() {
-  const { user } = useAuth();
+  const { user, impersonando } = useAuth();
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -65,8 +65,16 @@ export default function Perfil() {
         </p>
       </section>
 
-      {/* Para todos: los técnicos reciben el aviso de «nuevo servicio». */}
-      <AvisosPush />
+      {/* Para todos: los técnicos reciben el aviso de «nuevo servicio».
+          Impersonando no: el navegador es el del superadmin y el backend
+          rechaza /push mientras dura (routes/push.routes.js). */}
+      {impersonando ? (
+        <p className="text-sm text-neutral-500">
+          Los avisos push no se gestionan mientras ves la app como otro usuario.
+        </p>
+      ) : (
+        <AvisosPush />
+      )}
     </div>
   );
 }

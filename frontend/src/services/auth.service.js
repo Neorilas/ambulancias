@@ -17,6 +17,14 @@ export const authService = {
     } catch { /* ignora errores en logout */ }
   },
 
+  /** Deja constancia del fin de una impersonación. Nunca falla: el token
+   *  puede haber caducado ya y la vuelta a la sesión propia sigue igual. */
+  async finImpersonacion() {
+    try {
+      await api.post('/auth/impersonacion/fin');
+    } catch { /* ignorado */ }
+  },
+
   async me() {
     const { data } = await api.get('/auth/me');
     return data.data;

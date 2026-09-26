@@ -7,7 +7,7 @@
 'use strict';
 
 const express = require('express');
-const { query: queryParam } = require('express-validator');
+const { query: queryParam, param } = require('express-validator');
 const ctrl   = require('../controllers/admin.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
 const { requireSuperAdmin } = require('../middleware/roles.middleware');
@@ -49,6 +49,15 @@ router.get('/errors',
   ],
   handleValidation,
   ctrl.listErrorLogs
+);
+
+// POST /admin/impersonar/:id — token para ver la app como ese usuario.
+// El requireSuperAdmin de arriba impide además encadenar: impersonando a un
+// administrador ya no se es superadmin.
+router.post('/impersonar/:id',
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.impersonar
 );
 
 module.exports = router;

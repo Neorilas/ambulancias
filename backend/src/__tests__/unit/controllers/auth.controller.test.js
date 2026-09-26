@@ -8,7 +8,8 @@ jest.mock('../../../controllers/admin.controller', () => ({
   logError: jest.fn(),
 }));
 
-const { login, refresh, logout, me } = require('../../../controllers/auth.controller');
+const { login, refresh, logout, me, finImpersonacion } = require('../../../controllers/auth.controller');
+const { logAudit } = require('../../../controllers/admin.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 describe('auth.controller', () => {
@@ -191,6 +192,27 @@ describe('auth.controller', () => {
       const res = mockRes();
       await me(mockReq({ user: { id: 999, roles: [] } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  // -- finImpersonacion --
+  describe('finImpersonacion', () => {
+    it('audita el fin a nombre del superadmin', async () => {
+      const res = mockRes();
+      await finImpersonacion(mockReq({
+        user: { id: 5, username: 'jlopez', impersonadoPor: { id: 1, username: 'findelias' } },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        userId: 1, action: 'impersonate_end', entityId: 5,
+      }));
+    });
+
+    it('400 sin impersonacion activa', async () => {
+      const res = mockRes();
+      await finImpersonacion(mockReq({ user: { id: 5, username: 'jlopez' } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(logAudit).not.toHaveBeenCalled();
     });
   });
 });

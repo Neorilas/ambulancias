@@ -266,10 +266,37 @@ async function me(req, res, next) {
       ...rows[0],
       roles:       req.user.roles,
       permissions: req.user.permissions || [],
+      impersonado_por: req.user.impersonadoPor || null,
     });
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { login, refresh, logout, me };
+// ============================================================
+// POST /auth/impersonacion/fin
+// ============================================================
+// Solo deja constancia: el token impersonado no tiene refresh y caduca solo;
+// volver a la sesión del superadmin lo hace el frontend, que la guardó aparte.
+async function finImpersonacion(req, res, next) {
+  try {
+    const imp = req.user.impersonadoPor;
+    if (!imp) return error(res, 'No hay ninguna impersonación activa', 400);
+    const { logAudit } = require('./admin.controller');
+    await logAudit({
+      userId:     imp.id,
+      userInfo:   imp.username,
+      action:     'impersonate_end',
+      entityType: 'user',
+      entityId:   req.user.id,
+      details:    { impersonado: req.user.username },
+      ip:         req.ip,
+      userAgent:  req.headers['user-agent'],
+    });
+    return success(res, null, 'Impersonación terminada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { login, refresh, logout, me, finImpersonacion };
