@@ -45,7 +45,6 @@ export function IncidenciasAbiertas({ vehicle }) {
       to={`/vehiculos/${vehicle.id}?tab=incidencias`}
       onClick={e => e.stopPropagation()}
       className={`${grave ? 'badge-red' : 'badge-yellow'} whitespace-nowrap hover:underline`}
-      title={`Máxima gravedad: ${vehicle.incidencias_gravedad_max}`}
     >
       {abiertas} abierta{abiertas !== 1 ? 's' : ''}{grave ? ' · grave' : ''}
     </Link>
