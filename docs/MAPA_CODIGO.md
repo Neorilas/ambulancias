@@ -411,6 +411,16 @@ migración de claves antiguas **al importarse**, así que cada caso necesita
 `vi.resetModules()` + `vi.stubEnv()` y un `import()` dinámico; con un import
 estático arriba todos los tests compartirían el primer entorno cargado.
 
+Gotcha de tests de página: **`findBy*`/`waitFor` sondean contra un reloj de
+1 s**, y con la suite entera (varios workers jsdom a la vez, en Windows) montar
+una página y llegar al estado final puede pasarse de ese segundo aunque solo
+tarde ~200 ms cuando el test se ejecuta aislado. `MapaFlota.test.jsx` fallaba
+así ~1 de cada 5 `vitest run`. Subir el timeout solo mueve el umbral. Lo
+determinista es esperar a la promesa del servicio mockeado dentro de `act`
+(`await act(() => servicio.mock.results[0].value)`): al salir, React ya ha
+aplicado toda la cadena de estados y efectos, y se afirma con `getBy*`
+síncrono. Es el helper `montar` de ese test.
+
 ### 3.5 Revisión de las fotos de evidencia (calidad y encuadre)
 
 Al hacer cada foto, `CameraCapture` la revisa en el propio móvil y, si algo no
