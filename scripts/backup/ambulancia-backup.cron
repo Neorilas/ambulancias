@@ -1,0 +1,6 @@
+# /etc/cron.d/ambulancia-backup — backup diario de ambulancia (docs/BACKUPS.md)
+# 03:45 UTC: después del de maraya (03:30) para no coincidir, y de madrugada en
+# España (05:45 en verano), cuando no hay servicios abriéndose.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+45 3 * * * root /usr/local/sbin/backup-ambulancia.sh >> /var/log/ambulancia-backup.log 2>&1
