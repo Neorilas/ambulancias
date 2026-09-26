@@ -32,6 +32,9 @@ accesos.html
 docs/AUDITORIA_SEGURIDAD.md
 AUDITORIA_SEGURIDAD.md
 docs/auditoria-seguridad*.md
+# Planes de trabajo: se quedan en local. No suben a master y, con el repo
+# publico, tampoco deben estar en develop.
+docs/PLAN_*.md
 
 # Scripts ad-hoc de inspeccion/despliegue (suelen acabar con credenciales dentro)
 deploy_helper.py
@@ -110,3 +113,6 @@ desktop.ini
 # Vite / PWA dev
 # ============================================================
 frontend/dev-dist/
+
+# Dumps de la BD para probar la descarga de /admin en local (docs/BACKUPS.md §9)
+backend/backups/

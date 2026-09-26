@@ -70,6 +70,7 @@ export default function Sidebar({ isOpen, onClose }) {
           items: [
             { to: '/usuarios', label: 'Usuarios',   show: isFeatureEnabled('menu_usuarios') && canManageUsers() },
             { to: '/alertas',  label: 'Alertas',    show: isFeatureEnabled('menu_alertas') && (isAdmin() || isSuperAdmin()) },
+            { to: '/informes', label: 'Informes',   show: isFeatureEnabled('menu_informes') && (isAdmin() || isSuperAdmin()) },
             { to: '/admin',    label: 'Superadmin', show: isSuperAdmin() },
           ],
         },

@@ -75,6 +75,12 @@ module.exports = {
   // marca como tardía para los administradores. No bloquea nada. Lo calcula el
   // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
   FOTOS_INICIO_TARDE_MINUTOS: 30,
+  // Informes: un servicio se inició tarde si «Inicio de servicio» se pulsó más
+  // de estos minutos después de la hora prevista. El mismo margen decide los
+  // cierres tardíos/anticipados frente a `fecha_fin`. Decisión de
+  // administración (2026-09-27). Cambiarlo no reescribe los meses ya
+  // archivados en `informe_mensual`: esos guardan su `umbral_min`.
+  INICIO_TARDIO_MINUTOS: 30,
   // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
   // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
   // es el valor por defecto a propósito: solo se enciende (en el .env del
@@ -84,6 +90,11 @@ module.exports = {
   RETENCION_ASIGNACIONES_MESES: Number(process.env.RETENCION_ASIGNACIONES_MESES) > 0
     ? Math.floor(Number(process.env.RETENCION_ASIGNACIONES_MESES))
     : 0,
+  // Carpeta de los dumps de la BD que se descargan desde /admin. En el
+  // contenedor es el montaje de docker-compose.yml (/app/backups, solo
+  // lectura); en local, backend/backups (en .gitignore). Ver docs/BACKUPS.md §9.
+  BACKUPS_DIR: process.env.BACKUPS_DIR
+    || require('path').join(__dirname, '..', '..', 'backups'),
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

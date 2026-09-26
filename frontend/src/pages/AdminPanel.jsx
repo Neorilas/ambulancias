@@ -31,6 +31,8 @@ const ACTION_TONE = {
   toggle_feature:      'bg-warn-500',
   impersonate_start:   'bg-warn-500',
   impersonate_end:     'bg-warn-500',
+  // Se lleva la BD entera: que destaque en el registro.
+  download_backup:     'bg-warn-500',
   create_incidencia:   'bg-warn-500',
   update_incidencia:   'bg-warn-500',
   finalize_trabajo:    'bg-ok-500',
@@ -74,6 +76,7 @@ const ACTION_LABEL = {
   impersonate_end:     'Volvió a su sesión',
   // La hace el sistema (user_info «sistema (retención)»); details.ids dice cuáles.
   purga_retencion:     'Purgó asignaciones antiguas',
+  download_backup:     'Descargó un backup de la BD',
 };
 
 // El resto de acciones (crear/editar/activar) son rutina: azul de marca.
@@ -367,6 +370,93 @@ function TabErrores() {
   );
 }
 
+// ── Tab Backups ───────────────────────────────────────────────────────────────
+function formatTamano(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// Por qué no hay lista, dicho en claro: casi siempre es que el backup del
+// servidor no está instalado todavía (docs/BACKUPS.md §2).
+const MOTIVO_SIN_BACKUPS = {
+  ENOENT: 'La carpeta de backups no existe en el servidor: el backup diario no está instalado.',
+  EACCES: 'El servidor no tiene permiso para leer la carpeta de backups.',
+};
+
+function TabBackups() {
+  const { notify } = useNotification();
+  const [datos,   setDatos]   = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [bajando, setBajando] = useState(null);
+
+  useEffect(() => {
+    adminService.listBackups()
+      .then(setDatos)
+      .catch(() => notify.error('Error al cargar los backups'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const descargar = async (nombre) => {
+    setBajando(nombre);
+    try {
+      await adminService.descargarBackup(nombre);
+    } catch {
+      notify.error('No se pudo descargar el backup');
+    } finally {
+      setBajando(null);
+    }
+  };
+
+  if (loading) return <PageLoading />;
+  const backups = datos?.backups || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="card border-l-4 border-l-warn-500 space-y-1">
+        <p className="text-sm font-medium text-neutral-800">Copia completa de la base de datos</p>
+        <p className="text-xs text-neutral-500">
+          Lleva todos los datos, incluidos los personales de la plantilla y las contraseñas cifradas.
+          Guárdala en un sitio cifrado y no la reenvíes. Cada descarga queda en la auditoría.
+          Las fotos no van aquí: están en la copia externa del servidor.
+        </p>
+      </div>
+
+      {backups.length === 0 ? (
+        <div className="empty">
+          <p className="empty-title">No hay backups disponibles</p>
+          <p className="empty-hint">
+            {(datos && !datos.disponible && MOTIVO_SIN_BACKUPS[datos.motivo])
+              || 'El backup diario todavía no ha generado ninguna copia.'}
+          </p>
+        </div>
+      ) : (
+        <div className="card p-0 divide-y divide-neutral-100">
+          {backups.map((b, i) => (
+            <div key={b.nombre} className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm text-neutral-800">
+                  {formatDateTime(b.fecha)}
+                  {i === 0 && <span className="badge-green ml-2">Más reciente</span>}
+                </p>
+                <p className="text-xs text-neutral-400 font-mono truncate">
+                  {b.nombre} · {formatTamano(b.tamano)}
+                </p>
+              </div>
+              <button
+                className="btn-secondary flex-shrink-0"
+                onClick={() => descargar(b.nombre)}
+                disabled={bajando !== null}
+              >
+                {bajando === b.nombre ? 'Descargando…' : 'Descargar'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tab Funcionalidades ──────────────────────────────────────────────────────
 function TabFuncionalidades() {
   const { notify } = useNotification();
@@ -457,6 +547,7 @@ const TABS = [
   { key: 'stats',     label: 'Resumen' },
   { key: 'auditoria', label: 'Auditoría' },
   { key: 'errores',   label: 'Errores' },
+  { key: 'backups',   label: 'Backups' },
 ];
 
 export default function AdminPanel() {
@@ -552,6 +643,7 @@ export default function AdminPanel() {
       {tab === 'features'  && <TabFuncionalidades />}
       {tab === 'auditoria' && <TabAuditoria initialUserId={auditUserId} />}
       {tab === 'errores'   && <TabErrores />}
+      {tab === 'backups'   && <TabBackups />}
     </div>
   );
 }

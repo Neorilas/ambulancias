@@ -9,6 +9,7 @@
 const express = require('express');
 const { query: queryParam, param } = require('express-validator');
 const ctrl   = require('../controllers/admin.controller');
+const backups = require('../controllers/backups.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
 const { requireSuperAdmin } = require('../middleware/roles.middleware');
 const { handleValidation }  = require('../middleware/validate.middleware');
@@ -49,6 +50,17 @@ router.get('/errors',
   ],
   handleValidation,
   ctrl.listErrorLogs
+);
+
+// GET /admin/backups — dumps de la BD disponibles (docs/BACKUPS.md §9)
+router.get('/backups', backups.listBackups);
+
+// GET /admin/backups/:nombre — descarga de un dump. El patrón cierra el paso a
+// cualquier ruta: solo nombres tal cual los escribe el script de backup.
+router.get('/backups/:nombre',
+  [param('nombre').matches(backups.PATRON_DUMP)],
+  handleValidation,
+  backups.downloadBackup
 );
 
 // POST /admin/impersonar/:id — token para ver la app como ese usuario.

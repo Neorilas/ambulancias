@@ -21,6 +21,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
+import EnlaceAsignacion from '../../components/common/EnlaceAsignacion.jsx';
 import { formatDate, formatDateTime, formatDateTimeShort, toInputDate } from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
 import { parseKm } from '../../utils/kmUtils.js';
@@ -1337,6 +1338,16 @@ export default function VehicleHistory() {
         <div>
           <h1 className="text-[19px] font-semibold text-neutral-900">{vehicle.alias}</h1>
           <p className="text-sm text-neutral-500 font-mono">{vehicle.matricula}</p>
+          {/* En la cabecera y no en el Resumen: se ve desde cualquier pestaña.
+              Solo llega a quien gestiona (`getVehicle` la manda con `veFlota`). */}
+          {activa && (
+            <p className="text-sm mt-0.5">
+              <EnlaceAsignacion
+                asignacion={activa}
+                enlazar={isFeatureEnabled('menu_asignaciones')}
+              />
+            </p>
+          )}
         </div>
       </div>
 
