@@ -16,8 +16,15 @@ import { resolve } from 'node:path';
  * Va como plugin y no como script de postbuild a propósito: aquí el valor de
  * `base` es el que Vite ha usado de verdad. Un script aparte tendría que
  * adivinarlo desde process.env, donde Vite no lo publica.
+ *
+ * También rellena la API en la CSP (__API_ORIGIN__ y __API_URL__). Con una
+ * VITE_API_URL relativa (dev) el origen queda vacío y la CSP se queda en
+ * 'self', que es lo correcto: la API va por el mismo origen.
  */
-function htaccessConBase(base) {
+function htaccessConBase(base, apiUrl) {
+  let apiOrigin = '';
+  try { apiOrigin = new URL(apiUrl).origin; } catch { /* relativa: mismo origen */ }
+  const apiBase = (apiUrl || '/api/v1').replace(/\/+$/, '');
   return {
     name: 'htaccess-con-base',
     apply: 'build',
@@ -26,9 +33,12 @@ function htaccessConBase(base) {
       if (!existsSync(destino)) {
         this.error('No se ha generado dist/.htaccess (¿sigue en public/?)');
       }
-      const contenido = readFileSync(destino, 'utf8').replaceAll('__BASE_PATH__', base);
-      if (contenido.includes('__BASE_PATH__')) {
-        this.error('Han quedado marcadores __BASE_PATH__ sin sustituir');
+      const contenido = readFileSync(destino, 'utf8')
+        .replaceAll('__BASE_PATH__', base)
+        .replaceAll('__API_ORIGIN__', apiOrigin)
+        .replaceAll('__API_URL__', apiBase);
+      if (/__(BASE_PATH|API_ORIGIN|API_URL)__/.test(contenido)) {
+        this.error('Han quedado marcadores sin sustituir en el .htaccess');
       }
       writeFileSync(destino, contenido, 'utf8');
       this.info(`.htaccess generado para base "${base}"`);
@@ -54,7 +64,7 @@ export default defineConfig(({ mode }) => {
     base: BASE,
     plugins: [
       react(),
-      htaccessConBase(BASE),
+      htaccessConBase(BASE, env.VITE_API_URL),
       VitePWA({
         registerType:   'autoUpdate',
         includeAssets:  ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],

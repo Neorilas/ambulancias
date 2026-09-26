@@ -177,4 +177,23 @@ const pushLimiter = rateLimit({
   handler: avisar429('push'),
 });
 
-module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, claveCliente };
+/**
+ * POST /csp-report — informes de la CSP del frontend.
+ *
+ * Los manda el navegador solo, sin token, así que cuentan por IP. Va con cupo
+ * PROPIO y montado antes de `apiLimiter`: si compartieran cupo, una página con
+ * muchas violaciones gastaría el cupo anónimo de la IP y los técnicos de esa
+ * misma red (comparten IP, ver rate limit por usuario) se comerían un 429 al
+ * hacer login. Pasado el cupo se contesta 204 sin más: el navegador no
+ * reintenta y no hay nada que avisar.
+ */
+const cspReportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max:      30,
+  keyGenerator: (req) => `csp:${normalizarIp(req.ip)}`,
+  standardHeaders: false,
+  legacyHeaders:   false,
+  handler: (_req, res) => res.status(204).end(),
+});
+
+module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, cspReportLimiter, claveCliente };

@@ -1,7 +1,7 @@
 name: Deploy Frontend
 
 # develop → https://vapss.net/app-pre/   (automático)
-# master  → https://vapss.net/app/       (requiere autorización)
+# master  → https://vapss.net/app/       (automático, sin aprobación)
 #
 # Las dos PWA viven en el mismo hosting y se distinguen por la carpeta. La
 # configuración de cada una está en frontend/.env.pre y frontend/.env.production
@@ -146,8 +146,8 @@ jobs:
     if: needs.destino.outputs.activo == 'true'
     runs-on: ubuntu-latest
 
-    # El Environment `produccion` tiene required reviewers: el job espera aquí
-    # hasta que alguien autoriza. `pre` no los tiene y sigue de largo.
+    # OJO: el Environment `produccion` NO tiene required reviewers (comprobado
+    # 2026-09): un push a master publica en el acto, sin ninguna puerta.
     environment:
       name: ${{ needs.destino.outputs.entorno }}
       url:  ${{ needs.destino.outputs.url }}
@@ -194,20 +194,39 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      # Script propio en vez de FTP-Deploy-Action: la acción no sabe verificar
+      # el certificado cuando FTP_HOST es una IP (el certificado es el de
+      # Hostalia, *.servicio-online.net) y trabajaba sin verificar. El porqué
+      # completo, y qué hacer si Hostalia cambia de certificado, en la cabecera
+      # de frontend/scripts/publicador/publicar-ftp.mjs.
+      - name: Traer el script de publicación
+        uses: actions/checkout@v4
         with:
-          server:   ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: dist/
+          sparse-checkout: frontend/scripts/publicador
+          sparse-checkout-cone-mode: false
+          path: repo
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Publicar por FTPS (certificado verificado)
+        env:
+          FTP_HOST:       ${{ secrets.FTP_HOST }}
+          FTP_USER:       ${{ secrets.FTP_USER }}
+          FTP_PASSWORD:   ${{ secrets.FTP_PASSWORD }}
           # Secret a nivel de Environment: `produccion` hereda el del repo (la
           # carpeta /app/) y `pre` define el suyo apuntando a /app-pre/.
-          server-dir: ${{ secrets.FTP_REMOTE_DIR }}
-          protocol: ftps                               # TLS explícito (Hostalia lo requiere)
-          port: 21
-          dangerous-clean-slate: false
-          timeout: 60000                               # 60s para conexiones lentas
-          exclude: |
-            **/.git*
-            **/node_modules/**
+          FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+          # Nombre del certificado del FTP de Hostalia. No es secreto: lo
+          # enseña el servidor a cualquiera que conecte.
+          FTP_TLS_NOMBRE: servicio-online.net
+          DIST: ${{ github.workspace }}/dist
+        # `npm ci` contra el lockfile del repo: versión y hash de basic-ftp
+        # fijados (este job maneja la contraseña del FTP de producción), y
+        # --ignore-scripts para que ningún paquete ejecute nada al instalarse.
+        working-directory: repo/frontend/scripts/publicador
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node publicar-ftp.mjs

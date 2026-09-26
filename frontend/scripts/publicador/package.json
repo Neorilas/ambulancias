@@ -1,0 +1,9 @@
+{
+  "name": "publicador-ftp",
+  "private": true,
+  "description": "Dependencias del script de publicación por FTPS (deploy-frontend.yml). Aparte del frontend para que el job `publicar` no instale todo el proyecto.",
+  "type": "module",
+  "dependencies": {
+    "basic-ftp": "5.3.1"
+  }
+}

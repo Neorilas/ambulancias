@@ -44,6 +44,8 @@ function requirePermission(perm) {
     if (hasPermission(req.user, perm)) return next();
 
     // Registrar acceso denegado en auditoría (fire-and-forget)
+    // Con detalle propio: que auditoria403 no la repita.
+    req._accesoDenegadoAuditado = true;
     try {
       const { logAudit } = require('../controllers/admin.controller');
       logAudit({
