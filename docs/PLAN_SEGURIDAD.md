@@ -197,4 +197,4 @@ el worktree. Se hizo tres veces el 2026-09-26 (commits de la rama ya borrados).
 | Todo 403 queda en la auditoría | `787454b` |
 | Tests + `npm audit` antes de desplegar; test de autorización de todas las rutas | `01e7102` |
 | react-router 7 (0 vulnerabilidades en producción); `setup-db` con migraciones | `01e7102` |
-| Gestor: crea y edita usuarios solo por debajo de su rol; roles normalizados | pendiente de subir |
+| Gestor: crea y edita usuarios solo por debajo de su rol; roles normalizados | `e55f842` |
