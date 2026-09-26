@@ -226,10 +226,14 @@ async function getVehicle(req, res, next) {
       return success(res, { ...rows[0], images });
     }
 
+    // Las vivas + las que ya borró la retención (v27): el total es de toda la
+    // vida del vehículo, no de lo que queda en el servidor.
     const [asigTotal] = await query(
-      `SELECT COUNT(*) AS total FROM asignaciones_libres
-       WHERE vehicle_id = ? AND deleted_at IS NULL`,
-      [vehicleId]
+      `SELECT (SELECT COUNT(*) FROM asignaciones_libres
+                WHERE vehicle_id = ? AND deleted_at IS NULL)
+              + v.asignaciones_purgadas AS total
+         FROM vehicles v WHERE v.id = ?`,
+      [vehicleId, vehicleId]
     );
     const [asigActiva] = await query(
       `SELECT al.id, al.fecha_inicio, al.fecha_fin, al.inicio_real_at,

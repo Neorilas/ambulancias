@@ -6,6 +6,8 @@
 #   verificar-backup.sh /root/ambulancia-backups/db/ambulancia_AAAAMMDD_HHMMSS.sql.gz
 #
 # Sirve en el servidor (prueba mensual, docs/BACKUPS.md §4) y en local.
+# Con CONSERVAR=1 el contenedor se queda vivo para consultarlo (una asignación
+# purgada por la retención, §8); se borra luego con `docker rm -f <nombre>`.
 # Un backup que nunca se ha restaurado es una esperanza, no un backup.
 
 set -euo pipefail
@@ -15,7 +17,7 @@ DUMP=${1:?uso: verificar-backup.sh <dump.sql.gz>}
 
 C="ambulancia-verificar-$$"
 PASS="verif_$$_$RANDOM"
-trap 'docker rm -f "$C" >/dev/null 2>&1 || true' EXIT
+[ "${CONSERVAR:-0}" = 1 ] || trap 'docker rm -f "$C" >/dev/null 2>&1 || true' EXIT
 
 echo "Arrancando MySQL desechable ($C)…"
 docker run -d --name "$C" \
@@ -49,3 +51,9 @@ echo "Última migración aplicada: $(sql "SELECT name FROM schema_migrations ORD
 echo "Última asignación creada:  $(sql "SELECT MAX(created_at) FROM asignaciones_libres" 2>/dev/null || echo '-')"
 echo
 echo "OK: el dump se restaura. Compara las cifras con la app (usuarios, vehículos, asignaciones)."
+if [ "${CONSERVAR:-0}" = 1 ]; then
+  echo
+  echo "Contenedor conservado. Para consultar y para borrarlo al acabar:"
+  echo "  docker exec -it -e MYSQL_PWD='$PASS' $C mysql -uroot verif"
+  echo "  docker rm -f $C"
+fi

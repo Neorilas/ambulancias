@@ -75,6 +75,15 @@ module.exports = {
   // marca como tardía para los administradores. No bloquea nada. Lo calcula el
   // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
   FOTOS_INICIO_TARDE_MINUTOS: 30,
+  // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
+  // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
+  // es el valor por defecto a propósito: solo se enciende (en el .env del
+  // servidor) cuando el backup al Storage Box está funcionando, porque es la
+  // única copia que queda de esa evidencia. services/retencion.service.js y
+  // docs/BACKUPS.md §8.
+  RETENCION_ASIGNACIONES_MESES: Number(process.env.RETENCION_ASIGNACIONES_MESES) > 0
+    ? Math.floor(Number(process.env.RETENCION_ASIGNACIONES_MESES))
+    : 0,
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',
