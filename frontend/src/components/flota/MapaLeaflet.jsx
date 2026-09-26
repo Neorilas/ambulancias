@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estadoMeta } from '../../utils/flota.js';
+import { tituloAsignacion } from '../../utils/enlaceAsignacion.js';
 
 /**
  * components/flota/MapaLeaflet.jsx
@@ -56,8 +57,14 @@ function iconoDe(entrada) {
   });
 }
 
-/** Contenido del globo al pinchar un marcador. Texto plano: nada de HTML ajeno. */
-function popupDe(entrada) {
+/**
+ * Contenido del globo al pinchar un marcador. Texto plano: nada de HTML ajeno.
+ *
+ * La asignación activa va como botón y no como `<a href>`: un enlace crudo
+ * saltaría el router (recarga entera y sin el `basename` de /app/). El botón
+ * llama a `alAbrir`, que navega con el router.
+ */
+function popupDe(entrada, alAbrir) {
   const nodo = document.createElement('div');
   nodo.className = 'text-[13px] leading-snug';
 
@@ -72,10 +79,28 @@ function popupDe(entrada) {
     mat.textContent = entrada.matricula;
     nodo.appendChild(mat);
   }
+
+  if (entrada.asignacion) {
+    const asig = document.createElement('div');
+    asig.className = 'mt-1.5 pt-1.5 border-t border-neutral-200';
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'font-medium text-primary-600 hover:underline';
+    boton.textContent = `${tituloAsignacion(entrada.asignacion)} →`;
+    boton.addEventListener('click', () => alAbrir.current?.(entrada.asignacion.id));
+    asig.appendChild(boton);
+    if (entrada.asignacion.responsable) {
+      const quien = document.createElement('div');
+      quien.className = 'text-[11px] text-neutral-500';
+      quien.textContent = entrada.asignacion.responsable;
+      asig.appendChild(quien);
+    }
+    nodo.appendChild(asig);
+  }
   return nodo;
 }
 
-export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar }) {
+export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar, onAbrirAsignacion }) {
   const contenedor  = useRef(null);
   const mapa        = useRef(null);
   const marcadores  = useRef(new Map());
@@ -84,6 +109,10 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
   // suscribirse cada vez que el padre reconstruye la función.
   const alSeleccionar = useRef(onSeleccionar);
   alSeleccionar.current = onSeleccionar;
+  // Lo mismo para el enlace a la asignación del globo; sin él (null), el globo
+  // la nombra pero el botón no hace nada.
+  const alAbrirAsignacion = useRef(onAbrirAsignacion);
+  alAbrirAsignacion.current = onAbrirAsignacion;
 
   // ── Crear el mapa (una sola vez) ───────────────────────────────────────
   useEffect(() => {
@@ -130,11 +159,11 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       if (marcador) {
         marcador.setLatLng([lat, lng]);
         marcador.setIcon(iconoDe(entrada));
-        marcador.setPopupContent(popupDe(entrada));
+        marcador.setPopupContent(popupDe(entrada, alAbrirAsignacion));
       } else {
         marcador = L.marker([lat, lng], { icon: iconoDe(entrada), title: entrada.alias || entrada.matricula || '' })
           .addTo(mapa.current)
-          .bindPopup(popupDe(entrada));
+          .bindPopup(popupDe(entrada, alAbrirAsignacion));
         marcador.on('click', () => alSeleccionar.current?.(entrada.clave));
         marcadores.current.set(entrada.clave, marcador);
       }

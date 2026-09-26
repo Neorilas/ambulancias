@@ -26,6 +26,7 @@ vi.mock('../../../services/features.service.js', () => ({
 }));
 
 import { vehiclesService } from '../../../services/vehicles.service.js';
+import { featuresService } from '../../../services/features.service.js';
 import { usersService }    from '../../../services/users.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import { AuthProvider }         from '../../../context/AuthContext.jsx';
@@ -260,6 +261,45 @@ describe('VehicleHistory · resumen de asignaciones', () => {
 
     expect((await screen.findAllByText('Asignada')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Jose Lopez/).length).toBeGreaterThan(0);
+  });
+
+  describe('enlace a la asignación activa', () => {
+    const CON_ACTIVA = {
+      ...VEHICULO,
+      asignaciones: {
+        total: 13,
+        activa: {
+          id: 44, fecha_inicio: '2026-09-19T05:00:00.000Z', fecha_fin: '2026-09-20T05:00:00.000Z',
+          inicio_real_at: null, responsable_nombre: 'Jose Lopez',
+        },
+      },
+    };
+
+    it('la nombra en la cabecera y lleva a su detalle', async () => {
+      sesionConPermiso();
+      featuresService.getActive.mockResolvedValueOnce(['menu_asignaciones']);
+      vehiclesService.get.mockResolvedValue(CON_ACTIVA);
+      montar();
+
+      const enlace = await screen.findByRole('link', { name: /Asignación #44/ });
+      expect(enlace).toHaveAttribute('href', '/asignaciones?id=44');
+    });
+
+    it('sin acceso a /asignaciones la nombra pero no la enlaza', async () => {
+      vehiclesService.get.mockResolvedValue(CON_ACTIVA);
+      montar();
+
+      expect(await screen.findByText('Asignación #44')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Asignación #44/ })).not.toBeInTheDocument();
+    });
+
+    it('libre, no nombra ninguna asignación', async () => {
+      montar();
+      await screen.findByRole('heading', { name: 'Ambulancia 3' });
+      await waitFor(() => expect(vehiclesService.get).toHaveBeenCalled());
+
+      expect(screen.queryByText(/Asignación #/)).not.toBeInTheDocument();
+    });
   });
 });
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
@@ -27,6 +28,26 @@ export default function AsignacionList() {
   const [deleteId,     setDeleteId]     = useState(null);
   const [deleting,     setDeleting]     = useState(false);
   const [detalleId,    setDetalleId]    = useState(null);
+
+  // `?id=<n>` abre ese detalle al llegar: es como enlazan a una asignación la
+  // ficha del vehículo, el mapa de flota y la alarma (`rutaAsignacion`). Con
+  // un efecto y no solo en el estado inicial, para que funcione también si ya
+  // se estaba en el listado (la alarma se ve desde cualquier pantalla).
+  const [params, setParams] = useSearchParams();
+  const idPedido = Number(params.get('id')) || null;
+  useEffect(() => { if (idPedido) setDetalleId(idPedido); }, [idPedido]);
+
+  const cerrarDetalle = () => {
+    setDetalleId(null);
+    // Se quita de la URL: si no, recargar volvería a abrirlo y volver a pulsar
+    // el mismo enlace no cambiaría el parámetro y no haría nada.
+    if (params.has('id')) {
+      const siguiente = new URLSearchParams(params);
+      siguiente.delete('id');
+      setParams(siguiente, { replace: true });
+    }
+    load();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,7 +243,7 @@ export default function AsignacionList() {
       {detalleId && (
         <AsignacionDetalle
           id={detalleId}
-          onClose={() => { setDetalleId(null); load(); }}
+          onClose={cerrarDetalle}
         />
       )}
 

@@ -35,6 +35,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { PERMISSIONS } from '../../utils/constants.js';
 import { formatHora } from '../../utils/dateUtils.js';
+import { rutaAsignacion } from '../../utils/enlaceAsignacion.js';
 import {
   CLAVE_ATENDIDAS,
   claveAlarma,
@@ -250,7 +251,7 @@ export default function AlarmaSinIniciar() {
                 </div>
               </div>
               <Link
-                to={`/asignaciones?id=${a.id}`}
+                to={rutaAsignacion(a.id)}
                 onClick={enterado}
                 className="shrink-0 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100"
               >
