@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../../services/flota.service.js', () => ({
@@ -26,12 +26,24 @@ const DATOS = {
   minutosSinSenal: 30,
 };
 
-function montar(url) {
-  return render(
+/**
+ * Monta la página y espera a que termine la PRIMERA carga, con todo lo que
+ * desencadena (setDatos → efecto de `?vehiculo=` → setSeleccionada → render).
+ *
+ * No se usa `findBy*`: sondea contra un reloj de 1 s, y con la suite entera en
+ * paralelo el render llegaba a pasarse (fallaba ~1 de cada 5 `vitest run`).
+ * Esperar a la promesa del servicio dentro de `act` no depende del reloj: al
+ * salir del `act`, React ya ha aplicado todas las actualizaciones pendientes.
+ */
+async function montar(url) {
+  const vista = render(
     <NotificationProvider>
       <MemoryRouter initialEntries={[url]}><MapaFlota /></MemoryRouter>
     </NotificationProvider>
   );
+  expect(flotaService.getUbicaciones).toHaveBeenCalledTimes(1);
+  await act(() => flotaService.getUbicaciones.mock.results[0].value);
+  return vista;
 }
 
 describe('MapaFlota · ?vehiculo=', () => {
@@ -41,16 +53,16 @@ describe('MapaFlota · ?vehiculo=', () => {
   });
 
   it('abre con el vehículo pedido seleccionado y su ficha a la vista', async () => {
-    montar('/flota?vehiculo=2');
+    await montar('/flota?vehiculo=2');
 
-    expect(await screen.findByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
     expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', 'v-2');
   });
 
   it('sin parámetro no selecciona ninguno', async () => {
-    montar('/flota');
+    await montar('/flota');
 
-    await screen.findByText('Ambulancia 1');
+    expect(screen.getByText('Ambulancia 1')).toBeInTheDocument();
     expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', '');
   });
 });
