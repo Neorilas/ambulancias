@@ -28,8 +28,32 @@ function Due({ proxima, umbralAviso = 30 }) {
   return <span className="data text-[12.5px] text-neutral-600">{fecha}</span>;
 }
 
+/**
+ * Incidencias sin resolver (pendientes o en revisión) del vehículo. Rojo si
+ * alguna es grave, ámbar si no; lleva directo a la pestaña Incidencias.
+ * El backend solo manda el recuento a quien puede ver las incidencias: sin el
+ * campo no se pinta nada.
+ */
+export function IncidenciasAbiertas({ vehicle }) {
+  const abiertas = vehicle.incidencias_abiertas;
+  if (abiertas == null) return null;
+  if (abiertas === 0) return <span className="text-[12.5px] text-neutral-400 whitespace-nowrap">Sin incidencias</span>;
+
+  const grave = vehicle.incidencias_gravedad_max === 'grave';
+  return (
+    <Link
+      to={`/vehiculos/${vehicle.id}?tab=incidencias`}
+      onClick={e => e.stopPropagation()}
+      className={`${grave ? 'badge-red' : 'badge-yellow'} whitespace-nowrap hover:underline`}
+      title={`Máxima gravedad: ${vehicle.incidencias_gravedad_max}`}
+    >
+      {abiertas} abierta{abiertas !== 1 ? 's' : ''}{grave ? ' · grave' : ''}
+    </Link>
+  );
+}
+
 /** Fila de la tabla (escritorio). Toda la fila abre la ficha del vehículo. */
-function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
+function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete, verIncidencias }) {
   const navigate = useNavigate();
   const proximaITV = calcProximaITV(vehicle.fecha_matriculacion, vehicle.fecha_itv);
   const proximaITS = calcProximaITS(vehicle.fecha_its);
@@ -53,6 +77,7 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
       <td><Due proxima={proximaITV} /></td>
       <td><Due proxima={proximaITS} /></td>
       <td><Due proxima={proximaTarjeta} umbralAviso={60} /></td>
+      {verIncidencias && <td><IncidenciasAbiertas vehicle={vehicle} /></td>}
       <td>
         {/* Los botones hacen lo suyo, no abren la ficha */}
         <div className="flex justify-end gap-1" onClick={e => e.stopPropagation()}>
@@ -94,6 +119,9 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
           {vehicle.alias}
         </Link>
         <span className="data text-[13px] text-neutral-500">{vehicle.matricula}</span>
+        {vehicle.incidencias_abiertas > 0 && (
+          <span className="ml-auto"><IncidenciasAbiertas vehicle={vehicle} /></span>
+        )}
       </div>
 
       <div className="kv-row">
@@ -142,7 +170,7 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
 }
 
 export default function VehicleList() {
-  const { canManageVehicles, canDeleteAny } = useAuth();
+  const { canManageVehicles, canDeleteAny, canAccessGestion } = useAuth();
   const { notify } = useNotification();
 
   const [vehicles,   setVehicles]   = useState([]);
@@ -154,6 +182,7 @@ export default function VehicleList() {
   const [editVeh,    setEditVeh]    = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
+  const [soloIncidencias, setSoloIncidencias] = useState(false);
 
   // Buscar sobre el texto ya reposado: si no, cada tecla era una petición.
   const busqueda = useDebounce(search, 400);
@@ -161,12 +190,15 @@ export default function VehicleList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await vehiclesService.list({ page, search: busqueda || undefined, limit: 25 });
+      const resp = await vehiclesService.list({
+        page, search: busqueda || undefined, limit: 25,
+        incidencias: soloIncidencias ? 'abiertas' : undefined,
+      });
       setVehicles(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar vehículos'); }
     finally { setLoading(false); }
-  }, [page, busqueda]);
+  }, [page, busqueda, soloIncidencias]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -189,6 +221,8 @@ export default function VehicleList() {
   };
 
   const onEdit = (veh) => { setEditVeh(veh); setShowForm(true); };
+  // Admin, gestor y superadmin: los que pueden abrir las incidencias en la ficha.
+  const verIncidencias = canAccessGestion();
   const canEdit = canManageVehicles();
   const canDelete = canDeleteAny();
 
@@ -199,7 +233,7 @@ export default function VehicleList() {
         <div className="flex-1">
           <h1 className="text-[19px] font-semibold text-neutral-900">Vehículos</h1>
           <p className="text-neutral-500 text-[13px] mt-0.5">
-            {pagination?.total ?? 0} en flota
+            {pagination?.total ?? 0} {soloIncidencias ? 'con incidencias abiertas' : 'en flota'}
           </p>
         </div>
         {canEdit && (
@@ -209,13 +243,25 @@ export default function VehicleList() {
         )}
       </div>
 
-      <input
-        type="search"
-        className="input"
-        placeholder="Buscar por nombre o matrícula…"
-        value={search}
-        onChange={e => { setPage(1); setSearch(e.target.value); }}
-      />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="search"
+          className="input flex-1"
+          placeholder="Buscar por nombre o matrícula…"
+          value={search}
+          onChange={e => { setPage(1); setSearch(e.target.value); }}
+        />
+        {verIncidencias && (
+          <button
+            type="button"
+            aria-pressed={soloIncidencias}
+            onClick={() => { setPage(1); setSoloIncidencias(v => !v); }}
+            className={soloIncidencias ? 'btn-primary whitespace-nowrap' : 'btn-secondary whitespace-nowrap'}
+          >
+            Solo con incidencias
+          </button>
+        )}
+      </div>
 
       {loading ? <PageLoading /> : (
         <>
@@ -223,7 +269,9 @@ export default function VehicleList() {
             <div className="empty">
               <p className="empty-title">Sin vehículos</p>
               <p className="empty-hint">
-                {search ? 'Ninguno coincide con la búsqueda' : 'Todavía no hay vehículos registrados'}
+                {soloIncidencias
+                  ? 'Ningún vehículo tiene incidencias sin resolver'
+                  : search ? 'Ninguno coincide con la búsqueda' : 'Todavía no hay vehículos registrados'}
               </p>
             </div>
           ) : (
@@ -240,6 +288,7 @@ export default function VehicleList() {
                         <th>Próxima ITV</th>
                         <th>Próxima ITS</th>
                         <th>Tarjeta transporte</th>
+                        {verIncidencias && <th>Incidencias</th>}
                         <th />
                       </tr>
                     </thead>
@@ -252,6 +301,7 @@ export default function VehicleList() {
                           onDelete={setDeleteId}
                           canEdit={canEdit}
                           canDelete={canDelete}
+                          verIncidencias={verIncidencias}
                         />
                       ))}
                     </tbody>

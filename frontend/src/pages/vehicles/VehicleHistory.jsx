@@ -1160,6 +1160,13 @@ const TABS = [
   { key: 'revisiones',  label: 'Revisiones' },
 ];
 
+/** Pestaña con la que se abre la ficha: `?tab=` manda si es una que existe. */
+export function tabInicial(pathname, search = '') {
+  const pedida = new URLSearchParams(search).get('tab');
+  if (TABS.some(t => t.key === pedida)) return pedida;
+  return pathname.endsWith('/historial') ? 'fotos' : 'resumen';
+}
+
 /**
  * Datos que comparten las pestañas de la ficha.
  *
@@ -1226,12 +1233,13 @@ function useDatosFicha(vehicleId) {
 export default function VehicleHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const { canManageVehicles, isSuperAdmin, isAdmin } = useAuth();
   const { isFeatureEnabled } = useFeatures();
 
-  // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos
-  const [tab,     setTab]     = useState(pathname.endsWith('/historial') ? 'fotos' : 'resumen');
+  // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos;
+  // ?tab=<clave> abre esa pestaña (el aviso de incidencias del listado).
+  const [tab,     setTab]     = useState(() => tabInicial(pathname, search));
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);

@@ -13,7 +13,7 @@
 
 const { query, transaction }  = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } = require('../utils/response.utils');
-const { PAGINATION, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
+const { PAGINATION, IMAGEN_TIPOS, PERMISSIONS, ROLES } = require('../config/constants');
 const { hasPermission } = require('../middleware/roles.middleware');
 const { normalizarMatricula, esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const { deleteFile }               = require('../middleware/upload.middleware');
@@ -45,6 +45,21 @@ const veFlota = (user) =>
   hasPermission(user, PERMISSIONS.MANAGE_VEHICLES) ||
   hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS) ||
   hasPermission(user, PERMISSIONS.VIEW_ALL_TRABAJOS);
+
+/**
+ * Quién ve las incidencias en el listado: los mismos que pueden abrirlas
+ * (`GET /:id/incidencias` va con `requireAdminOrGestor`) más el superadmin.
+ * No es `veFlota`: un técnico responsable de un trabajo lista su vehículo y
+ * no debe enterarse por aquí de lo que la ficha le niega.
+ */
+const veIncidencias = (user) =>
+  [ROLES.ADMINISTRADOR, ROLES.GESTOR, ROLES.SUPERADMIN]
+    .some(rol => (user?.roles || []).includes(rol));
+
+// Abierta = todo lo que no está resuelto (pendiente o en revisión).
+const INCIDENCIAS_ABIERTAS = `
+  SELECT 1 FROM vehicle_incidencias vi
+  WHERE vi.vehicle_id = v.id AND vi.estado <> 'resuelto'`;
 
 // ── Helper: ¿puede quien no ve la flota acceder a este vehículo? ────
 async function canOperacionalAccess(userId, vehicleId) {
@@ -99,6 +114,29 @@ async function listVehicles(req, res, next) {
       params.push(search, `%${normalizarMatricula(req.query.search)}%`);
     }
 
+    // Incidencias abiertas por vehículo, para verlas sin entrar en cada ficha.
+    // Solo para quien puede abrirlas; al resto ni se le calculan ni se le filtra.
+    const conIncidencias = veIncidencias(req.user);
+    if (conIncidencias && req.query.incidencias === 'abiertas') {
+      where += ` AND EXISTS (${INCIDENCIAS_ABIERTAS})`;
+    }
+    // Gravedad máxima: `gravedad + 0` es la posición en el ENUM
+    // ('leve','moderado','grave') y ELT la devuelve a texto. Un MAX(gravedad)
+    // a secas compara el TEXTO en MySQL y daría 'moderado' por encima de 'grave'.
+    const columnasIncidencias = conIncidencias
+      ? `,
+              COALESCE(inc.abiertas, 0) AS incidencias_abiertas,
+              ELT(inc.gravedad_max, 'leve', 'moderado', 'grave') AS incidencias_gravedad_max`
+      : '';
+    const joinIncidencias = conIncidencias
+      ? `LEFT JOIN (
+           SELECT vi.vehicle_id, COUNT(*) AS abiertas, MAX(vi.gravedad + 0) AS gravedad_max
+           FROM vehicle_incidencias vi
+           WHERE vi.estado <> 'resuelto'
+           GROUP BY vi.vehicle_id
+         ) inc ON inc.vehicle_id = v.id`
+      : '';
+
     const [countRows] = await query(`SELECT COUNT(*) AS total FROM vehicles v ${where}`, params);
     const total = countRows[0].total;
 
@@ -107,8 +145,9 @@ async function listVehicles(req, res, next) {
               v.fecha_matriculacion, v.fecha_itv, v.fecha_its,
               v.fecha_tarjeta_transporte,
               v.fecha_ultima_revision, v.fecha_ultimo_servicio,
-              v.created_at, v.updated_at
+              v.created_at, v.updated_at${columnasIncidencias}
        FROM vehicles v
+       ${joinIncidencias}
        ${where}
        ORDER BY ${ORDEN_POR_NOMBRE}
        LIMIT ? OFFSET ?`,
