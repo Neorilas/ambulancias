@@ -87,6 +87,13 @@ jobs:
         working-directory: frontend
         run: npm test
 
+      # Para el deploy si una dependencia de producción tiene una
+      # vulnerabilidad alta o crítica conocida (las moderadas solo se ven en
+      # el log). Si bloquea: actualizar la dependencia; no quitar el paso.
+      - name: Dependencias sin vulnerabilidades altas
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Build (${{ needs.destino.outputs.modo }})
         working-directory: frontend
         run: npm run build -- --mode ${{ needs.destino.outputs.modo }}

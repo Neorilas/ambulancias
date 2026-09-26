@@ -24,8 +24,9 @@ const adminOGestor  = requireRole(ROLES.ADMINISTRADOR, ROLES.SUPERADMIN, ROLES.G
 // Todas las rutas requieren autenticación
 router.use(authenticate);
 
-// GET /users/roles  - listar roles disponibles (todos los autenticados)
-router.get('/roles', ctrl.listRoles);
+// GET /users/roles  - listar roles disponibles. Solo lo usa el formulario de
+// usuarios (admin/gestor); hasta 2026-09-26 estaba abierto a cualquier sesión.
+router.get('/roles', adminOGestor, ctrl.listRoles);
 
 // POST /users/roles  - crear rol (solo admin)
 router.post('/roles',
