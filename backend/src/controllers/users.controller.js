@@ -49,6 +49,73 @@ function motivoRolProhibido(caller, targetRoles = [], newRoles) {
   return null;
 }
 
+// ============================================================
+// El gestor gestiona usuarios, pero SIEMPRE por debajo de su rol (2026-09-26)
+//
+// Puede crear y editar usuarios que no tengan ningún rol de mando, y solo
+// puede repartir roles que estén por debajo del suyo. «Por debajo» es: no es un
+// rol de mando y no tiene ningún permiso en role_permissions. Lo segundo es a
+// propósito: un rol creado a mano (POST /users/roles) al que un día se le den
+// permisos dejaría de poder repartirlo un gestor sin tocar este código.
+//
+// A sí mismo solo puede guardarse la ficha sin cambiar sus roles.
+// ============================================================
+const ROLES_DE_MANDO = [ROLES.SUPERADMIN, ROLES.ADMINISTRADOR, ROLES.GESTOR];
+const MSG_POR_DEBAJO = 'Solo puedes gestionar usuarios por debajo de tu rol';
+
+/**
+ * Nombres de rol tal como están en la tabla `roles`: minúsculas, sin espacios
+ * y sin repetir. La tabla compara sin distinguir mayúsculas (collation _ci),
+ * pero las listas de este fichero no: sin esto, 'Administrador' o 'gestor '
+ * pasaban por delante de ROLES_DE_MANDO y de la regla del superadmin.
+ */
+const normalizarRoles = (roles) => (Array.isArray(roles)
+  ? [...new Set(roles.map(r => String(r).trim().toLowerCase()))]
+  : roles);
+
+const mismoConjunto = (a, b) =>
+  new Set(a).size === new Set(b).size && a.every(r => b.includes(r));
+
+const esSoloGestor = (u) =>
+  (u?.roles || []).includes(ROLES.GESTOR) && !isAdmin(u) && !isSuperAdmin(u);
+
+/** De estos nombres de rol, los que tienen algún permiso. */
+async function rolesConPermisos(nombres) {
+  if (!nombres.length) return [];
+  const [rows] = await query(
+    `SELECT DISTINCT r.nombre
+       FROM roles r
+       JOIN role_permissions rp ON rp.role_id = r.id
+      WHERE r.nombre IN (${nombres.map(() => '?').join(',')})`,
+    nombres
+  );
+  return rows.map(r => r.nombre);
+}
+
+/**
+ * Motivo del 403 si un gestor intenta salirse de su nivel; null si puede.
+ * `targetId`/`targetRoles` vacíos en un alta.
+ */
+async function motivoGestor(caller, { targetId = null, targetRoles = [], newRoles }) {
+  if (!esSoloGestor(caller)) return null;
+
+  const sinCambioDeRoles = newRoles === undefined || mismoConjunto(newRoles, targetRoles);
+
+  if (targetRoles.some(r => ROLES_DE_MANDO.includes(r))) {
+    const esSuFicha = targetId !== null && targetId === caller.id;
+    if (!(esSuFicha && sinCambioDeRoles)) return MSG_POR_DEBAJO;
+  }
+
+  const nuevos = (newRoles || []).filter(r => !targetRoles.includes(r));
+  const deMando = nuevos.filter(r => ROLES_DE_MANDO.includes(r));
+  const conPermisos = await rolesConPermisos(nuevos.filter(r => !deMando.includes(r)));
+  const prohibidos = [...deMando, ...conPermisos];
+  if (prohibidos.length) {
+    return `No puedes asignar ${prohibidos.join(', ')}: está a tu nivel o por encima`;
+  }
+  return null;
+}
+
 // Resuelve los nombres de rol contra el catálogo real de la tabla `roles`.
 // Antes se hacía un `IN (...)` y los nombres inventados se ignoraban en
 // silencio; ahora la petición falla y se dice cuál no existe.
@@ -170,10 +237,12 @@ async function getUser(req, res, next) {
 async function createUser(req, res, next) {
   try {
     const { username, password, email, nombre, apellidos, dni,
-            direccion, telefono, roles: roleNames = [] } = req.body;
+            direccion, telefono } = req.body;
+    const roleNames = normalizarRoles(req.body.roles || []);
 
     // Un administrador no puede fabricar un superadmin: solo otro superadmin
-    const rolProhibido = motivoRolProhibido(req.user, [], roleNames);
+    const rolProhibido = motivoRolProhibido(req.user, [], roleNames)
+      || await motivoGestor(req.user, { newRoles: roleNames });
     if (rolProhibido) return forbidden(res, rolProhibido);
 
     // Validar fortaleza de contraseña
@@ -265,10 +334,12 @@ async function updateUser(req, res, next) {
     const targetRoles = existing[0].roles ? existing[0].roles.split(',') : [];
 
     const { email, nombre, apellidos, dni, direccion, telefono, activo,
-            roles: newRoles, password } = req.body;
+            password } = req.body;
+    const newRoles = normalizarRoles(req.body.roles);
 
     // Quién puede tocar a quién, y qué roles puede repartir
-    const rolProhibido = motivoRolProhibido(caller, targetRoles, newRoles);
+    const rolProhibido = motivoRolProhibido(caller, targetRoles, newRoles)
+      || await motivoGestor(caller, { targetId, targetRoles, newRoles });
     if (rolProhibido) return forbidden(res, rolProhibido);
 
     // `activo` y `password` los toca un administrador (o un superadmin)
@@ -488,8 +559,17 @@ async function deleteUser(req, res, next) {
 // ============================================================
 async function listRoles(req, res, next) {
   try {
-    const [rows] = await query('SELECT id, nombre, descripcion FROM roles ORDER BY nombre');
-    return success(res, rows);
+    const [rows] = await query(
+      `SELECT r.id, r.nombre, r.descripcion,
+              EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id) AS con_permisos
+         FROM roles r
+        ORDER BY r.nombre`
+    );
+    // Al gestor solo se le ofrecen los roles que puede repartir (motivoGestor).
+    const visibles = esSoloGestor(req.user)
+      ? rows.filter(r => !ROLES_DE_MANDO.includes(r.nombre) && !Number(r.con_permisos))
+      : rows;
+    return success(res, visibles.map(({ con_permisos, ...r }) => r));
   } catch (err) {
     next(err);
   }

@@ -575,6 +575,18 @@ manage_incidencias, access_admin`. Backend: `requirePermission(...)` /
 `requireRole`. Frontend: `hasPermission(...)` y `allowedRoles` en
 `ProtectedRoute`. El usuario normal queda acotado a **Mis Asignaciones**.
 
+**Quién gestiona usuarios (2026-09-26).** Admin y superadmin, todo (el rol
+`superadmin` solo lo da, quita o edita otro superadmin). El **gestor** crea y
+edita usuarios **solo por debajo de su rol**: ni puede dar `gestor`,
+`administrador` ni `superadmin`, ni tocar a quien ya los tiene; a sí mismo solo
+puede guardarse la ficha sin cambiar sus roles. «Por debajo» = no es rol de
+mando **y no tiene ningún permiso en `role_permissions`**, para que un rol
+creado a mano al que un día se le den permisos no pueda repartirlo un gestor.
+Resetear contraseñas, activar/desactivar y borrar siguen siendo de admin. Todo
+en `users.controller` (`motivoRolProhibido` + `motivoGestor`). **Los roles que llegan se normalizan antes de comprobar nada** (`normalizarRoles`: minúsculas, sin espacios, sin repetir): la tabla compara sin distinguir mayúsculas y las listas del código no, así que «Administrador» o «Superadmin» esquivaban las reglas; `GET
+/users/roles` ya solo le devuelve al gestor los roles que puede dar, y
+`UserList`/`UserForm` esconden lo que no puede hacer (el backend es quien manda).
+
 **Los roles no son excluyentes.** Un administrador o un gestor pueden llevar
 además `tecnico` porque también salen de servicio. Por eso `isOperacional()`
 (back y front) significa «personal de campo **sin mando**» y devuelve `false`
@@ -961,6 +973,7 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 | `docs/MAPA_CODIGO.md` | Este fichero |
 | `docs/ESTADO_PROYECTO.md` | Alcance actual y problemas conocidos |
 | `docs/PLAN_TRABAJO.md` | Plan por bloques con verificación |
+| `docs/PLAN_SEGURIDAD.md` | Lo que queda de seguridad (servidor, CSP obligatoria, retirar `GET /push/estado`, refresh en cookie) con pasos y verificación; y la prueba en carpeta aparte del hosting |
 | `docs/ENTORNOS.md`, `docs/LOCAL.md` | Despliegue y entorno local |
 | `docs/FLUJO_SERVICIO.md` | Rediseño inicio → jornada → cierre |
 | `docs/PLAN_NOTIFICACIONES_PUSH.md` | Plan de los avisos push (implementado; ver §2.5) |
