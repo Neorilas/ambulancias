@@ -149,6 +149,24 @@ describe('retencion.service', () => {
     }));
   });
 
+  it('no cuenta la que ya no estaba (otra pasada se adelantó)', async () => {
+    query.mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, contaba: 1 }]]);
+    transaction.mockImplementation(async (cb) => cb({
+      execute: jest.fn(async (sql) => (sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 0 }])),
+    }));
+    const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+    expect(r).toMatchObject({ asignaciones: 0, fallidas: 0, ids: [] });
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it('si falla la auditoría no lanza: la purga ya está hecha', async () => {
+    query.mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, contaba: 1 }]]);
+    conexion();
+    logAudit.mockRejectedValueOnce(new Error('audit_logs caída'));
+    await expect(purgarAsignacionesAntiguas({ meses: 9, instante: AHORA }))
+      .resolves.toMatchObject({ asignaciones: 1 });
+  });
+
   it('no lanza si falla la consulta de candidatas', async () => {
     query.mockRejectedValueOnce(new Error('BD caída'));
     await expect(purgarAsignacionesAntiguas({ meses: 9, instante: AHORA }))
