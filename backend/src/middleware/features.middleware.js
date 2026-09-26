@@ -57,6 +57,8 @@ function requireFeature(key) {
 
     // Se audita como cualquier otro 403, para que en el panel se vea quién
     // intentó entrar a algo que está apagado.
+    // Con detalle propio: que auditoria403 no la repita.
+    req._accesoDenegadoAuditado = true;
     try {
       const { logAudit } = require('../controllers/admin.controller');
       logAudit({

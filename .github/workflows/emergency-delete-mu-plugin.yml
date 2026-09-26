@@ -1,11 +1,9 @@
 name: EMERGENCIA - Restaurar lcp-fix.php en mu-plugins
 
+# SOLO a mano (Actions → Run workflow). Antes corría también en cada push a
+# master que tocara este fichero o lcp-fix.php, así que cualquier arreglo del
+# propio workflow sobrescribía el plugin del WordPress sin que nadie lo pidiera.
 on:
-  push:
-    branches: [master]
-    paths:
-      - '.github/workflows/emergency-delete-mu-plugin.yml'
-      - '.github/files/lcp-fix.php'
   workflow_dispatch:
 
 jobs:
@@ -21,6 +19,9 @@ jobs:
           FTP_HOST: ${{ secrets.FTP_HOST }}
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+          # Nombre del certificado del FTP de Hostalia (ver la cabecera de
+          # frontend/scripts/publicador/publicar-ftp.mjs).
+          FTP_TLS_NOMBRE: servicio-online.net
         run: |
           python3 - <<'PYEOF'
           import ftplib, ssl, os
@@ -29,15 +30,21 @@ jobs:
           user = os.environ['FTP_USER']
           pw   = os.environ['FTP_PASS']
 
-          # Verificación TLS completa: son las mismas credenciales FTP con las
-          # que se publica la PWA, y el deploy-frontend ya valida el
-          # certificado de este host, así que no hay motivo para aceptar uno
-          # cualquiera (un MITM se llevaría la contraseña).
+          # Son las mismas credenciales con las que se publica la PWA: no se
+          # acepta cualquier certificado (un MITM se llevaría la contraseña).
+          # FTP_HOST es una IP y el certificado es el de Hostalia, que no la
+          # cubre: se valida la cadena contra las CA del sistema y el nombre a
+          # mano, contra FTP_TLS_NOMBRE, ANTES de mandar la contraseña.
           ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_REQUIRED
 
           ftp = ftplib.FTP_TLS(context=ctx)
           ftp.connect(host, 21, timeout=30)
           ftp.auth()
+          nombres = [v for k, v in ftp.sock.getpeercert().get('subjectAltName', ()) if k == 'DNS']
+          if os.environ['FTP_TLS_NOMBRE'] not in nombres:
+              raise SystemExit(f"Certificado inesperado del FTP: {nombres}")
           ftp.login(user, pw)
           ftp.prot_p()
           ftp.set_pasv(True)

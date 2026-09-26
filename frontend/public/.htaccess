@@ -1,6 +1,9 @@
-# ATENCION: plantilla. Los __BASE_PATH__ los sustituye scripts/gen-htaccess.js
-# al terminar el build (postbuild), con el valor de VITE_BASE_PATH. Asi el
-# mismo fichero sirve para /app/ (produccion) y /app-pre/ (PRE).
+# ATENCION: plantilla. Los marcadores los sustituye el plugin
+# `htaccess-con-base` de vite.config.js al terminar el build:
+#   __BASE_PATH__   → VITE_BASE_PATH            (/app/ o /app-pre/)
+#   __API_ORIGIN__  → origen de VITE_API_URL    (https://api.vapss.net)
+#   __API_URL__     → VITE_API_URL               (…/api/v1)
+# Asi el mismo fichero sirve para produccion y PRE.
 Options -MultiViews
 RewriteEngine On
 RewriteBase __BASE_PATH__
@@ -15,6 +18,31 @@ AddType application/manifest+json  .webmanifest
 AddType text/javascript            .js
 
 <IfModule mod_headers.c>
+  # ── Cabeceras de seguridad ────────────────────────────────────────────────
+  # Hasta 2026-09-26 la PWA no mandaba ninguna (la API sí, con helmet).
+  # `always` para que vayan también en redirecciones y errores.
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
+  # Sin includeSubDomains: vale para todo vapss.net (el WordPress incluido),
+  # que ya redirige de http a https; solo impide que se vuelva atrás.
+  Header always set Strict-Transport-Security "max-age=15552000"
+
+  # CSP en modo SOLO AVISO: no bloquea nada. Las violaciones llegan a
+  # POST /csp-report de la API y salen en su log como «CSP (report-only)».
+  # Cuando pase una temporada sin avisos (o solo con los que se hayan
+  # corregido aquí), cambiar el nombre de la cabecera a
+  # Content-Security-Policy para que sea obligatoria. Qué necesita cada
+  # directiva:
+  #   style-src   'unsafe-inline': atributos style de React y de Leaflet;
+  #               fonts.googleapis.com: el @import de index.css.
+  #   img-src     la API (fotos de /uploads), teselas de OpenStreetMap, y
+  #               data:/blob: de las vistas previas de la cámara.
+  #   connect-src la API; el service worker también pide las fotos a la API.
+  #   worker-src  el service worker (self) y blob: por si TensorFlow lo usa.
+  Header always set Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: __API_ORIGIN__ https://*.tile.openstreetmap.org; connect-src 'self' __API_ORIGIN__; media-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri __API_URL__/csp-report"
+
   # ── ORDEN IMPORTANTE ──────────────────────────────────────────────────────
   # Apache aplica los FilesMatch en el orden del fichero y `Header set`
   # sobrescribe el valor anterior: gana el ÚLTIMO que encaje. Por eso la regla

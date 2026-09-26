@@ -82,6 +82,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario |
+| `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
@@ -105,7 +106,8 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. Solo cuentan los **responsables**: nunca el personal de una asignación ni el equipo de un trabajo. En trabajos se mira el estado de la fila `trabajo_vehiculos`, no el del trabajo. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
 | `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD` |
-| `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter` | Límite **por usuario**, no por IP |
+| `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter`, `cspReportLimiter` | Límite **por usuario**, no por IP. `cspReportLimiter` es por IP, con cupo propio y **antes** de `apiLimiter`: los informes CSP llegan sin token y no pueden gastar el cupo anónimo de la IP (dejaría sin login a los técnicos de esa red) |
+| `auditoria403.middleware.js` | `auditarAccesosDenegados` | Montado en `routes/index.js` tras `apiLimiter`: **todo** 403 a un usuario autenticado se audita como `access_denied` (con el `message` como `motivo`), también los que decide el controlador. `requirePermission`/`requireFeature` auditan con más detalle y marcan `req._accesoDenegadoAuditado` para no duplicar |
 | `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
 | `validate.middleware.js` | wrapper de express-validator | |
 | `error.middleware.js` | `notFound`, `errorHandler` | 5xx → `error_logs` |
@@ -900,6 +902,7 @@ solo actúa en el navegador no es un control de acceso.
 | Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + el botón «Ver en el mapa» de `VehicleHistory` (comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
 | Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja) |
+| Un origen externo nuevo en el frontend (API, CDN, fuentes, teselas) | La CSP de `frontend/public/.htaccess` (§9). En `Report-Only` solo sale un aviso en el log; cuando sea obligatoria, sin añadirlo ahí no carga |
 
 ## 9. Entornos y despliegue
 
@@ -907,7 +910,25 @@ solo actúa en el navegador no es un control de acceso.
 `.github/workflows/deploy-backend.yml` (empaqueta `backend database
 docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
 `/health`) y `deploy-frontend.yml` (job `build`: tests + build; job `publicar`:
-subida por FTP al hosting de `vapss.net/app[-pre]/`).
+subida por FTPS al hosting de `vapss.net/app[-pre]/`).
+**La subida la hace `frontend/scripts/publicador/publicar-ftp.mjs`, no FTP-Deploy-Action**
+(desde 2026-09-26): `FTP_HOST` es una IP y el certificado del FTP es el de
+Hostalia (`*.servicio-online.net`), así que la acción solo funcionaba sin
+verificar el certificado. El script valida la cadena y el nombre contra
+`FTP_TLS_NOMBRE` (en el propio workflow). **Si un día el deploy del frontend
+falla con «altnames»**, Hostalia ha cambiado de certificado: mirar el nuevo con
+`openssl s_client -starttls ftp -connect <ip>:21` y actualizar
+`FTP_TLS_NOMBRE` aquí y en `emergency-delete-mu-plugin.yml`. Sube `index.html`
+y `sw.js` los últimos y no resube lo de `assets/` y `modelos/` que ya esté con
+el mismo tamaño (**un modelo nuevo, siempre en carpeta nueva**: en `modelos/` no hay hash). Su única dependencia, `basic-ftp`, va fijada con lockfile en esa carpeta y se instala con `npm ci --ignore-scripts`. `emergency-delete-mu-plugin.yml` (WordPress) ya solo corre a
+mano: antes se disparaba con cualquier push a master que lo tocara.
+**El `.htaccess` de la PWA lleva las cabeceras de seguridad** (nosniff,
+X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS) y la **CSP en modo
+`Report-Only`**: sus avisos salen en el log del backend. Pasarla a obligatoria
+es cambiar el nombre de la cabecera cuando deje de haber avisos; cualquier
+origen externo nuevo (una API, un CDN, otras teselas) hay que añadirlo ahí
+antes, o la CSP obligatoria lo bloqueará. Los marcadores `__API_ORIGIN__` y
+`__API_URL__` los rellena el plugin `htaccess-con-base` de `vite.config.js`.
 **El despliegue a PRE está detrás de la variable de repositorio `PRE_ACTIVO`**:
 si no vale `true`, el job `destino` marca `activo=false` y los jobs de deploy se
 saltan con un aviso en el resumen del run, en vez de morir en rojo por el
