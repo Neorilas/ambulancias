@@ -21,6 +21,10 @@
  * El total de la ficha del vehículo no baja: cada asignación purgada que
  * contaba (sin borrado lógico) suma 1 a `vehicles.asignaciones_purgadas` (v27).
  *
+ * Antes de borrar nada se archiva en `informe_mensual` el informe de cada mes
+ * que se va a tocar (services/informes.service.js): después, el cálculo en vivo
+ * de ese mes ya no saldría. Si no se puede archivar, esta pasada no purga.
+ *
  * Trampa: borrar la fila de la asignación NO borra sus fotos. La FK de
  * `vehicle_images.asignacion_id` es SET NULL, así que quedarían huérfanas en
  * la BD y en disco. Por eso aquí se borran antes, a mano.
@@ -31,12 +35,20 @@ const { RETENCION_ASIGNACIONES_MESES } = require('../config/constants');
 const { ahora } = require('../utils/fecha.utils');
 const { deleteFile } = require('../middleware/upload.middleware');
 const logger = require('../utils/logger.utils');
+const informes = require('./informes.service');
 
 // Por tanda y por pasada: la primera vez que se enciende puede haber meses de
 // atraso, y no conviene tener la BD ocupada de una sola vez. Lo que no quepa
 // sale en la pasada siguiente (el cron la lanza cada pocas horas).
 const TANDA = 100;
 const MAX_POR_PASADA = 1000;
+
+// Qué se purga (dos parámetros: el corte, dos veces). Lo usan la búsqueda de
+// candidatas y el archivado de informes, que tienen que ver las mismas filas.
+const CONDICION_PURGA = `(deleted_at IS NULL
+                 AND estado IN ('finalizada', 'cancelada')
+                 AND COALESCE(finalizado_at, updated_at) < ?)
+             OR (deleted_at IS NOT NULL AND deleted_at < ?)`;
 
 /** Instante de corte: `meses` meses antes de `instante`, en UTC. */
 function corteRetencion(meses, instante = ahora()) {
@@ -83,15 +95,35 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
   if (!resultado.activa) return resultado;
 
   const corte = corteRetencion(meses, instante || ahora());
+
+  // Primero el informe de cada mes que se va a tocar. Todas las candidatas,
+  // no solo la primera tanda: basta que se purgue UNA asignación de un mes
+  // para que su cálculo en vivo deje de ser verdad. Agrupadas por hora, que
+  // es lo más fino que necesita saber a qué mes español pertenecen.
+  try {
+    const [inicios] = await query(
+      `SELECT MIN(fecha_inicio) AS fecha_inicio
+         FROM asignaciones_libres
+        WHERE ${CONDICION_PURGA}
+        GROUP BY DATE_FORMAT(fecha_inicio, '%Y%m%d%H')`,
+      [corte, corte]
+    );
+    if (inicios.length) {
+      resultado.informes_archivados =
+        await informes.archivarMeses(inicios.map(r => r.fecha_inicio), instante || ahora());
+    }
+  } catch (err) {
+    logger.error(`Retención: no se pudo archivar el informe mensual; no se purga nada: ${err.message}`);
+    resultado.bloqueada = true;
+    return resultado;
+  }
+
   try {
     while (resultado.asignaciones + resultado.fallidas < MAX_POR_PASADA) {
       const [candidatas] = await query(
         `SELECT id, vehicle_id, (deleted_at IS NULL) AS contaba
            FROM asignaciones_libres
-          WHERE (deleted_at IS NULL
-                 AND estado IN ('finalizada', 'cancelada')
-                 AND COALESCE(finalizado_at, updated_at) < ?)
-             OR (deleted_at IS NOT NULL AND deleted_at < ?)
+          WHERE ${CONDICION_PURGA}
           ORDER BY id
           LIMIT ${TANDA}
          OFFSET ${resultado.fallidas}`,

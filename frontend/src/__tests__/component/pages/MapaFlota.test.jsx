@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
@@ -46,8 +46,17 @@ function Destino() {
   return <p>destino {pathname}{search}</p>;
 }
 
-function montar(url) {
-  return render(
+/**
+ * Monta la página y espera a que termine la PRIMERA carga, con todo lo que
+ * desencadena (setDatos → efecto de `?vehiculo=` → setSeleccionada → render).
+ *
+ * No se usa `findBy*`: sondea contra un reloj de 1 s, y con la suite entera en
+ * paralelo el render llegaba a pasarse (fallaba ~1 de cada 5 `vitest run`).
+ * Esperar a la promesa del servicio dentro de `act` no depende del reloj: al
+ * salir del `act`, React ya ha aplicado todas las actualizaciones pendientes.
+ */
+async function montar(url) {
+  const vista = render(
     <NotificationProvider>
       <MemoryRouter initialEntries={[url]}>
         <Routes>
@@ -57,6 +66,9 @@ function montar(url) {
       </MemoryRouter>
     </NotificationProvider>
   );
+  expect(flotaService.getUbicaciones).toHaveBeenCalledTimes(1);
+  await act(() => flotaService.getUbicaciones.mock.results[0].value);
+  return vista;
 }
 
 describe('MapaFlota · ?vehiculo=', () => {
@@ -67,18 +79,16 @@ describe('MapaFlota · ?vehiculo=', () => {
   });
 
   it('abre con el vehículo pedido seleccionado y su ficha a la vista', async () => {
-    montar('/flota?vehiculo=2');
+    await montar('/flota?vehiculo=2');
 
-    // Margen sobre el segundo por defecto: con la suite entera y cobertura
-    // este primer render llegó a pasar de 1 s.
-    expect(await screen.findByRole('heading', { name: 'Ambulancia 2' }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
     expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', 'v-2');
   });
 
   it('sin parámetro no selecciona ninguno', async () => {
-    montar('/flota');
+    await montar('/flota');
 
-    await screen.findByText('Ambulancia 1');
+    expect(screen.getByText('Ambulancia 1')).toBeInTheDocument();
     expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', '');
   });
 });
@@ -91,27 +101,27 @@ describe('MapaFlota · asignación activa', () => {
   });
 
   it('la lista la nombra junto al responsable', async () => {
-    montar('/flota');
-    expect(await screen.findByText(/Asignación #55 · Jose Lopez/)).toBeInTheDocument();
+    await montar('/flota');
+    expect(screen.getByText(/Asignación #55 · Jose Lopez/)).toBeInTheDocument();
   });
 
   it('la ficha del vehículo enlaza a su detalle', async () => {
-    montar('/flota?vehiculo=2');
-    const enlace = await screen.findByRole('link', { name: /Asignación #55/ });
+    await montar('/flota?vehiculo=2');
+    const enlace = screen.getByRole('link', { name: /Asignación #55/ });
     expect(enlace).toHaveAttribute('href', '/asignaciones?id=55');
   });
 
   it('el globo del marcador navega al detalle', async () => {
     const user = userEvent.setup();
-    montar('/flota');
-    await user.click(await screen.findByRole('button', { name: 'globo-asignacion' }));
+    await montar('/flota');
+    await user.click(screen.getByRole('button', { name: 'globo-asignacion' }));
     expect(await screen.findByText('destino /asignaciones?id=55')).toBeInTheDocument();
   });
 
   it('sin menu_asignaciones la nombra pero no la enlaza', async () => {
     flags.activos = [];
-    montar('/flota?vehiculo=2');
-    await screen.findByRole('heading', { name: 'Ambulancia 2' });
+    await montar('/flota?vehiculo=2');
+    expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Asignación #55/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'globo-asignacion' })).not.toBeInTheDocument();
   });

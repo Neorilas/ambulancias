@@ -730,9 +730,23 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v27_asignaciones_purgadas']);
+    expect(aplicadas[0]).toBe('v27_asignaciones_purgadas');
     const sql = ejecutadas.find(q => q.includes('ADD COLUMN asignaciones_purgadas'));
     expect(sql).toContain('ALTER TABLE vehicles');
     expect(sql).toContain('INT UNSIGNED NOT NULL DEFAULT 0');
+  });
+
+  it('v28 crea informe_mensual (un mes por fila, JSON) y el flag menu_informes encendido', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v27_asignaciones_purgadas') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v28_informe_mensual']);
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS informe_mensual'));
+    expect(tabla).toContain('PRIMARY KEY (mes)');
+    expect(tabla).toContain('datos        JSON');
+    const flag = ejecutadas.find(q => q.includes("'menu_informes'"));
+    expect(flag).toContain('INSERT IGNORE INTO app_features');
+    expect(flag).toMatch(/'menu', 1, 95/);
   });
 });

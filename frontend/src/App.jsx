@@ -17,6 +17,7 @@ import AdminPanel               from './pages/AdminPanel.jsx';
 import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
 import MapaFlota                from './pages/flota/MapaFlota.jsx';
+import Informes                 from './pages/informes/Informes.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
@@ -150,6 +151,18 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_alertas">
                     <AlertsPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Informes para administración. Solo admin y superadmin: lleva
+                  el desglose nominal por técnico. Quien manda es el backend
+                  (routes/informes.routes.js); el flag solo pone el menú. */}
+              <Route
+                path="/informes"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_informes">
+                    <Informes />
                   </ProtectedRoute>
                 }
               />

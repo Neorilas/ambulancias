@@ -14,10 +14,12 @@
 
 jest.mock('../../../middleware/upload.middleware', () => ({ deleteFile: jest.fn() }));
 jest.mock('../../../controllers/admin.controller', () => ({ logAudit: jest.fn() }));
+jest.mock('../../../services/informes.service', () => ({ archivarMeses: jest.fn() }));
 
 const { query, transaction } = require('../../../config/database');
 const { deleteFile } = require('../../../middleware/upload.middleware');
 const { logAudit }   = require('../../../controllers/admin.controller');
+const { archivarMeses } = require('../../../services/informes.service');
 const { purgarAsignacionesAntiguas, corteRetencion } = require('../../../services/retencion.service');
 
 const AHORA = new Date('2026-09-27T10:00:00.000Z');
@@ -49,6 +51,11 @@ describe('retencion.service', () => {
     transaction.mockReset();
     deleteFile.mockReset();
     logAudit.mockReset();
+    archivarMeses.mockReset();
+    archivarMeses.mockResolvedValue([]);
+    // La primera consulta de cada pasada es la de los meses a archivar (sin
+    // nada que archivar); las colas de cada test son las de las candidatas.
+    query.mockResolvedValueOnce([[]]);
   });
 
   it('corteRetencion resta meses de calendario en UTC', () => {
@@ -66,7 +73,7 @@ describe('retencion.service', () => {
     query.mockResolvedValueOnce([[]]);
     await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = query.mock.calls[1];
     expect(sql).toContain("estado IN ('finalizada', 'cancelada')");
     expect(sql).toContain('COALESCE(finalizado_at, updated_at) < ?');
     expect(sql).toContain('deleted_at < ?');
@@ -132,7 +139,7 @@ describe('retencion.service', () => {
     const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
 
     expect(r).toMatchObject({ asignaciones: 99, fallidas: 1 });
-    expect(query.mock.calls[1][0]).toContain('OFFSET 1');
+    expect(query.mock.calls[2][0]).toContain('OFFSET 1');
   });
 
   it('deja rastro en la auditoría solo si ha purgado algo', async () => {
@@ -140,7 +147,7 @@ describe('retencion.service', () => {
     await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
     expect(logAudit).not.toHaveBeenCalled();
 
-    query.mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, contaba: 1 }]]);
+    query.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, contaba: 1 }]]);
     conexion();
     await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -171,5 +178,50 @@ describe('retencion.service', () => {
     query.mockRejectedValueOnce(new Error('BD caída'));
     await expect(purgarAsignacionesAntiguas({ meses: 9, instante: AHORA }))
       .resolves.toMatchObject({ activa: true, asignaciones: 0 });
+  });
+
+  describe('archivo del informe mensual antes de purgar', () => {
+    beforeEach(() => { query.mockReset(); });
+
+    it('archiva los meses de las candidatas ANTES de borrar nada', async () => {
+      const orden = [];
+      const inicio = new Date('2025-11-03T07:00:00.000Z');
+      query
+        .mockResolvedValueOnce([[{ fecha_inicio: inicio }]])
+        .mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, contaba: 1 }]]);
+      archivarMeses.mockImplementation(async () => { orden.push('archivo'); return ['2025-11']; });
+      transaction.mockImplementation(async (cb) => {
+        orden.push('purga');
+        return cb({ execute: jest.fn(async (sql) => (sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }])) });
+      });
+
+      const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toContain('GROUP BY');
+      expect(sql).toContain("estado IN ('finalizada', 'cancelada')");
+      expect(params).toEqual([corteRetencion(9, AHORA), corteRetencion(9, AHORA)]);
+      expect(archivarMeses).toHaveBeenCalledWith([inicio], AHORA);
+      expect(orden).toEqual(['archivo', 'purga']);
+      expect(r).toMatchObject({ asignaciones: 1, informes_archivados: ['2025-11'] });
+    });
+
+    it('si no puede archivar, no purga nada', async () => {
+      query.mockResolvedValueOnce([[{ fecha_inicio: new Date('2025-11-03T07:00:00.000Z') }]]);
+      archivarMeses.mockRejectedValueOnce(new Error('JSON demasiado grande'));
+
+      const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+
+      expect(r).toMatchObject({ bloqueada: true, asignaciones: 0 });
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('si falla la consulta de meses, tampoco purga', async () => {
+      query.mockRejectedValueOnce(new Error('BD caída'));
+      const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+      expect(r.bloqueada).toBe(true);
+      expect(transaction).not.toHaveBeenCalled();
+    });
   });
 });
