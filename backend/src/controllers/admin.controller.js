@@ -135,8 +135,14 @@ async function listErrorLogs(req, res, next) {
 async function listAuditUsers(req, res, next) {
   try {
     const [rows] = await query(
+      // Etiqueta: la fila más reciente que NO sea impersonada; si solo hay
+      // de esas, la más reciente. Sin esto el filtro llamaba al usuario
+      // «gestor (vía admin)» en cuanto un superadmin actuaba como él.
       `SELECT user_id,
-              SUBSTRING_INDEX(MAX(CONCAT(created_at, '||', user_info)), '||', -1) AS user_info,
+              SUBSTRING_INDEX(COALESCE(
+                MAX(CASE WHEN user_info NOT LIKE '% (vía %)' THEN CONCAT(created_at, '||', user_info) END),
+                MAX(CONCAT(created_at, '||', user_info))
+              ), '||', -1) AS user_info,
               COUNT(*)        AS total,
               MAX(created_at) AS last_action
        FROM audit_logs
