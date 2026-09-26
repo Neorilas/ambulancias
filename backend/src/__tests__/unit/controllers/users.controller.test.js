@@ -446,6 +446,140 @@ describe('users.controller', () => {
     });
   });
 
+  // ── El gestor, siempre por debajo de su rol ────────────
+  describe('gestor: solo por debajo de su rol', () => {
+    const GESTOR = { id: 3, roles: ['gestor'], username: 'gestor1' };
+    const ALTA = { username: 'nuevo_tec', password: 'Una.Clave.Larga.2026', nombre: 'N', apellidos: 'T', dni: '12345678Z' };
+
+    beforeEach(() => { query.mockReset(); transaction.mockReset(); });
+
+    it('crea un técnico: pasa la autorización y sigue con el alta', async () => {
+      query.mockResolvedValueOnce([[]]);             // rolesConPermisos(['tecnico']) → ninguno
+      query.mockResolvedValueOnce([[{ id: 50 }]]);   // username/DNI ya en uso → 409
+
+      const res = mockRes();
+      await createUser(mockReq({ body: { ...ALTA, roles: ['tecnico'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(query.mock.calls[0][0]).toMatch(/role_permissions/);
+    });
+
+    it.each([['gestor'], ['administrador'], ['superadmin']])('no puede crear un %s', async (rol) => {
+      const res = mockRes();
+      await createUser(mockReq({ body: { ...ALTA, roles: [rol] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('no puede repartir un rol creado a mano que tenga permisos', async () => {
+      query.mockResolvedValueOnce([[{ nombre: 'coordinador' }]]); // tiene permisos
+
+      const res = mockRes();
+      await createUser(mockReq({ body: { ...ALTA, roles: ['coordinador'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res._json.message).toMatch(/coordinador/);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('no puede editar a otro gestor', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, activo: 1, roles: 'gestor' }]]);
+
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '8' }, body: { nombre: 'X' }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('puede guardar su propia ficha si no toca sus roles', async () => {
+      query.mockResolvedValueOnce([[{ id: 3, activo: 1, roles: 'gestor' }]]);
+      transaction.mockResolvedValueOnce(undefined);
+
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '3' }, body: { telefono: '600000000', roles: ['gestor'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).not.toHaveBeenCalledWith(403);
+      expect(transaction).toHaveBeenCalled();
+    });
+
+    it('no puede cambiarse sus propios roles', async () => {
+      query.mockResolvedValueOnce([[{ id: 3, activo: 1, roles: 'gestor' }]]);
+
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '3' }, body: { roles: ['gestor', 'tecnico'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('a un técnico puede quitarle o darle roles de campo', async () => {
+      query.mockResolvedValueOnce([[{ id: 9, activo: 1, roles: 'tecnico' }]]);
+      query.mockResolvedValueOnce([[]]);   // rolesConPermisos(['enfermero']) → ninguno
+      transaction.mockResolvedValueOnce(undefined);
+
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '9' }, body: { roles: ['enfermero'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).not.toHaveBeenCalledWith(403);
+      expect(transaction).toHaveBeenCalled();
+    });
+
+    it.each([['Gestor'], [' gestor '], ['ADMINISTRADOR']])('mayúsculas o espacios no cuelan un rol de mando (%p)', async (rol) => {
+      const res = mockRes();
+      await createUser(mockReq({ body: { ...ALTA, roles: [rol] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('un administrador tampoco cuela «Superadmin» con mayúscula', async () => {
+      const res = mockRes();
+      await createUser(mockReq({ body: { ...ALTA, roles: ['Superadmin'] }, user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('duplicados no se cuentan como «sin cambios» en su propia ficha', async () => {
+      query.mockResolvedValueOnce([[{ id: 3, activo: 1, roles: 'gestor,tecnico' }]]);
+
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '3' }, body: { roles: ['gestor', 'gestor'] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('listRoles solo le ofrece los roles que puede repartir', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, nombre: 'administrador', descripcion: '', con_permisos: 1 },
+        { id: 2, nombre: 'gestor',        descripcion: '', con_permisos: 1 },
+        { id: 3, nombre: 'tecnico',       descripcion: '', con_permisos: 0 },
+        { id: 4, nombre: 'coordinador',   descripcion: '', con_permisos: 1 },
+        { id: 5, nombre: 'enfermero',     descripcion: '', con_permisos: 0 },
+      ]]);
+
+      const res = mockRes();
+      await listRoles(mockReq({ user: GESTOR }), res, mockNext());
+
+      expect(res._json.data.map(r => r.nombre)).toEqual(['tecnico', 'enfermero']);
+      expect(res._json.data[0]).not.toHaveProperty('con_permisos');
+    });
+
+    it('al administrador listRoles le ofrece todos', async () => {
+      query.mockResolvedValueOnce([[
+        { id: 1, nombre: 'administrador', descripcion: '', con_permisos: 1 },
+        { id: 3, nombre: 'tecnico',       descripcion: '', con_permisos: 0 },
+      ]]);
+
+      const res = mockRes();
+      await listRoles(mockReq({ user: { id: 1, roles: ['administrador'] } }), res, mockNext());
+
+      expect(res._json.data).toHaveLength(2);
+    });
+  });
+
   // ── createRole ─────────────────────────────────────────
   describe('createRole', () => {
     it('creates a new role', async () => {

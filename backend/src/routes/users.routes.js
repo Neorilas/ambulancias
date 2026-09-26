@@ -54,9 +54,10 @@ router.get('/:id',
   ctrl.getUser
 );
 
-// POST /users  - crear usuario (solo admin)
+// POST /users  - crear usuario (admin o gestor). El gestor, solo por debajo de
+// su rol: ni gestores ni administradores (motivoGestor en el controlador).
 router.post('/',
-  soloAdmin,
+  adminOGestor,
   [
     body('username').trim().notEmpty().withMessage('Username requerido')
       .isLength({ min: 3, max: 50 }).withMessage('Username: entre 3 y 50 caracteres')

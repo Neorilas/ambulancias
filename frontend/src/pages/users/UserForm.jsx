@@ -7,7 +7,7 @@ import { ROLES, labelRol } from '../../utils/constants.js';
 
 export default function UserForm({ user, onSaved, onClose }) {
   const isEdit = !!user;
-  const { isAdmin, isGestor, isSuperAdmin } = useAuth();
+  const { user: yo, isAdmin, isGestor, isSuperAdmin } = useAuth();
   const { notify } = useNotification();
 
   const [roles,     setRoles]     = useState([]);
@@ -39,10 +39,16 @@ export default function UserForm({ user, onSaved, onClose }) {
   };
 
   // Mismas reglas que el backend (users.controller.js): el rol superadmin solo
-  // lo reparte otro superadmin, y un gestor no llega al rol administrador.
+  // lo reparte otro superadmin, y un gestor solo reparte roles por debajo del
+  // suyo (ni gestor ni administrador). Al gestor el backend ya le manda solo
+  // esos roles en /users/roles; esto es la red de seguridad de la pantalla.
+  const soloGestor = isGestor() && !isAdmin() && !isSuperAdmin();
+  // Un gestor que se edita a sí mismo no toca ninguno de sus roles.
+  const esMiFicha  = isEdit && user?.id === yo?.id;
   const rolBloqueado = (roleName) => {
     if (roleName === ROLES.SUPERADMIN)    return !isSuperAdmin();
-    if (roleName === ROLES.ADMINISTRADOR) return isGestor() && !isAdmin() && !isSuperAdmin();
+    if (roleName === ROLES.ADMINISTRADOR || roleName === ROLES.GESTOR) return soloGestor;
+    if (soloGestor && esMiFicha) return true;
     return false;
   };
 
@@ -180,18 +186,22 @@ export default function UserForm({ user, onSaved, onClose }) {
           <input className="input" value={form.direccion} onChange={set('direccion')} />
         </div>
 
-        <div>
-          <label className="label">
-            {isEdit ? 'Nueva contraseña (dejar en blanco para no cambiar)' : 'Contraseña'}
-            {!isEdit && <span className="text-bad-500 ml-1">*</span>}
-          </label>
-          <input type="password" className={`input ${errors.password ? 'input-error' : ''}`}
-            value={form.password} onChange={set('password')} />
-          {errors.password && <p className="field-error">{errors.password}</p>}
-          <p className="text-xs text-neutral-400 mt-1">
-            Mínimo 10 caracteres y al menos dos tipos (minúsculas, mayúsculas, números o símbolos)
-          </p>
-        </div>
+        {/* Cambiar la contraseña de otro es de administrador (el backend la
+            ignora si la manda un gestor); en el alta sí la pone el gestor. */}
+        {(!isEdit || !soloGestor) && (
+          <div>
+            <label className="label">
+              {isEdit ? 'Nueva contraseña (dejar en blanco para no cambiar)' : 'Contraseña'}
+              {!isEdit && <span className="text-bad-500 ml-1">*</span>}
+            </label>
+            <input type="password" className={`input ${errors.password ? 'input-error' : ''}`}
+              value={form.password} onChange={set('password')} />
+            {errors.password && <p className="field-error">{errors.password}</p>}
+            <p className="text-xs text-neutral-400 mt-1">
+              Mínimo 10 caracteres y al menos dos tipos (minúsculas, mayúsculas, números o símbolos)
+            </p>
+          </div>
+        )}
 
         {/* Roles */}
         <div>

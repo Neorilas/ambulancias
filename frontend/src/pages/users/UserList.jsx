@@ -8,6 +8,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import UserForm from './UserForm.jsx';
 import ResetPasswordModal from './ResetPasswordModal.jsx';
+import { ROLES } from '../../utils/constants.js';
 
 /**
  * ¿A este usuario se le mandan avisos push?
@@ -36,10 +37,18 @@ function AvisosCelda({ user }) {
 }
 
 export default function UserList() {
-  const { isAdmin, isSuperAdmin, canDeleteAny } = useAuth();
+  const { user: yo, isAdmin, isSuperAdmin, isGestor, canDeleteAny } = useAuth();
   const { notify } = useNotification();
 
   const canResetPassword = isAdmin() || isSuperAdmin();
+  // El gestor da de alta y edita usuarios, pero solo por debajo de su rol: a
+  // gestores y administradores no los toca (salvo su propia ficha). La regla
+  // de verdad está en el backend (users.controller → motivoGestor).
+  const soloGestor = isGestor() && !isAdmin() && !isSuperAdmin();
+  const puedeCrear = isAdmin() || isSuperAdmin() || isGestor();
+  const ROLES_MANDO = [ROLES.SUPERADMIN, ROLES.ADMINISTRADOR, ROLES.GESTOR];
+  const puedeEditar = (u) => !soloGestor || u.id === yo?.id
+    || !(u.roles || []).some(r => ROLES_MANDO.includes(r));
 
   const [users,      setUsers]      = useState([]);
   const [pagination, setPagination] = useState(null);
@@ -101,7 +110,7 @@ export default function UserList() {
           <h1 className="text-[19px] font-semibold text-neutral-900">Usuarios</h1>
           <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} usuarios registrados</p>
         </div>
-        {isAdmin() && (
+        {puedeCrear && (
           <button onClick={() => { setEditUser(null); setShowForm(true); }} className="btn-primary">
             + Nuevo usuario
           </button>
@@ -155,12 +164,14 @@ export default function UserList() {
                     <td><ActiveBadge activo={u.activo} /></td>
                     <td>
                       <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => { setEditUser(u); setShowForm(true); }}
-                          className="btn-ghost text-xs px-2 py-1"
-                        >
-                          Editar
-                        </button>
+                        {puedeEditar(u) && (
+                          <button
+                            onClick={() => { setEditUser(u); setShowForm(true); }}
+                            className="btn-ghost text-xs px-2 py-1"
+                          >
+                            Editar
+                          </button>
+                        )}
                         {canResetPassword && (
                           <button
                             onClick={() => setResetUser(u)}
