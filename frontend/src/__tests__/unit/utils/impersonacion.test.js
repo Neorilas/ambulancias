@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PREFIJO } from '../../../utils/sessionStorage.js';
 import {
-  impersonacionActiva, guardarYEntrarComo, restaurarSesionPropia,
+  impersonacionActiva, guardarYEntrarComo, restaurarSesionPropia, descartarSesionApartada,
 } from '../../../utils/impersonacion.js';
 
 const get = (k) => localStorage.getItem(PREFIJO + k);
@@ -46,6 +46,20 @@ describe('utils/impersonacion', () => {
   it('restaurar sin impersonación no toca nada', () => {
     expect(restaurarSesionPropia()).toBe(false);
     expect(get('accessToken')).toBe('at-super');
+  });
+
+  it('no entra encima de otra impersonación (no pisa la sesión apartada)', () => {
+    entrar();
+    expect(() => entrar()).toThrow();
+    expect(get('imp:accessToken')).toBe('at-super');
+  });
+
+  it('descartar borra la sesión apartada sin restaurarla', () => {
+    entrar();
+    descartarSesionApartada();
+    expect(get('imp:refreshToken')).toBeNull();
+    expect(impersonacionActiva()).toBeNull();
+    expect(get('accessToken')).toBe('at-imp');
   });
 
   it('impersonacionActiva tolera basura en el storage', () => {

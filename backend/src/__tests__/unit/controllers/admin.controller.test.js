@@ -221,7 +221,9 @@ describe('admin.controller', () => {
 
       await listAuditUsers(mockReq(), mockRes(), mockNext());
 
-      expect(query.mock.calls[0][0]).toContain('SUBSTRING_INDEX(MAX(CONCAT(created_at');
+      expect(query.mock.calls[0][0]).toContain("MAX(CONCAT(created_at, '||', user_info))");
+      // …pero sin las filas impersonadas («x (vía superadmin)») si hay otras
+      expect(query.mock.calls[0][0]).toContain("NOT LIKE '% (vía %)'");
     });
 
     it('sin actividad devuelve una lista vacía', async () => {

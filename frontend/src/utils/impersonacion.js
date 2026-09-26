@@ -31,6 +31,11 @@ export function impersonacionActiva() {
 
 /** Aparta la sesión propia y entra con la del usuario impersonado. */
 export function guardarYEntrarComo({ accessToken, user, expiraEnMin }) {
+  // Nunca encima de otra: pisaría la sesión apartada del superadmin con la
+  // de la primera impersonación y ya no habría forma de volver.
+  if (impersonacionActiva() || getItem('imp:accessToken') !== null) {
+    throw new Error('Ya hay una impersonación en curso');
+  }
   CLAVES_SESION.forEach((k) => {
     const v = getItem(k);
     if (v !== null) setItem(`imp:${k}`, v);
@@ -63,6 +68,12 @@ export function restaurarSesionPropia() {
   });
   removeItem('impersonacion');
   return true;
+}
+
+/** Borra la sesión apartada sin restaurarla (cierre de sesión forzado). */
+export function descartarSesionApartada() {
+  CLAVES_SESION.forEach((k) => removeItem(`imp:${k}`));
+  removeItem('impersonacion');
 }
 
 /** Recarga la app entera en `ruta`, sin datos cacheados de la otra identidad. */

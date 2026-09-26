@@ -7,7 +7,7 @@ import axios from 'axios';
 import { getItem, setItem, removeItem } from '../utils/sessionStorage.js';
 import { vaciarCachesDeSesion } from '../utils/cachesSesion.js';
 import {
-  impersonacionActiva, restaurarSesionPropia, recargarComoOtraIdentidad,
+  impersonacionActiva, restaurarSesionPropia, recargarComoOtraIdentidad, descartarSesionApartada,
 } from '../utils/impersonacion.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
@@ -66,10 +66,18 @@ api.interceptors.response.use(
       !originalRequest.url?.includes('/auth/refresh') &&
       !originalRequest.url?.includes('/auth/login')
     ) {
+      // El /fin con el token ya caducado (lo normal cuando la franja vuelve
+      // sola al agotarse el tiempo) no se toca aquí: ni restaurar ni el
+      // clearAuth de abajo, que mandaría a /login a la vez que AuthContext
+      // restaura y recarga — dos navegaciones compitiendo.
+      if (originalRequest.url?.includes('/auth/impersonacion/fin')) {
+        return Promise.reject(error);
+      }
+
       // Impersonando no hay refresh: un 401 es que el token impersonado ha
       // caducado (o el superadmin ha perdido el rol). Se vuelve a la sesión
-      // propia en vez de echar al login. El /fin lo gestiona AuthContext.
-      if (impersonacionActiva() && !originalRequest.url?.includes('/auth/impersonacion/fin')) {
+      // propia en vez de echar al login.
+      if (impersonacionActiva()) {
         restaurarSesionPropia();
         recargarComoOtraIdentidad('/usuarios');
         return Promise.reject(error);
@@ -129,6 +137,9 @@ function clearAuth() {
   removeItem('accessToken');
   removeItem('refreshToken');
   removeItem('user');
+  // Red de seguridad: si se llega aquí con una impersonación a medias, que no
+  // quede el refresh token del superadmin apartado en imp:* sin nadie que lo use.
+  descartarSesionApartada();
   vaciarCachesDeSesion();
   // Redirigir a login sin causar loop
   if (!window.location.pathname.includes('/login')) {
