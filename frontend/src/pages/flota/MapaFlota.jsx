@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { flotaService } from '../../services/flota.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
+import EnlaceAsignacion from '../../components/common/EnlaceAsignacion.jsx';
+import { rutaAsignacion, tituloAsignacion } from '../../utils/enlaceAsignacion.js';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import MapaLeaflet from '../../components/flota/MapaLeaflet.jsx';
 import { formatHora } from '../../utils/dateUtils.js';
@@ -82,7 +85,7 @@ function FilaVehiculo({ entrada, activa, onClick }) {
           </div>
           {entrada.asignacion && (
             <p className="text-[11px] text-neutral-500 truncate mt-0.5">
-              {entrada.asignacion.responsable}
+              {tituloAsignacion(entrada.asignacion)} · {entrada.asignacion.responsable}
               {!entrada.asignacion.iniciada && ' · sin iniciar'}
             </p>
           )}
@@ -93,7 +96,7 @@ function FilaVehiculo({ entrada, activa, onClick }) {
 }
 
 /** Ficha del vehículo seleccionado. */
-function Ficha({ entrada, onCerrar }) {
+function Ficha({ entrada, onCerrar, puedeVerAsignaciones }) {
   const gps = entrada.gps;
 
   return (
@@ -154,6 +157,8 @@ function Ficha({ entrada, onCerrar }) {
         <p className="micro mb-1">Asignación activa</p>
         {entrada.asignacion ? (
           <p className="text-[13px] text-neutral-800">
+            <EnlaceAsignacion asignacion={entrada.asignacion} enlazar={puedeVerAsignaciones} />
+            <br />
             {entrada.asignacion.responsable}
             {!entrada.asignacion.iniciada && (
               <span className="text-warn-700"> · activa, pero nadie ha iniciado el servicio</span>
@@ -177,6 +182,12 @@ function Ficha({ entrada, onCerrar }) {
 
 export default function MapaFlota() {
   const { notify } = useNotification();
+  const navigate = useNavigate();
+  // Quien ve el mapa (superadmin, o admin con `menu_flota`) casi siempre ve
+  // también /asignaciones, pero es otro flag: si está apagado, se nombra la
+  // asignación sin enlazarla.
+  const { isFeatureEnabled } = useFeatures();
+  const puedeVerAsignaciones = isFeatureEnabled('menu_asignaciones');
 
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -366,10 +377,17 @@ export default function MapaFlota() {
               entradas={visibles}
               seleccionada={seleccionada}
               onSeleccionar={setSeleccionada}
+              onAbrirAsignacion={puedeVerAsignaciones ? (id) => navigate(rutaAsignacion(id)) : null}
             />
           </div>
           <div ref={fichaRef} className={elegida ? 'scroll-mt-20' : 'hidden'}>
-            {elegida && <Ficha entrada={elegida} onCerrar={() => setSeleccionada(null)} />}
+            {elegida && (
+              <Ficha
+                entrada={elegida}
+                onCerrar={() => setSeleccionada(null)}
+                puedeVerAsignaciones={puedeVerAsignaciones}
+              />
+            )}
           </div>
         </div>
       </div>
