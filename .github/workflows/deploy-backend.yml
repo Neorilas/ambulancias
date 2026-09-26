@@ -108,6 +108,11 @@ jobs:
 
       - name: Tests
         working-directory: backend
+        # En hora española, como los equipos donde se escriben: el contrato de
+        # fechas (fecha.utils) tiene tests que comprueban justo la trampa de
+        # leer una fecha sin zona como hora local, y el runner va en UTC.
+        env:
+          TZ: Europe/Madrid
         run: npm test
 
       - name: Dependencias sin vulnerabilidades altas
