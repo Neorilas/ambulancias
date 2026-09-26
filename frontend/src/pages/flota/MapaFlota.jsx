@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { flotaService } from '../../services/flota.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
@@ -184,6 +184,16 @@ export default function MapaFlota() {
   const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null);
 
+  // `?vehiculo=<id>`: se llega desde la ficha de una ambulancia para verla a
+  // ELLA. Se aplica una sola vez, con la primera carga: si se reaplicara en
+  // cada refresco, el mapa volvería a saltar a ese vehículo cada 30 s aunque
+  // el usuario ya estuviera mirando otro.
+  const [params] = useSearchParams();
+  const vehiculoPedido = Number(params.get('vehiculo')) || null;
+  const pedidoAplicado = useRef(false);
+  const fichaRef = useRef(null);
+  const irAFicha = useRef(false);
+
   // El aviso de error se da UNA vez por racha: con un refresco cada 30 s, un
   // corte de Cartrack de media hora soltaría sesenta toasts.
   const yaAvisado = useRef(false);
@@ -239,10 +249,28 @@ export default function MapaFlota() {
     () => filtrarFlota(flota, { filtro, busqueda }),
     [flota, filtro, busqueda]
   );
+  useEffect(() => {
+    if (!vehiculoPedido || pedidoAplicado.current || !datos) return;
+    pedidoAplicado.current = true;
+    const entrada = (datos.flota || []).find(f => f.vehiculoId === vehiculoPedido);
+    if (!entrada) return;
+    setSeleccionada(entrada.clave);
+    // Sin posición el mapa no se mueve y, en el móvil, la ficha queda debajo,
+    // fuera de la vista: parecería que el enlace no ha hecho nada.
+    irAFicha.current = entrada.gps?.lat == null;
+  }, [datos, vehiculoPedido]);
+
   const elegida = useMemo(
     () => flota.find(f => f.clave === seleccionada) || null,
     [flota, seleccionada]
   );
+
+  // Ya pintada la ficha (no antes: el nodo aún estaría vacío).
+  useEffect(() => {
+    if (!elegida || !irAFicha.current) return;
+    irAFicha.current = false;
+    fichaRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [elegida]);
 
   if (cargando && !datos) return <PageLoading />;
 
@@ -340,7 +368,9 @@ export default function MapaFlota() {
               onSeleccionar={setSeleccionada}
             />
           </div>
-          {elegida && <Ficha entrada={elegida} onCerrar={() => setSeleccionada(null)} />}
+          <div ref={fichaRef} className={elegida ? 'scroll-mt-20' : 'hidden'}>
+            {elegida && <Ficha entrada={elegida} onCerrar={() => setSeleccionada(null)} />}
+          </div>
         </div>
       </div>
 

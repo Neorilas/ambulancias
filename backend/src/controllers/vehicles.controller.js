@@ -137,6 +137,30 @@ async function listVehicles(req, res, next) {
          ) inc ON inc.vehicle_id = v.id`
       : '';
 
+    // Si el vehículo está en servicio o tiene uno por delante, para verlo sin
+    // entrar en la ficha. Mismo criterio que el resumen de asignaciones de la
+    // ficha (`getVehicle`): solo para quien ve la flota. Un técnico lista su
+    // propio vehículo y no tiene por qué ver aquí la agenda de los demás.
+    // `activa` gana a `programada`: si ya está fuera, lo que viene después
+    // importa menos que saber que ahora mismo no está libre.
+    const conAsignacion = veFlota(req.user);
+    const columnasAsignacion = conAsignacion
+      ? `,
+              CASE WHEN asg.activas > 0 THEN 'activa'
+                   WHEN asg.proxima IS NOT NULL THEN 'programada' END AS asignacion_estado,
+              asg.proxima AS asignacion_proxima_inicio`
+      : '';
+    const joinAsignacion = conAsignacion
+      ? `LEFT JOIN (
+           SELECT al.vehicle_id,
+                  SUM(al.estado = 'activa') AS activas,
+                  MIN(CASE WHEN al.estado = 'programada' THEN al.fecha_inicio END) AS proxima
+           FROM asignaciones_libres al
+           WHERE al.deleted_at IS NULL AND al.estado IN ('programada', 'activa')
+           GROUP BY al.vehicle_id
+         ) asg ON asg.vehicle_id = v.id`
+      : '';
+
     const [countRows] = await query(`SELECT COUNT(*) AS total FROM vehicles v ${where}`, params);
     const total = countRows[0].total;
 
@@ -145,9 +169,10 @@ async function listVehicles(req, res, next) {
               v.fecha_matriculacion, v.fecha_itv, v.fecha_its,
               v.fecha_tarjeta_transporte,
               v.fecha_ultima_revision, v.fecha_ultimo_servicio,
-              v.created_at, v.updated_at${columnasIncidencias}
+              v.created_at, v.updated_at${columnasIncidencias}${columnasAsignacion}
        FROM vehicles v
        ${joinIncidencias}
+       ${joinAsignacion}
        ${where}
        ORDER BY ${ORDEN_POR_NOMBRE}
        LIMIT ? OFFSET ?`,

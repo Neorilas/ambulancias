@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
-import { formatDate } from '../../utils/dateUtils.js';
+import { formatDate, formatDateTimeShort } from '../../utils/dateUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import VehicleForm from './VehicleForm.jsx';
 
@@ -51,6 +51,26 @@ export function IncidenciasAbiertas({ vehicle }) {
   );
 }
 
+/**
+ * Si el vehículo está en servicio ahora o tiene una asignación por delante.
+ * Verde = activa; azul = programada, con cuándo empieza la más próxima.
+ * Libre no se pinta: es el caso normal y llenaría el listado de ruido.
+ * El backend solo manda el estado a quien ve la flota.
+ */
+export function AsignacionFlag({ vehicle }) {
+  if (vehicle.asignacion_estado === 'activa') {
+    return <span className="badge-green whitespace-nowrap">En servicio</span>;
+  }
+  if (vehicle.asignacion_estado === 'programada') {
+    return (
+      <span className="badge-blue whitespace-nowrap">
+        Programada · {formatDateTimeShort(vehicle.asignacion_proxima_inicio)}
+      </span>
+    );
+  }
+  return null;
+}
+
 /** Fila de la tabla (escritorio). Toda la fila abre la ficha del vehículo. */
 function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete, verIncidencias }) {
   const navigate = useNavigate();
@@ -68,6 +88,9 @@ function VehicleRow({ vehicle, onEdit, onDelete, canEdit, canDelete, verIncidenc
           onClick={e => e.stopPropagation()}>
           {vehicle.alias}
         </Link>
+        {vehicle.asignacion_estado && (
+          <span className="ml-2 align-middle"><AsignacionFlag vehicle={vehicle} /></span>
+        )}
       </td>
       <td className="data text-[13px] text-neutral-500">{vehicle.matricula}</td>
       <td className="num">
@@ -118,8 +141,11 @@ function VehicleCard({ vehicle, onEdit, onDelete, canEdit, canDelete }) {
           {vehicle.alias}
         </Link>
         <span className="data text-[13px] text-neutral-500">{vehicle.matricula}</span>
-        {vehicle.incidencias_abiertas > 0 && (
-          <span className="ml-auto"><IncidenciasAbiertas vehicle={vehicle} /></span>
+        {(vehicle.asignacion_estado || vehicle.incidencias_abiertas > 0) && (
+          <span className="ml-auto flex flex-wrap gap-1.5 justify-end">
+            <AsignacionFlag vehicle={vehicle} />
+            {vehicle.incidencias_abiertas > 0 && <IncidenciasAbiertas vehicle={vehicle} />}
+          </span>
         )}
       </div>
 
