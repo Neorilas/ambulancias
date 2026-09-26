@@ -113,3 +113,6 @@ desktop.ini
 # Vite / PWA dev
 # ============================================================
 frontend/dev-dist/
+
+# Dumps de la BD para probar la descarga de /admin en local (docs/BACKUPS.md §9)
+backend/backups/

@@ -106,6 +106,8 @@ const ACCESO = {
   'GET /admin/audit':                  ['denegada'],
   'GET /admin/errors':                 ['denegada'],
   'POST /admin/impersonar/:id':        ['denegada'],
+  'GET /admin/backups':                ['denegada'],
+  'GET /admin/backups/:nombre':        ['denegada'],
   'GET /features/':                    ['denegada'],
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],

@@ -126,6 +126,10 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - logs_data:/app/logs
+      # Dumps de la BD que genera scripts/backup/backup-ambulancia.sh en el host,
+      # para descargarlos desde /admin (docs/BACKUPS.md §9). Solo lectura. La
+      # carpeta va por STACK_NAME: PRE monta la suya, nunca la de produccion.
+      - ${BACKUPS_DB_DIR:-/root/${STACK_NAME:-ambulancia}-backups/db}:/app/backups:ro
 
     expose:
       - "3001"

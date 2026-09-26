@@ -79,7 +79,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
-| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` · POST `/impersonar/:id` (§6.3) (solo superadmin) |
+| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` · POST `/impersonar/:id` (§6.3) · GET `/backups` y `/backups/:nombre` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
@@ -383,7 +383,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
 | `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/informes` | `informes/Informes.jsx` | admin, super | `menu_informes` (encendida, v28; §2.7) |
-| `/admin` | `AdminPanel.jsx` | solo super | — |
+| `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups) | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
 | `/trabajos` | `trabajos/TrabajoList.jsx` | admin, gestor, super | `menu_trabajos` (off) |
@@ -1085,6 +1085,12 @@ otro proyecto (Postgres) y no copia nada de ambulancia. **El Storage Box es adem
 el archivo de la retención** (`retencion.service.js`): el servidor purga las
 asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso el
 rsync no lleva `--delete`: ponérselo borraría el archivo.
+**Los dumps se descargan desde `/admin` → Backups** (superadmin, auditado como
+`download_backup`). El backend no los genera: `docker-compose.yml` monta la
+carpeta del host en solo lectura (`/root/<STACK_NAME>-backups/db` →
+`/app/backups`, por stack para que PRE nunca vea los de producción), y el
+script de backup les da lectura al **grupo** del backend, porque corre como
+`appuser` y los dumps son de root con 600. Detalle en `docs/BACKUPS.md` §9.
 Local: `docker-compose.local.yml` (MySQL en **3307**),
 `npm run local:db`, `seed:local`, y los comandos `/local`, `/verifica`,
 `/a-pro`. Detalle en `docs/ENTORNOS.md` y `docs/LOCAL.md`.
