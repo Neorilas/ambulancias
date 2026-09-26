@@ -276,3 +276,44 @@ ejemplo):
 - **La variable tiene que estar en el `environment` de `docker-compose.yml`**,
   y ya lo está, con valor por defecto 0. Si se quita de ahí, el `.env` deja de
   llegar al contenedor y la retención se apaga sin avisar.
+
+## 9. Descargar un dump desde la app (superadmin)
+
+En `/admin` → **Backups** están los dumps de la BD de los últimos 14 días, con
+un botón para descargar cada uno. Es la salida de emergencia si se pierde el
+Hetzner **y** el Storage Box a la vez: un dump basta para reconstruir la BD
+entera en otro servidor (§5.3). Las fotos **no** van ahí: son GB y viven en el
+Storage Box.
+
+Cómo llega el fichero a la app:
+
+- `backup-ambulancia.sh` escribe en `/root/ambulancia-backups/db` (host).
+- `docker-compose.yml` monta esa carpeta en `/app/backups`, **solo lectura**.
+  El backend solo lista y sirve ([`backups.controller.js`](../backend/src/controllers/backups.controller.js)).
+- El script da permiso de lectura **al grupo del backend** (`chgrp` con el gid
+  que tiene `appuser` dentro del contenedor, 750 la carpeta y 640 los dumps).
+  Sin eso, el backend no podría leerlos: los dumps son de root con 600.
+
+Seguridad:
+
+- Solo superadmin, y nunca viendo la app como otro usuario.
+- El nombre se valida contra un patrón cerrado (`<stack>_AAAAMMDD_HHMMSS.sql.gz`):
+  no se puede pedir otro fichero ni salir de la carpeta.
+- Cada descarga queda en la auditoría como «Descargó un backup de la BD», con
+  el fichero y su tamaño.
+- Se sirve con `Cache-Control: no-store`, y el service worker solo cachea dos
+  listados concretos: el dump no se queda en el navegador.
+- **Lo descargado lleva los datos personales de toda la plantilla y los hashes
+  de las contraseñas.** Se guarda cifrado y no se reenvía.
+
+Si la pestaña dice «No hay backups disponibles»:
+
+| Motivo en pantalla | Qué pasa |
+|---|---|
+| «La carpeta de backups no existe» | El backup diario no está instalado (§2) |
+| «No tiene permiso para leer» | La carpeta no tiene el grupo del backend: `/usr/local/sbin/backup-ambulancia.sh` lo arregla en su siguiente pasada; o a mano, `chgrp $(docker exec ambulancia-backend id -g) /root/ambulancia-backups/db && chmod 750 /root/ambulancia-backups/db` |
+| «Todavía no ha generado ninguna copia» | Instalado, pero aún no ha corrido el cron (03:45 UTC) |
+
+**Trampa:** si Docker arranca el backend antes de que exista la carpeta, la crea
+él vacía y de root. No pasa nada: el script la usa igual y le pone los permisos
+en su primera pasada.

@@ -84,6 +84,11 @@ module.exports = {
   RETENCION_ASIGNACIONES_MESES: Number(process.env.RETENCION_ASIGNACIONES_MESES) > 0
     ? Math.floor(Number(process.env.RETENCION_ASIGNACIONES_MESES))
     : 0,
+  // Carpeta de los dumps de la BD que se descargan desde /admin. En el
+  // contenedor es el montaje de docker-compose.yml (/app/backups, solo
+  // lectura); en local, backend/backups (en .gitignore). Ver docs/BACKUPS.md §9.
+  BACKUPS_DIR: process.env.BACKUPS_DIR
+    || require('path').join(__dirname, '..', '..', 'backups'),
   // DEPRECATED: mantenido por compatibilidad con tests/código legado
   IMAGEN_TIPOS_REQUERIDOS: [
     'frontal', 'lateral_izquierdo', 'lateral_derecho', 'trasera',

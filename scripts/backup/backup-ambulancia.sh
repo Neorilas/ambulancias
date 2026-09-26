@@ -53,7 +53,7 @@ exec 9>"/tmp/${STACK_NAME}-backup.lock"
 flock -n 9 || fallo "ya hay otro backup de ${STACK_NAME} en marcha"
 
 aviso start
-umask 077   # el dump lleva datos personales: solo root
+umask 077   # el dump lleva datos personales: solo root (y lectura al grupo del backend, abajo)
 mkdir -p "${BACKUP_DIR}/db"
 log "=== backup de ${STACK_NAME} ==="
 
@@ -87,6 +87,20 @@ log "BD OK: ${DUMP} ($(du -h "$DUMP" | cut -f1), ${TABLAS_DUMP} tablas)"
 
 find "${BACKUP_DIR}/db" -name "${STACK_NAME}_*.sql.gz" -mtime +"${RETENCION_DIAS}" -delete
 find "${BACKUP_DIR}/db" -name "*.parcial" -mmin +120 -delete
+
+# Lectura para el backend, que los sirve en /admin (docs/BACKUPS.md §9): la
+# carpeta está montada en el contenedor, pero el backend corre como `appuser`
+# y los dumps son de root con 600. Se le da lectura SOLO a su grupo, con el
+# gid que tiene de verdad dentro del contenedor (no se adivina). Sin backend
+# en marcha no pasa nada: se arregla en la pasada siguiente.
+GID_APP=$(docker exec "$BACKEND_C" id -g 2>/dev/null || true)
+if [ -n "$GID_APP" ]; then
+  chgrp "$GID_APP" "${BACKUP_DIR}/db" "${BACKUP_DIR}/db/${STACK_NAME}_"*.sql.gz
+  chmod 750 "${BACKUP_DIR}/db"
+  chmod 640 "${BACKUP_DIR}/db/${STACK_NAME}_"*.sql.gz
+else
+  log "AVISO: ${BACKEND_C} no responde; los dumps no se podrán descargar desde /admin hasta la próxima pasada" >&2
+fi
 
 # ── 2. Copia fuera del servidor ────────────────────────────────────────────
 if [ -z "$DESTINO_REMOTO" ]; then
