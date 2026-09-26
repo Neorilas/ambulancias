@@ -1,0 +1,5 @@
+# Lo que se ejecuta o se instala en el servidor Linux va siempre en LF, aunque
+# se saque en Windows con autocrlf: con CRLF bash falla («$'\r'») y cron ignora
+# la línea. Ver docs/BACKUPS.md §2.2.
+*.sh                text eol=lf
+scripts/backup/*    text eol=lf
