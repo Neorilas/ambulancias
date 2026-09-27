@@ -12,6 +12,13 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
+// El refresco va con axios «a pelo» (fuera de la instancia, para no pasar por
+// su propio interceptor) y por eso no hereda el timeout de abajo. Sin uno
+// propio, con mala cobertura se quedaba colgado para siempre: isRefreshing no
+// volvía a false y toda petición posterior —el logout incluido— esperaba en
+// la cola. La app entera se quedaba «cargando» (incidente 2026-09-27, 12:21).
+export const REFRESH_TIMEOUT_MS = 15000;
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
@@ -64,7 +71,11 @@ api.interceptors.response.use(
       error.response?.status === 401 &&
       !originalRequest._retry &&
       !originalRequest.url?.includes('/auth/refresh') &&
-      !originalRequest.url?.includes('/auth/login')
+      !originalRequest.url?.includes('/auth/login') &&
+      // El logout no espera más de LOGOUT_ESPERA_MS: un refresco lanzado por
+      // su 401 acabaría después y volvería a escribir tokens con la sesión ya
+      // cerrada. Su error se ignora de todas formas (authService.logout).
+      !originalRequest.url?.includes('/auth/logout')
     ) {
       // El /fin con el token ya caducado (lo normal cuando la franja vuelve
       // sola al agotarse el tiempo) no se toca aquí: ni restaurar ni el
@@ -104,7 +115,9 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
+        const { data } = await axios.post(
+          `${API_BASE}/auth/refresh`, { refreshToken }, { timeout: REFRESH_TIMEOUT_MS },
+        );
         const { accessToken, refreshToken: newRefresh } = data.data;
 
         setItem('accessToken',  accessToken);
@@ -122,7 +135,13 @@ api.interceptors.response.use(
         // token sigue siendo bueno y el siguiente intento lo renovará. Cerrar
         // sesión aquí echaba al técnico a la pantalla de login en mitad de un
         // servicio, y su relogin gastaba a su vez cupo del limitador de login.
-        if (refreshErr.response?.status !== 429) clearAuth();
+        // Tampoco cuando el refresco se ha quedado sin respuesta (timeout, sin
+        // red) o el servidor ha fallado (un 502 durante un deploy): eso no dice
+        // nada de la sesión, y echar al login a quien está sin cobertura le
+        // obliga a teclear la contraseña al recuperarla. Solo un rechazo real
+        // del servidor (4xx) cierra la sesión.
+        const status = refreshErr.response?.status;
+        if (status >= 400 && status < 500 && status !== 429) clearAuth();
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;

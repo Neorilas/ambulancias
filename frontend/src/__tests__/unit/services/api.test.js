@@ -193,7 +193,9 @@ describe('api service', () => {
       localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
       localStorage.setItem(PREFIJO + 'user', '{}');
 
-      axios.post.mockRejectedValueOnce(new Error('refresh failed'));
+      axios.post.mockRejectedValueOnce(
+        Object.assign(new Error('refresh failed'), { response: { status: 401 } }),
+      );
 
       const error = {
         response: { status: 401 },
@@ -203,6 +205,75 @@ describe('api service', () => {
       await expect(resRejected(error)).rejects.toThrow('refresh failed');
       expect(localStorage.getItem(PREFIJO + 'accessToken')).toBeNull();
       expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBeNull();
+    });
+
+    it('un 401 de /auth/logout no lanza un refresco (revivía tokens tras cerrar sesión)', async () => {
+      axios.post.mockClear();
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      const error = { response: { status: 401 }, config: { url: '/auth/logout', headers: {} } };
+
+      await expect(resRejected(error)).rejects.toBe(error);
+      expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('un 5xx en el refresco (502 durante un deploy) no cierra la sesión', async () => {
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
+      axios.post.mockRejectedValueOnce(
+        Object.assign(new Error('bad gateway'), { response: { status: 502 } }),
+      );
+
+      await expect(resRejected({
+        response: { status: 401 }, config: { url: '/trabajos', headers: {} },
+      })).rejects.toThrow('bad gateway');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-old');
+    });
+
+    it('el refresco lleva su propio timeout (sin él se colgaba sin cobertura)', async () => {
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      axios.post.mockResolvedValueOnce({
+        data: { data: { accessToken: 'at-new', refreshToken: 'rt-new' } },
+      });
+      api.mockResolvedValueOnce({ data: {} });
+
+      await resRejected({ response: { status: 401 }, config: { url: '/x', headers: {} } });
+
+      const { REFRESH_TIMEOUT_MS } = await import('../../../services/api.js');
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        { refreshToken: 'rt' },
+        { timeout: REFRESH_TIMEOUT_MS },
+      );
+    });
+
+    it('un refresco sin respuesta (timeout, sin red) no cierra la sesión y libera la cola', async () => {
+      axios.post.mockClear();
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt-old');
+      localStorage.setItem(PREFIJO + 'accessToken', 'at-old');
+      localStorage.setItem(PREFIJO + 'user', '{}');
+
+      axios.post.mockRejectedValueOnce(
+        Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED' }),
+      );
+      await expect(resRejected({
+        response: { status: 401 }, config: { url: '/trabajos', headers: {} },
+      })).rejects.toThrow('timeout');
+
+      expect(localStorage.getItem(PREFIJO + 'accessToken')).toBe('at-old');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-old');
+      expect(window.location.href).toBe('');
+
+      // El siguiente 401 vuelve a intentar el refresco en vez de encolarse
+      // detrás del que falló.
+      axios.post.mockResolvedValueOnce({
+        data: { data: { accessToken: 'at-new', refreshToken: 'rt-new' } },
+      });
+      api.mockResolvedValueOnce({ data: { ok: true } });
+      const res = await resRejected({
+        response: { status: 401 }, config: { url: '/trabajos', headers: {} },
+      });
+      expect(res).toEqual({ data: { ok: true } });
+      expect(axios.post).toHaveBeenCalledTimes(2);
     });
 
     it('marca el 429 y añade la espera al mensaje', async () => {

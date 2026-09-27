@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
-import { AuthProvider, useAuth } from '../../../context/AuthContext';
+import { AuthProvider, useAuth, LOGOUT_ESPERA_MS } from '../../../context/AuthContext';
 import { authService } from '../../../services/auth.service';
 import { ROLES, PERMISSIONS } from '../../../utils/constants';
 import { PREFIJO } from '../../../utils/sessionStorage.js';
@@ -85,6 +85,31 @@ describe('AuthContext', () => {
 
     expect(result.current.user).toBeNull();
     expect(localStorage.getItem(PREFIJO + 'accessToken')).toBeNull();
+  });
+
+  it('logout cierra la sesión aunque el servidor no conteste (sin cobertura)', async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem(PREFIJO + 'accessToken', 'at');
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, roles: [] }));
+      authService.logout.mockReturnValueOnce(new Promise(() => {})); // nunca responde
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      let salida;
+      act(() => { salida = result.current.logout(); });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LOGOUT_ESPERA_MS);
+        await salida;
+      });
+
+      expect(authService.logout).toHaveBeenCalledWith('rt');
+      expect(result.current.user).toBeNull();
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('updateStoredUser merges and persists', async () => {

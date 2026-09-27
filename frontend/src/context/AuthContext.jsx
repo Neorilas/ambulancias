@@ -10,6 +10,12 @@ import {
 
 const AuthContext = createContext(null);
 
+// Lo más que «Cerrar sesión» espera al servidor antes de cerrar en el móvil.
+export const LOGOUT_ESPERA_MS = 3000;
+
+const sinEsperarMasDe = (promesa, ms) =>
+  Promise.race([promesa, new Promise(resolve => setTimeout(resolve, ms))]);
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,12 +79,15 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     // «Cerrar sesión» impersonando cierra la del superadmin: primero se deja
     // constancia del fin y se recupera su sesión, y luego se cierra esa.
+    // Avisar al servidor es lo deseable, pero sin esperar más de
+    // LOGOUT_ESPERA_MS: sin red, esperar la respuesta dejaba al usuario sin
+    // poder salir. La petición sigue su curso en segundo plano.
     if (impersonacionActiva()) {
-      await authService.finImpersonacion();
+      await sinEsperarMasDe(authService.finImpersonacion(), LOGOUT_ESPERA_MS);
       restaurarSesionPropia();
     }
     const refreshToken = getItem('refreshToken');
-    await authService.logout(refreshToken);
+    await sinEsperarMasDe(authService.logout(refreshToken), LOGOUT_ESPERA_MS);
     removeItem('accessToken');
     removeItem('refreshToken');
     removeItem('user');

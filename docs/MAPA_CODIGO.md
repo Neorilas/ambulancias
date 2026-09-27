@@ -429,6 +429,35 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
 reintenta. Todos los servicios cuelgan de ella.
 
+**Trampa: con mala cobertura, la sesión se quedaba colgada** (incidente
+2026-09-27). El refresco va con `axios.post` directo, no con la instancia,
+así que **no hereda su `timeout: 30000`**. Por eso lleva el suyo,
+`REFRESH_TIMEOUT_MS`. Sin él, un refresco que no llegaba a ningún sitio dejaba
+`isRefreshing` a `true` para siempre y todo lo demás se quedaba en
+`failedQueue`: la app no paraba de cargar y tampoco se podía cerrar sesión.
+Otras dos reglas de esa parte:
+- **Solo un rechazo real del servidor (4xx salvo 429) cierra la sesión.** Un
+  refresco sin respuesta (timeout, sin red), con un 429 o con un 5xx (un 502
+  de Caddy durante un deploy) deja los tokens como estaban.
+  Echar al login a quien está sin cobertura le obligaba a meter la contraseña
+  otra vez.
+- **`logout` (`AuthContext`) espera al servidor como mucho `LOGOUT_ESPERA_MS`
+  (3 s)** y cierra en el móvil de todas formas. Lo mismo vale para el `/fin`
+  de una impersonación. El `POST /auth/logout`, que revoca el refresh token,
+  sigue en segundo plano. Si no llega, ese token caduca solo a los 7 días.
+- **`/auth/logout` está excluido del refresco en 401**, igual que `/login` y
+  `/refresh`. Si no lo estuviera, un refresco lanzado por ese 401 podría acabar
+  después de los 3 s y volver a escribir tokens con la sesión ya cerrada.
+- Queda un caso aceptado: si el servidor rota el token pero la respuesta se
+  pierde, el móvil se queda con un refresh token que ya no vale. El siguiente
+  401 lo intenta de nuevo, el servidor lo rechaza y la app manda al login. No
+  hay bucle.
+
+Un diagnóstico de este tipo se ve en el log del backend: morgan escribe `" - -"`
+como estado cuando el cliente cerró la conexión antes de recibir la respuesta.
+Si no aparece ninguna petición del usuario, el problema está entre el móvil y
+Caddy.
+
 ### 3.4 Utils, contextos, hooks
 
 | Fichero | Contenido |
@@ -1035,7 +1064,7 @@ solo actúa en el navegador no es un control de acceso.
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
-| El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas) |
+| El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas). **Al elegir de la lista, el globo se abre en `moveend`, nunca a la vez que el `setView`**: el autoPan del popup para la animación a medio camino y el vehículo quedaba en una esquina en vez de centrado (2026-09-27; medido en 800×400: esquina (726,131) antes, centro (400,200) después). Y `stop()` antes del `setView`: con dos clics seguidos, el segundo llegaba con el zoom del primero aún animando, Leaflet lo ignoraba y el elegido quedaba fuera de la vista, abajo a la izquierda |
 | Algo del mapa de flota | `services/cartrack.service` (lo que se lee de Cartrack) → `utils/flota.utils` (el cruce y el estado) → `flota.controller` (lo que se junta con nuestra BD) → `frontend/utils/flota.js` (nombres y colores) → `MapaFlota` / `MapaLeaflet`. **Antes de tocar nada, correr `scripts/sonda-cartrack.js`**: dice qué manda la API hoy, que no es lo que dice su documentación (§2.6) |
 | Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + los enlaces al mapa de `VehicleHistory` (botón «Ver en el mapa» y tarjeta «Asignada/Libre»; `puedeVerMapa`, comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
 | Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
