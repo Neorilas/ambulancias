@@ -203,6 +203,11 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
     // setView a medio camino y moviera el mapa solo lo justo para que cupiera
     // el globo: el vehículo acababa en una esquina en vez de en el centro.
     // El listener va ANTES del setView: sin animación, moveend sale síncrono.
+    // Y antes de todo, stop(): con dos clics seguidos en la lista, el setView
+    // del segundo cae mientras aún anima el zoom del primero, Leaflet lo
+    // ignora (_tryAnimatedZoom) y el mapa terminaba centrado en el primero,
+    // con el segundo fuera de la vista.
+    m.stop();
     const abrir = () => {
       if (mapa.current === m && marcadores.current.get(seleccionada) === marcador) marcador.openPopup();
     };
