@@ -137,9 +137,13 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       // stop() antes de remove(): si se sale de la página a mitad de una
       // animación (el setView de un clic), Leaflet la remata sobre un mapa
       // ya destruido y lanza «reading '_leaflet_pos'».
-      mapa.current?.stop();
-      mapa.current?.remove();
+      // La ref se suelta ANTES del stop(): parar la animación dispara moveend,
+      // y el globo pendiente de abrir (ver «Centrar») mira la ref para no
+      // abrirse sobre un mapa que se está destruyendo.
+      const m = mapa.current;
       mapa.current = null;
+      m?.stop();
+      m?.remove();
       marcadores.current.clear();
       yaEncuadrado.current = false;
     };
@@ -193,8 +197,18 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
     if (!mapa.current || !seleccionada) return;
     const marcador = marcadores.current.get(seleccionada);
     if (!marcador) return;
-    mapa.current.setView(marcador.getLatLng(), Math.max(mapa.current.getZoom(), 14), { animate: true });
-    marcador.openPopup();
+    const m = mapa.current;
+    // El globo se abre al TERMINAR el viaje, no a la vez. Abrirlo en el mismo
+    // instante hacía que su auto-encuadre (autoPan) parase la animación del
+    // setView a medio camino y moviera el mapa solo lo justo para que cupiera
+    // el globo: el vehículo acababa en una esquina en vez de en el centro.
+    // El listener va ANTES del setView: sin animación, moveend sale síncrono.
+    const abrir = () => {
+      if (mapa.current === m && marcadores.current.get(seleccionada) === marcador) marcador.openPopup();
+    };
+    m.once('moveend', abrir);
+    m.setView(marcador.getLatLng(), Math.max(m.getZoom(), 14), { animate: true });
+    return () => { m.off('moveend', abrir); };
   }, [seleccionada]);
 
   return <div ref={contenedor} className="h-full w-full rounded-lg z-0" />;
