@@ -21,7 +21,7 @@ function asig(extra = {}) {
     id: 1, vehicle_id: 10, estado: 'finalizada', alias: 'Ambulancia 10', matricula: '1010AAA',
     fecha_inicio: d('2026-09-10T06:00:00Z'), fecha_fin: d('2026-09-10T14:00:00Z'),
     inicio_real_at: d('2026-09-10T06:05:00Z'), llegada_servicio_at: null,
-    finalizado_at: d('2026-09-10T14:00:00Z'), km_inicio: 1000, km_fin: 1120,
+    finalizado_at: d('2026-09-10T14:00:00Z'),
     fotos_inicio_tarde: 0, ...extra,
   };
 }
@@ -113,17 +113,17 @@ describe('informes.service · calcularInforme', () => {
     expect(r.resumen.finalizados).toBe(0);
   });
 
-  it('llegada, desplazamiento, cierres fuera de hora, horas, km y fotos tarde', async () => {
+  it('llegada, desplazamiento, cierres fuera de hora, horas y fotos tarde', async () => {
     bd({ asignaciones: [
       asig({ id: 1, llegada_servicio_at: d('2026-09-10T06:25:00Z'),
              finalizado_at: d('2026-09-10T15:00:00Z'), fotos_inicio_tarde: 2 }),
-      asig({ id: 2, finalizado_at: d('2026-09-10T12:00:00Z'), km_fin: 900 }),   // km que bajan: no suman
+      asig({ id: 2, finalizado_at: d('2026-09-10T12:00:00Z') }),
     ] });
     const r = await inf.calcularInforme('2026-09', AHORA);
     expect(r.resumen).toMatchObject({
       con_llegada: 1, desplazamiento_mediana_min: 20,
       cierres_tardios: 1, cierres_anticipados: 1,
-      con_fotos_inicio_tarde: 1, km_recorridos: 120,
+      con_fotos_inicio_tarde: 1,
       horas_servicio: 14.8,     // 8h55 + 5h55
     });
   });

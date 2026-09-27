@@ -242,7 +242,6 @@ export default function Informes() {
                 ) },
                 { clave: 's', titulo: 'Servicios', num: true, pintar: v => fmt(v.servicios) },
                 { clave: 'h', titulo: 'Horas', num: true, pintar: v => fmt(v.horas_servicio) },
-                { clave: 'k', titulo: 'Km', num: true, pintar: v => fmt(v.km_recorridos) },
                 { clave: 't', titulo: 'Inicios tardíos', num: true, pintar: v => conPct(v.inicios_tardios, v.iniciados) },
                 { clave: 'i', titulo: 'Incidencias', num: true, pintar: v => fmt(v.incidencias) },
               ]}

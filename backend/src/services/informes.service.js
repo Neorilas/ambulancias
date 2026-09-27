@@ -104,7 +104,6 @@ function analizarServicio(a, limiteSinIniciar) {
     cierre_tardio:  false,
     cierre_anticipado: false,
     minutos_servicio: null,
-    km:             null,
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -113,7 +112,6 @@ function analizarServicio(a, limiteSinIniciar) {
     s.cierre_tardio     = margen > INICIO_TARDIO_MINUTOS;
     s.cierre_anticipado = margen < -INICIO_TARDIO_MINUTOS;
     if (inicio) s.minutos_servicio = Math.max(0, minutosEntre(inicio, a.finalizado_at));
-    if (a.km_inicio != null && a.km_fin != null && a.km_fin >= a.km_inicio) s.km = a.km_fin - a.km_inicio;
   }
   return s;
 }
@@ -122,7 +120,7 @@ function analizarServicio(a, limiteSinIniciar) {
 function nuevoAcumulado() {
   return { servicios: 0, iniciados: 0, inicios_tardios: 0, sin_iniciar: 0, con_llegada: 0,
            con_fotos_inicio_tarde: 0, finalizados: 0, cierres_tardios: 0, cierres_anticipados: 0,
-           minutos_servicio: 0, km_recorridos: 0,
+           minutos_servicio: 0,
            _retrasos: [], _desplazamientos: [] };
 }
 
@@ -137,7 +135,6 @@ function acumular(acc, s) {
   if (s.cierre_tardio)     acc.cierres_tardios++;
   if (s.cierre_anticipado) acc.cierres_anticipados++;
   if (s.minutos_servicio != null) acc.minutos_servicio += s.minutos_servicio;
-  if (s.km != null)        acc.km_recorridos += s.km;
 }
 
 /** Cierra un acumulado: medianas en lugar de las listas crudas. */
@@ -166,7 +163,6 @@ async function calcularInforme(mes, instante = ahora()) {
   const [asignaciones] = await query(
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.finalizado_at,
-            al.km_inicio, al.km_fin,
             v.alias, v.matricula,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'

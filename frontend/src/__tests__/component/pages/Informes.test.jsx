@@ -13,7 +13,7 @@ import Informes                 from '../../../pages/informes/Informes.jsx';
 const RESUMEN = {
   servicios: 20, iniciados: 20, inicios_tardios: 4, retraso_mediana_min: 45, retraso_medio_min: 50,
   sin_iniciar: 1, con_llegada: 10, desplazamiento_mediana_min: 25, con_fotos_inicio_tarde: 2,
-  finalizados: 18, cierres_tardios: 3, cierres_anticipados: 0, km_recorridos: 900, horas_servicio: 150,
+  finalizados: 18, cierres_tardios: 3, cierres_anticipados: 0, horas_servicio: 150,
   vehiculos_en_flota: 3, vehiculos_usados: 2,
   incidencias: { nuevas: 3, graves: 1, moderadas: 1, leves: 1, resueltas: 2, abiertas_fin: 4, resolucion_mediana_horas: 12.5 },
 };
@@ -22,7 +22,7 @@ const DATOS = {
   actual: {
     mes: '2026-08', fuente: 'en_vivo', en_curso: false, umbral_min: 30, resumen: RESUMEN,
     por_vehiculo: [{ vehicle_id: 1, alias: 'Ambulancia 1', matricula: '1111AAA', servicios: 12, iniciados: 12,
-                     inicios_tardios: 3, horas_servicio: 90, km_recorridos: 500, incidencias: 2 }],
+                     inicios_tardios: 3, horas_servicio: 90, incidencias: 2 }],
     vehiculos_sin_uso: [{ vehicle_id: 3, alias: 'Ambulancia 3', matricula: '3333CCC' }],
     por_tecnico: [{ user_id: 7, nombre: 'Ana Ruiz', servicios: 8, como_personal: 2, iniciados: 8,
                     inicios_tardios: 2, retraso_mediana_min: 95, sin_iniciar: 0, con_llegada: 4,
