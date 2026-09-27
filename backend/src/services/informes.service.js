@@ -113,7 +113,11 @@ function analizarServicio(a, limiteSinIniciar) {
     s.cierre_tardio     = margen > INICIO_TARDIO_MINUTOS;
     s.cierre_anticipado = margen < -INICIO_TARDIO_MINUTOS;
     if (inicio) s.minutos_servicio = Math.max(0, minutosEntre(inicio, a.finalizado_at));
-    if (a.km_inicio != null && a.km_fin != null && a.km_fin >= a.km_inicio) s.km = a.km_fin - a.km_inicio;
+    // km_inicio es opcional al crear la asignación y casi nunca se rellena
+    // (hasta el 2026-09-27 el inicio de servicio no lo guardaba): sin él vale
+    // la última lectura anterior del mismo vehículo (`km_previo`).
+    const kmSalida = a.km_inicio ?? a.km_previo ?? null;
+    if (kmSalida != null && a.km_fin != null && a.km_fin >= kmSalida) s.km = a.km_fin - kmSalida;
   }
   return s;
 }
@@ -167,6 +171,9 @@ async function calcularInforme(mes, instante = ahora()) {
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.finalizado_at,
             al.km_inicio, al.km_fin,
+            (SELECT MAX(p.km_fin) FROM asignaciones_libres p
+              WHERE p.vehicle_id = al.vehicle_id AND p.id <> al.id AND p.km_fin IS NOT NULL
+                AND p.finalizado_at <= COALESCE(al.inicio_real_at, al.fecha_inicio)) AS km_previo,
             v.alias, v.matricula,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'

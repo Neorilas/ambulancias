@@ -745,6 +745,25 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
+    it('guarda el cuentakilómetros del vehículo como km de salida, sin pisar uno tecleado', async () => {
+      mockAsignacionCompleta({ estado: 'programada', km_inicio: null, vehiculo_km_actual: 52300 });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' });
+      await activarAsignacion(mockReq({ params: { id: '1' }, user: { id: 2, roles: ['tecnico'], permissions: [] } }), mockRes(), mockNext());
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres'));
+      expect(upd[0]).toContain('km_inicio = COALESCE(km_inicio, ?)');
+      expect(upd[1][2]).toBe(52300);
+    });
+
+    it('un vehículo sin lectura (0, el DEFAULT) no fija km de salida', async () => {
+      mockAsignacionCompleta({ estado: 'programada', km_inicio: null, vehiculo_km_actual: 0 });
+      query.mockResolvedValueOnce([]); // UPDATE
+      mockAsignacionCompleta({ estado: 'activa' });
+      await activarAsignacion(mockReq({ params: { id: '1' }, user: { id: 2, roles: ['tecnico'], permissions: [] } }), mockRes(), mockNext());
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres'));
+      expect(upd[1][2]).toBeNull();
+    });
+
     it('returns 400 for finalizada/cancelada', async () => {
       mockAsignacionCompleta({ estado: 'finalizada' });
       const res = mockRes();

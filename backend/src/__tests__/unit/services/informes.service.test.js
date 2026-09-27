@@ -128,6 +128,17 @@ describe('informes.service · calcularInforme', () => {
     });
   });
 
+  it('km: sin km_inicio usa la lectura anterior del vehículo (km_previo); sin ninguna, no suma', async () => {
+    bd({ asignaciones: [
+      asig({ id: 1, km_inicio: null, km_previo: 1050, km_fin: 1120 }),   // 70
+      asig({ id: 2, km_inicio: 2000, km_previo: 1500, km_fin: 2010 }),   // manda el tecleado: 10
+      asig({ id: 3, km_inicio: null, km_previo: null, km_fin: 3000 }),   // primera del vehículo: nada
+    ] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.resumen.km_recorridos).toBe(80);
+    expect(r.por_vehiculo.find(v => v.vehicle_id === 10).km_recorridos).toBe(80);
+  });
+
   it('por técnico: el retraso es del responsable; el personal solo suma «como personal»', async () => {
     bd({
       asignaciones: [asig({ id: 1, inicio_real_at: d('2026-09-10T07:00:00Z') })],
