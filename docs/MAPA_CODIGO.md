@@ -429,6 +429,35 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
 reintenta. Todos los servicios cuelgan de ella.
 
+**Trampa: con mala cobertura, la sesión se quedaba colgada** (incidente
+2026-09-27). El refresco va con `axios.post` directo, no con la instancia,
+así que **no hereda su `timeout: 30000`**. Por eso lleva el suyo,
+`REFRESH_TIMEOUT_MS`. Sin él, un refresco que no llegaba a ningún sitio dejaba
+`isRefreshing` a `true` para siempre y todo lo demás se quedaba en
+`failedQueue`: la app no paraba de cargar y tampoco se podía cerrar sesión.
+Otras dos reglas de esa parte:
+- **Solo un rechazo real del servidor (4xx salvo 429) cierra la sesión.** Un
+  refresco sin respuesta (timeout, sin red), con un 429 o con un 5xx (un 502
+  de Caddy durante un deploy) deja los tokens como estaban.
+  Echar al login a quien está sin cobertura le obligaba a meter la contraseña
+  otra vez.
+- **`logout` (`AuthContext`) espera al servidor como mucho `LOGOUT_ESPERA_MS`
+  (3 s)** y cierra en el móvil de todas formas. Lo mismo vale para el `/fin`
+  de una impersonación. El `POST /auth/logout`, que revoca el refresh token,
+  sigue en segundo plano. Si no llega, ese token caduca solo a los 7 días.
+- **`/auth/logout` está excluido del refresco en 401**, igual que `/login` y
+  `/refresh`. Si no lo estuviera, un refresco lanzado por ese 401 podría acabar
+  después de los 3 s y volver a escribir tokens con la sesión ya cerrada.
+- Queda un caso aceptado: si el servidor rota el token pero la respuesta se
+  pierde, el móvil se queda con un refresh token que ya no vale. El siguiente
+  401 lo intenta de nuevo, el servidor lo rechaza y la app manda al login. No
+  hay bucle.
+
+Un diagnóstico de este tipo se ve en el log del backend: morgan escribe `" - -"`
+como estado cuando el cliente cerró la conexión antes de recibir la respuesta.
+Si no aparece ninguna petición del usuario, el problema está entre el móvil y
+Caddy.
+
 ### 3.4 Utils, contextos, hooks
 
 | Fichero | Contenido |
