@@ -104,7 +104,6 @@ function analizarServicio(a, limiteSinIniciar) {
     cierre_tardio:  false,
     cierre_anticipado: false,
     minutos_servicio: null,
-    km:             null,
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -113,11 +112,6 @@ function analizarServicio(a, limiteSinIniciar) {
     s.cierre_tardio     = margen > INICIO_TARDIO_MINUTOS;
     s.cierre_anticipado = margen < -INICIO_TARDIO_MINUTOS;
     if (inicio) s.minutos_servicio = Math.max(0, minutosEntre(inicio, a.finalizado_at));
-    // km_inicio es opcional al crear la asignación y casi nunca se rellena
-    // (hasta el 2026-09-27 el inicio de servicio no lo guardaba): sin él vale
-    // la última lectura anterior del mismo vehículo (`km_previo`).
-    const kmSalida = a.km_inicio ?? a.km_previo ?? null;
-    if (kmSalida != null && a.km_fin != null && a.km_fin >= kmSalida) s.km = a.km_fin - kmSalida;
   }
   return s;
 }
@@ -126,7 +120,7 @@ function analizarServicio(a, limiteSinIniciar) {
 function nuevoAcumulado() {
   return { servicios: 0, iniciados: 0, inicios_tardios: 0, sin_iniciar: 0, con_llegada: 0,
            con_fotos_inicio_tarde: 0, finalizados: 0, cierres_tardios: 0, cierres_anticipados: 0,
-           minutos_servicio: 0, km_recorridos: 0,
+           minutos_servicio: 0,
            _retrasos: [], _desplazamientos: [] };
 }
 
@@ -141,7 +135,6 @@ function acumular(acc, s) {
   if (s.cierre_tardio)     acc.cierres_tardios++;
   if (s.cierre_anticipado) acc.cierres_anticipados++;
   if (s.minutos_servicio != null) acc.minutos_servicio += s.minutos_servicio;
-  if (s.km != null)        acc.km_recorridos += s.km;
 }
 
 /** Cierra un acumulado: medianas en lugar de las listas crudas. */
@@ -170,10 +163,6 @@ async function calcularInforme(mes, instante = ahora()) {
   const [asignaciones] = await query(
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.finalizado_at,
-            al.km_inicio, al.km_fin,
-            (SELECT MAX(p.km_fin) FROM asignaciones_libres p
-              WHERE p.vehicle_id = al.vehicle_id AND p.id <> al.id AND p.km_fin IS NOT NULL
-                AND p.finalizado_at <= COALESCE(al.inicio_real_at, al.fecha_inicio)) AS km_previo,
             v.alias, v.matricula,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'

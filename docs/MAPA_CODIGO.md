@@ -342,17 +342,13 @@ vivo. Trampas:
   su `umbral_min`, y la pantalla pinta el del mes que enseña.
 - La llegada al servicio existe desde el 25/09/2026 (v26): los meses anteriores
   la dan baja, y la pantalla lo avisa.
-- **Km recorridos = `km_fin` − km de salida.** `km_inicio` es opcional al crear
-  la asignación y casi nunca se tecleaba, así que la columna «Km» salía a 0.
-  Arreglo (2026-09-27): el km de salida es `km_inicio` y, si falta,
-  `km_previo` = el mayor `km_fin` de otra asignación del mismo vehículo
-  finalizada antes de que empezara esta (incluidas las borradas: la lectura fue
-  real). Y desde ese día «Inicio de servicio» (`activarAsignacion`) guarda
-  `kilometros_actuales` del vehículo en `km_inicio` si estaba vacío (0 =
-  vehículo sin lectura, no se guarda). Trampa: si entre dos asignaciones el
-  vehículo anduvo por otro lado (un trabajo, el taller), esos km se cargan al
-  servicio que usa `km_previo`. La primera asignación de cada vehículo sin
-  `km_inicio` no suma km.
+- **Sin km, a propósito** (2026-09-27). La tabla de flota tenía una columna
+  «Km» que salía a 0: `km_inicio` es opcional al crear la asignación y casi
+  nunca se teclea, y sin él no hay resta. Deducirlo de la lectura anterior del
+  vehículo cargaba al servicio los km del taller o de un trabajo intermedio, así
+  que se quitó el dato del informe. `VERSION_INFORME` no se subió: la tabla
+  `informe_mensual` sigue vacía en todos los entornos. Para volver a medirlo
+  habría que obligar a anotar el cuentakilómetros al iniciar el servicio.
 
 ## 3. Frontend
 
@@ -1144,7 +1140,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-27** (km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-09-27** (fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

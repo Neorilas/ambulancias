@@ -753,16 +753,9 @@ async function activarAsignacion(req, res, next) {
     // aviso lo mandó el cron.
     const yaEstabaActiva = asig.estado === 'activa';
 
-    // El cuentakilómetros de salida se fija al iniciar si nadie lo tecleó al
-    // crearla: sin él el informe no puede sumar los km del servicio. 0 es el
-    // DEFAULT de `kilometros_actuales` (vehículo sin lectura), no una lectura.
-    const kmSalida = Number(asig.vehiculo_km_actual) > 0 ? Number(asig.vehiculo_km_actual) : null;
     await query(
-      `UPDATE asignaciones_libres
-          SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?),
-              km_inicio = COALESCE(km_inicio, ?)
-        WHERE id = ?`,
-      ['activa', ahora(), kmSalida, asig.id]
+      'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?) WHERE id = ?',
+      ['activa', ahora(), asig.id]
     );
 
     if (!yaEstabaActiva) avisos.avisarAsignacionActivada(asig);
