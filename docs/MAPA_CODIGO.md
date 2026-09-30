@@ -126,7 +126,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
-| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en el Storage Box. `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
+| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
@@ -1115,12 +1115,18 @@ funciona igual. En local van en `backend/.env`, que está en `.gitignore`.
 probado en local, pendiente de instalar en el Hetzner**: hasta entonces no hay
 ninguna copia). Van por cron del servidor, no por el workflow, porque el deploy
 no toca MySQL ni los volúmenes. Se hace un `mysqldump` diario, que se verifica
-antes de darlo por bueno, y un `rsync` de las fotos. Las dos copias van a un
-Storage Box **sin `--delete`**. El `cron.d/maraya-pg-backup` del servidor es de
-otro proyecto (Postgres) y no copia nada de ambulancia. **El Storage Box es además
+antes de darlo por bueno, y las fotos nuevas. Las dos copias van con `rclone`
+a **Google Drive, cifradas** (remoto `crypt`; en Drive solo hay nombres
+ilegibles) con `copy --ignore-existing`, que nunca borra ni pisa nada en el
+remoto. Era un Storage Box de Hetzner hasta el 2026-09-30, descartado porque no
+se puede contratar nada de pago; lo que se pierde es que el servidor ya puede
+borrar la copia, y se compensa con una descarga semanal del dump al PC
+(`docs/BACKUPS.md` §2.1). El `cron.d/maraya-pg-backup` del servidor es de
+otro proyecto (Postgres) y no copia nada de ambulancia. **Drive es además
 el archivo de la retención** (`retencion.service.js`): el servidor purga las
-asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso el
-rsync no lleva `--delete`: ponérselo borraría el archivo.
+asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso
+**nunca `rclone sync`**: dejaría Drive igual que el servidor, borrando el archivo.
+Los 15 GB gratis dan para ~3 años al ritmo actual (§3 de BACKUPS.md).
 **Los dumps se descargan desde `/admin` → Backups** (superadmin, auditado como
 `download_backup`). El backend no los genera: `docker-compose.yml` monta la
 carpeta del host en solo lectura (`/root/<STACK_NAME>-backups/db` →

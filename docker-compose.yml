@@ -87,7 +87,7 @@ services:
       # del entorno para probarlo sin esperar media hora.
       AVISO_SIN_INICIAR_MINUTOS: ${AVISO_SIN_INICIAR_MINUTOS:-30}
       # Meses tras el cierre para purgar una asignacion con sus fotos. 0 =
-      # apagado. Se pone en el .env SOLO con el backup al Storage Box ya
+      # apagado. Se pone en el .env SOLO con el backup a Drive ya
       # funcionando: lo purgado solo queda alli (docs/BACKUPS.md §8).
       RETENCION_ASIGNACIONES_MESES: ${RETENCION_ASIGNACIONES_MESES:-0}
 

@@ -9,13 +9,13 @@ STACK_NAME=ambulancia
 BACKUP_DIR=/root/ambulancia-backups
 RETENCION_DIAS=14
 
-# Copia fuera del servidor (Storage Box de Hetzner). Vacío = sin copia externa:
-# el script sale con código 2 y lo dice en el log.
-#   usuario@host:carpeta — la carpeta tiene que existir (docs/BACKUPS.md §2.1)
-DESTINO_REMOTO=
-# El Storage Box escucha SSH/rsync en el 23, no en el 22.
-DESTINO_PUERTO=23
-DESTINO_CLAVE=/root/.ssh/ambulancia_backup
+# Copia fuera del servidor: remoto de rclone, cifrado, sobre Google Drive
+# (docs/BACKUPS.md §2.1). Vacío = sin copia externa: el script sale con
+# código 2 y lo dice en el log.
+#   remoto:carpeta — el remoto es el de tipo crypt, NUNCA el de Drive a pelo
+DESTINO_REMOTO=ambulancia-cifrado:ambulancia
+# Configuración de rclone: token de Google y contraseñas del cifrado. Solo root.
+RCLONE_CONF=/etc/ambulancia-rclone.conf
 
 # Opcional: URL de un monitor tipo healthchecks.io. Recibe /start, OK o /fail,
 # y avisa si un día no llega el ping (el cron no se ejecutó o el servidor cayó).
