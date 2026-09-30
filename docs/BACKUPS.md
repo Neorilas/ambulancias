@@ -14,7 +14,7 @@
 
 | Qué | Cómo | En el servidor | Fuera (Drive, cifrado) |
 |---|---|---|---|
-| BD MySQL (`mysql_data`) | `mysqldump` comprimido, diario 03:45 UTC | `/root/ambulancia-backups/db/`, 14 días | `<destino>/db/`, no se borra nunca |
+| BD MySQL (`mysql_data`) | `mysqldump` comprimido, diario 02:00 UTC (04:00 en España en verano, 03:00 en invierno) | `/root/ambulancia-backups/db/`, 14 días | `<destino>/db/`, no se borra nunca |
 | Fotos (`uploads_data`) | `rclone copy`, solo las nuevas | — | `<destino>/uploads/`, **sin** borrado |
 | Logs (`logs_data`) | no se copian | — | — |
 | `.env` del servidor | **a mano**, una vez y cada vez que cambie (§2.5) | — | en un gestor de contraseñas, no en Drive |
@@ -395,7 +395,7 @@ Si la pestaña dice «No hay backups disponibles»:
 |---|---|
 | «La carpeta de backups no existe» | El backup diario no está instalado (§2) |
 | «No tiene permiso para leer» | La carpeta no tiene el grupo del backend: `/usr/local/sbin/backup-ambulancia.sh` lo arregla en su siguiente pasada; o a mano, `chgrp $(docker exec ambulancia-backend id -g) /root/ambulancia-backups/db && chmod 750 /root/ambulancia-backups/db` |
-| «Todavía no ha generado ninguna copia» | Instalado, pero aún no ha corrido el cron (03:45 UTC) |
+| «Todavía no ha generado ninguna copia» | Instalado, pero aún no ha corrido el cron (02:00 UTC) |
 
 **Trampa:** si Docker arranca el backend antes de que exista la carpeta, la crea
 él vacía y de root. No pasa nada: el script la usa igual y le pone los permisos
