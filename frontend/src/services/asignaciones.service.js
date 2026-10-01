@@ -26,6 +26,9 @@ export const asignacionesService = {
   registrarLlegada(id) {
     return api.post(`/asignaciones/${id}/llegada`).then(r => r.data.data);
   },
+  registrarFinServicio(id) {
+    return api.post(`/asignaciones/${id}/fin-servicio`).then(r => r.data.data);
+  },
   finalizar(id, data) {
     return api.post(`/asignaciones/${id}/finalizar`, data).then(r => r.data.data);
   },

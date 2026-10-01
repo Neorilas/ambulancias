@@ -77,7 +77,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` · POST `/impersonar/:id` (§6.3) · GET `/backups` y `/backups/:nombre` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
@@ -413,6 +413,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 | `MisAsignaciones`, `AsignacionList`, `AsignacionDetalle`, `AsignacionForm` | `asignaciones.service` (+ `vehicles`, `users` para selectores) | `/asignaciones` |
 | `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia` | `/asignaciones/:id/{activar,finalizar,evidencias}` |
 | `AsignacionDetalle` → «Llegada al servicio» | `asignaciones.service.registrarLlegada` | `POST /asignaciones/:id/llegada` |
+| `AsignacionDetalle` → «Fin del servicio» | `asignaciones.service.registrarFinServicio` | `POST /asignaciones/:id/fin-servicio` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
 | `VehicleList`, `VehicleForm` | `vehicles.service` | `/vehicles` |
 | `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
@@ -593,7 +594,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -759,6 +760,25 @@ decisión del usuario (2026-09-25): ni la pantalla ni `finalizarAsignacion` la
 exigen**, porque quien olvide pulsarla tiene que poder cerrar el servicio igual.
 No convertirla en obligatoria sin preguntar. Una asignación sin llegada
 (olvido, o anterior a v26) tiene NULL («no consta») y se pinta con `—`.
+
+**«Fin del servicio» (v29, 2026-10-01).** La inversa de la llegada, pedida por
+el usuario: en base «Inicio de servicio» + fotos; en el evento «Llegada al
+servicio»; al terminar allí «Fin del servicio»; y de vuelta en base «Finalizar
+asignación» con las fotos de fin. Entre llegada y fin va el tiempo en el sitio;
+del fin al cierre, la vuelta. `registrarFinServicio` es un calco de
+`registrarLlegada` (responsable o `manage_trabajos`, no-op 200 si ya hay hora,
+`UPDATE … fin_servicio_at IS NULL`, audita `end_service_asignacion` solo si
+afectó a la fila), con una diferencia: **exige la llegada**, no el inicio ni
+las fotos, porque la llegada ya los exige. Por eso, quien se olvidó de la
+llegada tampoco puede marcar el fin: fin sin llegada no mide nada, y se decidió
+así a falta de que el usuario pida lo contrario. En `AsignacionDetalle` la
+tarjeta «¿Has terminado el servicio?» (`faltaFinServicio`) sustituye a la de la
+llegada en cuanto esta se registra, y va **junto a** «Finalizar asignación».
+**También es OPCIONAL**: `finalizarAsignacion` no la exige. Trampa de nombres:
+el botón de cierre se llamaba «Finalizar servicio» y se renombró a «Finalizar
+asignación» (como ya decía el Dashboard) para no tener «Fin del servicio» y
+«Finalizar servicio» uno al lado del otro haciendo cosas distintas. Informes
+no lo usa todavía (el tiempo en el sitio sería una métrica nueva).
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
@@ -1042,7 +1062,7 @@ solo actúa en el navegador no es un control de acceso.
 | Enlazar a una asignación desde otra pantalla | `utils/enlaceAsignacion.js` (`tituloAsignacion` = «Asignación #N», porque no hay columna de título; `rutaAsignacion` = `/asignaciones?id=N`) + `components/common/EnlaceAsignacion.jsx` → `AsignacionList` lee `?id=` con un **efecto** (no solo en el estado inicial: la alarma se pulsa también estando ya en el listado) y lo quita de la URL al cerrar (si no, recargar lo reabre y repetir el mismo enlace no hace nada). Quién enlaza: cabecera de `VehicleHistory` (la activa de `getVehicle`, visible en todas las pestañas), `MapaFlota` (ficha lateral) + `MapaLeaflet` (globo), `AlarmaSinIniciar`. **Trampas:** (1) el enlace depende de `menu_asignaciones`, que es otro flag que el del mapa o la ficha: apagado, se nombra sin enlazar (si no, `ProtectedRoute` rebota a otra pantalla). (2) El globo de Leaflet es DOM a mano, fuera de React: lleva un `<button>` que llama a `onAbrirAsignacion` (vía ref) y navega con el router; un `<a href>` recargaría la app entera y sin el `basename` de `/app/`. (3) Hasta 2026-09-27 la alarma ya enlazaba a `?id=` pero el listado **no lo leía**: se llegaba a la lista sin abrir nada |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
-| Las horas reales de un servicio | Tres sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio») y `finalizado_at` (`finalizarAsignacion`). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio y llegada, no el fin. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`); `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta la llegada en la tarjeta. Reglas de la llegada en §6.1 |
+| Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin del servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`) y «Fin del servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y fin del servicio en la tarjeta. Reglas de ambos en §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10 |

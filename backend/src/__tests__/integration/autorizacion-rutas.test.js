@@ -61,6 +61,7 @@ const ACCESO = {
   'GET /asignaciones/:id':                            ['controlador', 'asignaciones.controller (rolEnAsignacion)'],
   'POST /asignaciones/:id/activar':                   ['controlador', 'asignaciones.controller (rolEnAsignacion)'],
   'POST /asignaciones/:id/llegada':                   ['controlador', 'asignaciones.controller (rolEnAsignacion)'],
+  'POST /asignaciones/:id/fin-servicio':              ['controlador', 'asignaciones.controller (rolEnAsignacion)'],
   'POST /asignaciones/:id/finalizar':                 ['controlador', 'asignaciones.controller (rolEnAsignacion)'],
   'POST /asignaciones/:id/incidencias':               ['controlador', 'asignaciones.controller (responsable o MANAGE_INCIDENCIAS)'],
   'POST /asignaciones/:id/evidencias':                ['controlador', 'ownership.requireAsignacionEvidenciaAccess'],

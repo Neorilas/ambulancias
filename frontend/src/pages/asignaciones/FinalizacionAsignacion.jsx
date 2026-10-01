@@ -88,7 +88,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   if (inicioIncompleto) {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-neutral-900">Finalizar servicio</h2>
+        <h2 className="text-lg font-semibold text-neutral-900">Finalizar asignación</h2>
         <div className="card bg-warn-50 border border-warn-200 space-y-2">
           <p className="text-warn-700 font-medium">Faltan las fotos de inicio</p>
           <p className="text-warn-600 text-sm">
@@ -380,7 +380,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div className="flex gap-3">
         <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
         <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading || !material.trim()}>
-          {uploading ? 'Enviando…' : 'Finalizar servicio'}
+          {uploading ? 'Enviando…' : 'Finalizar asignación'}
         </button>
       </div>
     </div>

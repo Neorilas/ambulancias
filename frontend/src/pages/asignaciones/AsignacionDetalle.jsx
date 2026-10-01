@@ -203,6 +203,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [showFin,    setShowFin]    = useState(false);
   const [showEditar, setShowEditar] = useState(false);
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
+  const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -271,6 +272,20 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
+  // «Fin del servicio»: la inversa de la llegada, al terminar en el punto y
+  // antes de volver a base. También la hora la pone el servidor.
+  const handleFinServicio = async () => {
+    setRegistrandoFinServicio(true);
+    try {
+      setAsig(await asignacionesService.registrarFinServicio(id));
+      notify.success('Fin del servicio registrado');
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se pudo registrar el fin del servicio');
+    } finally {
+      setRegistrandoFinServicio(false);
+    }
+  };
+
   // Evidencias indexadas por (momento, tipo)
   const evInicio = {};
   const evFin    = {};
@@ -316,6 +331,10 @@ export default function AsignacionDetalle({ id, onClose }) {
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
   const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
+  // Y al terminar en el sitio, «Fin del servicio». Solo tras la llegada (sin
+  // ella no hay tiempo en el sitio que medir) e igual de opcional.
+  const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
+                           && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
   const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
 
   return (
@@ -420,6 +439,19 @@ export default function AsignacionDetalle({ id, onClose }) {
                       )}
                     </p>
                   </div>
+                  {/* Fin en el punto del servicio: de la llegada hasta aquí es
+                      el tiempo en el sitio; de aquí al cierre, la vuelta. */}
+                  <div className="col-span-2">
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin del servicio</p>
+                    <p className="text-neutral-900">
+                      {asig.fin_servicio_at ? formatDateTime(asig.fin_servicio_at) : '—'}
+                      {asig.fin_servicio_at && asig.llegada_servicio_at && (
+                        <span className="text-neutral-500 text-xs ml-2">
+                          ({duration(asig.llegada_servicio_at, asig.fin_servicio_at)} en el servicio)
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </>
               )}
               <div>
@@ -499,11 +531,31 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
             )}
 
+            {/* Tras la llegada: al terminar en el sitio, antes de volver a base */}
+            {faltaFinServicio && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado el servicio?</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Púlsalo al acabar en el punto del servicio, antes de volver a base. La
+                    asignación se cierra después, con las fotos de fin.
+                  </p>
+                </div>
+                <button
+                  onClick={handleFinServicio}
+                  disabled={registrandoFinServicio}
+                  className="btn-primary w-full"
+                >
+                  {registrandoFinServicio ? 'Registrando…' : 'Fin del servicio'}
+                </button>
+              </div>
+            )}
+
             {/* Botones de acción */}
             {puedeFin && (
               <div className="flex gap-2">
                 <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
-                  Finalizar servicio
+                  Finalizar asignación
                 </button>
               </div>
             )}

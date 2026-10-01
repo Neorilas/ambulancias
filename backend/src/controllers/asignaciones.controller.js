@@ -391,7 +391,7 @@ async function listAsignaciones(req, res, next) {
 
     const [rows] = await query(
       `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
-              al.estado, al.inicio_real_at, al.llegada_servicio_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
+              al.estado, al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               v.matricula, v.alias AS vehiculo_alias,
               v.kilometros_actuales AS vehiculo_km_actual,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
@@ -839,6 +839,60 @@ async function registrarLlegada(req, res, next) {
 }
 
 // ============================================================
+// POST /asignaciones/:id/fin-servicio
+// ============================================================
+// «Fin del servicio»: la pareja de la llegada. Sella la hora a la que se
+// termina en el punto del servicio, antes de volver a base; entre la llegada y
+// este sello va el tiempo en el sitio, y de aquí al cierre (fotos de fin) la
+// vuelta. Igual de OPCIONAL que la llegada: el cierre no lo exige.
+async function registrarFinServicio(req, res, next) {
+  try {
+    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
+    const asig = await getAsignacionCompleta(req.params.id);
+    if (!asig) return notFound(res, 'Asignación');
+
+    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+      return forbidden(res, 'Solo un responsable puede registrar el fin del servicio');
+    }
+
+    // Ya sellado: no-op, antes que el estado (mismo motivo que la llegada).
+    if (asig.fin_servicio_at) {
+      return success(res, asig, 'El fin del servicio ya estaba registrado');
+    }
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede registrar el fin del servicio en una asignación ${asig.estado}`, 400);
+    }
+    // La llegada ya implica inicio pulsado y fotos de inicio completas
+    // (registrarLlegada lo exige), así que basta con mirarla a ella.
+    if (asig.estado !== 'activa' || !asig.llegada_servicio_at) {
+      return error(res, 'Primero hay que pulsar «Llegada al servicio»', 400);
+    }
+
+    const [result] = await query(
+      'UPDATE asignaciones_libres SET fin_servicio_at = ? WHERE id = ? AND fin_servicio_at IS NULL',
+      [ahora(), asig.id]
+    );
+
+    if (result?.affectedRows) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'end_service_asignacion',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula },
+        ip: req.ip,
+      });
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    return success(res, updated, 'Fin del servicio registrado');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // POST /asignaciones/:id/finalizar
 // ============================================================
 async function finalizarAsignacion(req, res, next) {
@@ -1168,6 +1222,7 @@ module.exports = {
   deleteAsignacion,
   activarAsignacion,
   registrarLlegada,
+  registrarFinServicio,
   finalizarAsignacion,
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,

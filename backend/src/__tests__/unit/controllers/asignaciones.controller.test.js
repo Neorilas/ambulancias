@@ -24,7 +24,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 
 const {
   listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
-  deleteAsignacion, activarAsignacion, registrarLlegada, finalizarAsignacion, uploadEvidencia,
+  deleteAsignacion, activarAsignacion, registrarLlegada, registrarFinServicio, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
@@ -897,6 +897,89 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([[]]);
       const res = mockRes();
       await registrarLlegada(mockReq({ params: { id: '9' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  // ── registrarFinServicio ───────────────────────────────
+  describe('registrarFinServicio', () => {
+    const TECNICO = { id: 2, roles: ['tecnico'], permissions: [] };
+    const inicioCompleto = IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' }));
+    function mockConLlegada(overrides) {
+      query.mockResolvedValueOnce([[{
+        id: 1, vehicle_id: 1, user_id: 2, estado: 'activa', inicio_real_at: new Date(),
+        llegada_servicio_at: new Date(), fin_servicio_at: null, matricula: 'ABC1234', ...overrides,
+      }]]);
+      query.mockResolvedValueOnce([[{ user_id: 2, rol: 'responsable', orden: 0 }]]);
+      query.mockResolvedValueOnce([[]]);                // evidencias
+      query.mockResolvedValueOnce([[]]);                // incidencias
+      query.mockResolvedValueOnce([inicioCompleto]);    // getProgreso
+    }
+    const huboUpdate = () => query.mock.calls.some(([sql]) => /SET fin_servicio_at/.test(sql));
+
+    it('sella la hora tras la llegada (200) y audita', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+      mockConLlegada({ fin_servicio_at: new Date() });
+
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => /SET fin_servicio_at/.test(sql));
+      expect(upd[0]).toContain('fin_servicio_at IS NULL');
+      expect(upd[1][0]).toBeInstanceOf(Date);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'end_service_asignacion' }));
+    });
+
+    it('si otra pulsación se adelantó (0 filas), no audita dos veces', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('400 sin llegada registrada, y no toca la fila', async () => {
+      mockConLlegada({ llegada_servicio_at: null });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/Llegada al servicio/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('400 con mensaje propio en una asignación ya cerrada sin fin de servicio', async () => {
+      mockConLlegada({ estado: 'finalizada' });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/finalizada/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('ya registrado: 200 sin volver a sellar', async () => {
+      mockConLlegada({ estado: 'finalizada', fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('403 para el personal', async () => {
+      mockAsignacionCompleta({ inicio_real_at: new Date(), llegada_servicio_at: new Date(), miembros: [
+        { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 5, rol: 'personal', orden: 0 },
+      ] });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'], permissions: [] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('404 si no existe', async () => {
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '9' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
     });
   });
