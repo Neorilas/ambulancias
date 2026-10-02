@@ -959,6 +959,26 @@ describe('asignaciones.controller', () => {
       expect(huboUpdate()).toBe(false);
     });
 
+    it('gestión (manage_trabajos) puede sellarlo sin ser miembro', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' },
+        user: { id: 99, roles: ['gestor'], permissions: ['manage_trabajos'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(huboUpdate()).toBe(true);
+    });
+
+    it('400 en una asignación cancelada', async () => {
+      mockConLlegada({ estado: 'cancelada' });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/cancelada/);
+      expect(huboUpdate()).toBe(false);
+    });
+
     it('ya registrado: 200 sin volver a sellar', async () => {
       mockConLlegada({ estado: 'finalizada', fin_servicio_at: new Date() });
       const res = mockRes();
