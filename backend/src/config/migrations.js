@@ -1014,6 +1014,20 @@ const MIGRATIONS = [
                       'menu', 1, 95)`);
     },
   },
+
+  {
+    name: 'v29_fin_servicio_at',
+    description: 'Hora real de fin del servicio en el punto (antes de volver a base) en asignaciones_libres',
+    async run() {
+      // La pareja de llegada_servicio_at (v26): entre las dos va el tiempo en
+      // el sitio. NULL = «no consta», igual que la llegada.
+      await ensureColumn('asignaciones_libres', 'fin_servicio_at',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN fin_servicio_at DATETIME NULL DEFAULT NULL
+             COMMENT 'Instante real en que se pulsó Fin del servicio (UTC)'
+             AFTER llegada_servicio_at`);
+    },
+  },
 ];
 
 // ============================================================

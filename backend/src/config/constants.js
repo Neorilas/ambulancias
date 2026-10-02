@@ -84,7 +84,7 @@ module.exports = {
   // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
   // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
   // es el valor por defecto a propósito: solo se enciende (en el .env del
-  // servidor) cuando el backup al Storage Box está funcionando, porque es la
+  // servidor) cuando el backup a Drive (cifrado) está funcionando, porque es la
   // única copia que queda de esa evidencia. services/retencion.service.js y
   // docs/BACKUPS.md §8.
   RETENCION_ASIGNACIONES_MESES: Number(process.env.RETENCION_ASIGNACIONES_MESES) > 0

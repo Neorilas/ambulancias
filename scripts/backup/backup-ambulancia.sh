@@ -1,16 +1,17 @@
 #!/bin/bash
-# Backup diario de ambulancia: la BD (mysqldump) y las fotos (rsync).
+# Backup diario de ambulancia: la BD (mysqldump) y las fotos, a Google Drive.
 # Procedimiento completo, instalación y restauración: docs/BACKUPS.md.
 #
 #   backup-ambulancia.sh [fichero.conf]      (por defecto /etc/ambulancia-backup.conf)
 #
 # - BD: dump comprimido en ${BACKUP_DIR}/db, se guardan RETENCION_DIAS días en
-#   local y se sube entero a DESTINO_REMOTO.
+#   local y se sube a DESTINO_REMOTO/db.
 # - Fotos: NO se copian en local (duplicaría el disco y no protege de perderlo);
-#   van directas a DESTINO_REMOTO/uploads con rsync incremental.
-# - En el remoto no se borra nunca nada: sin --delete, una foto borrada en el
-#   servidor sigue en la copia. La retención remota la dan los snapshots del
-#   Storage Box.
+#   van directas a DESTINO_REMOTO/uploads, solo las nuevas.
+# - La subida es con rclone a un remoto cifrado (crypt sobre Drive): en Drive
+#   solo hay ficheros ilegibles. `rclone copy --ignore-existing` nunca borra ni
+#   sobrescribe nada en el remoto: una foto borrada en el servidor sigue en la
+#   copia, y el remoto es además el archivo de la retención (§8).
 #
 # Sale con 0 solo si la BD está copiada Y verificada Y todo ha llegado al
 # remoto. Sin DESTINO_REMOTO sale con 2: la copia local sola no es un backup.
@@ -25,8 +26,7 @@ STACK_NAME=${STACK_NAME:-ambulancia}
 BACKUP_DIR=${BACKUP_DIR:-/root/ambulancia-backups}
 RETENCION_DIAS=${RETENCION_DIAS:-14}
 DESTINO_REMOTO=${DESTINO_REMOTO:-}
-DESTINO_PUERTO=${DESTINO_PUERTO:-23}
-DESTINO_CLAVE=${DESTINO_CLAVE:-/root/.ssh/ambulancia_backup}
+RCLONE_CONF=${RCLONE_CONF:-/etc/ambulancia-rclone.conf}
 AVISO_URL=${AVISO_URL:-}
 
 MYSQL_C="${STACK_NAME}-mysql"
@@ -109,21 +109,33 @@ if [ -z "$DESTINO_REMOTO" ]; then
   exit 2
 fi
 
-# Las fotos se leen del volumen en el host, no con docker cp: así rsync solo
-# manda las nuevas. La ruta se saca del contenedor, no se adivina el nombre
+[ -r "$RCLONE_CONF" ] || fallo "no encuentro la configuración de rclone (${RCLONE_CONF})"
+command -v rclone >/dev/null || fallo "rclone no está instalado"
+
+# Las fotos se leen del volumen en el host, no con docker cp: así solo se
+# mandan las nuevas. La ruta se saca del contenedor, no se adivina el nombre
 # del volumen (depende de COMPOSE_PROJECT_NAME).
-UPLOADS=$(docker inspect -f \
-  '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Source}}{{end}}{{end}}' "$BACKEND_C")
+UPLOADS=$(docker inspect -f   '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Source}}{{end}}{{end}}' "$BACKEND_C")
 [ -n "$UPLOADS" ] && [ -d "$UPLOADS" ] || fallo "no encuentro el volumen de fotos de ${BACKEND_C}"
 
-SSH_CMD="ssh -p ${DESTINO_PUERTO} -i ${DESTINO_CLAVE} -o BatchMode=yes -o StrictHostKeyChecking=yes"
+# --ignore-existing: lo que ya está no se vuelve a mirar ni se pisa (todo lo
+# que se sube es inmutable: dumps con fecha y fotos con nombre único). Las
+# estadísticas salen una vez, al final, a nivel NOTICE para que lleguen al log.
+# rclone reescribe RCLONE_CONF al renovar el token de Google: tiene que poder
+# escribirlo (root, 600).
+subir() {
+  rclone --config "$RCLONE_CONF" copy "$1" "$2"     --ignore-existing --retries 3 --low-level-retries 10 --timeout 5m     --stats 1h --stats-one-line --stats-log-level NOTICE
+}
 
-rsync -a --partial --timeout=300 -e "$SSH_CMD" "${BACKUP_DIR}/db/" "${DESTINO_REMOTO}/db/"
+subir "${BACKUP_DIR}/db/" "${DESTINO_REMOTO}/db/"
+# Que el dump de hoy esté de verdad y con su tamaño: rclone da el tamaño ya
+# descifrado, así que se compara con el local tal cual.
+TAM_LOCAL=$(stat -c %s "$DUMP")
+TAM_REMOTO=$(rclone --config "$RCLONE_CONF" lsf --format s --files-only   "${DESTINO_REMOTO}/db/$(basename "$DUMP")")
+[ "$TAM_REMOTO" = "$TAM_LOCAL" ]   || fallo "el dump de hoy no está en el remoto o no cuadra (${TAM_REMOTO:-nada} frente a ${TAM_LOCAL} bytes)"
 log "BD subida a ${DESTINO_REMOTO}/db/"
 
-# A una variable y no en tubería: `rsync | grep || true` se tragaría un fallo de rsync.
-STATS=$(rsync -a --partial --timeout=300 --stats -e "$SSH_CMD" "${UPLOADS}/" "${DESTINO_REMOTO}/uploads/")
-echo "$STATS" | grep -E 'Number of (regular )?files transferred|Total transferred file size' || true
+subir "${UPLOADS}/" "${DESTINO_REMOTO}/uploads/"
 log "fotos subidas a ${DESTINO_REMOTO}/uploads/ ($(du -sh "$UPLOADS" | cut -f1) en origen)"
 
 aviso

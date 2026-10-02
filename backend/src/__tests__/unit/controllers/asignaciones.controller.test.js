@@ -24,7 +24,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 
 const {
   listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
-  deleteAsignacion, activarAsignacion, registrarLlegada, finalizarAsignacion, uploadEvidencia,
+  deleteAsignacion, activarAsignacion, registrarLlegada, registrarFinServicio, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
@@ -901,6 +901,109 @@ describe('asignaciones.controller', () => {
     });
   });
 
+  // ── registrarFinServicio ───────────────────────────────
+  describe('registrarFinServicio', () => {
+    const TECNICO = { id: 2, roles: ['tecnico'], permissions: [] };
+    const inicioCompleto = IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' }));
+    function mockConLlegada(overrides) {
+      query.mockResolvedValueOnce([[{
+        id: 1, vehicle_id: 1, user_id: 2, estado: 'activa', inicio_real_at: new Date(),
+        llegada_servicio_at: new Date(), fin_servicio_at: null, matricula: 'ABC1234', ...overrides,
+      }]]);
+      query.mockResolvedValueOnce([[{ user_id: 2, rol: 'responsable', orden: 0 }]]);
+      query.mockResolvedValueOnce([[]]);                // evidencias
+      query.mockResolvedValueOnce([[]]);                // incidencias
+      query.mockResolvedValueOnce([inicioCompleto]);    // getProgreso
+    }
+    const huboUpdate = () => query.mock.calls.some(([sql]) => /SET fin_servicio_at/.test(sql));
+
+    it('sella la hora tras la llegada (200) y audita', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+      mockConLlegada({ fin_servicio_at: new Date() });
+
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => /SET fin_servicio_at/.test(sql));
+      expect(upd[0]).toContain('fin_servicio_at IS NULL');
+      expect(upd[1][0]).toBeInstanceOf(Date);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'end_service_asignacion' }));
+    });
+
+    it('si otra pulsación se adelantó (0 filas), no audita dos veces', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('400 sin llegada registrada, y no toca la fila', async () => {
+      mockConLlegada({ llegada_servicio_at: null });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/Llegada al servicio/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('400 con mensaje propio en una asignación ya cerrada sin fin de servicio', async () => {
+      mockConLlegada({ estado: 'finalizada' });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/finalizada/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('gestión (manage_trabajos) puede sellarlo sin ser miembro', async () => {
+      mockConLlegada({});
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' },
+        user: { id: 99, roles: ['gestor'], permissions: ['manage_trabajos'] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(huboUpdate()).toBe(true);
+    });
+
+    it('400 en una asignación cancelada', async () => {
+      mockConLlegada({ estado: 'cancelada' });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/cancelada/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('ya registrado: 200 sin volver a sellar', async () => {
+      mockConLlegada({ estado: 'finalizada', fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('403 para el personal', async () => {
+      mockAsignacionCompleta({ inicio_real_at: new Date(), llegada_servicio_at: new Date(), miembros: [
+        { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 5, rol: 'personal', orden: 0 },
+      ] });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, user: { id: 5, roles: ['tecnico'], permissions: [] } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('404 si no existe', async () => {
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '9' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
   // ── finalizarAsignacion ────────────────────────────────
   describe('finalizarAsignacion', () => {
     it('finalizes with complete evidence', async () => {
@@ -1115,6 +1218,51 @@ describe('asignaciones.controller', () => {
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    // La barrera de las fotos es ESTA, no el frontend: vale contra cualquiera
+    // que llame a la API directamente, también un admin o un superadmin, y
+    // con que falte una sola foto (§3.6 del mapa: el atajo de local no pasa
+    // por aquí, sube fotos de verdad).
+    describe('sin todas las fotos no se cierra, sea quien sea', () => {
+      const QUIENES = {
+        técnico:    { id: 2, roles: ['tecnico'], permissions: [] },
+        admin:      { id: 9, roles: ['administrador'], permissions: ['manage_trabajos'] },
+        superadmin: { id: 1, roles: ['superadmin'], permissions: [] },
+      };
+      const inicio = IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' }));
+      const fin    = IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }));
+      const CASOS = {
+        'falta UNA de fin':    [...inicio, ...fin.slice(1)],
+        'falta UNA de inicio': [...inicio.slice(1), ...fin],
+        'las de fin subidas como «inicio»': [...inicio, ...fin.map(f => ({ ...f, momento: 'inicio' }))],
+      };
+
+      for (const [quien, user] of Object.entries(QUIENES)) {
+        for (const [caso, filas] of Object.entries(CASOS)) {
+          it(`${quien}: ${caso} → 400 y no escribe nada`, async () => {
+            mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+            query.mockResolvedValueOnce([filas]); // getProgreso
+            const res = mockRes();
+            await finalizarAsignacion(mockReq({
+              params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user,
+            }), res, mockNext());
+
+            expect(res.status).toHaveBeenCalledWith(400);
+            expect(transaction).not.toHaveBeenCalled();
+            expect(query.mock.calls.some(([sql]) => /UPDATE asignaciones_libres/.test(sql))).toBe(false);
+            expect(avisos.avisarAsignacionFinalizada).not.toHaveBeenCalled();
+          });
+        }
+      }
+    });
+
+    it('el PUT tampoco deja poner «finalizada» a mano', () => {
+      const src = require('fs').readFileSync(
+        require('path').join(__dirname, '../../../routes/asignaciones.routes.js'), 'utf8');
+      const reglaEstado = src.match(/body\('estado'\)[^\n]*/g) || [];
+      expect(reglaEstado.length).toBeGreaterThan(0);
+      reglaEstado.forEach(r => expect(r).not.toMatch(/finalizada/));
     });
   });
 

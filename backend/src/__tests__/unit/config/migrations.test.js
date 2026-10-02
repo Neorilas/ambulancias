@@ -741,12 +741,32 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v28_informe_mensual']);
+    expect(aplicadas[0]).toBe('v28_informe_mensual');
     const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS informe_mensual'));
     expect(tabla).toContain('PRIMARY KEY (mes)');
     expect(tabla).toContain('datos        JSON');
     const flag = ejecutadas.find(q => q.includes("'menu_informes'"));
     expect(flag).toContain('INSERT IGNORE INTO app_features');
     expect(flag).toMatch(/'menu', 1, 95/);
+  });
+
+  it('v29 añade fin_servicio_at como DATETIME NULL-able, tras la llegada', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v28_informe_mensual') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v29_fin_servicio_at']);
+    const sql = ejecutadas.find(q => q.includes('ADD COLUMN fin_servicio_at'));
+    expect(sql).toContain('DATETIME NULL DEFAULT NULL');
+    expect(sql).toContain('AFTER llegada_servicio_at');
+  });
+
+  it('v29 no repite el ALTER si la columna ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v28_informe_mensual'),
+      columnas:  ['asignaciones_libres.fin_servicio_at'],
+    });
+    await runMigrations();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN fin_servicio_at'))).toBe(false);
   });
 });

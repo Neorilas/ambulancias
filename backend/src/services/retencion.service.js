@@ -4,8 +4,8 @@
  * Retención de asignaciones: borra del servidor las asignaciones cerradas hace
  * más de RETENCION_ASIGNACIONES_MESES, con sus miembros y sus fotos (fila y
  * fichero). El motivo es el espacio en disco, no la protección de datos: lo
- * borrado sigue archivado en el Storage Box, porque el backup sube las fotos
- * sin --delete y guarda los dumps diarios (docs/BACKUPS.md §8).
+ * borrado sigue archivado en Google Drive (cifrado), porque el backup sube las
+ * fotos sin borrar nada en el remoto y guarda los dumps diarios (docs/BACKUPS.md §8).
  *
  * Qué se purga:
  *   - asignaciones finalizadas o canceladas cuyo cierre es anterior al corte.

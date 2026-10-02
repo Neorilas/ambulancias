@@ -104,6 +104,13 @@ router.post('/:id/llegada',
   ctrl.registrarLlegada
 );
 
+// POST /asignaciones/:id/fin-servicio  (responsables o admin/gestor; el personal no)
+router.post('/:id/fin-servicio',
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.registrarFinServicio
+);
+
 // POST /asignaciones/:id/finalizar
 router.post('/:id/finalizar',
   [

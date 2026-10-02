@@ -1,6 +1,8 @@
 # /etc/cron.d/ambulancia-backup — backup diario de ambulancia (docs/BACKUPS.md)
-# 03:45 UTC: después del de maraya (03:30) para no coincidir, y de madrugada en
-# España (05:45 en verano), cuando no hay servicios abriéndose.
+# 02:00 UTC = 04:00 en España en verano y 03:00 en invierno: hay días con
+# servicios que empiezan a las 06:00 y así nunca coincide con ellos. En UTC y no
+# en hora española a propósito: el cambio de hora no lo salta ni lo repite. No
+# pisa el backup de maraya (03:30 UTC) ni la limpieza de Docker (04:00 UTC).
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-45 3 * * * root /usr/local/sbin/backup-ambulancia.sh >> /var/log/ambulancia-backup.log 2>&1
+0 2 * * * root /usr/local/sbin/backup-ambulancia.sh >> /var/log/ambulancia-backup.log 2>&1

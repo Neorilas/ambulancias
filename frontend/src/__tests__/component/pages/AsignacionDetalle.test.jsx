@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
-  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn() },
+  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn() },
 }));
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn().mockResolvedValue({ data: [] }) },
@@ -148,7 +148,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     montar();
 
     expect(await screen.findByRole('button', { name: 'Llegada al servicio' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Finalizar servicio' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
   it('al pulsarla registra la llegada y el botón desaparece', async () => {
@@ -160,7 +160,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Llegada al servicio' }));
     await waitFor(() => expect(asignacionesService.registrarLlegada).toHaveBeenCalledWith(5));
-    expect(await screen.findByRole('button', { name: 'Finalizar servicio' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Llegada al servicio' })).not.toBeInTheDocument();
   });
 
@@ -192,6 +192,65 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     montar();
 
     const etiqueta = await screen.findByText('Llegada al servicio');
+    expect(etiqueta.nextElementSibling).toHaveTextContent('—');
+  });
+});
+
+describe('AsignacionDetalle — fin del servicio', () => {
+  const TRAS_LLEGADA = {
+    ...BASE, estado: 'activa', finalizado_at: null,
+    llegada_servicio_at: '2026-09-21T06:40:00.000Z', fin_servicio_at: null,
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    personal: [],
+    progreso: { inicio: { completado: 7, total: 7, completo: true }, fin: { completado: 0, total: 7 } },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({
+      id: 2, username: 'jlopez', roles: ['tecnico'], permissions: [],
+    }));
+  });
+
+  it('sin llegada no lo ofrece', async () => {
+    asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, llegada_servicio_at: null });
+    montar();
+
+    await screen.findByRole('button', { name: 'Llegada al servicio' });
+    expect(screen.queryByRole('button', { name: 'Fin del servicio' })).not.toBeInTheDocument();
+  });
+
+  it('tras la llegada lo ofrece, sin impedir finalizar la asignación', async () => {
+    asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Fin del servicio' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
+  });
+
+  it('al pulsarlo lo registra, el botón desaparece y sale el tiempo en el servicio', async () => {
+    asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
+    asignacionesService.registrarFinServicio.mockResolvedValue({
+      ...TRAS_LLEGADA, fin_servicio_at: '2026-09-21T09:10:00.000Z',
+    });
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fin del servicio' }));
+    await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Fin del servicio' })).not.toBeInTheDocument());
+    const etiqueta = screen.getByText('Fin del servicio');
+    expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T09:10:00.000Z'));
+    expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el servicio');
+  });
+
+  it('una finalizada sin fin de servicio registrado sale con guion', async () => {
+    asignacionesService.get.mockResolvedValue({ ...BASE, fin_servicio_at: null });
+    montar();
+
+    const etiqueta = await screen.findByText('Fin del servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });

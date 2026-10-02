@@ -1,18 +1,23 @@
 # Backups
 
-> Estado a 2026-09-27: **los scripts están en el repo, sin instalar en el
+> Estado a 2026-09-30: **los scripts están en el repo, sin instalar en el
 > servidor, y la retención (§8) está apagada.** Hasta que se instalen, ambulancia no tiene ninguna copia: ni de
 > la BD ni de las fotos. Lo que hay en el cron del Hetzner
 > (`maraya-pg-backup`) es de otro proyecto y no la toca.
+>
+> **El destino es Google Drive, cifrado con rclone**, desde el 2026-09-30. El
+> plan original era un Storage Box de Hetzner, descartado porque no se puede
+> contratar nada de pago. Drive gratis (15 GB) da para unos 3 años al ritmo
+> actual (§3); lo que se pierde frente al Storage Box está en §2.1.
 
 ## 1. Qué se copia y dónde
 
-| Qué | Cómo | En el servidor | Fuera (Storage Box) |
+| Qué | Cómo | En el servidor | Fuera (Drive, cifrado) |
 |---|---|---|---|
-| BD MySQL (`mysql_data`) | `mysqldump` comprimido, diario 03:45 UTC | `/root/ambulancia-backups/db/`, 14 días | `<destino>/db/`, no se borra nunca |
-| Fotos (`uploads_data`) | `rsync` incremental | — | `<destino>/uploads/`, espejo **sin** borrado |
+| BD MySQL (`mysql_data`) | `mysqldump` comprimido, diario 02:00 UTC (04:00 en España en verano, 03:00 en invierno) | `/root/ambulancia-backups/db/`, 14 días | `<destino>/db/`, no se borra nunca |
+| Fotos (`uploads_data`) | `rclone copy`, solo las nuevas | — | `<destino>/uploads/`, **sin** borrado |
 | Logs (`logs_data`) | no se copian | — | — |
-| `.env` del servidor | **a mano**, una vez y cada vez que cambie (§2.5) | — | en un gestor de contraseñas, no en el Storage Box |
+| `.env` del servidor | **a mano**, una vez y cada vez que cambie (§2.5) | — | en un gestor de contraseñas, no en Drive |
 | Código, frontend | no hace falta: se reconstruyen desde git | — | — |
 
 Ficheros en `scripts/backup/`:
@@ -24,6 +29,8 @@ Ficheros en `scripts/backup/`:
   filas. No toca ninguna BD real.
 - `ambulancia-backup.conf.ejemplo`: la configuración, que va en `/etc/ambulancia-backup.conf`.
 - `ambulancia-backup.cron`: la entrada de cron, que va en `/etc/cron.d/ambulancia-backup`.
+- La configuración de rclone (token de Google y contraseñas del cifrado) **no
+  está en el repo**: se crea en el servidor (§2.1), en `/etc/ambulancia-rclone.conf`.
 
 Códigos de salida del backup: `0` todo copiado y subido; `1` fallo (el log
 dice dónde); `2` BD copiada en local pero **sin copia externa**. Un 2 no es un
@@ -33,32 +40,69 @@ dice dónde); `2` BD copiada en local pero **sin copia externa**. Un 2 no es un
 
 Todo esto se hace en el Hetzner (`ssh maraya`) como root.
 
-### 2.1 Destino fuera del servidor: Storage Box de Hetzner
+### 2.1 Destino fuera del servidor: Google Drive, cifrado con rclone
 
 Por qué fuera: una copia en el mismo disco no sobrevive a perder el disco ni a
 que alguien entre como root, y el root de este servidor estuvo expuesto en el
 repo público.
 
-1. En la consola de Hetzner: contratar un Storage Box (el más pequeño basta).
-   Activar **SSH/rsync** y los **snapshots automáticos** (por ejemplo, diario
-   con 30 de retención). Los snapshots son la protección de verdad: aunque
-   alguien con la clave del servidor borre o cifre la copia, el snapshot no lo
-   puede tocar desde SSH.
-2. Crear una **subcuenta** con directorio base propio (p. ej. `ambulancia`), para
-   que la clave del servidor solo vea esa carpeta. Anotar usuario
-   (`uXXXXXX-subN`) y host (`uXXXXXX.your-storagebox.de`).
-3. En el servidor, una clave solo para esto, y dársela al Storage Box:
+Por qué cifrado: los dumps llevan los datos personales de toda la plantilla y
+los hashes de las contraseñas. rclone cifra antes de subir (remoto de tipo
+`crypt`): en Drive solo hay ficheros y carpetas con nombres ilegibles, y sin
+las dos contraseñas del cifrado no los lee nadie, tampoco Google.
+
+**Lo que se pierde frente al Storage Box, y cómo se compensa.** El Storage Box
+tenía snapshots que el servidor no podía tocar. Aquí no: quien entre como root
+tiene el token de Drive y puede borrar la copia. La papelera de Drive guarda lo
+borrado 30 días, pero ese mismo token puede vaciarla. Por eso hace falta una
+segunda copia que el servidor no alcance: **una vez por semana, descargar el
+dump más reciente desde `/admin` → Backups (§9) y guardarlo en el PC**, en un
+disco cifrado (BitLocker).
+
+1. **Una cuenta de Google nueva, solo para esto** (nunca la personal ni la de
+   la empresa): contraseña larga y verificación en dos pasos, las dos cosas en
+   el gestor de contraseñas. Así los 15 GB son enteros para el backup y, si se
+   filtra el token del servidor, no se expone nada más.
+2. **rclone en el servidor y en el PC.** El PC solo hace falta una vez, para
+   dar el permiso de Google, porque el servidor no tiene navegador:
    ```bash
-   ssh-keygen -t ed25519 -N "" -f /root/.ssh/ambulancia_backup -C "ambulancia-backup@maraya"
-   ssh-keyscan -p 23 uXXXXXX.your-storagebox.de >> /root/.ssh/known_hosts
-   ssh-copy-id -p 23 -s -i /root/.ssh/ambulancia_backup.pub uXXXXXX-subN@uXXXXXX.your-storagebox.de
+   apt-get install -y rclone && rclone version          # en el servidor
    ```
-   (`-s` porque el Storage Box solo habla SFTP para esto; pedirá la contraseña
-   de la subcuenta una vez).
-4. Crear la carpeta destino (rsync crea `db/` y `uploads/`, pero no el padre):
+   ```powershell
+   winget install Rclone.Rclone                          # en el PC
+   ```
+3. **Crear el remoto de Drive**, en el servidor:
    ```bash
-   echo "mkdir ambulancia" | sftp -P 23 -i /root/.ssh/ambulancia_backup uXXXXXX-subN@uXXXXXX.your-storagebox.de
+   rclone config --config /etc/ambulancia-rclone.conf
    ```
+   - `n` (nuevo remoto) → nombre **`ambulancia-drive`** → tipo `drive`.
+   - `client_id` y `client_secret`: vacíos (se usa el de rclone; ver §7).
+   - `scope`: **`drive.file`**. rclone solo ve lo que ha creado él, no el resto
+     del Drive de esa cuenta.
+   - `service_account_file`: vacío. Configuración avanzada: `n`.
+   - «Use web browser to automatically authenticate?»: **`n`**. rclone escribe
+     un comando `rclone authorize "drive" "…"`: se copia **entero**, se ejecuta
+     en el PC, se entra con la cuenta del paso 1 y se acepta. El PC imprime un
+     token, que se pega en el servidor.
+   - Shared Drive: `n`. Confirmar con `y`.
+4. **Crear el remoto cifrado**, en la misma sesión de `rclone config`:
+   - `n` → nombre **`ambulancia-cifrado`** → tipo `crypt`.
+   - `remote`: **`ambulancia-drive:ambulancia-backups`**.
+   - `filename_encryption`: `standard`. `directory_name_encryption`: `true`.
+   - Contraseña: `g` (generar), 256 bits. La segunda (salt): `g` también.
+   - **Antes de confirmar, copiar al gestor de contraseñas las dos que
+     enseña.** Sin ellas la copia no se puede leer nunca más, aunque el Drive
+     siga intacto.
+   - Confirmar con `y` y salir con `q`.
+5. **Comprobar:**
+   ```bash
+   chmod 600 /etc/ambulancia-rclone.conf
+   rclone --config /etc/ambulancia-rclone.conf mkdir ambulancia-cifrado:ambulancia
+   rclone --config /etc/ambulancia-rclone.conf about ambulancia-drive:
+   ```
+   `about` tiene que dar unos 15 GB en total. En drive.google.com, con la
+   cuenta del backup, aparece la carpeta `ambulancia-backups` y dentro una
+   carpeta de nombre ilegible: es `ambulancia`, cifrada.
 
 ### 2.2 Scripts
 
@@ -73,8 +117,8 @@ En el servidor:
 ```bash
 install -m 700 /tmp/backup-ambulancia.sh /tmp/verificar-backup.sh /usr/local/sbin/
 install -m 600 /tmp/ambulancia-backup.conf.ejemplo /etc/ambulancia-backup.conf
-nano /etc/ambulancia-backup.conf      # DESTINO_REMOTO=uXXXXXX-subN@uXXXXXX.your-storagebox.de:ambulancia
-which rsync flock || apt-get install -y rsync util-linux
+nano /etc/ambulancia-backup.conf      # DESTINO_REMOTO=ambulancia-cifrado:ambulancia (ya viene así)
+which rclone flock || apt-get install -y rclone util-linux
 ```
 
 ### 2.3 Primera ejecución a mano
@@ -84,7 +128,8 @@ which rsync flock || apt-get install -y rsync util-linux
 ```
 
 Tiene que acabar en `=== backup OK ===` y `exit=0`. La primera vez sube todas
-las fotos y puede tardar; las siguientes solo suben las nuevas.
+las fotos y puede tardar (Drive acepta pocos ficheros por segundo); las
+siguientes solo suben las nuevas.
 
 ### 2.4 Activar el cron
 
@@ -97,13 +142,17 @@ install -m 644 /tmp/ambulancia-backup.cron /etc/cron.d/ambulancia-backup
 Sin `/root/ambulancia/.env` una copia de la BD no basta para levantar el
 sistema en otra máquina: faltan las claves JWT, las VAPID (sin ellas, todos los
 avisos push dejan de valer) y las de Cartrack. Se guarda **a mano** en el gestor
-de contraseñas, no en el Storage Box ni en el repo (que es público):
+de contraseñas, no en Drive ni en el repo (que es público):
 
 ```bash
 ssh maraya "cat /root/ambulancia/.env"
 ```
 
 Repetirlo cada vez que se toque el `.env`.
+
+En el mismo gestor, junto al `.env`: **las dos contraseñas del cifrado** (§2.1
+paso 4) y el usuario y la contraseña de la cuenta de Google. El token de Drive
+no hace falta guardarlo: en un servidor nuevo se pide otro.
 
 ## 3. Vigilar que funciona
 
@@ -115,6 +164,12 @@ Un backup que falla en silencio es peor que ninguno, porque se confía en él.
   periodo 1 día y gracia 2 h, y poner su URL en `AVISO_URL`. Si un día el backup
   falla **o no llega a ejecutarse**, llega un correo. Sin esto, solo se sabe
   mirando el log.
+- **Espacio en Drive:** `rclone --config /etc/ambulancia-rclone.conf about ambulancia-drive:`.
+  Son 15 GB y el remoto solo crece (§7). Al ritmo medido en septiembre de 2026
+  (~47 fotos al día de ~177 KB: unos 3 GB al año, más los dumps) dan para unos
+  3 años. Al pasar de 12 GB hay que decidir: pagar más espacio o borrar a mano
+  los dumps diarios antiguos, dejando uno por mes. Si se llena, el backup
+  falla y el log lo dice.
 
 ## 4. Prueba de restauración (mensual)
 
@@ -128,10 +183,10 @@ publica puertos y se borra al acabar:
 Sale la lista de tablas con sus filas, la última migración y la última
 asignación. Las cifras tienen que cuadrar con lo que se ve en la app.
 
-Las fotos, una muestra desde el Storage Box:
+Las fotos, una muestra desde Drive (rclone las enseña ya descifradas):
 
 ```bash
-ssh -p 23 -i /root/.ssh/ambulancia_backup uXXXXXX-subN@uXXXXXX.your-storagebox.de ls -la ambulancia/uploads/vehicles | tail
+rclone --config /etc/ambulancia-rclone.conf ls ambulancia-cifrado:ambulancia/uploads/vehicles | tail
 ```
 
 ## 5. Restaurar en producción
@@ -148,8 +203,8 @@ restauración sale mal, es lo único que queda.
 ```bash
 cd /root/ambulancia
 DUMP=/root/ambulancia-backups/db/ambulancia_AAAAMMDD_HHMMSS.sql.gz   # el elegido
-# Si solo está en el Storage Box:
-#   rsync -e "ssh -p 23 -i /root/.ssh/ambulancia_backup" uXXXXXX-subN@uXXXXXX.your-storagebox.de:ambulancia/db/<fichero> /root/
+# Si solo está en Drive:
+#   rclone --config /etc/ambulancia-rclone.conf copy ambulancia-cifrado:ambulancia/db/<fichero> /root/
 
 docker compose stop backend              # que nadie escriba a mitad
 gunzip -c "$DUMP" | docker exec -i ambulancia-mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot "$MYSQL_DATABASE"'
@@ -169,11 +224,11 @@ docker compose exec -T backend wget -qO- http://localhost:3001/health
 
 ```bash
 UPLOADS=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/uploads"}}{{.Source}}{{end}}{{end}}' ambulancia-backend)
-rsync -a -e "ssh -p 23 -i /root/.ssh/ambulancia_backup" uXXXXXX-subN@uXXXXXX.your-storagebox.de:ambulancia/uploads/ "$UPLOADS/"
+rclone --config /etc/ambulancia-rclone.conf copy ambulancia-cifrado:ambulancia/uploads/ "$UPLOADS/"
 docker exec -u 0 ambulancia-backend chown -R appuser:appgroup /app/uploads
 ```
 
-El `chown` no es opcional: lo que baja del Storage Box llega como root, y el
+El `chown` no es opcional: lo que baja de Drive llega como root, y el
 backend corre como `appuser`. Sin él, verá las fotos antiguas pero no podrá
 escribir las nuevas en esas carpetas.
 
@@ -181,7 +236,10 @@ escribir las nuevas en esas carpetas.
 
 Instalar Docker, clonar el despliegue según [`ENTORNOS.md`](ENTORNOS.md),
 restaurar el `.env` desde el gestor de contraseñas, `docker compose up -d`
-(crea la BD vacía), y después §5.1 y §5.2. Caddy y el DNS de `api.vapss.net`
+(crea la BD vacía), y después §5.1 y §5.2. Para bajar de Drive hay que rehacer
+antes `/etc/ambulancia-rclone.conf` como en §2.1, con una diferencia: en el
+remoto cifrado, en vez de `g`, se escriben (`y`) **las dos contraseñas del
+gestor**. Con otras, rclone no ve ningún fichero. Caddy y el DNS de `api.vapss.net`
 van aparte.
 
 ## 6. Restaurar en local (para probar o investigar)
@@ -209,25 +267,42 @@ el servidor (§5.1) no hace falta.
   contraseña va por `MYSQL_PWD` dentro del contenedor para que no salga en `ps`.
 - **La ruta de las fotos se le pregunta al contenedor** (`docker inspect`), no
   se adivina: el nombre del volumen depende de `COMPOSE_PROJECT_NAME`.
-- **Sin `--delete` en el remoto, a propósito, y ahora obligatorio.** Si se
-  borra una foto en el servidor, por error o por un ataque, sigue en la copia.
-  Y con la retención encendida (§8), el Storage Box es **el único sitio** donde
-  quedan las asignaciones purgadas: añadir `--delete` al rsync borraría el
-  archivo entero de lo purgado. El precio es que el remoto solo crece: unos
-  2 MB por asignación, así que 1 TB da para décadas.
+- **En el remoto no se borra nunca nada, a propósito, y ahora obligatorio.**
+  Se sube con `rclone copy --ignore-existing`: sube lo que falta y no toca lo
+  que ya está. Si se borra una foto en el servidor, por error o por un ataque,
+  sigue en la copia. Y con la retención encendida (§8), Drive es **el único
+  sitio** donde quedan las asignaciones purgadas. **Nunca `rclone sync`**: deja
+  el remoto igual que el servidor, o sea, borra en Drive todo lo purgado. El
+  precio es que el remoto solo crece (§3).
+- **`DESTINO_REMOTO` es el remoto cifrado (`ambulancia-cifrado:`), nunca
+  `ambulancia-drive:`.** Con el de Drive a pelo todo funciona igual, sin un
+  solo error, y los datos personales quedan en claro en Google.
+- **El script comprueba que el dump de hoy ha llegado**, comparando su tamaño
+  en Drive con el local (rclone da el tamaño ya descifrado). Un `rclone copy`
+  que acaba bien sin haber subido nada no pasa desapercibido.
+- **rclone reescribe `/etc/ambulancia-rclone.conf`** cada vez que renueva el
+  token de Google: tiene que ser de root con 600, no de solo lectura.
+- **Si algún día se usa un `client_id` propio de Google** (el de rclone es
+  compartido y tiene cupo, pero para 50 ficheros al día sobra), la app de
+  Google Cloud tiene que estar «en producción», no «en pruebas». En pruebas el
+  token caduca a los 7 días, y el backup empieza a fallar una semana después
+  de instalarlo.
+- **No tocar la carpeta `ambulancia-backups` desde la web de Drive.** Los
+  nombres están cifrados: un fichero movido o renombrado a mano deja de
+  existir para rclone.
 - **Las limpiezas de Docker del servidor no tocan volúmenes.**
   `/root/docker-cleanup.sh` lleva `--volumes=false` y
   `/usr/local/sbin/docker-cleanup.sh` solo borra caché e imágenes huérfanas. Si
   alguien añade un `prune --volumes`, se lleva los datos de cualquier stack que
   esté parado en ese momento.
 
-## 8. Retención: el servidor purga, el Storage Box archiva
+## 8. Retención: el servidor purga, Drive archiva
 
 Para que el disco del servidor no se llene, el backend borra las asignaciones
 **cerradas hace más de N meses** con todo lo suyo
 ([`retencion.service.js`](../backend/src/services/retencion.service.js)). El
-motivo es el espacio, no la protección de datos: lo purgado sigue en el
-Storage Box.
+motivo es el espacio, no la protección de datos: lo purgado sigue en
+Drive.
 
 | Se purga | Se queda |
 |---|---|
@@ -289,9 +364,9 @@ ejemplo):
 
 En `/admin` → **Backups** están los dumps de la BD de los últimos 14 días, con
 un botón para descargar cada uno. Es la salida de emergencia si se pierde el
-Hetzner **y** el Storage Box a la vez: un dump basta para reconstruir la BD
+Hetzner **y** Drive a la vez: un dump basta para reconstruir la BD
 entera en otro servidor (§5.3). Las fotos **no** van ahí: son GB y viven en el
-Storage Box.
+Drive.
 
 Cómo llega el fichero a la app:
 
@@ -320,7 +395,7 @@ Si la pestaña dice «No hay backups disponibles»:
 |---|---|
 | «La carpeta de backups no existe» | El backup diario no está instalado (§2) |
 | «No tiene permiso para leer» | La carpeta no tiene el grupo del backend: `/usr/local/sbin/backup-ambulancia.sh` lo arregla en su siguiente pasada; o a mano, `chgrp $(docker exec ambulancia-backend id -g) /root/ambulancia-backups/db && chmod 750 /root/ambulancia-backups/db` |
-| «Todavía no ha generado ninguna copia» | Instalado, pero aún no ha corrido el cron (03:45 UTC) |
+| «Todavía no ha generado ninguna copia» | Instalado, pero aún no ha corrido el cron (02:00 UTC) |
 
 **Trampa:** si Docker arranca el backend antes de que exista la carpeta, la crea
 él vacía y de root. No pasa nada: el script la usa igual y le pone los permisos

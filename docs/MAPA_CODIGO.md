@@ -77,7 +77,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` · POST `/impersonar/:id` (§6.3) · GET `/backups` y `/backups/:nombre` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
@@ -126,7 +126,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
-| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en el Storage Box. `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
+| `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
@@ -413,6 +413,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 | `MisAsignaciones`, `AsignacionList`, `AsignacionDetalle`, `AsignacionForm` | `asignaciones.service` (+ `vehicles`, `users` para selectores) | `/asignaciones` |
 | `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia` | `/asignaciones/:id/{activar,finalizar,evidencias}` |
 | `AsignacionDetalle` → «Llegada al servicio» | `asignaciones.service.registrarLlegada` | `POST /asignaciones/:id/llegada` |
+| `AsignacionDetalle` → «Fin del servicio» | `asignaciones.service.registrarFinServicio` | `POST /asignaciones/:id/fin-servicio` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
 | `VehicleList`, `VehicleForm` | `vehicles.service` | `/vehicles` |
 | `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
@@ -480,7 +481,7 @@ Caddy.
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5 |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
@@ -581,6 +582,44 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 
 ---
 
+### 3.6 Saltarse las fotos en local (`fotosDePrueba.js`)
+
+Desde el escritorio no hay cámara (o el navegador la deniega), así que el
+asistente de inicio/fin no se podía recorrer. Con `npm run dev`,
+`CameraCapture` pinta un botón «Saltar fotos (local)» en la barra superior y
+también en la pantalla de error de cámara. Genera un JPEG de verdad (canvas,
+«FOTO DE PRUEBA» + tipo + hora) por cada tipo que falta y lo entrega por el
+mismo `onComplete` que la cámara.
+
+- **No toca el backend a propósito**: las fotos se suben, pasan por Sharp y
+  cuentan en `getProgreso`/`finalizarAsignacion` como las reales, así que el
+  cierre se prueba entero. Un atajo en el servidor sería una puerta en
+  producción.
+- **Va detrás de `import.meta.env.DEV`**, que en cualquier `vite build`
+  (PRE y producción) es `false`. El módulo se importa con `import()` DENTRO de
+  esa rama: con un `import` estático el botón desaparecía pero el generador
+  seguía en el bundle. Comprobación: `vite build` y buscar «FOTO DE PRUEBA» en
+  `dist/assets` → no debe salir.
+- **Tres candados automáticos** (2026-10-02): (1) `deploy-frontend.yml`,
+  paso «Comprobar el build», falla y no publica si «FOTO DE PRUEBA» o
+  «Saltar fotos» aparecen en `dist`; (2) `CameraCapture.saltarFotos.test.jsx`
+  comprueba que con `DEV=false` el botón no se pinta; (3) en el backend,
+  `finalizarAsignacion` da 400 y no escribe nada si falta UNA foto de inicio
+  o de fin, sea técnico, admin o superadmin, y el PUT no admite
+  `estado: 'finalizada'` (tests en `asignaciones.controller.test.js`). Los
+  tres se han comprobado rompiendo a propósito lo que vigilan.
+- Lo que el backend NO puede saber es si la foto es buena: cualquiera con
+  sesión puede subir una imagen cualquiera por la API. Eso ya era así antes
+  del atajo; lo que lo controla es la revisión de un admin.
+- **Trampa que se arregló de paso**: con `React.StrictMode` (solo en dev)
+  la cámara se cerraba nada más abrirse. El efecto del botón «atrás» se monta,
+  se desmonta y se vuelve a montar; el `history.back()` del desmontaje es
+  asíncrono, llegaba después del segundo `pushState` y disparaba `popstate` →
+  `onCancel`. Ahora el desmontaje deja el `back()` en un `setTimeout(0)`
+  (`atrasPendiente`, a nivel de módulo) y un montaje en el mismo tick lo
+  cancela y reaprovecha la entrada. Mirar `e.state` en `popstate` NO sirve:
+  se aterriza en la entrada del router, no en la de la cámara.
+
 ## 4. Base de datos
 
 Tablas (dónde se crean): `schema.sql` → `users, roles, user_roles,
@@ -593,7 +632,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -759,6 +798,25 @@ decisión del usuario (2026-09-25): ni la pantalla ni `finalizarAsignacion` la
 exigen**, porque quien olvide pulsarla tiene que poder cerrar el servicio igual.
 No convertirla en obligatoria sin preguntar. Una asignación sin llegada
 (olvido, o anterior a v26) tiene NULL («no consta») y se pinta con `—`.
+
+**«Fin del servicio» (v29, 2026-10-01).** La inversa de la llegada, pedida por
+el usuario: en base «Inicio de servicio» + fotos; en el evento «Llegada al
+servicio»; al terminar allí «Fin del servicio»; y de vuelta en base «Finalizar
+asignación» con las fotos de fin. Entre llegada y fin va el tiempo en el sitio;
+del fin al cierre, la vuelta. `registrarFinServicio` es un calco de
+`registrarLlegada` (responsable o `manage_trabajos`, no-op 200 si ya hay hora,
+`UPDATE … fin_servicio_at IS NULL`, audita `end_service_asignacion` solo si
+afectó a la fila), con una diferencia: **exige la llegada**, no el inicio ni
+las fotos, porque la llegada ya los exige. Por eso, quien se olvidó de la
+llegada tampoco puede marcar el fin: fin sin llegada no mide nada, y se decidió
+así a falta de que el usuario pida lo contrario. En `AsignacionDetalle` la
+tarjeta «¿Has terminado el servicio?» (`faltaFinServicio`) sustituye a la de la
+llegada en cuanto esta se registra, y va **junto a** «Finalizar asignación».
+**También es OPCIONAL**: `finalizarAsignacion` no la exige. Trampa de nombres:
+el botón de cierre se llamaba «Finalizar servicio» y se renombró a «Finalizar
+asignación» (como ya decía el Dashboard) para no tener «Fin del servicio» y
+«Finalizar servicio» uno al lado del otro haciendo cosas distintas. Informes
+no lo usa todavía (el tiempo en el sitio sería una métrica nueva).
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
@@ -1025,6 +1083,7 @@ solo actúa en el navegador no es un control de acceso.
 | Si cambias… | Toca |
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
+| El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
@@ -1042,7 +1101,7 @@ solo actúa en el navegador no es un control de acceso.
 | Enlazar a una asignación desde otra pantalla | `utils/enlaceAsignacion.js` (`tituloAsignacion` = «Asignación #N», porque no hay columna de título; `rutaAsignacion` = `/asignaciones?id=N`) + `components/common/EnlaceAsignacion.jsx` → `AsignacionList` lee `?id=` con un **efecto** (no solo en el estado inicial: la alarma se pulsa también estando ya en el listado) y lo quita de la URL al cerrar (si no, recargar lo reabre y repetir el mismo enlace no hace nada). Quién enlaza: cabecera de `VehicleHistory` (la activa de `getVehicle`, visible en todas las pestañas), `MapaFlota` (ficha lateral) + `MapaLeaflet` (globo), `AlarmaSinIniciar`. **Trampas:** (1) el enlace depende de `menu_asignaciones`, que es otro flag que el del mapa o la ficha: apagado, se nombra sin enlazar (si no, `ProtectedRoute` rebota a otra pantalla). (2) El globo de Leaflet es DOM a mano, fuera de React: lleva un `<button>` que llama a `onAbrirAsignacion` (vía ref) y navega con el router; un `<a href>` recargaría la app entera y sin el `basename` de `/app/`. (3) Hasta 2026-09-27 la alarma ya enlazaba a `?id=` pero el listado **no lo leía**: se llegaba a la lista sin abrir nada |
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`) |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
-| Las horas reales de un servicio | Tres sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio») y `finalizado_at` (`finalizarAsignacion`). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio y llegada, no el fin. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`); `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta la llegada en la tarjeta. Reglas de la llegada en §6.1 |
+| Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de servicio», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Llegada al servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin del servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio/Fin real de servicio» en pareja y debajo «Llegada al servicio» con lo que tardó desde el inicio (`duration`) y «Fin del servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y fin del servicio en la tarjeta. Reglas de ambos en §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10 |
@@ -1115,12 +1174,18 @@ funciona igual. En local van en `backend/.env`, que está en `.gitignore`.
 probado en local, pendiente de instalar en el Hetzner**: hasta entonces no hay
 ninguna copia). Van por cron del servidor, no por el workflow, porque el deploy
 no toca MySQL ni los volúmenes. Se hace un `mysqldump` diario, que se verifica
-antes de darlo por bueno, y un `rsync` de las fotos. Las dos copias van a un
-Storage Box **sin `--delete`**. El `cron.d/maraya-pg-backup` del servidor es de
-otro proyecto (Postgres) y no copia nada de ambulancia. **El Storage Box es además
+antes de darlo por bueno, y las fotos nuevas. Las dos copias van con `rclone`
+a **Google Drive, cifradas** (remoto `crypt`; en Drive solo hay nombres
+ilegibles) con `copy --ignore-existing`, que nunca borra ni pisa nada en el
+remoto. Era un Storage Box de Hetzner hasta el 2026-09-30, descartado porque no
+se puede contratar nada de pago; lo que se pierde es que el servidor ya puede
+borrar la copia, y se compensa con una descarga semanal del dump al PC
+(`docs/BACKUPS.md` §2.1). El `cron.d/maraya-pg-backup` del servidor es de
+otro proyecto (Postgres) y no copia nada de ambulancia. **Drive es además
 el archivo de la retención** (`retencion.service.js`): el servidor purga las
-asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso el
-rsync no lleva `--delete`: ponérselo borraría el archivo.
+asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso
+**nunca `rclone sync`**: dejaría Drive igual que el servidor, borrando el archivo.
+Los 15 GB gratis dan para ~3 años al ritmo actual (§3 de BACKUPS.md).
 **Los dumps se descargan desde `/admin` → Backups** (superadmin, auditado como
 `download_backup`). El backend no los genera: `docker-compose.yml` monta la
 carpeta del host en solo lectura (`/root/<STACK_NAME>-backups/db` →
