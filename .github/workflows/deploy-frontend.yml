@@ -110,6 +110,11 @@ jobs:
           if grep -q "__BASE_PATH__" dist/.htaccess; then
             echo "El .htaccess conserva marcadores sin sustituir"; exit 1
           fi
+          # El atajo «Saltar fotos (local)» solo puede existir con `npm run dev`
+          # (§3.6 del mapa). Si su texto aparece en un build, no se publica.
+          if grep -rq "FOTO DE PRUEBA\|Saltar fotos" dist; then
+            echo "El build contiene el atajo de fotos de local"; exit 1
+          fi
           echo "--- dist/.htaccess (RewriteBase) ---"
           grep -E "RewriteBase|Service-Worker-Allowed" dist/.htaccess
 

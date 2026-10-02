@@ -600,6 +600,17 @@ mismo `onComplete` que la cámara.
   esa rama: con un `import` estático el botón desaparecía pero el generador
   seguía en el bundle. Comprobación: `vite build` y buscar «FOTO DE PRUEBA» en
   `dist/assets` → no debe salir.
+- **Tres candados automáticos** (2026-10-02): (1) `deploy-frontend.yml`,
+  paso «Comprobar el build», falla y no publica si «FOTO DE PRUEBA» o
+  «Saltar fotos» aparecen en `dist`; (2) `CameraCapture.saltarFotos.test.jsx`
+  comprueba que con `DEV=false` el botón no se pinta; (3) en el backend,
+  `finalizarAsignacion` da 400 y no escribe nada si falta UNA foto de inicio
+  o de fin, sea técnico, admin o superadmin, y el PUT no admite
+  `estado: 'finalizada'` (tests en `asignaciones.controller.test.js`). Los
+  tres se han comprobado rompiendo a propósito lo que vigilan.
+- Lo que el backend NO puede saber es si la foto es buena: cualquiera con
+  sesión puede subir una imagen cualquiera por la API. Eso ya era así antes
+  del atajo; lo que lo controla es la revisión de un admin.
 - **Trampa que se arregló de paso**: con `React.StrictMode` (solo en dev)
   la cámara se cerraba nada más abrirse. El efecto del botón «atrás» se monta,
   se desmonta y se vuelve a montar; el `history.back()` del desmontaje es

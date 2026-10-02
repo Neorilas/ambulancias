@@ -1219,6 +1219,51 @@ describe('asignaciones.controller', () => {
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    // La barrera de las fotos es ESTA, no el frontend: vale contra cualquiera
+    // que llame a la API directamente, también un admin o un superadmin, y
+    // con que falte una sola foto (§3.6 del mapa: el atajo de local no pasa
+    // por aquí, sube fotos de verdad).
+    describe('sin todas las fotos no se cierra, sea quien sea', () => {
+      const QUIENES = {
+        técnico:    { id: 2, roles: ['tecnico'], permissions: [] },
+        admin:      { id: 9, roles: ['administrador'], permissions: ['manage_trabajos'] },
+        superadmin: { id: 1, roles: ['superadmin'], permissions: [] },
+      };
+      const inicio = IMAGEN_TIPOS_INICIO.map(t => ({ tipo_imagen: t, momento: 'inicio' }));
+      const fin    = IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }));
+      const CASOS = {
+        'falta UNA de fin':    [...inicio, ...fin.slice(1)],
+        'falta UNA de inicio': [...inicio.slice(1), ...fin],
+        'las de fin subidas como «inicio»': [...inicio, ...fin.map(f => ({ ...f, momento: 'inicio' }))],
+      };
+
+      for (const [quien, user] of Object.entries(QUIENES)) {
+        for (const [caso, filas] of Object.entries(CASOS)) {
+          it(`${quien}: ${caso} → 400 y no escribe nada`, async () => {
+            mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+            query.mockResolvedValueOnce([filas]); // getProgreso
+            const res = mockRes();
+            await finalizarAsignacion(mockReq({
+              params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user,
+            }), res, mockNext());
+
+            expect(res.status).toHaveBeenCalledWith(400);
+            expect(transaction).not.toHaveBeenCalled();
+            expect(query.mock.calls.some(([sql]) => /UPDATE asignaciones_libres/.test(sql))).toBe(false);
+            expect(avisos.avisarAsignacionFinalizada).not.toHaveBeenCalled();
+          });
+        }
+      }
+    });
+
+    it('el PUT tampoco deja poner «finalizada» a mano', () => {
+      const src = require('fs').readFileSync(
+        require('path').join(__dirname, '../../../routes/asignaciones.routes.js'), 'utf8');
+      const reglaEstado = src.match(/body\('estado'\)[^\n]*/g) || [];
+      expect(reglaEstado.length).toBeGreaterThan(0);
+      reglaEstado.forEach(r => expect(r).not.toMatch(/finalizada/));
+    });
   });
 
   // ── uploadEvidencia ────────────────────────────────────
