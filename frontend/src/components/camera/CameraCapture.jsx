@@ -78,6 +78,10 @@ function RevisionFoto({ avisos }) {
   );
 }
 
+// back() que ha programado el último desmontaje y aún no se ha hecho (ver el
+// efecto del botón «atrás»).
+let atrasPendiente = null;
+
 export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, onCancel, initialIndex = 0 }) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [captured,     setCaptured]     = useState([]);   // { tipo, label, preview, file }[]
@@ -154,6 +158,28 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
     }
   }, [preview, currentTipo, captured, addedCount, currentIndex, onComplete, tipos]);
 
+  // ── Solo en local (`npm run dev`): rellenar lo que falta con fotos de prueba ──
+  // `import.meta.env.DEV` es `false` en cualquier `vite build`: el botón no
+  // existe en PRE ni en producción. Ver fotosDePrueba.js.
+  const saltarFotos = useCallback(async () => {
+    if (!import.meta.env.DEV) return;
+    // import dinámico dentro de la rama DEV: así el módulo tampoco entra en el build
+    const { generarFotosDePrueba } = await import('./fotosDePrueba.js');
+    const pendientes = tipos.slice(currentIndex)
+      .filter(t => !captured.some(c => c.tipo === t.key));
+    onComplete([...captured, ...await generarFotosDePrueba(pendientes)]);
+  }, [tipos, currentIndex, captured, onComplete]);
+
+  const botonSaltar = import.meta.env.DEV && (
+    <button
+      onClick={saltarFotos}
+      className="px-3 py-1.5 rounded-md bg-warn-500 text-black text-xs font-semibold"
+      title="Solo en local: sube una imagen generada por cada foto que falta"
+    >
+      Saltar fotos (local)
+    </button>
+  );
+
   // ── Repetir ──────────────────────────────────────────────────
   const retake = useCallback(() => {
     if (preview?.previewUrl) URL.revokeObjectURL(preview.previewUrl);
@@ -171,7 +197,16 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   // el usuario pulsa "atrás" (popstate), cerramos la cámara o volvemos del
   // preview al visor en lugar de abandonar la app.
   useEffect(() => {
-    window.history.pushState({ cameraCapture: true }, '');
+    // Un desmontaje seguido de un montaje en el mismo tick (StrictMode en
+    // `npm run dev`) reaprovecha la entrada en vez de quitarla y poner otra:
+    // el back() llegaba después del segundo pushState, disparaba popstate y
+    // la cámara se cerraba nada más abrirse.
+    if (atrasPendiente) {
+      clearTimeout(atrasPendiente);
+      atrasPendiente = null;
+    } else {
+      window.history.pushState({ cameraCapture: true }, '');
+    }
     let cancelled = false;
     const onPop = () => {
       if (previewRef.current) {
@@ -188,7 +223,9 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
       window.removeEventListener('popstate', onPop);
       // Si la cámara se cierra por botón (no por "atrás"), retiramos la
       // entrada extra que añadimos para no dejar un "atrás" muerto.
-      if (!cancelled) window.history.back();
+      if (!cancelled) {
+        atrasPendiente = setTimeout(() => { atrasPendiente = null; window.history.back(); }, 0);
+      }
     };
   }, []);
 
@@ -270,6 +307,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
             <p className="micro mb-4">Cámara</p>
             <p className="text-white text-sm leading-relaxed">{error}</p>
             <button onClick={onCancel} className="btn-secondary mt-6">Cancelar</button>
+            {botonSaltar && <div className="mt-4">{botonSaltar}</div>}
           </div>
         ) : (
           <>
@@ -320,6 +358,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
 
                     <button onClick={toggleCamera} className="px-2.5 py-1.5 rounded-md bg-black/40 text-white text-xs font-medium">Girar</button>
                   </div>
+
+                  {botonSaltar && <div className="flex justify-center pb-2">{botonSaltar}</div>}
 
                   {/* Miniaturas de progreso */}
                   <div className="flex justify-center gap-2 px-4 pb-2">

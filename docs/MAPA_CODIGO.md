@@ -481,7 +481,7 @@ Caddy.
 | `context/NotificationContext.jsx` | `useNotification`: toasts |
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5 |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
@@ -581,6 +581,33 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
   cambia la ruta en `detectorVehiculo.js`.
 
 ---
+
+### 3.6 Saltarse las fotos en local (`fotosDePrueba.js`)
+
+Desde el escritorio no hay cámara (o el navegador la deniega), así que el
+asistente de inicio/fin no se podía recorrer. Con `npm run dev`,
+`CameraCapture` pinta un botón «Saltar fotos (local)» en la barra superior y
+también en la pantalla de error de cámara. Genera un JPEG de verdad (canvas,
+«FOTO DE PRUEBA» + tipo + hora) por cada tipo que falta y lo entrega por el
+mismo `onComplete` que la cámara.
+
+- **No toca el backend a propósito**: las fotos se suben, pasan por Sharp y
+  cuentan en `getProgreso`/`finalizarAsignacion` como las reales, así que el
+  cierre se prueba entero. Un atajo en el servidor sería una puerta en
+  producción.
+- **Va detrás de `import.meta.env.DEV`**, que en cualquier `vite build`
+  (PRE y producción) es `false`. El módulo se importa con `import()` DENTRO de
+  esa rama: con un `import` estático el botón desaparecía pero el generador
+  seguía en el bundle. Comprobación: `vite build` y buscar «FOTO DE PRUEBA» en
+  `dist/assets` → no debe salir.
+- **Trampa que se arregló de paso**: con `React.StrictMode` (solo en dev)
+  la cámara se cerraba nada más abrirse. El efecto del botón «atrás» se monta,
+  se desmonta y se vuelve a montar; el `history.back()` del desmontaje es
+  asíncrono, llegaba después del segundo `pushState` y disparaba `popstate` →
+  `onCancel`. Ahora el desmontaje deja el `back()` en un `setTimeout(0)`
+  (`atrasPendiente`, a nivel de módulo) y un montaje en el mismo tick lo
+  cancela y reaprovecha la entrada. Mirar `e.state` en `popstate` NO sirve:
+  se aterriza en la entrada del router, no en la de la cámara.
 
 ## 4. Base de datos
 
@@ -1045,6 +1072,7 @@ solo actúa en el navegador no es un control de acceso.
 | Si cambias… | Toca |
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
+| El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
