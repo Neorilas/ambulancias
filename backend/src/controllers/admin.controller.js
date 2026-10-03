@@ -135,7 +135,7 @@ async function listErrorLogs(req, res, next) {
       `SELECT id, origen, method, url, status_code, error_message, stack_trace,
               user_id, user_info, ip_address, user_agent, ocurrido_at, created_at
        FROM error_logs ${where}
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
