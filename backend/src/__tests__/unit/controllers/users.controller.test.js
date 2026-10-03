@@ -49,6 +49,31 @@ describe('users.controller', () => {
       const res = mockRes();
       await listUsers(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[0][0]).toContain('r2.nombre = ?');
+      expect(query.mock.calls[0][1]).toEqual(['tecnico']);
+    });
+
+    it('filters users without any role with role=sin-rol', async () => {
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 9, username: 'nuevo', roles: null }]]);
+
+      const req = mockReq({ query: { role: 'sin-rol' }, user: { roles: ['administrador'] } });
+      const res = mockRes();
+      await listUsers(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[0][0]).toContain('NOT EXISTS (SELECT 1 FROM user_roles');
+      expect(query.mock.calls[0][1]).toEqual([]);
+    });
+
+    it('uses only the first role when role is repeated in the query', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+
+      const req = mockReq({ query: { role: ['tecnico', 'medico'] }, user: { roles: ['administrador'] } });
+      const res = mockRes();
+      await listUsers(req, res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[0][1]).toEqual(['tecnico']);
     });
 
     it('shows deleted users when admin requests deleted=true', async () => {

@@ -558,3 +558,50 @@ describe('VehicleHistory · validacion con el aviso abierto', () => {
     expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeInTheDocument();
   });
 });
+
+// Las asignaciones no traen trabajo_id: con `key={t.trabajo_id ?? 'sin_trabajo'}`
+// todas compartían clave y React avisaba de hijos duplicados (y podía pintar
+// una tarjeta por otra al reordenar).
+describe('VehicleHistory · clave de cada grupo de fotos', () => {
+  const grupo = (extra) => ({
+    referencia: null, nombre: null, estado: 'finalizada',
+    fecha_inicio: '2026-09-18T05:00:00.000Z', fecha_fin: '2026-09-18T18:00:00.000Z',
+    km_inicio: null, km_fin: null, fotos: [], ...extra,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vehiclesService.getHistory.mockResolvedValue({
+      vehicle: VEHICULO,
+      trabajos: [
+        grupo({ tipo: 'asignacion', asignacion_id: 4, trabajo_id: null }),
+        grupo({ tipo: 'asignacion', asignacion_id: 5, trabajo_id: null }),
+        // mismo número que una asignación: no debe chocar con ella
+        grupo({ tipo: 'trabajo', asignacion_id: null, trabajo_id: 4 }),
+      ],
+    });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('pinta todas las asignaciones sin trabajo y sin claves repetidas', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const user = userEvent.setup();
+      montar();
+      await screen.findByRole('heading', { name: 'Ambulancia 3' });
+      await user.click(screen.getByRole('button', { name: 'Fotos' }));
+
+      expect(await screen.findByText('Asignación #4')).toBeInTheDocument();
+      expect(screen.getByText('Asignación #5')).toBeInTheDocument();
+      expect(screen.getByText('Trabajo #4')).toBeInTheDocument();
+      const avisosDeClave = error.mock.calls.filter(args =>
+        String(args[0]).includes('same key'));
+      expect(avisosDeClave).toEqual([]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
