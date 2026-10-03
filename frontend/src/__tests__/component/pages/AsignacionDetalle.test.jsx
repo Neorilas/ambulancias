@@ -55,7 +55,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    expect(await screen.findByText('Fin real de servicio')).toBeInTheDocument();
+    expect(await screen.findByText('Fin de la asignación')).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.finalizado_at))).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.inicio_real_at))).toBeInTheDocument();
   });
@@ -64,7 +64,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, estado: 'activa', finalizado_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Fin real de servicio');
+    const etiqueta = await screen.findByText('Fin de la asignación');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 
@@ -75,7 +75,7 @@ describe('AsignacionDetalle — horas reales', () => {
     montar();
 
     await screen.findByText('Fin previsto');
-    expect(screen.queryByText('Fin real de servicio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fin de la asignación')).not.toBeInTheDocument();
   });
 });
 
@@ -110,7 +110,7 @@ describe('AsignacionDetalle — editar', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    await screen.findByText('Fin real de servicio');
+    await screen.findByText('Fin de la asignación');
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 

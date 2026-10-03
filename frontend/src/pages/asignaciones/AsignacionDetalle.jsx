@@ -420,15 +420,15 @@ export default function AsignacionDetalle({ id, onClose }) {
               {(asig.inicio_real_at || asig.finalizado_at) && (
                 <>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Inicio real de servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio de la asignación</p>
                     <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin real de servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin de la asignación</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
-                      en el sitio empieza aquí, no en el «Inicio real». */}
+                      en el sitio empieza aquí, no en el «Inicio de la asignación». */}
                   <div className="col-span-2">
                     <p className="text-neutral-400 text-xs mb-0.5">Llegada a evento/servicio</p>
                     <p className="text-neutral-900">
