@@ -319,6 +319,36 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
   return rows || [];
 }
 
+/**
+ * Lo mismo que buscarSolapes, pero para la ambulancia: otras asignaciones
+ * abiertas y vehículos de trabajos sin cerrar que la usan en [inicio, fin).
+ * También es solo un AVISO: a veces se encadenan servicios y la hora de fin
+ * prevista no es la real.
+ */
+async function buscarVehiculoOcupado(vehicleId, fechaInicio, fechaFin, excluirId = 0) {
+  if (!vehicleId) return [];
+  const fin = instanteUtc(fechaFin), inicio = instanteUtc(fechaInicio);
+  const [rows] = await query(
+    `SELECT 'asignacion' AS origen, al.id, NULL AS nombre, al.fecha_inicio, al.fecha_fin
+     FROM asignaciones_libres al
+     WHERE al.vehicle_id = ? AND al.id <> ?
+       AND al.deleted_at IS NULL
+       AND al.estado IN ('programada','activa')
+       AND al.fecha_inicio < ? AND al.fecha_fin > ?
+     UNION ALL
+     SELECT 'trabajo' AS origen, t.id, t.nombre, t.fecha_inicio, t.fecha_fin
+     FROM trabajo_vehiculos tv
+     JOIN trabajos t ON t.id = tv.trabajo_id
+     WHERE tv.vehicle_id = ?
+       AND t.deleted_at IS NULL
+       AND tv.estado IN ('programado','activo')
+       AND t.fecha_inicio < ? AND t.fecha_fin > ?
+     ORDER BY fecha_inicio ASC`,
+    [vehicleId, excluirId, fin, inicio, vehicleId, fin, inicio]
+  );
+  return rows || [];
+}
+
 // ============================================================
 // GET /asignaciones
 // ============================================================
@@ -503,6 +533,7 @@ async function createAsignacion(req, res, next) {
 
     const asig    = await getAsignacionCompleta(asignacionId);
     const solapes = await buscarSolapes([...responsables, ...personal], fecha_inicio, fecha_fin, asignacionId);
+    const vehiculo_ocupado = await buscarVehiculoOcupado(vehicle_id, fecha_inicio, fecha_fin, asignacionId);
 
     logAudit({
       userId:   req.user.id,
@@ -519,7 +550,7 @@ async function createAsignacion(req, res, next) {
     });
     // Sin await: el aviso no retrasa la respuesta ni puede tumbarla.
     avisos.avisarAsignacionNueva(asig, [...responsables, ...personal], { asignadoPor: req.user.id });
-    return created(res, { ...asig, solapes }, 'Asignación creada correctamente');
+    return created(res, { ...asig, solapes, vehiculo_ocupado }, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
   }
@@ -675,6 +706,14 @@ async function updateAsignacion(req, res, next) {
     const updated = await getAsignacionCompleta(asig.id);
     const solapes = await buscarSolapes(
       [...responsables, ...personal], updated.fecha_inicio, updated.fecha_fin, asig.id);
+    // La ambulancia solo se vuelve a mirar si cambia ella o las fechas: una
+    // edición de notas no tiene por qué repetir un aviso que ya se dio.
+    const instante = v => (v == null ? null : new Date(v).getTime());
+    const cambianFechas = instante(updated.fecha_inicio) !== instante(asig.fecha_inicio)
+                       || instante(updated.fecha_fin)    !== instante(asig.fecha_fin);
+    const vehiculo_ocupado = (cambiaVehiculo || cambianFechas)
+      ? await buscarVehiculoOcupado(updated.vehicle_id, updated.fecha_inicio, updated.fecha_fin, asig.id)
+      : [];
 
     // Se audita TODA edición que cambie algo, con el antes y el después de
     // cada campo tocado. Antes solo se registraba si cambiaban los miembros y
@@ -711,7 +750,7 @@ async function updateAsignacion(req, res, next) {
         avisos.avisarCambioVehiculo(updated, seguian, { anterior: asig, cambiadoPor: req.user.id });
       }
     }
-    return success(res, { ...updated, solapes }, 'Asignación actualizada');
+    return success(res, { ...updated, solapes, vehiculo_ocupado }, 'Asignación actualizada');
   } catch (err) {
     next(err);
   }

@@ -7,7 +7,7 @@ import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
 import {
-  idsElegidos, miembrosIniciales, textoSolapes,
+  idsElegidos, miembrosIniciales, textoSolapes, textoVehiculoOcupado,
 } from '../../utils/miembrosAsignacion.js';
 
 // El vehículo se puede tocar mientras la asignación no tenga ni una foto ni
@@ -129,6 +129,9 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
       // Solape de fechas con otra asignación: se avisa, no se bloquea.
       const aviso = textoSolapes(guardada?.solapes);
       if (aviso) notify.warning(aviso, 10000);
+      // La ambulancia, igual: ya está en otra asignación o trabajo esas fechas.
+      const avisoVeh = textoVehiculoOcupado(guardada?.vehiculo_ocupado);
+      if (avisoVeh) notify.warning(avisoVeh, 10000);
       onSaved();
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al guardar la asignación');

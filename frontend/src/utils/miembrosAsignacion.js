@@ -10,6 +10,8 @@
  * (trabajo → vehículos → personal). Ver docs/MAPA_CODIGO.md §7.
  */
 
+import { formatDateTimeShort } from './dateUtils.js';
+
 /** Ids de los miembros elegidos, sin huecos (filas del formulario sin rellenar). */
 export function idsElegidos(lista) {
   return (lista || [])
@@ -54,6 +56,21 @@ export function textoSolapes(solapes) {
   const nombres = [...new Set(solapes.map(s => s.nombre).filter(Boolean))];
   const quien = nombres.length === 1 ? nombres[0] : nombres.join(', ');
   return `Aviso: ${quien} ${nombres.length === 1 ? 'ya tiene' : 'ya tienen'} otra asignación en esas fechas`;
+}
+
+/**
+ * Texto de `vehiculo_ocupado`: otras asignaciones abiertas o trabajos sin
+ * cerrar que ya usan esa ambulancia en esas fechas. Aviso, igual que los
+ * solapes: lo guardado, guardado está. Se nombran dos como mucho.
+ */
+export function textoVehiculoOcupado(ocupado) {
+  if (!Array.isArray(ocupado) || !ocupado.length) return null;
+  const tramo = o => `${formatDateTimeShort(o.fecha_inicio)}–${formatDateTimeShort(o.fecha_fin)}`;
+  const uno = o => (o.origen === 'trabajo'
+    ? `el trabajo «${o.nombre || `#${o.id}`}» (${tramo(o)})`
+    : `otra asignación (${tramo(o)})`);
+  const resto = ocupado.length > 2 ? ` y ${ocupado.length - 2} más` : '';
+  return `Aviso: esa ambulancia ya está en ${ocupado.slice(0, 2).map(uno).join(' y en ')}${resto}`;
 }
 
 /** «Ana Ruiz» o «Ana Ruiz +2» para listas compactas. */

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   idsElegidos, usuariosDisponibles, miembrosIniciales, puedeAnadir,
-  textoSolapes, resumenNombres, rolEnAsignacion, nombreMiembro,
+  textoSolapes, textoVehiculoOcupado, resumenNombres, rolEnAsignacion, nombreMiembro,
 } from '../../../utils/miembrosAsignacion.js';
 
 const USERS = [
@@ -88,5 +88,31 @@ describe('miembrosAsignacion', () => {
     expect(nombreMiembro({ nombre: 'Ana', apellidos: 'Ruiz' })).toBe('Ana Ruiz');
     expect(nombreMiembro({ username: 'aruiz' })).toBe('aruiz');
     expect(nombreMiembro(null)).toBe('');
+  });
+
+  // Horas en UTC: el texto las pinta en hora española (abril = verano, +2).
+  describe('textoVehiculoOcupado', () => {
+    const ASIG = { origen: 'asignacion', id: 4, fecha_inicio: '2026-04-15T06:00:00Z', fecha_fin: '2026-04-15T14:00:00Z' };
+    const TRAB = { origen: 'trabajo', id: 8, nombre: 'Concierto', fecha_inicio: '2026-04-15T10:00:00Z', fecha_fin: '2026-04-15T20:00:00Z' };
+
+    it('nada que avisar', () => {
+      expect(textoVehiculoOcupado([])).toBeNull();
+      expect(textoVehiculoOcupado(undefined)).toBeNull();
+    });
+
+    it('otra asignación, con su tramo en hora española', () => {
+      expect(textoVehiculoOcupado([ASIG]))
+        .toBe('Aviso: esa ambulancia ya está en otra asignación (15/04 08:00–15/04 16:00)');
+    });
+
+    it('un trabajo se nombra; sin nombre, por su número', () => {
+      expect(textoVehiculoOcupado([ASIG, TRAB]))
+        .toBe('Aviso: esa ambulancia ya está en otra asignación (15/04 08:00–15/04 16:00) y en el trabajo «Concierto» (15/04 12:00–15/04 22:00)');
+      expect(textoVehiculoOcupado([{ ...TRAB, nombre: null }])).toContain('el trabajo «#8»');
+    });
+
+    it('más de dos: los dos primeros y cuántos más', () => {
+      expect(textoVehiculoOcupado([ASIG, TRAB, ASIG])).toMatch(/ y 1 más$/);
+    });
   });
 });
