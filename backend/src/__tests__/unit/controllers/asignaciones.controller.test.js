@@ -17,6 +17,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 // tests en services/push.service.test.js.
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionNueva:      jest.fn(),
+  avisarCambioVehiculo:       jest.fn(),
   avisarAsignacionActivada:   jest.fn(),
   avisarFotosInicioCompletas: jest.fn(),
   avisarLlegadaEvento:        jest.fn(),
@@ -428,12 +429,18 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    // Las notas no van por COALESCE: tras la marca del aviso y los cuatro
-    // COALESCE, un parámetro es la bandera "vienen notas" y el siguiente el valor.
+    // Las notas no van por COALESCE: tras la marca del aviso, tres COALESCE y
+    // los tres de km_inicio, un parámetro es la bandera "vienen notas" y el
+    // siguiente el valor.
     const paramsNotas = () => {
       const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
       expect(upd[0]).toContain('notas        = IF(?, ?, notas)');
-      return upd[1].slice(5, 7);
+      return upd[1].slice(7, 9);
+    };
+    // [bandera «cambia el vehículo», km si cambia, km si no] de km_inicio.
+    const paramsKm = () => {
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
+      return upd[1].slice(4, 7);
     };
     const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
 
@@ -615,20 +622,103 @@ describe('asignaciones.controller', () => {
 
     // Reasignar el vehículo una vez hay evidencia deja fotos del vehículo
     // viejo "completando" la tanda del nuevo (getProgreso cuenta por
-    // asignación, no por vehículo) — así que el candado va por delante:
-    // solo mientras sigue programada y sin ni una foto subida.
-    it('blocks vehicle_id change once the asignación is activa', async () => {
-      mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
-      query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
+    // asignación, no por vehículo) — así que el candado va por la evidencia,
+    // no por el estado: una activa sin fotos sí se puede cambiar.
+    describe('cambio de vehículo con la asignación activa y sin fotos', () => {
+      const cambiar = async ({ body = { vehicle_id: 2 }, update = [{ affectedRows: 1 }], despues = {} } = {}) => {
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1, km_inicio: 10000, inicio_real_at: new Date() });
+        query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
+        query.mockResolvedValueOnce(update);        // UPDATE
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 2, km_inicio: null,
+          matricula: 'XYZ9876', vehiculo_alias: 'AMB-2', ...despues });
+        query.mockResolvedValue([[]]); // solapes
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
 
-      const req = mockReq({
-        params: { id: '1' },
-        body: { vehicle_id: 2 },
-        user: { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] },
+      it('lo deja cambiar', async () => {
+        const res = await cambiar();
+        expect(res.status).toHaveBeenCalledWith(200);
       });
+
+      it('el UPDATE repite el candado de evidencia para la carrera con la primera foto', async () => {
+        await cambiar();
+        const [sql, params] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+        expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM vehicle_images\s+WHERE asignacion_id = asignaciones_libres\.id\)/);
+        expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM vehicle_incidencias WHERE asignacion_id = asignaciones_libres\.id\)/);
+        expect(params[params.length - 1]).toBe(1);
+      });
+
+      it('si entre medias se subió la primera foto, 409 y no toca los miembros', async () => {
+        const res = await cambiar({
+          body: { vehicle_id: 2, responsables: [2] }, update: [{ affectedRows: 0 }],
+        });
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(query.mock.calls.some(([q]) => /(DELETE FROM|INSERT INTO) asignacion_usuarios/.test(q))).toBe(false);
+        expect(avisos.avisarCambioVehiculo).not.toHaveBeenCalled();
+      });
+
+      it('descarta los km de inicio de la ambulancia anterior', async () => {
+        await cambiar();
+        expect(paramsKm()).toEqual([1, null, null]);
+      });
+
+      it('se queda con los km que vengan en la misma edición', async () => {
+        await cambiar({ body: { vehicle_id: 2, km_inicio: 80500 } });
+        expect(paramsKm()).toEqual([1, 80500, 80500]);
+      });
+
+      it('avisa del cambio a quien ya iba, con la ambulancia anterior', async () => {
+        await cambiar();
+        expect(avisos.avisarCambioVehiculo).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 1, vehiculo_alias: 'AMB-2' }),
+          [2],
+          expect.objectContaining({ anterior: expect.objectContaining({ vehiculo_alias: 'AMB-1' }), cambiadoPor: 1 }),
+        );
+      });
+
+      it('quien entra en la misma edición recibe el «nuevo servicio», no el cambio', async () => {
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
+        query.mockResolvedValueOnce([[{ id: 2 }]]);       // vehicle found
+        query.mockResolvedValueOnce([[{ id: 3 }]]);       // usuariosNoValidos
+        query.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+        query.mockResolvedValueOnce([]); // DELETE asignacion_usuarios
+        query.mockResolvedValueOnce([]); // INSERT asignacion_usuarios
+        query.mockResolvedValueOnce([]); // UPDATE user_id (principal)
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 2,
+          miembros: [{ user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 3, rol: 'personal', orden: 0 }] });
+        query.mockResolvedValue([[]]);
+        await updateAsignacion(mockReq({ params: { id: '1' },
+          body: { vehicle_id: 2, responsables: [2], personal: [3] }, user: ADMIN }), mockRes(), mockNext());
+        expect(avisos.avisarCambioVehiculo).toHaveBeenCalledWith(expect.anything(), [2], expect.anything());
+        expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(expect.anything(), [3], expect.anything());
+      });
+
+      it('sin cambio de vehículo ni avisa ni toca los km', async () => {
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
+        query.mockResolvedValueOnce([[{ id: 1 }]]);
+        query.mockResolvedValueOnce([]);
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1 });
+        query.mockResolvedValue([[]]);
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { vehicle_id: 1 }, user: ADMIN }),
+          mockRes(), mockNext());
+        expect(paramsKm()).toEqual([0, null, null]);
+        expect(avisos.avisarCambioVehiculo).not.toHaveBeenCalled();
+      });
+    });
+
+    it('blocks vehicle_id change on an activa once there is a photo', async () => {
+      mockAsignacionCompleta({
+        estado: 'activa', vehicle_id: 1,
+        evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio' }],
+      });
+      query.mockResolvedValueOnce([[{ id: 2 }]]); // vehicle found
       const res = mockRes();
-      await updateAsignacion(req, res, mockNext());
+      await updateAsignacion(mockReq({ params: { id: '1' }, body: { vehicle_id: 2 }, user: ADMIN }),
+        res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
+      expect(transaction).not.toHaveBeenCalled();
     });
 
     it('blocks vehicle_id change when evidence already exists, even if programada', async () => {

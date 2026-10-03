@@ -7,8 +7,8 @@
  * (`asignaciones.controller.js`), y si cada sitio compusiera su propio texto
  * acabarían diciendo cosas distintas del mismo suceso.
  *
- * Todos van a los administradores salvo `avisarAsignacionNueva`, que va a los
- * miembros a los que se acaba de asignar. Los de administradores excluyen al
+ * Todos van a los administradores salvo `avisarAsignacionNueva` y
+ * `avisarCambioVehiculo`, que van a los miembros de la asignación. Los de administradores excluyen al
  * responsable de la asignación: quien acaba de pulsar el
  * botón no necesita que su propio teléfono le avise de lo que acaba de hacer.
  * También el de «sin iniciar», aunque ahí el responsable sea justo quien no ha
@@ -182,7 +182,7 @@ function avisarAsignacionFinalizada(asig, { km_fin } = {}) {
 
 /**
  * Te han asignado un servicio: a los MIEMBROS de la asignación, no a los
- * admins. Es el único aviso que va hacia el técnico.
+ * admins. Con `avisarCambioVehiculo`, los únicos que van hacia el técnico.
  *
  * `nuevos` son los ids a avisar: todos al crear, y al editar solo los que
  * entran (quien ya iba no tiene nada nuevo que saber). Se reparte por papel
@@ -240,8 +240,35 @@ function componerAsignacionNueva(asig, nuevos, { asignadoPor = null } = {}) {
   return Promise.all(envios);
 }
 
+/**
+ * Gestión ha cambiado la ambulancia de la asignación. El flujo real es que el
+ * técnico llama porque la suya no le vale; este aviso es la confirmación de
+ * que ya está hecho y de cuál es la nueva. Va a los miembros que ya estaban
+ * (`ids`), menos a quien hizo el cambio.
+ *
+ * Mismo tag que el «nuevo servicio»: si el técnico aún tiene ese aviso con la
+ * ambulancia vieja en la bandeja, este lo sustituye en lugar de convivir con él.
+ */
+function avisarCambioVehiculo(asig, ids = [], { anterior = null, cambiadoPor = null } = {}) {
+  try {
+    const avisar = (ids || []).map(Number).filter(id => id !== Number(cambiadoPor));
+    if (!avisar.length) return Promise.resolve(null);
+    const antes = anterior ? ` (antes ${etiquetaVehiculo(anterior)})` : '';
+    return disparar(push.notificarUsuarios(avisar, {
+      titulo: `${etiquetaVehiculo(asig)} · cambio de vehículo`,
+      cuerpo: `Tu asignación pasa a ${etiquetaVehiculo(asig)}${antes}. Las fotos de inicio se hacen a esta.`,
+      url:    '/mis-asignaciones',
+      tag:    `asig-${asig.id}-asignada`,
+    }));
+  } catch (err) {
+    logger.error(`Aviso de cambio de vehículo no enviado: ${err?.message || err}`);
+    return Promise.resolve(null);
+  }
+}
+
 module.exports = {
   avisarAsignacionNueva,
+  avisarCambioVehiculo,
   avisarAsignacionActivada,
   avisarFotosInicioCompletas,
   avisarLlegadaEvento,

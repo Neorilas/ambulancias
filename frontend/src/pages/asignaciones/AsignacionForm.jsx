@@ -10,15 +10,12 @@ import {
   idsElegidos, miembrosIniciales, textoSolapes,
 } from '../../utils/miembrosAsignacion.js';
 
-// El vehículo solo se puede tocar mientras la asignación sigue "programada" y
-// no tiene ni una foto ni una incidencia registrada: en cuanto hay algo de
-// eso, reasignarlo lo deja mal atribuido (el backend corta lo mismo en
+// El vehículo se puede tocar mientras la asignación no tenga ni una foto ni
+// una incidencia registrada, esté programada o ya activa: en cuanto hay algo
+// de eso, reasignarlo lo deja mal atribuido (el backend corta lo mismo en
 // PUT /asignaciones/:id — esto solo evita el viaje al servidor para
 // enterarse).
 function motivoVehiculoBloqueado(asig) {
-  if (asig.estado !== 'programada') {
-    return 'El vehículo solo se puede cambiar mientras la asignación está "programada".';
-  }
   if ((asig.evidencias || []).length) {
     return 'No se puede cambiar el vehículo: ya hay evidencia fotográfica subida.';
   }
@@ -84,6 +81,20 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
     setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
+  // Con otra ambulancia, los km de inicio de la anterior no valen: se vacían
+  // para que no viajen en el PUT (el backend también los descarta). Volver a
+  // la original los recupera.
+  const setVehiculo = e => {
+    const id = e.target.value;
+    setForm(f => ({
+      ...f,
+      vehicle_id: id,
+      km_inicio: !isEdit ? f.km_inicio
+        : Number(id) === asignacion.vehicle_id ? (asignacion.km_inicio ?? '') : '',
+    }));
+    setErrors(prev => ({ ...prev, vehicle_id: '' }));
+  };
+
   const validate = () => {
     const errs = {};
     if (!form.vehicle_id)   errs.vehicle_id   = 'Selecciona un vehículo';
@@ -146,7 +157,8 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
           <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
             Servicio en curso. Puedes cambiar responsables, personal y notas;
             las fotos ya subidas se quedan en la asignación y el nuevo
-            responsable sigue desde donde está.
+            responsable sigue desde donde está. El vehículo solo mientras no
+            haya fotos ni incidencias; al cambiarlo se avisa al equipo.
           </p>
         )}
         {/* Vehículo */}
@@ -155,7 +167,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
           <select
             className={`input ${errors.vehicle_id ? 'input-error' : ''}`}
             value={form.vehicle_id}
-            onChange={set('vehicle_id')}
+            onChange={setVehiculo}
             disabled={isEdit && !!vehiculoBloqueado}
           >
             <option value="">— Seleccionar vehículo —</option>
