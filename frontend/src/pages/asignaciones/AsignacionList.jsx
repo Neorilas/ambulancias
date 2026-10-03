@@ -134,7 +134,7 @@ export default function AsignacionList() {
                     <th>Responsable</th>
                     <th>Inicio</th>
                     <th>Fin</th>
-                    <th>Km inicio</th>
+                    <th>Nº</th>
                     <th>Estado</th>
                     <th className="text-right">Acciones</th>
                   </tr>
@@ -162,7 +162,7 @@ export default function AsignacionList() {
                       </td>
                       <td className="text-sm text-neutral-600 whitespace-nowrap">{formatDateTime(a.fecha_inicio)}</td>
                       <td className="text-sm text-neutral-600 whitespace-nowrap">{formatDateTime(a.fecha_fin)}</td>
-                      <td className="text-sm text-neutral-600">{a.km_inicio != null ? `${a.km_inicio.toLocaleString()} km` : '—'}</td>
+                      <td className="text-sm text-neutral-600 data whitespace-nowrap">#{a.id}</td>
                       <td>
                         <span className={ASIGNACION_ESTADO_COLORS[a.estado] || 'badge-gray'}>
                           {ASIGNACION_ESTADO_LABELS[a.estado] || a.estado}
