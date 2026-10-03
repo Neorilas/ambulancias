@@ -147,6 +147,16 @@ function Lightbox({ foto, fotos, onClose }) {
 }
 
 // ── Tarjeta de trabajo (tab Fotos) ────────────────────────────────────────────
+
+// Clave de cada grupo del historial, la misma que usa `getVehicleHistorial`:
+// las asignaciones no tienen trabajo_id, y con `trabajo_id ?? algo` todas
+// compartían clave. El prefijo evita que el trabajo 5 choque con la asignación 5.
+function claveGrupo(g) {
+  if (g.trabajo_id)    return `t${g.trabajo_id}`;
+  if (g.asignacion_id) return `a${g.asignacion_id}`;
+  return 'sin_asignar';
+}
+
 function TrabajoCard({ trabajo }) {
   const [open, setOpen] = useState(true);
   const [lightboxFoto, setLightboxFoto] = useState(null);
@@ -1433,7 +1443,7 @@ export default function VehicleHistory() {
         ) : (
           <div className="space-y-4">
             {trabajos.map(t => (
-              <TrabajoCard key={t.trabajo_id ?? 'sin_trabajo'} trabajo={t} />
+              <TrabajoCard key={claveGrupo(t)} trabajo={t} />
             ))}
           </div>
         )
