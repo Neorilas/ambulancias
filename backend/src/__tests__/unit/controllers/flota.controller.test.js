@@ -95,7 +95,7 @@ describe('flota.controller · getUbicaciones', () => {
 
   it('una asignación activa sin iniciar se marca como tal', async () => {
     // El cron la puso «activa» al llegar su hora, pero nadie ha pulsado
-    // «Inicio de servicio». En el mapa explica un vehículo asignado que sigue
+    // «Inicio de la asignación». En el mapa explica un vehículo asignado que sigue
     // en la base.
     query.mockResolvedValueOnce([[fila({ asignacion_id: 7, responsable_nombre: 'Ana Ruiz' })]]);
     cartrack.obtenerEstados.mockResolvedValueOnce(estadoOk());

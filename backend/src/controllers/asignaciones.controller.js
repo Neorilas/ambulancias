@@ -47,7 +47,7 @@ async function getProgreso(asignacionId) {
 
 /**
  * Fotos de inicio subidas tarde: más de FOTOS_INICIO_TARDE_MINUTOS después de
- * «Inicio de servicio». Marca cada evidencia de inicio con `retraso_min` (null
+ * «Inicio de la asignación». Marca cada evidencia de inicio con `retraso_min` (null
  * si no hay con qué comparar) y `tardia`, y devuelve el resumen para la
  * asignación, o null si ninguna llega tarde.
  *
@@ -339,7 +339,7 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
  * El criterio 2 parece redundante —el cron activa cada asignación en cuanto
  * llega su `fecha_inicio`, así que lo normal es que una `activa` ya tenga
  * fecha pasada y suba sola— pero NO lo es: `activarAsignacion` no comprueba el
- * reloj. Un responsable que pulsa «Inicio de servicio» antes de la hora deja
+ * reloj. Un responsable que pulsa «Inicio de la asignación» antes de la hora deja
  * una `activa` con `fecha_inicio` futura, y sin este criterio el servicio que
  * está EN CURSO se hundía por debajo de las que aún no han empezado.
  *
@@ -725,7 +725,7 @@ async function activarAsignacion(req, res, next) {
       return forbidden(res, 'Solo un responsable puede iniciar esta asignación');
     }
 
-    // "Inicio de servicio": sella la hora real. Es idempotente y funciona
+    // "Inicio de la asignación": sella la hora real. Es idempotente y funciona
     // aunque el cron ya la haya pasado a 'activa' (inicio_real_at seguiría NULL
     // hasta que el responsable pulse el botón).
     if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
@@ -748,7 +748,7 @@ async function activarAsignacion(req, res, next) {
     }
 
     // Se mira ANTES de tocar la fila: el endpoint es idempotente y pulsar dos
-    // veces «Inicio de servicio» no debe volver a hacer sonar los teléfonos.
+    // veces «Inicio de la asignación» no debe volver a hacer sonar los teléfonos.
     // Si el cron ya la había pasado a 'activa' tampoco se avisa aquí — el
     // aviso lo mandó el cron.
     const yaEstabaActiva = asig.estado === 'activa';
@@ -778,7 +778,7 @@ async function activarAsignacion(req, res, next) {
 // ============================================================
 // POST /asignaciones/:id/llegada
 // ============================================================
-// «Llegada a evento/servicio»: sella la hora real a la que la ambulancia llega al
+// «Inicio evento/servicio»: sella la hora real a la que la ambulancia llega al
 // punto donde se presta el servicio. Entre el inicio (recoger el vehículo y
 // revisarlo) y la llegada va el desplazamiento; sin este sello no hay forma de
 // saber cuándo empezó de verdad el trabajo en el sitio.
@@ -789,7 +789,7 @@ async function registrarLlegada(req, res, next) {
     if (!asig) return notFound(res, 'Asignación');
 
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
-      return forbidden(res, 'Solo un responsable puede registrar la llegada a evento/servicio');
+      return forbidden(res, 'Solo un responsable puede registrar el inicio del evento/servicio');
     }
 
     // Ya sellada: no-op. Se mira antes que el estado para que repetir la
@@ -803,7 +803,7 @@ async function registrarLlegada(req, res, next) {
       return error(res, `No se puede registrar la llegada en una asignación ${asig.estado}`, 400);
     }
     if (asig.estado !== 'activa' || !asig.inicio_real_at) {
-      return error(res, 'Primero hay que pulsar «Inicio de servicio»', 400);
+      return error(res, 'Primero hay que pulsar «Inicio de la asignación»', 400);
     }
     if (!asig.progreso.inicio.completo) {
       return error(
@@ -837,7 +837,7 @@ async function registrarLlegada(req, res, next) {
     }
 
     const updated = await getAsignacionCompleta(asig.id);
-    return success(res, updated, 'Llegada a evento/servicio registrada');
+    return success(res, updated, 'Inicio evento/servicio registrado');
   } catch (err) {
     next(err);
   }
@@ -873,7 +873,7 @@ async function registrarFinServicio(req, res, next) {
     // La llegada ya implica inicio pulsado y fotos de inicio completas
     // (registrarLlegada lo exige), así que basta con mirarla a ella.
     if (asig.estado !== 'activa' || !asig.llegada_servicio_at) {
-      return error(res, 'Primero hay que pulsar «Llegada a evento/servicio»', 400);
+      return error(res, 'Primero hay que pulsar «Inicio evento/servicio»', 400);
     }
 
     const [result] = await query(

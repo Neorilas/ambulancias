@@ -195,7 +195,7 @@ describe('dateUtils', () => {
     });
   });
 
-  describe('inicio de servicio: no antes de media hora', () => {
+  describe('inicio de la asignación: no antes de media hora', () => {
     const INICIO = '2026-09-25T06:00:00.000Z';   // 08:00 en España
 
     it('se puede desde 30 min antes de la hora prevista', () => {

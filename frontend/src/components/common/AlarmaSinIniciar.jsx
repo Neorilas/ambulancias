@@ -3,7 +3,7 @@
  *
  * Alarma SONORA para administradores: un servicio que lleva más de
  * `AVISO_SIN_INICIAR_MINUTOS` (30) pasado de su hora sin que nadie pulse
- * «Inicio de servicio».
+ * «Inicio de la asignación».
  *
  * Complementa al aviso push, no lo sustituye. El push llega con la app
  * cerrada, pero suena UNA vez con el tono que el sistema tenga puesto, que no
@@ -236,7 +236,7 @@ export default function AlarmaSinIniciar() {
             {pendientes.length === 1 ? 'Servicio sin iniciar' : `${pendientes.length} servicios sin iniciar`}
           </h2>
           <p className="text-sm text-bad-50">
-            Ha pasado la hora prevista y nadie ha pulsado «Inicio de servicio».
+            Ha pasado la hora prevista y nadie ha pulsado «Inicio de la asignación».
           </p>
         </div>
 

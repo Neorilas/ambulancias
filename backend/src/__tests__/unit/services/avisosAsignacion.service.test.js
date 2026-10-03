@@ -112,7 +112,7 @@ describe('avisosAsignacion.service', () => {
     it('la llegada dice el vehículo y el responsable', async () => {
       await avisos.avisarLlegadaEvento(ASIGNACION);
       const { titulo, cuerpo, url } = push.notificarAdmins.mock.calls[0][0];
-      expect(titulo).toBe('Alfa 1 · llegada a evento/servicio');
+      expect(titulo).toBe('Alfa 1 · inicio evento/servicio');
       expect(cuerpo).toBe('Juan López ha llegado al evento/servicio.');
       expect(url).toBe('/asignaciones?id=12');
     });
@@ -133,7 +133,7 @@ describe('avisosAsignacion.service', () => {
       const { titulo, cuerpo } = push.notificarAdmins.mock.calls[0][0];
       expect(titulo).toBe('URGENTE · Alfa 1 sin iniciar');
       expect(cuerpo).toBe(
-        'Juan López no ha iniciado el servicio y ya han pasado 30 min de la hora prevista.'
+        'Juan López no ha iniciado la asignación y ya han pasado 30 min de la hora prevista.'
       );
     });
   });

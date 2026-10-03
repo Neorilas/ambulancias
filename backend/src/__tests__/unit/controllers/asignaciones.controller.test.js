@@ -217,7 +217,7 @@ describe('asignaciones.controller', () => {
         return res._json.data;
       }
 
-      it('marca las que llegan más de 30 min después de «Inicio de servicio»', async () => {
+      it('marca las que llegan más de 30 min después de «Inicio de la asignación»', async () => {
         const data = await leer({
           inicio_real_at: INICIO,
           evidencias: [
@@ -254,7 +254,7 @@ describe('asignaciones.controller', () => {
         expect(data.fotos_inicio_tarde).toBeNull();
       });
 
-      it('sin «Inicio de servicio» no hay referencia y no se marca', async () => {
+      it('sin «Inicio de la asignación» no hay referencia y no se marca', async () => {
         const data = await leer({
           inicio_real_at: null,
           evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio', uploaded_at: aLos(500) }],
@@ -955,7 +955,7 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/Llegada a evento\/servicio/);
+      expect(res._json.message).toMatch(/Inicio evento\/servicio/);
       expect(huboUpdate()).toBe(false);
     });
 

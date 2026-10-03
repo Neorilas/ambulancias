@@ -78,8 +78,8 @@ function urlAsignacion(asig) {
 /** La asignación pasa a activa: por el cron al llegar la fecha o por el botón. */
 function avisarAsignacionActivada(asig) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · servicio iniciado`,
-    cuerpo:        `${etiquetaResponsable(asig)} ha iniciado el servicio.`,
+    titulo:        `${etiquetaVehiculo(asig)} · asignación iniciada`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha iniciado la asignación.`,
     url:           urlAsignacion(asig),
     // Un tag por asignación Y evento: así el aviso de inicio no tapa al de
     // fotos completas, y repetir el mismo evento no apila duplicados.
@@ -100,12 +100,12 @@ function avisarFotosInicioCompletas(asig) {
 }
 
 /**
- * «Llegada a evento/servicio»: la ambulancia ya está en el evento. La hora la sella
+ * «Inicio evento/servicio»: la ambulancia ya está en el evento. La hora la sella
  * el botón; aquí solo se cuenta.
  */
 function avisarLlegadaEvento(asig) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · llegada a evento/servicio`,
+    titulo:        `${etiquetaVehiculo(asig)} · inicio evento/servicio`,
     cuerpo:        `${etiquetaResponsable(asig)} ha llegado al evento/servicio.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-llegada`,
@@ -137,7 +137,7 @@ function avisarFinEvento(asig) {
  * mande una sola vez — el cron vuelve a mirar cada minuto.
  *
  * «Iniciada» es `inicio_real_at`, o sea que el responsable haya pulsado
- * «Inicio de servicio». Que el cron la haya puesto en `activa` al llegar la
+ * «Inicio de la asignación». Que el cron la haya puesto en `activa` al llegar la
  * hora no cuenta: eso lo hace el reloj, no una persona, y la asignación
  * activada sola a la que nadie entra es exactamente el caso a vigilar.
  *
@@ -149,7 +149,7 @@ function avisarFinEvento(asig) {
 function avisarAsignacionSinIniciar(asig, { minutos } = {}) {
   return disparar(push.notificarAdmins({
     titulo:        `URGENTE · ${etiquetaVehiculo(asig)} sin iniciar`,
-    cuerpo:        `${etiquetaResponsable(asig)} no ha iniciado el servicio y ya han pasado ${minutos} min de la hora prevista.`,
+    cuerpo:        `${etiquetaResponsable(asig)} no ha iniciado la asignación y ya han pasado ${minutos} min de la hora prevista.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-sin-iniciar`,
     prioridad:     'alta',
@@ -172,8 +172,8 @@ function avisarAsignacionFinalizada(asig, { km_fin } = {}) {
                 && Number.isFinite(Number(km_fin));
   const km = hayKm ? ` · ${Number(km_fin).toLocaleString('es-ES')} km` : '';
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · servicio finalizado`,
-    cuerpo:        `${etiquetaResponsable(asig)} ha finalizado el servicio con fotos${km}.`,
+    titulo:        `${etiquetaVehiculo(asig)} · asignación finalizada`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha finalizado la asignación con fotos${km}.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-finalizada`,
     excluirUserId: asig.user_id,

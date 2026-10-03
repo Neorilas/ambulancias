@@ -172,7 +172,7 @@ export default function AsignacionList() {
                         {a.fotos_inicio_tarde > 0 && (
                           <div className="mt-1">
                             <span className="badge-yellow whitespace-nowrap"
-                                  title="Fotos de inicio subidas tarde respecto al inicio de servicio. En el detalle, cuáles y cuánto">
+                                  title="Fotos de inicio subidas tarde respecto al inicio de la asignación. En el detalle, cuáles y cuánto">
                               Fotos inicio tarde
                             </span>
                           </div>

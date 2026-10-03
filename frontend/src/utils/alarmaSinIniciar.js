@@ -7,7 +7,7 @@
  * alguna que este dispositivo no haya dado por «Enterado». El «Enterado» es
  * POR DISPOSITIVO a propósito: que un administrador la haya visto no quiere
  * decir que el resto se haya enterado, y la alarma se apaga sola para todos
- * en cuanto el técnico pulsa «Inicio de servicio».
+ * en cuanto el técnico pulsa «Inicio de la asignación».
  *
  * La clave de cada alarma lleva la hora del aviso (`aviso_sin_iniciar_at`),
  * no solo el id: si la asignación se aplaza, el backend limpia la marca, y
