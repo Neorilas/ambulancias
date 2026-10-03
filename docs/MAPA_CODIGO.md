@@ -482,6 +482,28 @@ asignación siguió abierta. Además, el «5 / 5» del resumen cuenta las fotos
   reintenta solo: no es idempotente, y un segundo intento daría «ya está
   finalizada».
 
+**Trampa: una foto con el token caducado se cuelga hasta el timeout**
+(2026-10-03, asignaciones 81 y 83; era el «error de tiempo» de los técnicos
+que tardan en hacer las fotos). El access token dura 15 min. Quien pulsa
+«Inicio de la asignación» y tarda más que eso en hacer las fotos sube la
+primera con el token caducado. `authenticate` va antes de multer y contesta 401
+**sin leer el cuerpo**. El log del backend registra ese 401 al instante, pero el
+móvil no lo recibe hasta agotar el timeout de la subida: 30 s antes, y ahora
+120 s más el reintento. Visto en el log de la 83: 401 a las 21:23:10, 401 a
+las 21:25:12, refresco y las cinco fotos en un segundo. Las peticiones sin
+fichero no lo sufren: su 401 llega enseguida. No está claro si el problema es
+Caddy o el navegador, y no hace falta saberlo para arreglarlo. El arreglo está
+en el **interceptor de petición** de `api.js`: si el cuerpo es `FormData` y el
+token caduca en menos de `MARGEN_CADUCIDAD_TOKEN_S` (60 s; `tokenCaducaPronto`
+lee el `exp` del JWT), primero refresca y luego manda la foto con el token
+nuevo. Así vale para todas las pantallas que suben fotos. El refresco es
+**uno a la vez** (`refrescar`, una promesa compartida que también usa el
+refresco por 401 del interceptor de respuesta y que sustituye a la antigua
+`isRefreshing`/`failedQueue`). Si el refresco falla, la foto no sale. Su error
+sin respuesta lo reintenta `conReintentos`, y un 4xx ya ha cerrado la sesión.
+Impersonando no se adelanta nada, porque ese token no tiene refresh. Con el
+reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
+
 ### 3.4 Utils, contextos, hooks
 
 | Fichero | Contenido |
