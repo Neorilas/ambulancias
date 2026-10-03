@@ -107,7 +107,7 @@ export default function UserList() {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  useEffect(() => { setPage(1); }, [busqueda, rolFiltro]);
+  useEffect(() => { setPage(1); }, [busqueda]);
 
   useEffect(() => {
     usersService.listRoles()
@@ -142,7 +142,11 @@ export default function UserList() {
         <div className="flex-1">
           <h1 className="text-[19px] font-semibold text-neutral-900">Usuarios</h1>
           <p className="text-neutral-500 text-sm">
-            {pagination?.total ?? 0} {busqueda || rolFiltro ? 'usuarios encontrados' : 'usuarios registrados'}
+            {pagination?.total ?? 0}{' '}
+            {(pagination?.total ?? 0) === 1 ? 'usuario' : 'usuarios'}{' '}
+            {busqueda || rolFiltro
+              ? ((pagination?.total ?? 0) === 1 ? 'encontrado' : 'encontrados')
+              : ((pagination?.total ?? 0) === 1 ? 'registrado' : 'registrados')}
           </p>
         </div>
         {puedeCrear && (
@@ -156,7 +160,7 @@ export default function UserList() {
       <div className="flex flex-col sm:flex-row gap-2">
         <input
           type="search"
-          className="input flex-1"
+          className="input sm:flex-1"
           placeholder="Buscar por nombre, username, email..."
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -165,7 +169,10 @@ export default function UserList() {
           className="input sm:w-52"
           aria-label="Filtrar por rol"
           value={rolFiltro}
-          onChange={e => setRolFiltro(e.target.value)}
+          // Página y filtro en el mismo render: con el setPage(1) en un efecto
+          // aparte salían dos peticiones (página vieja y página 1) y ganaba la
+          // última en llegar, que podía ser la vacía.
+          onChange={e => { setRolFiltro(e.target.value); setPage(1); }}
         >
           <option value="">Todos los roles</option>
           {rolesFiltro.map(r => <option key={r} value={r}>{labelRol(r)}</option>)}
