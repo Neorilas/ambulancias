@@ -553,6 +553,11 @@ function cambiosAsignacion(antes, despues) {
   return cambios;
 }
 
+// El UPDATE no tocó la fila porque, entre leerla y escribir, apareció la
+// primera foto o incidencia. Se lanza dentro de la transacción para deshacer
+// también los miembros de esa misma edición.
+class VehiculoConEvidencia extends Error {}
+
 async function updateAsignacion(req, res, next) {
   try {
     const asig = await getAsignacionCompleta(req.params.id);
@@ -584,6 +589,7 @@ async function updateAsignacion(req, res, next) {
     }
 
     // Validar solo si se cambian
+    const cambiaVehiculo = !!vehicle_id && Number(vehicle_id) !== asig.vehicle_id;
     if (vehicle_id) {
       const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
       if (!veh.length) return notFound(res, 'Vehículo');
@@ -592,16 +598,12 @@ async function updateAsignacion(req, res, next) {
       // peligroso: tanto getProgreso como crearIncidenciaDesdeAsignacion
       // graban/cuentan por asignación, no por vehículo, así que lo que ya se
       // subió del vehículo anterior seguiría contando —o quedaría mal
-      // atribuido— para el nuevo. Se corta de raíz: solo se puede cambiar
-      // mientras sigue "programada" y no hay ni una foto ni una incidencia
-      // registrada todavía.
-      if (Number(vehicle_id) !== asig.vehicle_id) {
-        if (asig.estado !== 'programada') {
-          return error(res, 'El vehículo solo se puede cambiar mientras la asignación está "programada"', 400);
-        }
-        if (asig.evidencias.length || asig.incidencias.length) {
-          return error(res, 'No se puede cambiar el vehículo: ya hay evidencia o incidencias registradas en esta asignación', 400);
-        }
+      // atribuido— para el nuevo. Lo que se mira es eso, no el estado: una
+      // `activa` sin fotos (el técnico llama porque la ambulancia no le vale)
+      // sí se puede cambiar. El UPDATE de abajo repite la condición para la
+      // carrera con la primera foto.
+      if (cambiaVehiculo && (asig.evidencias.length || asig.incidencias.length)) {
+        return error(res, 'No se puede cambiar el vehículo: ya hay evidencia o incidencias registradas en esta asignación', 400);
       }
     }
     if (cambiaMiembros &&
@@ -615,38 +617,60 @@ async function updateAsignacion(req, res, next) {
       return error(res, `estado inválido. Usa el endpoint /activar o /finalizar`, 400);
     }
 
-    await transaction(async (conn) => {
-      await conn.execute(
-        // La marca del aviso «sin iniciar» se limpia si cambia la hora
-        // prevista: una asignación aplazada tiene que poder volver a avisar
-        // a su nueva hora. Va la PRIMERA porque MySQL aplica el SET de
-        // izquierda a derecha: detrás de `fecha_inicio = …` ya compararía
-        // contra el valor nuevo y nunca vería el cambio.
-        `UPDATE asignaciones_libres SET
-           aviso_sin_iniciar_at = IF(? <> fecha_inicio, NULL, aviso_sin_iniciar_at),
-           vehicle_id   = COALESCE(?, vehicle_id),
-           fecha_inicio = COALESCE(?, fecha_inicio),
-           fecha_fin    = COALESCE(?, fecha_fin),
-           km_inicio    = COALESCE(?, km_inicio),
-           notas        = IF(?, ?, notas),
-           estado       = COALESCE(?, estado)
-         WHERE id = ?`,
-        [
-          fecha_inicio || null,
-          vehicle_id   || null,
-          fecha_inicio || null,
-          fecha_fin    || null,
-          km_inicio    !== undefined ? km_inicio : null,
-          // Las notas no van por COALESCE: vaciarlas (`null` o '') tiene que
-          // borrarlas, y con COALESCE un null conservaba las de antes.
-          notas !== undefined ? 1 : 0,
-          notas !== undefined ? (String(notas ?? '').trim() || null) : null,
-          estado       || null,
-          asig.id,
-        ]
-      );
-      if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
-    });
+    const kmNuevo = km_inicio !== undefined ? km_inicio : null;
+    try {
+      await transaction(async (conn) => {
+        const [resUpd] = await conn.execute(
+          // La marca del aviso «sin iniciar» se limpia si cambia la hora
+          // prevista: una asignación aplazada tiene que poder volver a avisar
+          // a su nueva hora. Va la PRIMERA porque MySQL aplica el SET de
+          // izquierda a derecha: detrás de `fecha_inicio = …` ya compararía
+          // contra el valor nuevo y nunca vería el cambio.
+          //
+          // km_inicio: con otro vehículo, el de antes es de la ambulancia
+          // anterior y no vale ni como referencia del cierre; se queda el que
+          // venga en esta edición o NULL. Sin cambio de vehículo, COALESCE.
+          //
+          // El WHERE repite el candado del vehículo: entre leer la asignación
+          // y este UPDATE el técnico puede haber subido la primera foto.
+          `UPDATE asignaciones_libres SET
+             aviso_sin_iniciar_at = IF(? <> fecha_inicio, NULL, aviso_sin_iniciar_at),
+             vehicle_id   = COALESCE(?, vehicle_id),
+             fecha_inicio = COALESCE(?, fecha_inicio),
+             fecha_fin    = COALESCE(?, fecha_fin),
+             km_inicio    = IF(?, ?, COALESCE(?, km_inicio)),
+             notas        = IF(?, ?, notas),
+             estado       = COALESCE(?, estado)
+           WHERE id = ?
+             AND (? = 0 OR (
+                   estado IN ('programada', 'activa')
+               AND NOT EXISTS (SELECT 1 FROM vehicle_images     WHERE asignacion_id = asignaciones_libres.id)
+               AND NOT EXISTS (SELECT 1 FROM vehicle_incidencias WHERE asignacion_id = asignaciones_libres.id)))`,
+          [
+            fecha_inicio || null,
+            vehicle_id   || null,
+            fecha_inicio || null,
+            fecha_fin    || null,
+            cambiaVehiculo ? 1 : 0, kmNuevo, kmNuevo,
+            // Las notas no van por COALESCE: vaciarlas (`null` o '') tiene que
+            // borrarlas, y con COALESCE un null conservaba las de antes.
+            notas !== undefined ? 1 : 0,
+            notas !== undefined ? (String(notas ?? '').trim() || null) : null,
+            estado       || null,
+            asig.id,
+            cambiaVehiculo ? 1 : 0,
+          ]
+        );
+        // Lanzar deshace también el cambio de miembros de esta misma edición.
+        if (cambiaVehiculo && resUpd && resUpd.affectedRows === 0) throw new VehiculoConEvidencia();
+        if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
+      });
+    } catch (err) {
+      if (err instanceof VehiculoConEvidencia) {
+        return error(res, 'No se puede cambiar el vehículo: se acaba de subir evidencia en esta asignación', 409);
+      }
+      throw err;
+    }
 
     const updated = await getAsignacionCompleta(asig.id);
     const solapes = await buscarSolapes(
@@ -670,11 +694,22 @@ async function updateAsignacion(req, res, next) {
     // Aviso de «nuevo servicio» solo a quien ENTRA en la asignación: quien ya
     // iba no tiene nada nuevo que saber. Pasar de personal a responsable no
     // cuenta como entrar. Una edición que la cancela no avisa a nadie.
+    const antes = new Set([...actualesResp, ...actualesPers]);
     if (cambiaMiembros && updated.estado !== 'cancelada') {
-      const antes = new Set([...actualesResp, ...actualesPers]);
       const entran = [...updated.responsables, ...updated.personal]
         .map(m => m.id).filter(id => !antes.has(id));
       if (entran.length) avisos.avisarAsignacionNueva(updated, entran, { asignadoPor: req.user.id });
+    }
+
+    // Cambio de vehículo: a quien YA iba (quien entra ahora recibe el «nuevo
+    // servicio», que ya nombra la ambulancia nueva). Es la confirmación de la
+    // llamada del técnico: hasta que le suena no sabe que puede ir a por la otra.
+    if (cambiaVehiculo && updated.estado !== 'cancelada') {
+      const seguian = [...updated.responsables, ...updated.personal]
+        .map(m => m.id).filter(id => antes.has(id));
+      if (seguian.length) {
+        avisos.avisarCambioVehiculo(updated, seguian, { anterior: asig, cambiadoPor: req.user.id });
+      }
     }
     return success(res, { ...updated, solapes }, 'Asignación actualizada');
   } catch (err) {

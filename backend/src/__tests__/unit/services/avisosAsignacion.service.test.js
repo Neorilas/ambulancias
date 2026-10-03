@@ -230,4 +230,40 @@ describe('avisosAsignacion.service', () => {
       await expect(avisos.avisarAsignacionNueva(EQUIPO, [7])).resolves.toBeDefined();
     });
   });
+
+  // ── Cambio de vehículo: confirma al equipo la llamada del técnico ─────
+  describe('avisarCambioVehiculo', () => {
+    const NUEVA    = { ...ASIGNACION, vehiculo_alias: 'Alfa 2', matricula: '1111AAA' };
+    const ANTERIOR = { ...ASIGNACION };
+
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1, borrados: 0, fallidos: 0 });
+    });
+
+    it('a los miembros, nombrando la nueva y la anterior, con el tag del «nuevo servicio»', async () => {
+      await avisos.avisarCambioVehiculo(NUEVA, [7, 9], { anterior: ANTERIOR, cambiadoPor: 1 });
+      expect(push.notificarAdmins).not.toHaveBeenCalled();
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([7, 9], {
+        titulo: 'Alfa 2 · cambio de vehículo',
+        cuerpo: 'Tu asignación pasa a Alfa 2 (antes Alfa 1). Las fotos de inicio se hacen a esta.',
+        url:    '/mis-asignaciones',
+        // El mismo tag sustituye en la bandeja el «nuevo servicio» con la ambulancia vieja.
+        tag:    'asig-12-asignada',
+      });
+    });
+
+    it('no avisa a quien hizo el cambio; si no queda nadie, no llama', async () => {
+      await avisos.avisarCambioVehiculo(NUEVA, [7, 9], { cambiadoPor: 7 });
+      expect(push.notificarUsuarios.mock.calls[0][0]).toEqual([9]);
+      push.notificarUsuarios.mockClear();
+      await avisos.avisarCambioVehiculo(NUEVA, [7], { cambiadoPor: 7 });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+    });
+
+    it('un fallo del servicio de push no se propaga', async () => {
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarCambioVehiculo(NUEVA, [7])).resolves.toBeDefined();
+    });
+  });
 });

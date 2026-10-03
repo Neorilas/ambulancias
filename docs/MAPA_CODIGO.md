@@ -142,8 +142,8 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) |
-| Aviso de «nuevo servicio» | El único que va al TÉCNICO, no a gestión (desde 2026-09-25). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») |
+| Aviso de «nuevo servicio» | Va al TÉCNICO, no a gestión (desde 2026-09-25; el de cambio de vehículo también). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
 | Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de la asignación»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
 | Alarma sonora en la app | `components/common/AlarmaSinIniciar.jsx`, montado en `Layout`, solo con `MANAGE_TRABAJOS`. Existe porque el push suena UNA vez y con el tono del sistema, que no se puede elegir: con la app abierta (móvil en primer plano u ordenador de la oficina) esto hace sonar un **«ding-dong» suave con Web Audio: 3 campanadas en 6 s y silencio** (más una vibración corta en Android); el diálogo se queda en pantalla, callado, hasta «Enterado», y solo vuelve a sonar si aparece una alarma nueva. Antes era una sirena en bucle hasta «Enterado»; se cambió porque una ventana olvidada en segundo plano sonaba sin fin sin que nadie viera el botón. «Enterado» se propaga a las otras ventanas del mismo dispositivo (evento `storage`) y cierra la notificación del sistema de esas asignaciones. Pregunta a `GET /asignaciones/alarmas` cada 30 s, al volver a la pestaña y cuando el SW le reenvía un push (`postMessage` `AVISO_PUSH`). Usa **la misma marca** `aviso_sin_iniciar_at` que el push: suena lo que ya se avisó, y se apaga sola al pulsar el técnico «Inicio de la asignación». «Enterado» es **por dispositivo** (localStorage, `utils/alarmaSinIniciar.js`), con clave `id@aviso_sin_iniciar_at` para que una asignación aplazada que vuelve a vencer suene de nuevo. Trampa: **autoplay** — el navegador no deja sonar nada sin un toque previo en la página; el contexto de audio se desbloquea con el primer `pointerdown`/`keydown` y, si la alarma salta antes, se pinta «Activar sonido». Con la app en segundo plano en el móvil no suena: ahí solo queda el push |
 | Aplazar tras el aviso | `updateAsignacion` limpia `aviso_sin_iniciar_at` si cambia `fecha_inicio`, para que vuelva a avisar a la nueva hora. La asignación del SET va **la primera**: MySQL aplica el SET de izquierda a derecha y detrás de `fecha_inicio = …` compararía con el valor ya nuevo |
@@ -917,8 +917,8 @@ responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 que crear/borrar). **Vale también con el servicio en curso y las fotos de
 inicio ya subidas**: cambiar quién va no toca la evidencia — las fotos cuelgan
 de `asignacion_id`, no de quien las subió, así que el nuevo responsable sigue
-desde donde está (fotos de fin y cierre). Solo el vehículo queda bloqueado
-(abajo). Se edita desde el «Editar» del listado (`AsignacionList`) **y** desde
+desde donde está (fotos de fin y cierre). El vehículo, en cambio, se bloquea
+en cuanto hay fotos o incidencias (abajo). Se edita desde el «Editar» del listado (`AsignacionList`) **y** desde
 la cabecera de `AsignacionDetalle` (solo `manage_trabajos`, no en
 finalizada/cancelada); los dos abren el mismo `AsignacionForm`, que en una
 `activa` avisa de lo anterior.
@@ -930,24 +930,45 @@ con `IF(?, ?, notas)`: bandera «vienen notas» (`notas !== undefined`) y valor
 recortado (vacío → `NULL`). El resto de campos sigue con `COALESCE`; si otro
 campo necesita poder vaciarse, hay que sacarlo igual.
 
-**El vehículo, en cambio, solo se puede reasignar si la asignación sigue
-`programada` y no tiene ni una foto subida.** La trampa: `getProgreso`
+**El vehículo solo se puede reasignar mientras la asignación no tenga ni una
+foto ni una incidencia, esté `programada` o ya `activa` (desde 2026-10-03;
+antes solo en `programada`).** El caso real: el técnico llega a por la
+ambulancia, no le vale y **llama por teléfono**; gestión la cambia desde
+«Editar» y al técnico le llega el aviso. La trampa que manda: `getProgreso`
 (§2.2) cuenta las evidencias por `asignacion_id`, no por vehículo, así que si
 se permitiera reasignar con fotos ya subidas, las del vehículo anterior
 seguirían dando por completada la tanda del nuevo sin haberlo fotografiado
 nunca — se podría cerrar el servicio sin evidencia real, que es justo lo que
-el producto existe para garantizar. Y no basta con mirar el estado: nada
-impide subir la foto de "inicio" con la asignación todavía `programada` (ni
-`uploadEvidencia` ni el aviso "Subir ahora" del detalle exigen `activa`), así
-que el candado comprueba **las dos cosas** — `updateAsignacion` corta el
-cambio de `vehicle_id` si `estado !== 'programada'` o si ya hay
-`evidencias`/`incidencias`. Se incluyen las incidencias porque
-`crearIncidenciaDesdeAsignacion` tiene la misma trampa: graba
-`vehicle_id = asig.vehicle_id` sin exigir `activa` y sin volver a tocarlo si
-luego se reasigna el vehículo — es el mismo bug que las fotos, pero en
-`vehicle_incidencias`. `AsignacionForm` repite la misma comprobación
+el producto existe para garantizar. Por eso el candado va por la
+**evidencia**, no por el estado (nada impide subir la foto de "inicio" con la
+asignación todavía `programada`, así que el estado nunca fue la señal buena).
+Se incluyen las incidencias porque `crearIncidenciaDesdeAsignacion` tiene la
+misma trampa: graba `vehicle_id = asig.vehicle_id` y no lo vuelve a tocar si
+luego se reasigna. `AsignacionForm` repite la comprobación
 (`motivoVehiculoBloqueado`) solo para no hacer el viaje al servidor; quien
 manda es el backend.
+
+Lo que arrastra el cambio de vehículo (`updateAsignacion`):
+- **Carrera con la primera foto.** En una `activa` el técnico puede estar
+  subiendo la primera foto justo mientras gestión guarda. El `UPDATE` repite
+  el candado en el `WHERE` (`NOT EXISTS` sobre `vehicle_images` y
+  `vehicle_incidencias`, solo si cambia el vehículo); si no toca la fila,
+  lanza `VehiculoConEvidencia` dentro de la transacción (deshace también los
+  miembros de esa edición) y contesta **409**.
+- **`km_inicio` se descarta**: los de la ambulancia anterior no valen ni como
+  referencia del cierre (`finalizarAsignacion` compara `km_fin` con ellos). Se
+  queda el que venga en esa misma edición o `NULL` (`IF(cambia, ?, COALESCE…)`).
+  El formulario vacía el campo al elegir otra ambulancia y lo recupera si se
+  vuelve a la original.
+- **Aviso `avisarCambioVehiculo`** a los miembros que ya iban, menos a quien
+  edita; quien entra en la misma edición recibe el «nuevo servicio», que ya
+  nombra la ambulancia nueva. Lleva el **mismo tag** que el «nuevo servicio»
+  (`asig-<id>-asignada`) para sustituir en la bandeja el aviso con la
+  ambulancia vieja.
+- `inicio_real_at` no se toca: es cuándo empezó la asignación, no con qué
+  vehículo. La auditoría ya recoge `vehiculo` antes/después.
+- **No hay control de que la ambulancia nueva esté libre**: `buscarSolapes`
+  mira personas, no vehículos (pasaba igual al crear).
 
 **El kilometraje no retrocede al cerrar un servicio.** `finalizarAsignacion`
 rechaza (400) un `km_fin` menor que `vehicles.kilometros_actuales` del momento
@@ -1187,6 +1208,7 @@ solo actúa en el navegador no es un control de acceso.
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `/mis-asignaciones`, nunca `/asignaciones` |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
+| Cuándo se puede cambiar el vehículo de una asignación | `updateAsignacion`: candado previo **y** el `WHERE` del `UPDATE` (carrera → 409) → `motivoVehiculoBloqueado` en `AsignacionForm` → `avisarCambioVehiculo`. Las tres a la vez, o el formulario y el backend dicen cosas distintas (§6.1) |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas). **Al elegir de la lista, el globo se abre en `moveend`, nunca a la vez que el `setView`**: el autoPan del popup para la animación a medio camino y el vehículo quedaba en una esquina en vez de centrado (2026-09-27; medido en 800×400: esquina (726,131) antes, centro (400,200) después). Y `stop()` antes del `setView`: con dos clics seguidos, el segundo llegaba con el zoom del primero aún animando, Leaflet lo ignoraba y el elegido quedaba fuera de la vista, abajo a la izquierda |
