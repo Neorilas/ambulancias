@@ -19,6 +19,27 @@ function notFound(req, res) {
 }
 
 /**
+ * Graba un 5xx en error_logs para el panel del superadmin. La usa
+ * errorHandler y también los controladores que contestan ellos mismos un 500
+ * en vez de pasar el error con next(err) (informes, backups): sin esto, esos
+ * fallos solo salían en el log del contenedor.
+ */
+function registrarErrorServidor(req, err, status = 500) {
+  const { logError } = require('../controllers/admin.controller');
+  logError({
+    method:       req.method,
+    url:          req.originalUrl,
+    statusCode:   status,
+    errorMessage: err?.message || String(err),
+    stackTrace:   err?.stack,
+    userId:       req.user?.id || null,
+    userInfo:     req.user ? `${req.user.username} (${req.user.nombre})` : null,
+    ip:           req.ip || req.socket?.remoteAddress,
+    userAgent:    req.get?.('user-agent') || null,
+  });
+}
+
+/**
  * Manejador global de errores
  */
 function errorHandler(err, req, res, _next) {
@@ -64,20 +85,7 @@ function errorHandler(err, req, res, _next) {
 
   const status = err.status || err.statusCode || 500;
 
-  // Loguear 5xx en BD para que el superadmin pueda verlos
-  if (status >= 500) {
-    const { logError } = require('../controllers/admin.controller');
-    logError({
-      method:       req.method,
-      url:          req.originalUrl,
-      statusCode:   status,
-      errorMessage: err.message,
-      stackTrace:   err.stack,
-      userId:       req.user?.id || null,
-      userInfo:     req.user ? `${req.user.username} (${req.user.nombre})` : null,
-      ip:           req.ip || req.socket?.remoteAddress,
-    });
-  }
+  if (status >= 500) registrarErrorServidor(req, err, status);
 
   res.status(status).json({
     success: false,
@@ -88,4 +96,4 @@ function errorHandler(err, req, res, _next) {
   });
 }
 
-module.exports = { notFound, errorHandler };
+module.exports = { notFound, errorHandler, registrarErrorServidor };

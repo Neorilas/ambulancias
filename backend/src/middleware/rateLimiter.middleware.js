@@ -178,6 +178,22 @@ const pushLimiter = rateLimit({
 });
 
 /**
+ * POST /errores-cliente — errores que manda la app (cola local, en lotes).
+ *
+ * Por usuario. Cada petición lleva hasta 20 errores y la cola del móvil
+ * guarda 30: con 4 por minuto vacía la cola de sobra al recuperar la red, y
+ * una app en bucle de errores no pasa de 80 filas por minuto.
+ */
+const erroresClienteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max:      4,
+  keyGenerator: (req) => `errcli:${claveCliente(req)}`,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { success: false, message: 'Demasiados informes de error seguidos.' },
+});
+
+/**
  * POST /csp-report — informes de la CSP del frontend.
  *
  * Los manda el navegador solo, sin token, así que cuentan por IP. Va con cupo
@@ -196,4 +212,4 @@ const cspReportLimiter = rateLimit({
   handler: (_req, res) => res.status(204).end(),
 });
 
-module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, cspReportLimiter, claveCliente };
+module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, cspReportLimiter, erroresClienteLimiter, claveCliente };

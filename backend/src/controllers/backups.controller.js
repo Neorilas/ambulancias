@@ -22,6 +22,7 @@ const { BACKUPS_DIR } = require('../config/constants');
 const { success, error, notFound, forbidden } = require('../utils/response.utils');
 const logger = require('../utils/logger.utils');
 const { logAudit } = require('./admin.controller');
+const { registrarErrorServidor } = require('../middleware/error.middleware');
 
 // Lo que escribe backup-ambulancia.sh: <stack>_AAAAMMDD_HHMMSS.sql.gz
 const PATRON_DUMP = /^[a-z0-9-]+_\d{8}_\d{6}\.sql\.gz$/;
@@ -81,6 +82,7 @@ async function downloadBackup(req, res, next) {
       fd = await fs.promises.open(ruta, 'r');
     } catch (err) {
       logger.error(`Backups: no se puede abrir ${nombre}: ${err.code || err.message}`);
+      registrarErrorServidor(req, err);
       return error(res, 'El servidor no puede leer ese backup (permisos). Ver docs/BACKUPS.md §9.', 500);
     }
 

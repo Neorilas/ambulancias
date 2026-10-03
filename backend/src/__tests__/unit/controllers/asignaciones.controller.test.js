@@ -48,10 +48,17 @@ function progresoCompletoRows() {
 // Helper: mock getAsignacionCompleta (main + miembros + evidencias + incidencias + getProgreso)
 // `miembros` (opcional) son las filas de asignacion_usuarios; por defecto el
 // user_id de la asignación como único responsable, que es lo que deja v23.
+//
+// Las fechas por defecto salen de un instante FIJO: con new Date() en cada
+// llamada, la asignación «antes» y la «después» de un update diferían en un
+// milisegundo de vez en cuando, updateAsignacion veía que cambiaban las fechas
+// y hacía una consulta más (buscarVehiculoOcupado) que no tenía mock. El test
+// fallaba 2 de cada 3 veces sin que nada estuviera roto.
+const INSTANTE_MOCK = Date.now();
 function mockAsignacionCompleta({ miembros, evidencias, incidencias, ...overrides } = {}) {
   const base = {
     id: 1, vehicle_id: 1, user_id: 2, estado: 'activa',
-    fecha_inicio: new Date(), fecha_fin: new Date(Date.now() + 86400000),
+    fecha_inicio: new Date(INSTANTE_MOCK), fecha_fin: new Date(INSTANTE_MOCK + 86400000),
     km_inicio: 10000, km_fin: null,
     matricula: 'ABC1234', vehiculo_alias: 'AMB-1',
     responsable_nombre: 'Tec User', responsable_username: 'tec',

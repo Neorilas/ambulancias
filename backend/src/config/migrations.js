@@ -1028,6 +1028,34 @@ const MIGRATIONS = [
              AFTER llegada_servicio_at`);
     },
   },
+  {
+    name: 'v30_errores_cliente',
+    description: 'error_logs recoge también los errores de la app (red, timeout, JS): origen, user_agent, ocurrido_at',
+    async run() {
+      // Hasta aquí error_logs solo recibía los 5xx que pasan por errorHandler,
+      // y en producción llevaba meses vacía: lo que ven los técnicos (subidas
+      // que agotan el timeout, un 502 durante un deploy, un fallo de JS) no
+      // llega nunca a Express. Esos los manda ahora la propia app.
+      await ensureColumn('error_logs', 'origen',
+        `ALTER TABLE error_logs
+           ADD COLUMN origen ENUM('servidor','cliente') NOT NULL DEFAULT 'servidor'
+             COMMENT 'servidor = 5xx de Express; cliente = lo que reporta la app'
+             AFTER id`);
+      await ensureColumn('error_logs', 'user_agent',
+        `ALTER TABLE error_logs
+           ADD COLUMN user_agent VARCHAR(500) NULL DEFAULT NULL AFTER ip_address`);
+      // El error de un móvil sin cobertura se manda cuando vuelve la red, a
+      // veces horas después: created_at es la llegada, esto lo que dijo el
+      // reloj del móvil (acotado en el controlador, no es de fiar).
+      await ensureColumn('error_logs', 'ocurrido_at',
+        `ALTER TABLE error_logs
+           ADD COLUMN ocurrido_at DATETIME NULL DEFAULT NULL
+             COMMENT 'Instante del error según el dispositivo (UTC); NULL en los del servidor'
+             AFTER user_agent`);
+      await ensureIndex('error_logs', 'idx_origen',
+        `ALTER TABLE error_logs ADD INDEX idx_origen (origen)`);
+    },
+  },
 ];
 
 // ============================================================

@@ -40,10 +40,11 @@ router.get('/audit',
   ctrl.listAuditLogs
 );
 
-// GET /admin/errors?page=&desde=&hasta=
+// GET /admin/errors?page=&desde=&hasta=&origen=servidor|cliente
 router.get('/errors',
   [
     queryParam('page').optional().isInt({ min: 1 }),
+    queryParam('origen').optional().isIn(['servidor', 'cliente']),
     queryParam('limit').optional().isInt({ min: 1, max: 200 }),
     queryParam('desde').optional().isISO8601(),
     queryParam('hasta').optional().isISO8601(),

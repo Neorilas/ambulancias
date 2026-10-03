@@ -42,16 +42,28 @@ async function logAudit({ userId, userInfo, action, entityType = null, entityId 
 }
 
 // ── Helper: log de error ───────────────────────────────────────────────────────
-async function logError({ method, url, statusCode, errorMessage, stackTrace, userId, userInfo, ip }) {
+// `origen` = 'servidor' para los 5xx de errorHandler; 'cliente' para lo que
+// manda la app (erroresCliente.controller). No lanza nunca (devuelve si ha
+// grabado), pero un fallo al
+// grabar sí sale en el log: si no, el panel se queda vacío sin que nadie sepa
+// por qué. Los textos se recortan a 16000 caracteres: TEXT son 65535 BYTES y
+// en utf8mb4 un carácter puede ocupar 4 (el recorte anterior, a 65535
+// caracteres, dejaba pasar textos que MySQL rechaza en modo estricto).
+async function logError({ method, url, statusCode, errorMessage, stackTrace, userId, userInfo, ip,
+  origen = 'servidor', userAgent = null, ocurridoAt = null }) {
   try {
     await query(
-      `INSERT INTO error_logs (method, url, status_code, error_message, stack_trace, user_id, user_info, ip_address)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [method, url?.substring(0, 1000), statusCode, errorMessage?.substring(0, 65535),
-       stackTrace?.substring(0, 65535), userId || null, userInfo || null, ip]
+      `INSERT INTO error_logs (origen, method, url, status_code, error_message, stack_trace, user_id, user_info, ip_address, user_agent, ocurrido_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [origen, method || null, url?.substring(0, 1000) || null, statusCode || null,
+       errorMessage?.substring(0, 16000) || null, stackTrace?.substring(0, 16000) || null,
+       userId || null, userInfo || null, ip || null, userAgent?.substring(0, 500) || null,
+       ocurridoAt, new Date()]
     );
-  } catch {
-    // Ignorar silenciosamente
+    return true;
+  } catch (err) {
+    console.error('[ERROR_LOG] No se pudo guardar en error_logs:', err.message);
+    return false;
   }
 }
 
@@ -95,7 +107,7 @@ async function listAuditLogs(req, res, next) {
 }
 
 // ============================================================
-// GET /admin/errors  — log de errores del servidor
+// GET /admin/errors  — errores del servidor (5xx) y de la app (?origen=)
 // ============================================================
 async function listErrorLogs(req, res, next) {
   try {
@@ -108,8 +120,11 @@ async function listErrorLogs(req, res, next) {
     let where  = 'WHERE 1=1';
     const params = [];
 
-    if (desde) { where += ' AND created_at >= ?';    params.push(desde); }
-    if (hasta) { where += ' AND created_at <= ?';    params.push(hasta + ' 23:59:59'); }
+    const origen = ['servidor', 'cliente'].includes(req.query.origen) ? req.query.origen : null;
+
+    if (desde)  { where += ' AND created_at >= ?';    params.push(desde); }
+    if (hasta)  { where += ' AND created_at <= ?';    params.push(hasta + ' 23:59:59'); }
+    if (origen) { where += ' AND origen = ?';         params.push(origen); }
 
     const [countRows] = await query(
       `SELECT COUNT(*) AS total FROM error_logs ${where}`, params
@@ -117,9 +132,10 @@ async function listErrorLogs(req, res, next) {
     const total = countRows[0].total;
 
     const [rows] = await query(
-      `SELECT id, method, url, status_code, error_message, user_id, user_info, ip_address, created_at
+      `SELECT id, origen, method, url, status_code, error_message, stack_trace,
+              user_id, user_info, ip_address, user_agent, ocurrido_at, created_at
        FROM error_logs ${where}
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

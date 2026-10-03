@@ -120,7 +120,29 @@ describe('admin.controller', () => {
 
     it('does not throw on DB error', async () => {
       query.mockRejectedValueOnce(new Error('DB down'));
-      await expect(logError({ method: 'GET', statusCode: 500, ip: '1.1.1.1' })).resolves.not.toThrow();
+      await expect(logError({ method: 'GET', statusCode: 500, ip: '1.1.1.1' })).resolves.toBe(false);
+    });
+
+    it('devuelve true si ha grabado', async () => {
+      query.mockResolvedValueOnce([]);
+      await expect(logError({ method: 'GET', statusCode: 500 })).resolves.toBe(true);
+    });
+
+    it('por defecto es de origen servidor y pone created_at desde Node', async () => {
+      query.mockResolvedValueOnce([]);
+      await logError({ method: 'GET', url: '/x', statusCode: 500, errorMessage: 'm' });
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).not.toMatch(/NOW\(\)/);
+      expect(params[0]).toBe('servidor');
+      expect(params[params.length - 1]).toBeInstanceOf(Date);
+    });
+
+    it('recorta los textos a 16000 caracteres (TEXT son bytes, utf8mb4 hasta 4 por carácter)', async () => {
+      query.mockResolvedValueOnce([]);
+      await logError({ errorMessage: 'ñ'.repeat(30000), stackTrace: 'x'.repeat(30000) });
+      const params = query.mock.calls[0][1];
+      expect(params[4]).toHaveLength(16000);
+      expect(params[5]).toHaveLength(16000);
     });
   });
 
@@ -158,6 +180,20 @@ describe('admin.controller', () => {
       const res = mockRes();
       await listErrorLogs(mockReq({ query: {} }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+      // El panel tiene «Ver stack trace»: sin la columna no había nada que ver.
+      expect(query.mock.calls[1][0]).toContain('stack_trace');
+    });
+
+    it('filtra por origen, y descarta un origen desconocido', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]).mockResolvedValueOnce([[]]);
+      await listErrorLogs(mockReq({ query: { origen: 'cliente' } }), mockRes(), mockNext());
+      expect(query.mock.calls[0][0]).toContain('origen = ?');
+      expect(query.mock.calls[0][1]).toEqual(['cliente']);
+
+      query.mockReset();
+      query.mockResolvedValueOnce([[{ total: 0 }]]).mockResolvedValueOnce([[]]);
+      await listErrorLogs(mockReq({ query: { origen: 'x' } }), mockRes(), mockNext());
+      expect(query.mock.calls[0][0]).not.toContain('origen');
     });
   });
 

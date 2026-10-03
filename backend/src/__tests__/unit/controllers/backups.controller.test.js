@@ -16,7 +16,7 @@ const { PassThrough } = require('stream');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'backups-test-'));
 process.env.BACKUPS_DIR = DIR;
 
-jest.mock('../../../controllers/admin.controller', () => ({ logAudit: jest.fn() }));
+jest.mock('../../../controllers/admin.controller', () => ({ logAudit: jest.fn(), logError: jest.fn() }));
 
 const { logAudit } = require('../../../controllers/admin.controller');
 const { listBackups, downloadBackup } = require('../../../controllers/backups.controller');

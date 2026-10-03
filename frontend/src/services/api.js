@@ -9,6 +9,7 @@ import { vaciarCachesDeSesion } from '../utils/cachesSesion.js';
 import {
   impersonacionActiva, restaurarSesionPropia, recargarComoOtraIdentidad, descartarSesionApartada,
 } from '../utils/impersonacion.js';
+import { reportarErrorDePeticion } from '../utils/reporteErrores.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -169,6 +170,9 @@ api.interceptors.response.use(
       return api(originalRequest);
     }
 
+    // Sin respuesta o 502/503/504: el backend no lo ha visto, así que no está
+    // en error_logs. Lo manda la app (utils/reporteErrores.js).
+    reportarErrorDePeticion(error);
     return Promise.reject(error);
   }
 );
