@@ -64,7 +64,9 @@ function normalizar(e, ahoraMs) {
 
   return {
     method:       metodo,
-    url:          texto(e.url, 1000) || pagina,
+    // Sin query ni fragmento también aquí: la app ya la quita, pero una app
+    // modificada podría colar un token en la URL.
+    url:          texto(e.url, 1000)?.split(/[?#]/)[0] || pagina,
     statusCode:   status,
     errorMessage: `[${tipo}] ${mensaje}`,
     stackTrace:   detalle || null,
@@ -81,11 +83,12 @@ async function recibirErrores(req, res, next) {
       ? `${req.user.username} (vía ${req.user.impersonadoPor.username})`
       : `${req.user.username} (${req.user.nombre})`;
 
-    let guardados = 0;
+    let validos = 0, guardados = 0;
     for (const bruto of lote) {
       const e = normalizar(bruto, ahoraMs);
       if (!e) continue;
-      await logError({
+      validos++;
+      const ok = await logError({
         ...e,
         origen:    'cliente',
         userId:    req.user.id,
@@ -93,10 +96,14 @@ async function recibirErrores(req, res, next) {
         ip:        req.ip || req.socket?.remoteAddress,
         userAgent: req.get('user-agent') || null,
       });
-      guardados++;
+      if (ok) guardados++;
     }
-    // 202 siempre que el cuerpo sea un lote: lo descartado no se reintenta
-    // (la app vaciaría la cola igual), así que no hay nada que contestarle.
+    // Si había algo que guardar y no se ha guardado nada, la BD ha fallado:
+    // 503 para que la app conserve la cola y lo reintente. Lo inválido, en
+    // cambio, se descarta y se contesta 202 (reintentarlo no lo arreglaría).
+    if (validos > 0 && guardados === 0) {
+      return res.status(503).json({ success: false, message: 'No se pudieron guardar los errores' });
+    }
     return res.status(202).json({ success: true, data: { recibidos: lote.length, guardados } });
   } catch (err) { next(err); }
 }

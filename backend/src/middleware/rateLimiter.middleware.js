@@ -180,13 +180,13 @@ const pushLimiter = rateLimit({
 /**
  * POST /errores-cliente — errores que manda la app (cola local, en lotes).
  *
- * Por usuario. Cada petición lleva hasta 20 errores, así que 10 por minuto
- * son 200 filas: de sobra para un móvil que recupera la red con la cola llena
- * y techo para una app que entre en bucle de errores y llene error_logs.
+ * Por usuario. Cada petición lleva hasta 20 errores y la cola del móvil
+ * guarda 30: con 4 por minuto vacía la cola de sobra al recuperar la red, y
+ * una app en bucle de errores no pasa de 80 filas por minuto.
  */
 const erroresClienteLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max:      10,
+  max:      4,
   keyGenerator: (req) => `errcli:${claveCliente(req)}`,
   standardHeaders: true,
   legacyHeaders:   false,

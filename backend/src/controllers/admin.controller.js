@@ -43,7 +43,8 @@ async function logAudit({ userId, userInfo, action, entityType = null, entityId 
 
 // ── Helper: log de error ───────────────────────────────────────────────────────
 // `origen` = 'servidor' para los 5xx de errorHandler; 'cliente' para lo que
-// manda la app (erroresCliente.controller). No lanza nunca, pero un fallo al
+// manda la app (erroresCliente.controller). No lanza nunca (devuelve si ha
+// grabado), pero un fallo al
 // grabar sí sale en el log: si no, el panel se queda vacío sin que nadie sepa
 // por qué. Los textos se recortan a 16000 caracteres: TEXT son 65535 BYTES y
 // en utf8mb4 un carácter puede ocupar 4 (el recorte anterior, a 65535
@@ -59,8 +60,10 @@ async function logError({ method, url, statusCode, errorMessage, stackTrace, use
        userId || null, userInfo || null, ip || null, userAgent?.substring(0, 500) || null,
        ocurridoAt, new Date()]
     );
+    return true;
   } catch (err) {
     console.error('[ERROR_LOG] No se pudo guardar en error_logs:', err.message);
+    return false;
   }
 }
 

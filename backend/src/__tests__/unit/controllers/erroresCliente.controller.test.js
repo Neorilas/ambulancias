@@ -4,7 +4,7 @@
  * Tests de controllers/erroresCliente.controller.js — errores que manda la app.
  */
 
-jest.mock('../../../controllers/admin.controller', () => ({ logError: jest.fn().mockResolvedValue() }));
+jest.mock('../../../controllers/admin.controller', () => ({ logError: jest.fn().mockResolvedValue(true) }));
 
 const { logError } = require('../../../controllers/admin.controller');
 const { recibirErrores, normalizar, ocurridoVerosimil, LOTE_MAX } =
@@ -15,7 +15,7 @@ const USER = { id: 7, username: 'jlopez', nombre: 'Juan' };
 const AHORA = Date.parse('2026-10-03T12:00:00Z');
 
 describe('erroresCliente.controller', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); logError.mockResolvedValue(true); });
 
   it('graba cada error con origen cliente, el usuario y el user-agent; responde 202', async () => {
     const res = mockRes();
@@ -59,6 +59,17 @@ describe('erroresCliente.controller', () => {
     await recibirErrores(mockReq({ user: USER, body: { errores } }), res, mockNext());
     expect(res._json.data.recibidos).toBe(LOTE_MAX);
     expect(logError).toHaveBeenCalledTimes(LOTE_MAX - 4);
+  });
+
+  it('si la BD no guarda ninguno, 503 para que la app conserve la cola', async () => {
+    logError.mockResolvedValue(false);
+    const res = mockRes();
+    await recibirErrores(mockReq({ user: USER, body: { errores: [{ tipo: 'js', mensaje: 'm' }] } }), res, mockNext());
+    expect(res.status).toHaveBeenCalledWith(503);
+  });
+
+  it('quita query y fragmento de la url aunque la app no lo haya hecho', () => {
+    expect(normalizar({ tipo: 'red', mensaje: 'm', url: '/x?token=abc#f' }, AHORA).url).toBe('/x');
   });
 
   it('un cuerpo sin lote no graba nada', async () => {

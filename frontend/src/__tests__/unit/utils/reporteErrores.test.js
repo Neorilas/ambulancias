@@ -39,6 +39,31 @@ describe('utils/reporteErrores', () => {
     expect(cola()).toHaveLength(2);
   });
 
+  it('un error ya enviado no vuelve a apuntarse dentro de los 5 min', async () => {
+    const e = { tipo: 'js', mensaje: 'falla en cada render' };
+    registrarError(e, T0);
+    await enviarPendientes();
+    expect(cola()).toEqual([]);
+    registrarError(e, T0 + 60_000);
+    expect(cola()).toEqual([]);
+    registrarError(e, T0 + 6 * 60_000);
+    expect(cola()).toHaveLength(1);
+  });
+
+  it('borra lo enviado por id: el mismo mensaje en el mismo instante con otra url sigue en la cola', async () => {
+    registrarError({ tipo: 'red', mensaje: 'Network Error', metodo: 'POST', url: '/a' }, T0);
+    let soltar;
+    post.mockImplementationOnce(() => new Promise((r) => { soltar = r; }));
+    const envio = enviarPendientes();
+    await Promise.resolve();
+    registrarError({ tipo: 'red', mensaje: 'Network Error', metodo: 'POST', url: '/b' }, T0);
+    soltar({});
+    await envio;
+    expect(cola().map((x) => x.url)).toEqual([]);   // el bucle manda también el segundo
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1][1].errores[0]).not.toHaveProperty('id');
+  });
+
   it('la cola no pasa de COLA_MAX y se queda con los más recientes', () => {
     for (let i = 0; i < COLA_MAX + 5; i++) registrarError({ tipo: 'js', mensaje: `e${i}` }, T0);
     expect(cola()).toHaveLength(COLA_MAX);

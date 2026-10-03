@@ -61,7 +61,21 @@ function paginaActual() {
 
 /** URL de la petición sin query string. */
 function sinQuery(url) {
-  return typeof url === 'string' ? url.split('?')[0] : null;
+  return typeof url === 'string' ? url.split(/[?#]/)[0] : null;
+}
+
+const claveDe = (x) => [x.tipo, x.mensaje, x.url, x.metodo, x.usuario_id].join('|');
+
+// Último instante en que se apuntó cada error, en memoria. La cola sola no
+// basta para no repetir: lo ya enviado sale de ella, y un error de JS en cada
+// render mandaría un lote cada pocos segundos hasta topar con el 429.
+const vistosRecientes = new Map();
+const VISTOS_MAX = 200;
+
+/** Identificador de la entrada: borrar lo enviado por id y no por contenido. */
+function nuevoId() {
+  try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch { /* sin crypto */ }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 /**
@@ -73,6 +87,7 @@ export function registrarError(e, ahoraMs = Date.now()) {
   try {
     if (!e?.tipo || !e?.mensaje) return;
     const entrada = {
+      id:          nuevoId(),
       tipo:        e.tipo,
       mensaje:     String(e.mensaje).slice(0, 2000),
       url:         sinQuery(e.url),
@@ -85,14 +100,18 @@ export function registrarError(e, ahoraMs = Date.now()) {
       veces:       1,
     };
 
+    const clave = claveDe(entrada);
     const cola = leerCola();
-    const repetido = cola.find((x) =>
-      x.tipo === entrada.tipo && x.mensaje === entrada.mensaje && x.url === entrada.url
-      && x.metodo === entrada.metodo && x.usuario_id === entrada.usuario_id
+    const repetido = cola.find((x) => claveDe(x) === clave
       && ahoraMs - Date.parse(x.ocurrido_at) < VENTANA_REPETIDO_MS);
     if (repetido) {
       repetido.veces = (repetido.veces || 1) + 1;
+    } else if (ahoraMs - (vistosRecientes.get(clave) ?? -Infinity) < VENTANA_REPETIDO_MS) {
+      // Ya se apuntó (y probablemente se envió) hace menos de 5 min: se calla.
+      return;
     } else {
+      vistosRecientes.set(clave, ahoraMs);
+      if (vistosRecientes.size > VISTOS_MAX) vistosRecientes.delete(vistosRecientes.keys().next().value);
       cola.push(entrada);
       // Llena, se quedan los más recientes.
       cola.splice(0, Math.max(0, cola.length - COLA_MAX));
@@ -114,7 +133,7 @@ function programarEnvio() {
 
 /** Lo que va al backend: sin los campos internos de la cola. */
 function paraEnviar(x) {
-  const { usuario_id: _u, veces, ...resto } = x;
+  const { usuario_id: _u, id: _id, veces, ...resto } = x;
   return veces > 1 ? { ...resto, mensaje: `${resto.mensaje} (×${veces})` } : resto;
 }
 
@@ -135,8 +154,8 @@ export async function enviarPendientes() {
       const lote = cola.slice(0, LOTE_MAX);
       await api.post('/errores-cliente', { errores: lote.map(paraEnviar) }, { _sinReporteDeError: true });
       // Se relee: mientras viajaba el lote han podido entrar errores nuevos.
-      const enviados = new Set(lote.map((x) => x.ocurrido_at + x.mensaje));
-      cola = leerCola().filter((x) => !enviados.has(x.ocurrido_at + x.mensaje));
+      const enviados = new Set(lote.map((x) => x.id));
+      cola = leerCola().filter((x) => !enviados.has(x.id));
       guardarCola(cola);
     }
   } catch {
@@ -219,4 +238,5 @@ export function _reiniciar() {
   temporizador = null;
   enviando = false;
   instalado = false;
+  vistosRecientes.clear();
 }

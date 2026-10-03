@@ -120,7 +120,12 @@ describe('admin.controller', () => {
 
     it('does not throw on DB error', async () => {
       query.mockRejectedValueOnce(new Error('DB down'));
-      await expect(logError({ method: 'GET', statusCode: 500, ip: '1.1.1.1' })).resolves.not.toThrow();
+      await expect(logError({ method: 'GET', statusCode: 500, ip: '1.1.1.1' })).resolves.toBe(false);
+    });
+
+    it('devuelve true si ha grabado', async () => {
+      query.mockResolvedValueOnce([]);
+      await expect(logError({ method: 'GET', statusCode: 500 })).resolves.toBe(true);
     });
 
     it('por defecto es de origen servidor y pone created_at desde Node', async () => {
