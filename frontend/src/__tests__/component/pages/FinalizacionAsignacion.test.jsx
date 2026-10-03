@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { uploadEvidencia: vi.fn(), finalizar: vi.fn() },
@@ -15,8 +15,9 @@ vi.mock('../../../components/camera/CameraCapture.jsx', () => ({
   ),
 }));
 
-import { NotificationProvider }  from '../../../context/NotificationContext.jsx';
+import { NotificationProvider, useNotification } from '../../../context/NotificationContext.jsx';
 import FinalizacionAsignacion    from '../../../pages/asignaciones/FinalizacionAsignacion.jsx';
+import { asignacionesService }  from '../../../services/asignaciones.service.js';
 
 const ASIGNACION = {
   id: 5, vehiculo_alias: 'Ambulancia 3', km_inicio: 1000,
@@ -24,10 +25,17 @@ const ASIGNACION = {
   progreso: { inicio: { completo: true, completado: 7, total: 7 } },
 };
 
+// El provider guarda los avisos pero no los pinta (eso lo hace el Layout).
+function Avisos() {
+  const { toasts } = useNotification();
+  return toasts.map(t => <p key={t.id}>{t.message}</p>);
+}
+
 function montar(onCancel = () => {}) {
   return render(
     <NotificationProvider>
       <FinalizacionAsignacion asignacion={ASIGNACION} onDone={() => {}} onCancel={onCancel} />
+      <Avisos />
     </NotificationProvider>
   );
 }
@@ -121,5 +129,80 @@ describe('FinalizacionAsignacion — mínimo de kilometraje', () => {
     // número en sí.
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
     expect(screen.getByText(/^5[.,]?500 km$/)).toBeInTheDocument();
+  });
+});
+
+// Incidente 2026-10-03: con mala cobertura la subida de una foto agotó el
+// timeout y la pantalla enseñó «timeout of 30000ms exceeded». Ahora explica
+// qué se ha subido y deja reintentar sin repetir lo que ya está arriba.
+describe('FinalizacionAsignacion — sin cobertura al enviar', () => {
+  beforeEach(() => {
+    asignacionesService.uploadEvidencia.mockReset();
+    asignacionesService.finalizar.mockReset();
+  });
+
+  function irAlResumen() {
+    montar();
+    irAPasoKm();
+    fireEvent.change(screen.getByPlaceholderText('Mín. 1000'), { target: { value: '1200' } });
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+  }
+
+  const timeout = () => Object.assign(new Error('timeout of 120000ms exceeded'), {
+    code: 'ECONNABORTED', request: {},
+  });
+
+  it('dice cuántas fotos han subido y en español, y no intenta cerrar', async () => {
+    asignacionesService.uploadEvidencia
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(timeout());
+    irAlResumen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+
+    expect(await screen.findByText(/falta de cobertura \(1 de 5 subidas\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/timeout of/)).not.toBeInTheDocument();
+    expect(asignacionesService.finalizar).not.toHaveBeenCalled();
+  });
+
+  it('al volver a pulsar no repite las fotos ya subidas y cierra', async () => {
+    asignacionesService.uploadEvidencia
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValue({});
+    asignacionesService.finalizar.mockResolvedValue({});
+    irAlResumen();
+
+    const boton = screen.getByRole('button', { name: 'Finalizar asignación' });
+    fireEvent.click(boton);
+    await screen.findByText(/falta de cobertura/);
+    await waitFor(() => expect(boton).not.toBeDisabled());
+
+    fireEvent.click(boton);
+    await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalled());
+    // 2 del primer intento + las 4 que faltaban (la que falló, otra vez)
+    expect(asignacionesService.uploadEvidencia).toHaveBeenCalledTimes(6);
+  });
+
+  it('si las fotos suben y lo que falla es el cierre, lo dice', async () => {
+    asignacionesService.uploadEvidencia.mockResolvedValue({});
+    asignacionesService.finalizar.mockRejectedValueOnce(timeout());
+    irAlResumen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+
+    expect(await screen.findByText(/Las fotos ya están subidas, pero no se ha podido terminar/)).toBeInTheDocument();
+  });
+
+  it('un rechazo del servidor (4xx) se enseña tal cual', async () => {
+    asignacionesService.uploadEvidencia.mockResolvedValue({});
+    asignacionesService.finalizar.mockRejectedValueOnce({
+      response: { status: 400, data: { message: 'La asignación ya está finalizada' } },
+    });
+    irAlResumen();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+
+    expect(await screen.findByText('La asignación ya está finalizada')).toBeInTheDocument();
   });
 });

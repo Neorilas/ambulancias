@@ -4,6 +4,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
   IMAGEN_TIPOS_FIN,
   IMAGEN_TIPOS_FIN_EXTERIOR,
@@ -107,6 +108,10 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   // ── Envío final ─────────────────────────────────────────────
   const handleFinalizar = async () => {
     setUploading(true);
+    // Cuenta local para el mensaje de error: el estado `subidas` no se ve
+    // actualizado dentro de esta misma ejecución.
+    const conFoto = IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]);
+    let enServidor = conFoto.filter(t => subidas[t.key] === fotos[t.key]).length;
     try {
       for (const tipo of IMAGEN_TIPOS_FIN) {
         const file = fotos[tipo.key];
@@ -118,6 +123,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'fin');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
+        enServidor++;
         setSubidas(s => ({ ...s, [tipo.key]: file }));
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
@@ -129,7 +135,11 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       notify.success('Servicio finalizado correctamente');
       onDone?.();
     } catch (err) {
-      notify.error(err.response?.data?.message || err.message);
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Finalizar asignación' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message);
+      }
     } finally {
       setUploading(false);
     }

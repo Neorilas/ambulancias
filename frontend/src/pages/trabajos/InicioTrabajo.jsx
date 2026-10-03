@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { trabajosService } from '../../services/trabajos.service.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_INICIO } from '../../utils/constants.js';
@@ -95,6 +96,12 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
 
   const handleSubmit = async () => {
     setUploading(true);
+    // Para el mensaje de error: cuántas fotos hay y cuántas están ya arriba.
+    const conFoto = vehiculos.flatMap(v => IMAGEN_TIPOS_INICIO
+      .filter(t => evidencias[v.vehicle_id]?.[t.key])
+      .map(t => [v.vehicle_id, t.key]));
+    let enServidor = conFoto.filter(([vid, key]) =>
+      subidas.current[vid]?.[key] === evidencias[vid][key]).length;
     try {
       for (const veh of vehiculos) {
         for (const tipo of IMAGEN_TIPOS_INICIO) {
@@ -112,6 +119,7 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
 
           try {
             await trabajosService.uploadEvidencia(trabajo.id, fd);
+            enServidor++;
             subidas.current[veh.vehicle_id] = {
               ...(subidas.current[veh.vehicle_id] || {}), [tipo.key]: file,
             };
@@ -124,6 +132,8 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
               ...p,
               [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'error' },
             }));
+            // Un fallo de red sube tal cual: el catch de fuera lo explica.
+            if (esFalloDeRed(uploadErr)) throw uploadErr;
             const msg = uploadErr?.response?.data?.message || uploadErr?.message || '';
             throw new Error(`Error subiendo ${tipo.label} (${veh.matricula})${msg ? ': ' + msg : ''}`);
           }
@@ -132,7 +142,11 @@ export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCanc
       notify.success('Fotos de inicio guardadas correctamente');
       onDone?.();
     } catch (err) {
-      notify.error(err.response?.data?.message || err.message || 'Error al subir fotos de inicio');
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Guardar fotos de inicio' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'Error al subir fotos de inicio');
+      }
     } finally {
       setUploading(false);
     }

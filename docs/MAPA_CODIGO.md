@@ -459,6 +459,29 @@ como estado cuando el cliente cerró la conexión antes de recibir la respuesta.
 Si no aparece ninguna petición del usuario, el problema está entre el móvil y
 Caddy.
 
+**Trampa: las fotos no caben en el timeout de 30 s con 4G flojo** (incidente
+2026-10-03, asignación 81). Al pulsar «Finalizar asignación» la pantalla sube
+las fotos de una en una y después manda el cierre. La primera foto no llegó en
+30 s y el técnico vio «timeout of 30000ms exceeded». No subió ninguna foto y la
+asignación siguió abierta. Además, el «5 / 5» del resumen cuenta las fotos
+**hechas en el móvil**, no las que están en el servidor. Desde entonces, en
+`utils/subidaFotos.js`:
+- `uploadEvidencia` (asignaciones y trabajos) lleva `SUBIDA_FOTO_TIMEOUT_MS`
+  (120 s) y va envuelto en `conReintentos`: 2 reintentos (a los 2 s y a los
+  5 s), **solo** si `esFalloDeRed` (sin respuesta, o 502/503/504). Un 4xx no se
+  repite. El resto de la app sigue en 30 s.
+- Reintentar es seguro para las fotos de inicio y fin: el backend guarda una
+  por tipo+momento y la segunda reemplaza a la primera. Las de incidencia
+  (`momento: 'general'`) se acumulan. Si se perdió solo la respuesta, puede
+  quedar una foto repetida, y se acepta.
+- Las cuatro pantallas (`InicioAsignacion`, `FinalizacionAsignacion`,
+  `InicioTrabajo`, `Finalizacion`) enseñan `mensajeFalloSubida`: cuántas fotos
+  hay arriba («2 de 5 subidas») y qué botón volver a pulsar, durante 15 s. Las
+  ya subidas no se repiten. Si están todas arriba y lo que falla es el cierre,
+  el mensaje lo dice. El cierre (`finalizar`, `finalizeVehiculo`) **no** se
+  reintenta solo: no es idempotente, y un segundo intento daría «ya está
+  finalizada».
+
 ### 3.4 Utils, contextos, hooks
 
 | Fichero | Contenido |
@@ -1093,6 +1116,7 @@ solo actúa en el navegador no es un control de acceso.
 | Si cambias… | Toca |
 |---|---|
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
+| La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` y `trabajos.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`, `InicioTrabajo`, `Finalizacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |

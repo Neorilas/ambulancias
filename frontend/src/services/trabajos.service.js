@@ -1,4 +1,5 @@
 import api from './api.js';
+import { conReintentos, SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 
 export const trabajosService = {
   list(params = {}) {
@@ -39,8 +40,10 @@ export const trabajosService = {
   uploadEvidencia(id, formData) {
     // Eliminar el Content-Type por defecto (application/json) para que el
     // browser lo genere automáticamente con el boundary de multipart/form-data
-    return api.post(`/trabajos/${id}/evidencias`, formData, {
+    // Timeout largo y reintentos ante fallos de red: ver utils/subidaFotos.js
+    return conReintentos(() => api.post(`/trabajos/${id}/evidencias`, formData, {
       headers: { 'Content-Type': undefined },
-    }).then(r => r.data.data);
+      timeout: SUBIDA_FOTO_TIMEOUT_MS,
+    })).then(r => r.data.data);
   },
 };
