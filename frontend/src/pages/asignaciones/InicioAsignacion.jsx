@@ -9,6 +9,7 @@ import {
   IMAGEN_TIPOS_INICIO_MECANICA,
   IMAGEN_TIPOS_INICIO_EXTERIOR,
 } from '../../utils/constants.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 
 /**
  * Wizard de INICIO de servicio — revisión del vehículo antes de arrancar.
@@ -119,6 +120,13 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
   // ── Envío final ─────────────────────────────────────────────
   const handleSubmit = async () => {
     setUploading(true);
+    // Cuenta local para el mensaje de error: el estado `subidas` no se ve
+    // actualizado dentro de esta misma ejecución.
+    const conFoto = IMAGEN_TIPOS_INICIO.filter(t => fotos[t.key]);
+    const incPendientes = hayInc ? incFotos : [];
+    const total = conFoto.length + incPendientes.length;
+    let enServidor = conFoto.filter(t => subidas.inicio[t.key] === fotos[t.key]).length
+                   + incPendientes.filter(f => subidas.incidencia.has(f)).length;
     try {
       // 1. Fotos de inicio
       for (const tipo of IMAGEN_TIPOS_INICIO) {
@@ -131,6 +139,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         fd.append('tipo_imagen', tipo.key);
         fd.append('momento', 'inicio');
         await asignacionesService.uploadEvidencia(asignacion.id, fd);
+        enServidor++;
         setSubidas(s => ({ ...s, inicio: { ...s.inicio, [tipo.key]: file } }));
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
@@ -144,6 +153,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
           fd.append('tipo_imagen', 'danos');
           fd.append('momento', 'general');
           await asignacionesService.uploadEvidencia(asignacion.id, fd);
+          enServidor++;
           setSubidas(s => ({ ...s, incidencia: new Set(s.incidencia).add(file) }));
         }
         // 3. Registrar la incidencia (queda en el historial del vehículo)
@@ -154,7 +164,11 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       notify.success('Revisión de inicio completada');
       onDone?.();
     } catch (err) {
-      notify.error(err.response?.data?.message || err.message || 'Error al guardar la revisión');
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total, boton: 'Finalizar revisión' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'Error al guardar la revisión');
+      }
     } finally {
       setUploading(false);
     }

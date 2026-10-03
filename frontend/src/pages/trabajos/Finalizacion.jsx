@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { trabajosService } from '../../services/trabajos.service.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
@@ -98,6 +99,12 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
   /* ── Subir evidencias + finalizar ─────────────────────── */
   const handleFinalizar = async () => {
     setUploading(true);
+    // Para el mensaje de error: cuántas fotos hay y cuántas están ya arriba.
+    const conFoto = vehiculos.flatMap(v => IMAGEN_TIPOS_FIN
+      .filter(t => evidencias[v.vehicle_id]?.[t.key])
+      .map(t => [v.vehicle_id, t.key]));
+    let enServidor = conFoto.filter(([vid, key]) =>
+      subidas.current[vid]?.[key] === evidencias[vid][key]).length;
     try {
       // 1. Subir fotos
       for (const veh of vehiculos) {
@@ -116,6 +123,7 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
 
           try {
             await trabajosService.uploadEvidencia(trabajo.id, fd);
+            enServidor++;
             subidas.current[veh.vehicle_id] = {
               ...(subidas.current[veh.vehicle_id] || {}), [tipo.key]: file,
             };
@@ -128,6 +136,8 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
               ...p,
               [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'error' },
             }));
+            // Un fallo de red sube tal cual: el catch de fuera lo explica.
+            if (esFalloDeRed(uploadErr)) throw uploadErr;
             const msg = uploadErr?.response?.data?.message || uploadErr?.message || '';
             throw new Error(`Error subiendo ${tipo.label} (${veh.matricula})${msg ? ': ' + msg : ''}`);
           }
@@ -145,7 +155,11 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
       onDone?.();
     } catch (err) {
       // Priorizar mensaje del backend sobre mensaje genérico de Axios
-      notify.error(err.response?.data?.message || err.message || 'Error al finalizar');
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Cerrar vehículo' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'Error al finalizar');
+      }
     } finally {
       setUploading(false);
     }

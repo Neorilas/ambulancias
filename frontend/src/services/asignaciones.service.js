@@ -1,4 +1,5 @@
 import api from './api.js';
+import { conReintentos, SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 
 export const asignacionesService = {
   list(params = {}) {
@@ -33,9 +34,11 @@ export const asignacionesService = {
     return api.post(`/asignaciones/${id}/finalizar`, data).then(r => r.data.data);
   },
   uploadEvidencia(id, formData) {
-    return api.post(`/asignaciones/${id}/evidencias`, formData, {
+    // Timeout largo y reintentos ante fallos de red: ver utils/subidaFotos.js
+    return conReintentos(() => api.post(`/asignaciones/${id}/evidencias`, formData, {
       headers: { 'Content-Type': undefined },
-    }).then(r => r.data.data);
+      timeout: SUBIDA_FOTO_TIMEOUT_MS,
+    })).then(r => r.data.data);
   },
   crearIncidencia(id, data) {
     return api.post(`/asignaciones/${id}/incidencias`, data).then(r => r.data.data);

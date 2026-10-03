@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { asignacionesService } from '../../../services/asignaciones.service';
 import api from '../../../services/api';
+import { SUBIDA_FOTO_TIMEOUT_MS } from '../../../utils/subidaFotos';
 
 vi.mock('../../../services/api', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -64,6 +65,9 @@ describe('asignaciones.service', () => {
     api.post.mockResolvedValueOnce(mockData({}));
     const fd = new FormData();
     await asignacionesService.uploadEvidencia(1, fd);
-    expect(api.post).toHaveBeenCalledWith('/asignaciones/1/evidencias', fd, { headers: { 'Content-Type': undefined } });
+    expect(api.post).toHaveBeenCalledWith('/asignaciones/1/evidencias', fd, {
+      headers: { 'Content-Type': undefined }, timeout: SUBIDA_FOTO_TIMEOUT_MS,
+    });
+    expect(SUBIDA_FOTO_TIMEOUT_MS).toBeGreaterThan(30000);
   });
 });
