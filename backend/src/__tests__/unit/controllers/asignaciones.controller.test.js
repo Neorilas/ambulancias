@@ -19,6 +19,8 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionNueva:      jest.fn(),
   avisarAsignacionActivada:   jest.fn(),
   avisarFotosInicioCompletas: jest.fn(),
+  avisarLlegadaEvento:        jest.fn(),
+  avisarFinEvento:            jest.fn(),
   avisarAsignacionFinalizada: jest.fn(),
 }));
 
@@ -838,6 +840,8 @@ describe('asignaciones.controller', () => {
       expect(upd[0]).toContain('llegada_servicio_at IS NULL');
       expect(upd[1][0]).toBeInstanceOf(Date);
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'arrive_asignacion' }));
+      expect(avisos.avisarLlegadaEvento).toHaveBeenCalledTimes(1);
+      expect(avisos.avisarLlegadaEvento).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
     });
 
     it('si otra pulsación se adelantó (0 filas), no audita dos veces', async () => {
@@ -848,6 +852,7 @@ describe('asignaciones.controller', () => {
       await registrarLlegada(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(logAudit).not.toHaveBeenCalled();
+      expect(avisos.avisarLlegadaEvento).not.toHaveBeenCalled();
     });
 
     it('400 si faltan fotos de inicio, y no toca la fila', async () => {
@@ -882,6 +887,7 @@ describe('asignaciones.controller', () => {
       await registrarLlegada(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(huboUpdate()).toBe(false);
+      expect(avisos.avisarLlegadaEvento).not.toHaveBeenCalled();
     });
 
     it('403 para el personal', async () => {
@@ -929,6 +935,8 @@ describe('asignaciones.controller', () => {
       expect(upd[0]).toContain('fin_servicio_at IS NULL');
       expect(upd[1][0]).toBeInstanceOf(Date);
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'end_service_asignacion' }));
+      expect(avisos.avisarFinEvento).toHaveBeenCalledTimes(1);
+      expect(avisos.avisarFinEvento).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
     });
 
     it('si otra pulsación se adelantó (0 filas), no audita dos veces', async () => {
@@ -939,6 +947,7 @@ describe('asignaciones.controller', () => {
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(logAudit).not.toHaveBeenCalled();
+      expect(avisos.avisarFinEvento).not.toHaveBeenCalled();
     });
 
     it('400 sin llegada registrada, y no toca la fila', async () => {
@@ -950,12 +959,12 @@ describe('asignaciones.controller', () => {
       expect(huboUpdate()).toBe(false);
     });
 
-    it('400 con mensaje propio en una asignación ya cerrada sin fin de servicio', async () => {
+    it('400 con mensaje propio en una asignación ya cerrada sin finalización del evento', async () => {
       mockConLlegada({ estado: 'finalizada' });
       const res = mockRes();
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/finalizada/);
+      expect(res._json.message).toMatch(/finalización del evento .*finalizada/);
       expect(huboUpdate()).toBe(false);
     });
 
@@ -985,6 +994,7 @@ describe('asignaciones.controller', () => {
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
       expect(huboUpdate()).toBe(false);
+      expect(avisos.avisarFinEvento).not.toHaveBeenCalled();
     });
 
     it('403 para el personal', async () => {

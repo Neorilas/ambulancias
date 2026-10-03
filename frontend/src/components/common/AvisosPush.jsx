@@ -240,7 +240,7 @@ export default function AvisosPush() {
           <h2 className="text-[15px] font-semibold text-neutral-900">Avisos en este dispositivo</h2>
           <p className="text-[12.5px] text-neutral-500 mt-0.5">
             {gestiona
-              ? 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio y cuando se finaliza, y cuando te asignan uno.'
+              ? 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio, al llegar al evento y al terminar en él, cuando se finaliza la asignación, y cuando te asignan uno.'
               : 'Suena cuando te asignan un servicio nuevo.'}
           </p>
         </div>

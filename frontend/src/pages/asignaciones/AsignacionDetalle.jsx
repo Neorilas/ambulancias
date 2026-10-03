@@ -272,15 +272,16 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
-  // «Fin del servicio»: la inversa de la llegada, al terminar en el punto y
-  // antes de volver a base. También la hora la pone el servidor.
+  // «Finalización del evento»: la inversa de la llegada, al terminar en el
+  // evento y antes de volver a base. También la hora la pone el servidor. Se
+  // dice «evento» para no confundirla con «Finalizar asignación» (el cierre).
   const handleFinServicio = async () => {
     setRegistrandoFinServicio(true);
     try {
       setAsig(await asignacionesService.registrarFinServicio(id));
-      notify.success('Fin del servicio registrado');
+      notify.success('Finalización del evento registrada');
     } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo registrar el fin del servicio');
+      notify.error(err.response?.data?.message || 'No se pudo registrar la finalización del evento');
     } finally {
       setRegistrandoFinServicio(false);
     }
@@ -331,7 +332,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
   const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
-  // Y al terminar en el sitio, «Fin del servicio». Solo tras la llegada (sin
+  // Y al terminar en el sitio, «Finalización del evento». Solo tras la llegada (sin
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
   const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
@@ -442,12 +443,12 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {/* Fin en el punto del servicio: de la llegada hasta aquí es
                       el tiempo en el sitio; de aquí al cierre, la vuelta. */}
                   <div className="col-span-2">
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin del servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Finalización del evento</p>
                     <p className="text-neutral-900">
                       {asig.fin_servicio_at ? formatDateTime(asig.fin_servicio_at) : '—'}
                       {asig.fin_servicio_at && asig.llegada_servicio_at && (
                         <span className="text-neutral-500 text-xs ml-2">
-                          ({duration(asig.llegada_servicio_at, asig.fin_servicio_at)} en el servicio)
+                          ({duration(asig.llegada_servicio_at, asig.fin_servicio_at)} en el evento)
                         </span>
                       )}
                     </p>
@@ -535,10 +536,10 @@ export default function AsignacionDetalle({ id, onClose }) {
             {faltaFinServicio && (
               <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
                 <div>
-                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado el servicio?</p>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al acabar en el punto del servicio, antes de volver a base. La
-                    asignación se cierra después, con las fotos de fin.
+                    Púlsalo al acabar en el evento, antes de volver a base. La asignación se
+                    cierra después, en base, con las fotos de fin.
                   </p>
                 </div>
                 <button
@@ -546,7 +547,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   disabled={registrandoFinServicio}
                   className="btn-primary w-full"
                 >
-                  {registrandoFinServicio ? 'Registrando…' : 'Fin del servicio'}
+                  {registrandoFinServicio ? 'Registrando…' : 'Finalización del evento'}
                 </button>
               </div>
             )}

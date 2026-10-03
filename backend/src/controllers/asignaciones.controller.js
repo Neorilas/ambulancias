@@ -820,6 +820,10 @@ async function registrarLlegada(req, res, next) {
       [ahora(), asig.id]
     );
 
+    const updated = await getAsignacionCompleta(asig.id);
+
+    // Auditoría y aviso, solo quien selló: la pulsación que llegó tarde a la
+    // carrera no ha cambiado nada y no debe hacer sonar el teléfono otra vez.
     if (result?.affectedRows) {
       logAudit({
         userId:   req.user.id,
@@ -829,9 +833,9 @@ async function registrarLlegada(req, res, next) {
         details:  { vehiculo: asig.matricula },
         ip: req.ip,
       });
+      avisos.avisarLlegadaEvento(updated || asig);
     }
 
-    const updated = await getAsignacionCompleta(asig.id);
     return success(res, updated, 'Llegada al servicio registrada');
   } catch (err) {
     next(err);
@@ -841,10 +845,12 @@ async function registrarLlegada(req, res, next) {
 // ============================================================
 // POST /asignaciones/:id/fin-servicio
 // ============================================================
-// «Fin del servicio»: la pareja de la llegada. Sella la hora a la que se
+// «Finalización del evento»: la pareja de la llegada. Sella la hora a la que se
 // termina en el punto del servicio, antes de volver a base; entre la llegada y
 // este sello va el tiempo en el sitio, y de aquí al cierre (fotos de fin) la
 // vuelta. Igual de OPCIONAL que la llegada: el cierre no lo exige.
+// Se llama «del evento» y no «del servicio» para no confundirla con el cierre
+// de la asignación («Finalizar asignación»), que es otra cosa.
 async function registrarFinServicio(req, res, next) {
   try {
     const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
@@ -852,16 +858,16 @@ async function registrarFinServicio(req, res, next) {
     if (!asig) return notFound(res, 'Asignación');
 
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
-      return forbidden(res, 'Solo un responsable puede registrar el fin del servicio');
+      return forbidden(res, 'Solo un responsable puede registrar la finalización del evento');
     }
 
     // Ya sellado: no-op, antes que el estado (mismo motivo que la llegada).
     if (asig.fin_servicio_at) {
-      return success(res, asig, 'El fin del servicio ya estaba registrado');
+      return success(res, asig, 'La finalización del evento ya estaba registrada');
     }
 
     if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
-      return error(res, `No se puede registrar el fin del servicio en una asignación ${asig.estado}`, 400);
+      return error(res, `No se puede registrar la finalización del evento en una asignación ${asig.estado}`, 400);
     }
     // La llegada ya implica inicio pulsado y fotos de inicio completas
     // (registrarLlegada lo exige), así que basta con mirarla a ella.
@@ -874,6 +880,8 @@ async function registrarFinServicio(req, res, next) {
       [ahora(), asig.id]
     );
 
+    const updated = await getAsignacionCompleta(asig.id);
+
     if (result?.affectedRows) {
       logAudit({
         userId:   req.user.id,
@@ -883,10 +891,10 @@ async function registrarFinServicio(req, res, next) {
         details:  { vehiculo: asig.matricula },
         ip: req.ip,
       });
+      avisos.avisarFinEvento(updated || asig);
     }
 
-    const updated = await getAsignacionCompleta(asig.id);
-    return success(res, updated, 'Fin del servicio registrado');
+    return success(res, updated, 'Finalización del evento registrada');
   } catch (err) {
     next(err);
   }

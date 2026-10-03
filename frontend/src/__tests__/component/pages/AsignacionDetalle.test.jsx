@@ -196,7 +196,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
   });
 });
 
-describe('AsignacionDetalle — fin del servicio', () => {
+describe('AsignacionDetalle — finalización del evento', () => {
   const TRAS_LLEGADA = {
     ...BASE, estado: 'activa', finalizado_at: null,
     llegada_servicio_at: '2026-09-21T06:40:00.000Z', fin_servicio_at: null,
@@ -219,38 +219,38 @@ describe('AsignacionDetalle — fin del servicio', () => {
     montar();
 
     await screen.findByRole('button', { name: 'Llegada al servicio' });
-    expect(screen.queryByRole('button', { name: 'Fin del servicio' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Finalización del evento' })).not.toBeInTheDocument();
   });
 
   it('tras la llegada lo ofrece, sin impedir finalizar la asignación', async () => {
     asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
     montar();
 
-    expect(await screen.findByRole('button', { name: 'Fin del servicio' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Finalización del evento' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
-  it('al pulsarlo lo registra, el botón desaparece y sale el tiempo en el servicio', async () => {
+  it('al pulsarlo lo registra, el botón desaparece y sale el tiempo en el evento', async () => {
     asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
     asignacionesService.registrarFinServicio.mockResolvedValue({
       ...TRAS_LLEGADA, fin_servicio_at: '2026-09-21T09:10:00.000Z',
     });
     montar();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Fin del servicio' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalización del evento' }));
     await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5));
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Fin del servicio' })).not.toBeInTheDocument());
-    const etiqueta = screen.getByText('Fin del servicio');
+      expect(screen.queryByRole('button', { name: 'Finalización del evento' })).not.toBeInTheDocument());
+    const etiqueta = screen.getByText('Finalización del evento');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T09:10:00.000Z'));
-    expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el servicio');
+    expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el evento');
   });
 
-  it('una finalizada sin fin de servicio registrado sale con guion', async () => {
+  it('una finalizada sin finalización del evento registrada sale con guion', async () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, fin_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Fin del servicio');
+    const etiqueta = await screen.findByText('Finalización del evento');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });

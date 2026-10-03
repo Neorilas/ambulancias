@@ -100,6 +100,35 @@ function avisarFotosInicioCompletas(asig) {
 }
 
 /**
+ * «Llegada al servicio»: la ambulancia ya está en el evento. La hora la sella
+ * el botón; aquí solo se cuenta.
+ */
+function avisarLlegadaEvento(asig) {
+  return disparar(push.notificarAdmins({
+    titulo:        `${etiquetaVehiculo(asig)} · llegada al evento`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha llegado al evento.`,
+    url:           urlAsignacion(asig),
+    tag:           `asig-${asig.id}-llegada`,
+    excluirUserId: asig.user_id,
+  }));
+}
+
+/**
+ * «Finalización del evento»: se ha terminado en el sitio y la ambulancia
+ * vuelve a base. NO es el cierre de la asignación (`avisarAsignacionFinalizada`),
+ * que llega después, con las fotos de fin; de ahí el texto distinto.
+ */
+function avisarFinEvento(asig) {
+  return disparar(push.notificarAdmins({
+    titulo:        `${etiquetaVehiculo(asig)} · evento finalizado`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha terminado en el evento y vuelve a base.`,
+    url:           urlAsignacion(asig),
+    tag:           `asig-${asig.id}-fin-evento`,
+    excluirUserId: asig.user_id,
+  }));
+}
+
+/**
  * Ha pasado la hora prevista y nadie ha iniciado la asignación.
  *
  * Es el único de los avisos que no cuenta algo que alguien acaba de hacer,
@@ -215,6 +244,8 @@ module.exports = {
   avisarAsignacionNueva,
   avisarAsignacionActivada,
   avisarFotosInicioCompletas,
+  avisarLlegadaEvento,
+  avisarFinEvento,
   avisarAsignacionSinIniciar,
   avisarAsignacionFinalizada,
   etiquetaVehiculo,
