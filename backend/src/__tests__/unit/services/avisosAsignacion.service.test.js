@@ -33,6 +33,8 @@ describe('avisosAsignacion.service', () => {
     it.each([
       ['activada',   () => avisos.avisarAsignacionActivada(ASIGNACION)],
       ['fotos',      () => avisos.avisarFotosInicioCompletas(ASIGNACION)],
+      ['llegada',    () => avisos.avisarLlegadaEvento(ASIGNACION)],
+      ['fin evento', () => avisos.avisarFinEvento(ASIGNACION)],
       ['sin iniciar', () => avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 30 })],
       ['finalizada', () => avisos.avisarAsignacionFinalizada(ASIGNACION, { km_fin: 1000 })],
     ])('el aviso de %s excluye al responsable de la asignación', async (_nombre, disparar) => {
@@ -45,6 +47,8 @@ describe('avisosAsignacion.service', () => {
     it('cada evento lleva su propio tag para no pisarse entre ellos', async () => {
       await avisos.avisarAsignacionActivada(ASIGNACION);
       await avisos.avisarFotosInicioCompletas(ASIGNACION);
+      await avisos.avisarLlegadaEvento(ASIGNACION);
+      await avisos.avisarFinEvento(ASIGNACION);
       await avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 30 });
       await avisos.avisarAsignacionFinalizada(ASIGNACION);
 
@@ -52,10 +56,12 @@ describe('avisosAsignacion.service', () => {
       expect(tags).toEqual([
         'asig-12-activada',
         'asig-12-fotos-inicio',
+        'asig-12-llegada',
+        'asig-12-fin-evento',
         'asig-12-sin-iniciar',
         'asig-12-finalizada',
       ]);
-      expect(new Set(tags).size).toBe(4);
+      expect(new Set(tags).size).toBe(6);
     });
 
     it('el aviso abre la asignación concreta, no el listado a secas', async () => {
@@ -99,6 +105,25 @@ describe('avisosAsignacion.service', () => {
     it('sin segundo argumento tampoco falla', async () => {
       await avisos.avisarAsignacionFinalizada(ASIGNACION);
       expect(push.notificarAdmins).toHaveBeenCalled();
+    });
+  });
+
+  describe('texto de los avisos del evento', () => {
+    it('la llegada dice el vehículo y el responsable', async () => {
+      await avisos.avisarLlegadaEvento(ASIGNACION);
+      const { titulo, cuerpo, url } = push.notificarAdmins.mock.calls[0][0];
+      expect(titulo).toBe('Alfa 1 · llegada a evento/servicio');
+      expect(cuerpo).toBe('Juan López ha llegado al evento/servicio.');
+      expect(url).toBe('/asignaciones?id=12');
+    });
+
+    it('el fin del evento/servicio no se confunde con el cierre de la asignación', async () => {
+      await avisos.avisarFinEvento(ASIGNACION);
+      await avisos.avisarAsignacionFinalizada(ASIGNACION);
+      const [fin, cierre] = push.notificarAdmins.mock.calls.map(c => c[0]);
+      expect(fin.titulo).toBe('Alfa 1 · fin evento/servicio');
+      expect(fin.cuerpo).toBe('Juan López ha terminado en el evento/servicio y vuelve a base.');
+      expect(fin.titulo).not.toBe(cierre.titulo);
     });
   });
 

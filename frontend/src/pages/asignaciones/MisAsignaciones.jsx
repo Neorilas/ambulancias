@@ -114,7 +114,7 @@ export default function MisAsignaciones() {
                       )}
                       {a.fin_servicio_at && (
                         <span>
-                          <span className="kv-k">Fin servicio</span>
+                          <span className="kv-k">Fin evento/servicio</span>
                           <span className="kv-v data whitespace-nowrap">{formatDateTime(a.fin_servicio_at)}</span>
                         </span>
                       )}
