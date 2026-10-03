@@ -79,6 +79,76 @@ describe('api service', () => {
     });
   });
 
+  // Incidente 2026-10-03: la foto salía con el token caducado y el 401 no
+  // llegaba al móvil hasta agotar el timeout de la subida.
+  describe('subida con el token a punto de caducar', () => {
+    const jwt = (expS) => `h.${btoa(JSON.stringify({ exp: expS })).replace(/=+$/, '')}.f`;
+    const ahoraS = () => Math.floor(Date.now() / 1000);
+
+    beforeEach(() => { axios.post.mockReset(); });
+    afterEach(() => { axios.post.mockReset(); });
+
+    it('tokenCaducaPronto: caducado o dentro del margen sí; con tiempo o ilegible, no', async () => {
+      const { tokenCaducaPronto, MARGEN_CADUCIDAD_TOKEN_S } = await import('../../../services/api.js');
+      expect(tokenCaducaPronto(jwt(ahoraS() - 10))).toBe(true);
+      expect(tokenCaducaPronto(jwt(ahoraS() + MARGEN_CADUCIDAD_TOKEN_S - 5))).toBe(true);
+      expect(tokenCaducaPronto(jwt(ahoraS() + 600))).toBe(false);
+      expect(tokenCaducaPronto('no-es-un-jwt')).toBe(false);
+    });
+
+    it('refresca ANTES de mandar la foto y la manda con el token nuevo', async () => {
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() - 10));
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      axios.post.mockResolvedValueOnce({ data: { data: { accessToken: 'at-new', refreshToken: 'rt-new' } } });
+
+      const config = await reqFulfilled({ headers: {}, data: new FormData() });
+
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      expect(config.headers.Authorization).toBe('Bearer at-new');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt-new');
+    });
+
+    it('con el token en vigor, o sin fichero, no refresca', () => {
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() + 600));
+      reqFulfilled({ headers: {}, data: new FormData() });
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() - 10));
+      const config = reqFulfilled({ headers: {}, data: { a: 1 } });
+      expect(config.headers.Authorization).toContain('Bearer h.');
+      expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('impersonando no refresca (ese token no tiene refresh)', () => {
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() - 10));
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      localStorage.setItem(PREFIJO + 'impersonacion', '{"id":5}');
+      reqFulfilled({ headers: {}, data: new FormData() });
+      expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('si el refresco no llega, la foto no sale y el error es de red (para que se reintente)', async () => {
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() - 10));
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      axios.post.mockRejectedValueOnce(
+        Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED', request: {} }),
+      );
+      await expect(reqFulfilled({ headers: {}, data: new FormData() })).rejects.toThrow('timeout');
+      expect(localStorage.getItem(PREFIJO + 'refreshToken')).toBe('rt');
+    });
+
+    it('varias fotos a la vez comparten un solo refresco', async () => {
+      localStorage.setItem(PREFIJO + 'accessToken', jwt(ahoraS() - 10));
+      localStorage.setItem(PREFIJO + 'refreshToken', 'rt');
+      axios.post.mockResolvedValueOnce({ data: { data: { accessToken: 'at-new', refreshToken: 'rt-new' } } });
+      const [a, b] = await Promise.all([
+        reqFulfilled({ headers: {}, data: new FormData() }),
+        reqFulfilled({ headers: {}, data: new FormData() }),
+      ]);
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      expect([a.headers.Authorization, b.headers.Authorization]).toEqual(['Bearer at-new', 'Bearer at-new']);
+    });
+  });
+
   describe('response interceptor', () => {
     it('passes through successful responses', () => {
       const res = { data: { ok: true } };

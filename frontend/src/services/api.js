@@ -25,26 +25,89 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Una subida de foto no sale con un token a punto de caducar: se refresca
+// antes. Incidente 2026-10-03 (asignación 83): el técnico tardó más de los
+// 15 min del token en hacer las fotos; el backend contestó 401 al instante
+// (`authenticate` va antes de multer y no lee el cuerpo), pero esa respuesta
+// no llegó al móvil hasta agotar el timeout de la subida — 30 s antes
+// («timeout of 30000ms exceeded»), 120 s ahora. Solo entonces se refrescaba y
+// todo subía en un segundo. Las peticiones sin fichero no tienen el problema:
+// su 401 llega al momento y el refresco del interceptor de respuesta basta.
+export const MARGEN_CADUCIDAD_TOKEN_S = 60;
+
+/**
+ * true si el JWT caduca en menos de MARGEN_CADUCIDAD_TOKEN_S. Un token que no
+ * se puede leer da false: mejor mandarlo y que el 401 haga su camino de
+ * siempre que refrescar a ciegas. Con el reloj del móvil adelantado, como
+ * mucho se refresca de más, una vez por subida.
+ */
+export function tokenCaducaPronto(token, ahoraMs = Date.now()) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number'
+      && payload.exp * 1000 - ahoraMs < MARGEN_CADUCIDAD_TOKEN_S * 1000;
+  } catch {
+    return false;
+  }
+}
+
 // ── Request interceptor: añadir Authorization header ──────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = getItem('accessToken');
+    if (
+      token && config.data instanceof FormData && tokenCaducaPronto(token)
+      && getItem('refreshToken') && !impersonacionActiva()
+    ) {
+      // Si el refresco falla, la subida no sale: el error llega a quien subía
+      // (sin respuesta → `conReintentos` lo repite; un 4xx ya ha cerrado sesión).
+      return refrescar().then((nuevo) => {
+        config.headers.Authorization = `Bearer ${nuevo}`;
+        return config;
+      });
+    }
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
   (err) => Promise.reject(err)
 );
 
-// ── Response interceptor: refresh automático en 401 ──────────────────────
-let isRefreshing    = false;
-let failedQueue     = [];
+// ── Refresco de la sesión (uno a la vez) ──────────────────────────────────
+// Las peticiones que piden refresco mientras hay uno en vuelo esperan a ese.
+let refrescoEnCurso = null;
 
-function processQueue(error, token = null) {
-  failedQueue.forEach(({ resolve, reject }) =>
-    error ? reject(error) : resolve(token)
-  );
-  failedQueue = [];
+function refrescar() {
+  if (!refrescoEnCurso) {
+    refrescoEnCurso = (async () => {
+      const { data } = await axios.post(
+        `${API_BASE}/auth/refresh`, { refreshToken: getItem('refreshToken') }, { timeout: REFRESH_TIMEOUT_MS },
+      );
+      const { accessToken, refreshToken: newRefresh } = data.data;
+      setItem('accessToken',  accessToken);
+      setItem('refreshToken', newRefresh);
+      api.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
+      return accessToken;
+    })()
+      .catch((refreshErr) => {
+        // Un 429 en el refresco no significa que la sesión sea inválida: el
+        // token sigue siendo bueno y el siguiente intento lo renovará. Cerrar
+        // sesión aquí echaba al técnico a la pantalla de login en mitad de un
+        // servicio, y su relogin gastaba a su vez cupo del limitador de login.
+        // Tampoco cuando el refresco se ha quedado sin respuesta (timeout, sin
+        // red) o el servidor ha fallado (un 502 durante un deploy): eso no dice
+        // nada de la sesión, y echar al login a quien está sin cobertura le
+        // obliga a teclear la contraseña al recuperarla. Solo un rechazo real
+        // del servidor (4xx) cierra la sesión.
+        const status = refreshErr.response?.status;
+        if (status >= 400 && status < 500 && status !== 429) clearAuth();
+        throw refreshErr;
+      })
+      .finally(() => { refrescoEnCurso = null; });
+  }
+  return refrescoEnCurso;
 }
+
+// ── Response interceptor: refresh automático en 401 ──────────────────────
 
 api.interceptors.response.use(
   (res) => res,
@@ -94,58 +157,16 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      const refreshToken = getItem('refreshToken');
-      if (!refreshToken) {
+      if (!getItem('refreshToken')) {
         // Sin refresh token → limpiar sesión y redirigir a login
         clearAuth();
         return Promise.reject(error);
       }
 
-      if (isRefreshing) {
-        // Encolar mientras se refresca
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          return api(originalRequest);
-        });
-      }
-
       originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        const { data } = await axios.post(
-          `${API_BASE}/auth/refresh`, { refreshToken }, { timeout: REFRESH_TIMEOUT_MS },
-        );
-        const { accessToken, refreshToken: newRefresh } = data.data;
-
-        setItem('accessToken',  accessToken);
-        setItem('refreshToken', newRefresh);
-
-        api.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
-        originalRequest.headers.Authorization     = `Bearer ${accessToken}`;
-
-        processQueue(null, accessToken);
-        return api(originalRequest);
-
-      } catch (refreshErr) {
-        processQueue(refreshErr, null);
-        // Un 429 en el refresco no significa que la sesión sea inválida: el
-        // token sigue siendo bueno y el siguiente intento lo renovará. Cerrar
-        // sesión aquí echaba al técnico a la pantalla de login en mitad de un
-        // servicio, y su relogin gastaba a su vez cupo del limitador de login.
-        // Tampoco cuando el refresco se ha quedado sin respuesta (timeout, sin
-        // red) o el servidor ha fallado (un 502 durante un deploy): eso no dice
-        // nada de la sesión, y echar al login a quien está sin cobertura le
-        // obliga a teclear la contraseña al recuperarla. Solo un rechazo real
-        // del servidor (4xx) cierra la sesión.
-        const status = refreshErr.response?.status;
-        if (status >= 400 && status < 500 && status !== 429) clearAuth();
-        return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
-      }
+      const accessToken = await refrescar();
+      originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+      return api(originalRequest);
     }
 
     return Promise.reject(error);
