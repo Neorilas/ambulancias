@@ -132,7 +132,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         motivo_fin: motivo || null,
         material_usado: material.trim(),
       });
-      notify.success('Servicio finalizado correctamente');
+      notify.success('Asignación finalizada correctamente');
       onDone?.();
     } catch (err) {
       if (esFalloDeRed(err)) {

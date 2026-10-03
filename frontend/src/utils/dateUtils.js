@@ -207,7 +207,7 @@ export function inicioServicioPermitidoDesde(fechaInicio) {
   return new Date(d.getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
 }
 
-/** ¿Todavía es pronto para iniciar el servicio? */
+/** ¿Todavía es pronto para iniciar la asignación? */
 export function esProntoParaIniciar(fechaInicio, ahora = new Date()) {
   const desde = inicioServicioPermitidoDesde(fechaInicio);
   return !!desde && ahora < desde;

@@ -740,7 +740,7 @@ async function activarAsignacion(req, res, next) {
       if (ahora() < desde) {
         return error(
           res,
-          `Aún no puedes iniciar el servicio: se puede a partir del ${diaYHoraEnEspana(desde)} ` +
+          `Aún no puedes iniciar la asignación: se puede a partir del ${diaYHoraEnEspana(desde)} ` +
           `(${INICIO_ANTICIPADO_MAX_MINUTOS} min antes de la hora prevista)`,
           400
         );

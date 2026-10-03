@@ -108,10 +108,10 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
     try {
       await asignacionesService.activar(asignacion.id);
       setActivado(true);
-      notify.success('Servicio iniciado');
+      notify.success('Asignación iniciada');
       setStep(step + 1);
     } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo iniciar el servicio');
+      notify.error(err.response?.data?.message || 'No se pudo iniciar la asignación');
     } finally {
       setActivando(false);
     }
@@ -236,7 +236,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         {esPronto ? (
           <div className="card bg-warn-50 border border-warn-200">
             <p className="text-warn-700 text-sm">
-              Aún es pronto. Podrás iniciar el servicio a partir del{' '}
+              Aún es pronto. Podrás iniciar la asignación a partir del{' '}
               <strong className="data">{formatDateTime(inicioServicioPermitidoDesde(asignacion.fecha_inicio))}</strong>,
               media hora antes de la hora prevista.
             </p>
