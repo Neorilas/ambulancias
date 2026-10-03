@@ -343,6 +343,7 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([]); // UPDATE user_id principal
       mockAsignacionCompleta({ id: 5 }); // getAsignacionCompleta
       query.mockResolvedValueOnce([[]]); // solapes
+      query.mockResolvedValueOnce([[]]); // ambulancia ocupada
 
       const req = mockReq({
         body: { vehicle_id: 1, user_id: 2, fecha_inicio: '2026-04-15T08:00', fecha_fin: '2026-04-15T20:00' },
@@ -609,6 +610,7 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([]); // UPDATE
       mockAsignacionCompleta({ estado: 'programada', vehicle_id: 2 });
       query.mockResolvedValueOnce([[]]); // solapes
+      query.mockResolvedValueOnce([[]]); // ambulancia ocupada
 
       const req = mockReq({
         params: { id: '1' },
@@ -1908,6 +1910,7 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([]);                                // UPDATE principal
       mockAsignacionCompleta({ id: 5, miembros: EQUIPO });
       query.mockResolvedValueOnce([[]]);                              // solapes
+      query.mockResolvedValueOnce([[]]); // ambulancia ocupada
 
       const res = mockRes();
       await createAsignacion(mockReq({
@@ -1998,6 +2001,7 @@ describe('asignaciones.controller', () => {
       query.mockResolvedValueOnce([]);
       mockAsignacionCompleta({ id: 5 });
       query.mockResolvedValueOnce([[{ user_id: 2, nombre: 'Ana Ruiz', asignacion_id: 4, matricula: 'XYZ' }]]);
+      query.mockResolvedValueOnce([[]]); // ambulancia ocupada
 
       const res = mockRes();
       await createAsignacion(mockReq({
@@ -2008,9 +2012,83 @@ describe('asignaciones.controller', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res._json.data.solapes).toEqual([expect.objectContaining({ user_id: 2, asignacion_id: 4 })]);
-      const sqlSolape = query.mock.calls[query.mock.calls.length - 1][0];
+      const [sqlSolape] = query.mock.calls.find(([q]) => q.includes('JOIN asignaciones_libres al ON au.asignacion_id'));
       expect(sqlSolape).toContain("al.estado IN ('programada','activa')");
       expect(sqlSolape).toContain('al.id <> ?');
+    });
+
+    // La ambulancia también puede estar ya cogida: otra asignación abierta o
+    // un trabajo sin cerrar en esas fechas. Aviso, no bloqueo.
+    describe('ambulancia ya ocupada en esas fechas', () => {
+      const OCUPADA = [
+        { origen: 'asignacion', id: 4, nombre: null, fecha_inicio: '2026-04-15T06:00:00Z', fecha_fin: '2026-04-15T14:00:00Z' },
+        { origen: 'trabajo', id: 8, nombre: 'Concierto', fecha_inicio: '2026-04-15T10:00:00Z', fecha_fin: '2026-04-15T22:00:00Z' },
+      ];
+      const sqlOcupada = () => query.mock.calls.find(([q]) => q.includes('FROM trabajo_vehiculos tv'));
+
+      it('al crear se AVISA y no bloquea; mira asignaciones abiertas y trabajos sin cerrar', async () => {
+        query.mockResolvedValueOnce([[{ id: 1 }]]);
+        query.mockResolvedValueOnce([[{ id: 2 }]]);
+        query.mockResolvedValueOnce([{ insertId: 5 }]);
+        query.mockResolvedValueOnce([]);
+        query.mockResolvedValueOnce([]);
+        query.mockResolvedValueOnce([]);
+        mockAsignacionCompleta({ id: 5 });
+        query.mockResolvedValueOnce([[]]);      // solapes
+        query.mockResolvedValueOnce([OCUPADA]); // ambulancia ocupada
+
+        const res = mockRes();
+        await createAsignacion(mockReq({
+          body: { vehicle_id: 1, responsables: [2],
+                  fecha_inicio: '2026-04-15T08:00', fecha_fin: '2026-04-15T20:00' },
+          user: { id: 1 },
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(res._json.data.vehiculo_ocupado).toEqual(OCUPADA);
+        const [sql, params] = sqlOcupada();
+        expect(sql).toContain("al.estado IN ('programada','activa')");
+        expect(sql).toContain("tv.estado IN ('programado','activo')");
+        expect(sql).toContain('t.deleted_at IS NULL');
+        // [vehículo, excluir esta asignación, fin, inicio] ×2 (sin excluir en trabajos)
+        expect(params[0]).toBe(1);
+        expect(params[1]).toBe(5);
+        expect(params[4]).toBe(1);
+      });
+
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      const editar = async (body, despues = {}) => {
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1,
+          fecha_inicio: new Date('2026-04-15T06:00:00Z'), fecha_fin: new Date('2026-04-15T18:00:00Z') });
+        if (body.vehicle_id) query.mockResolvedValueOnce([[{ id: body.vehicle_id }]]); // vehículo existe
+        query.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 1,
+          fecha_inicio: new Date('2026-04-15T06:00:00Z'), fecha_fin: new Date('2026-04-15T18:00:00Z'), ...despues });
+        query.mockResolvedValueOnce([[]]);      // solapes
+        query.mockResolvedValueOnce([OCUPADA]); // ambulancia ocupada (si se pregunta)
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('al cambiar la ambulancia se mira la nueva', async () => {
+        const res = await editar({ vehicle_id: 2 }, { vehicle_id: 2 });
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res._json.data.vehiculo_ocupado).toEqual(OCUPADA);
+        expect(sqlOcupada()[1][0]).toBe(2);
+      });
+
+      it('al mover las fechas también se mira', async () => {
+        const res = await editar({ fecha_fin: '2026-04-15T22:00:00Z' },
+          { fecha_fin: new Date('2026-04-15T22:00:00Z') });
+        expect(res._json.data.vehiculo_ocupado).toEqual(OCUPADA);
+      });
+
+      it('una edición que no toca ni ambulancia ni fechas no repite el aviso', async () => {
+        const res = await editar({ notas: 'x' });
+        expect(res._json.data.vehiculo_ocupado).toEqual([]);
+        expect(sqlOcupada()).toBeUndefined();
+      });
     });
 
     it('editar con el user_id del frontend anterior conserva el personal', async () => {

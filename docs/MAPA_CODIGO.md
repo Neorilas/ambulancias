@@ -967,8 +967,16 @@ Lo que arrastra el cambio de vehículo (`updateAsignacion`):
   ambulancia vieja.
 - `inicio_real_at` no se toca: es cuándo empezó la asignación, no con qué
   vehículo. La auditoría ya recoge `vehiculo` antes/después.
-- **No hay control de que la ambulancia nueva esté libre**: `buscarSolapes`
-  mira personas, no vehículos (pasaba igual al crear).
+- **Ambulancia ya ocupada: aviso, no bloqueo** (desde 2026-10-03).
+  `buscarVehiculoOcupado` devuelve `vehiculo_ocupado` en la respuesta de
+  crear y de editar, junto a `solapes` (que es de personas). Mira otras
+  asignaciones `programada`/`activa` **y** filas de `trabajo_vehiculos`
+  `programado`/`activo` con esa ambulancia en `[inicio, fin)` (las fechas del
+  trabajo, que no tiene por vehículo). No bloquea porque se encadenan
+  servicios y la hora de fin prevista no es la real. Al editar solo se
+  pregunta si cambia la ambulancia o las fechas: una edición de notas no
+  repite el aviso. `AsignacionForm` lo pinta con `textoVehiculoOcupado`
+  (`utils/miembrosAsignacion.js`) tras guardar, igual que `textoSolapes`.
 
 **El kilometraje no retrocede al cerrar un servicio.** `finalizarAsignacion`
 rechaza (400) un `km_fin` menor que `vehicles.kilometros_actuales` del momento
@@ -1209,6 +1217,7 @@ solo actúa en el navegador no es un control de acceso.
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `/mis-asignaciones`, nunca `/asignaciones` |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | Cuándo se puede cambiar el vehículo de una asignación | `updateAsignacion`: candado previo **y** el `WHERE` del `UPDATE` (carrera → 409) → `motivoVehiculoBloqueado` en `AsignacionForm` → `avisarCambioVehiculo`. Las tres a la vez, o el formulario y el backend dicen cosas distintas (§6.1) |
+| Qué cuenta como «ambulancia ocupada» | `buscarVehiculoOcupado` en `asignaciones.controller` (asignaciones abiertas + `trabajo_vehiculos` sin cerrar) → `textoVehiculoOcupado` en `miembrosAsignacion.js`. Un estado nuevo de asignación o de vehículo de trabajo hay que añadirlo al `IN (...)` |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas). **Al elegir de la lista, el globo se abre en `moveend`, nunca a la vez que el `setView`**: el autoPan del popup para la animación a medio camino y el vehículo quedaba en una esquina en vez de centrado (2026-09-27; medido en 800×400: esquina (726,131) antes, centro (400,200) después). Y `stop()` antes del `setView`: con dos clics seguidos, el segundo llegaba con el zoom del primero aún animando, Leaflet lo ignoraba y el elegido quedaba fuera de la vista, abajo a la izquierda |
