@@ -100,13 +100,13 @@ function avisarFotosInicioCompletas(asig) {
 }
 
 /**
- * «Llegada al servicio»: la ambulancia ya está en el evento. La hora la sella
+ * «Llegada a evento/servicio»: la ambulancia ya está en el evento. La hora la sella
  * el botón; aquí solo se cuenta.
  */
 function avisarLlegadaEvento(asig) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · llegada al evento`,
-    cuerpo:        `${etiquetaResponsable(asig)} ha llegado al evento.`,
+    titulo:        `${etiquetaVehiculo(asig)} · llegada a evento/servicio`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha llegado al evento/servicio.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-llegada`,
     excluirUserId: asig.user_id,
@@ -114,14 +114,14 @@ function avisarLlegadaEvento(asig) {
 }
 
 /**
- * «Finalización del evento»: se ha terminado en el sitio y la ambulancia
+ * «Fin evento/servicio»: se ha terminado en el sitio y la ambulancia
  * vuelve a base. NO es el cierre de la asignación (`avisarAsignacionFinalizada`),
  * que llega después, con las fotos de fin; de ahí el texto distinto.
  */
 function avisarFinEvento(asig) {
   return disparar(push.notificarAdmins({
-    titulo:        `${etiquetaVehiculo(asig)} · evento finalizado`,
-    cuerpo:        `${etiquetaResponsable(asig)} ha terminado en el evento y vuelve a base.`,
+    titulo:        `${etiquetaVehiculo(asig)} · fin evento/servicio`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha terminado en el evento/servicio y vuelve a base.`,
     url:           urlAsignacion(asig),
     tag:           `asig-${asig.id}-fin-evento`,
     excluirUserId: asig.user_id,

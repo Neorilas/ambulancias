@@ -188,7 +188,7 @@ export default function Informes() {
                 detalle="nadie pulsó «Inicio de servicio»" />
               <Kpi titulo="Desplazamiento (mediana)" clave="desplazamiento" datos={cmp}
                 valor={fmtMin(r.desplazamiento_mediana_min)}
-                detalle="de inicio a llegada al servicio" />
+                detalle="de inicio a llegada a evento/servicio" />
               <Kpi titulo="Cierres tardíos" clave="cierres_tardios" datos={cmp}
                 valor={fmt(valorMetrica('cierres_tardios', r), ' %')}
                 detalle={`${fmt(r.cierres_tardios)} de ${fmt(r.finalizados)} finalizados`} />
@@ -214,7 +214,7 @@ export default function Informes() {
 
           <Seccion
             titulo="Calidad del registro"
-            nota="Si la app se usa como debe. La llegada al servicio se registra desde el 25/09/2026: antes sale baja porque no existía."
+            nota="Si la app se usa como debe. La llegada a evento/servicio se registra desde el 25/09/2026: antes sale baja porque no existía."
           >
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               <Kpi titulo="Con llegada registrada" clave="con_llegada" datos={cmp}

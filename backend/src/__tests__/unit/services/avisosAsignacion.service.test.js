@@ -112,17 +112,17 @@ describe('avisosAsignacion.service', () => {
     it('la llegada dice el vehículo y el responsable', async () => {
       await avisos.avisarLlegadaEvento(ASIGNACION);
       const { titulo, cuerpo, url } = push.notificarAdmins.mock.calls[0][0];
-      expect(titulo).toBe('Alfa 1 · llegada al evento');
-      expect(cuerpo).toBe('Juan López ha llegado al evento.');
+      expect(titulo).toBe('Alfa 1 · llegada a evento/servicio');
+      expect(cuerpo).toBe('Juan López ha llegado al evento/servicio.');
       expect(url).toBe('/asignaciones?id=12');
     });
 
-    it('la finalización del evento no se confunde con el cierre de la asignación', async () => {
+    it('el fin del evento/servicio no se confunde con el cierre de la asignación', async () => {
       await avisos.avisarFinEvento(ASIGNACION);
       await avisos.avisarAsignacionFinalizada(ASIGNACION);
       const [fin, cierre] = push.notificarAdmins.mock.calls.map(c => c[0]);
-      expect(fin.titulo).toBe('Alfa 1 · evento finalizado');
-      expect(fin.cuerpo).toBe('Juan López ha terminado en el evento y vuelve a base.');
+      expect(fin.titulo).toBe('Alfa 1 · fin evento/servicio');
+      expect(fin.cuerpo).toBe('Juan López ha terminado en el evento/servicio y vuelve a base.');
       expect(fin.titulo).not.toBe(cierre.titulo);
     });
   });

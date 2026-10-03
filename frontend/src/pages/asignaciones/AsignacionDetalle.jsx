@@ -259,12 +259,12 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
-  // «Llegada al servicio»: la hora la pone el servidor, no el móvil.
+  // «Llegada a evento/servicio»: la hora la pone el servidor, no el móvil.
   const handleLlegada = async () => {
     setRegistrandoLlegada(true);
     try {
       setAsig(await asignacionesService.registrarLlegada(id));
-      notify.success('Llegada al servicio registrada');
+      notify.success('Llegada a evento/servicio registrada');
     } catch (err) {
       notify.error(err.response?.data?.message || 'No se pudo registrar la llegada');
     } finally {
@@ -272,16 +272,16 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
-  // «Finalización del evento»: la inversa de la llegada, al terminar en el
+  // «Fin evento/servicio»: la inversa de la llegada, al terminar en el
   // evento y antes de volver a base. También la hora la pone el servidor. Se
   // dice «evento» para no confundirla con «Finalizar asignación» (el cierre).
   const handleFinServicio = async () => {
     setRegistrandoFinServicio(true);
     try {
       setAsig(await asignacionesService.registrarFinServicio(id));
-      notify.success('Finalización del evento registrada');
+      notify.success('Fin del evento/servicio registrado');
     } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo registrar la finalización del evento');
+      notify.error(err.response?.data?.message || 'No se pudo registrar el fin del evento/servicio');
     } finally {
       setRegistrandoFinServicio(false);
     }
@@ -328,11 +328,11 @@ export default function AsignacionDetalle({ id, onClose }) {
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
   // Tras las fotos de inicio va el desplazamiento; al llegar se pulsa
-  // «Llegada al servicio». Es OPCIONAL a propósito: quien se olvide tiene que
+  // «Llegada a evento/servicio». Es OPCIONAL a propósito: quien se olvide tiene que
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
   const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
-  // Y al terminar en el sitio, «Finalización del evento». Solo tras la llegada (sin
+  // Y al terminar en el sitio, «Fin evento/servicio». Solo tras la llegada (sin
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
   const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
@@ -430,7 +430,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
                       en el sitio empieza aquí, no en el «Inicio real». */}
                   <div className="col-span-2">
-                    <p className="text-neutral-400 text-xs mb-0.5">Llegada al servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Llegada a evento/servicio</p>
                     <p className="text-neutral-900">
                       {asig.llegada_servicio_at ? formatDateTime(asig.llegada_servicio_at) : '—'}
                       {asig.llegada_servicio_at && asig.inicio_real_at && (
@@ -443,7 +443,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   {/* Fin en el punto del servicio: de la llegada hasta aquí es
                       el tiempo en el sitio; de aquí al cierre, la vuelta. */}
                   <div className="col-span-2">
-                    <p className="text-neutral-400 text-xs mb-0.5">Finalización del evento</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin evento/servicio</p>
                     <p className="text-neutral-900">
                       {asig.fin_servicio_at ? formatDateTime(asig.fin_servicio_at) : '—'}
                       {asig.fin_servicio_at && asig.llegada_servicio_at && (
@@ -516,7 +516,7 @@ export default function AsignacionDetalle({ id, onClose }) {
             {faltaLlegada && (
               <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
                 <div>
-                  <p className="font-semibold text-primary-800 text-sm">¿Has llegado al servicio?</p>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has llegado al evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
                     Púlsalo al llegar al punto donde se presta el servicio: se guarda la hora real
                     a la que empieza el trabajo en el sitio.
@@ -527,7 +527,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   disabled={registrandoLlegada}
                   className="btn-primary w-full"
                 >
-                  {registrandoLlegada ? 'Registrando…' : 'Llegada al servicio'}
+                  {registrandoLlegada ? 'Registrando…' : 'Llegada a evento/servicio'}
                 </button>
               </div>
             )}
@@ -536,7 +536,7 @@ export default function AsignacionDetalle({ id, onClose }) {
             {faltaFinServicio && (
               <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
                 <div>
-                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento?</p>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
                     Púlsalo al acabar en el evento, antes de volver a base. La asignación se
                     cierra después, en base, con las fotos de fin.
@@ -547,7 +547,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   disabled={registrandoFinServicio}
                   className="btn-primary w-full"
                 >
-                  {registrandoFinServicio ? 'Registrando…' : 'Finalización del evento'}
+                  {registrandoFinServicio ? 'Registrando…' : 'Fin evento/servicio'}
                 </button>
               </div>
             )}

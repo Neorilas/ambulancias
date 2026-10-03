@@ -124,7 +124,7 @@ describe('AsignacionDetalle — editar', () => {
   });
 });
 
-describe('AsignacionDetalle — llegada al servicio', () => {
+describe('AsignacionDetalle — llegada a evento/servicio', () => {
   const ACTIVA_TRAS_INICIO = {
     ...BASE, estado: 'activa', finalizado_at: null, llegada_servicio_at: null,
     responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
@@ -147,7 +147,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
     montar();
 
-    expect(await screen.findByRole('button', { name: 'Llegada al servicio' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Llegada a evento/servicio' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
@@ -158,10 +158,10 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     });
     montar();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Llegada al servicio' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Llegada a evento/servicio' }));
     await waitFor(() => expect(asignacionesService.registrarLlegada).toHaveBeenCalledWith(5));
     expect(await screen.findByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Llegada al servicio' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Llegada a evento/servicio' })).not.toBeInTheDocument();
   });
 
   it('sin las fotos de inicio no ofrece la llegada', async () => {
@@ -172,7 +172,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     montar();
 
     await screen.findByText('Faltan fotos de inicio');
-    expect(screen.queryByRole('button', { name: 'Llegada al servicio' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Llegada a evento/servicio' })).not.toBeInTheDocument();
   });
 
   it('en una finalizada, el admin ve la hora de llegada y lo que tardó desde el inicio', async () => {
@@ -182,7 +182,7 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: '2026-09-21T06:40:00.000Z' });
     montar();
 
-    const etiqueta = await screen.findByText('Llegada al servicio');
+    const etiqueta = await screen.findByText('Llegada a evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T06:40:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('33 min desde el inicio');
   });
@@ -191,12 +191,12 @@ describe('AsignacionDetalle — llegada al servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Llegada al servicio');
+    const etiqueta = await screen.findByText('Llegada a evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });
 
-describe('AsignacionDetalle — finalización del evento', () => {
+describe('AsignacionDetalle — fin del evento/servicio', () => {
   const TRAS_LLEGADA = {
     ...BASE, estado: 'activa', finalizado_at: null,
     llegada_servicio_at: '2026-09-21T06:40:00.000Z', fin_servicio_at: null,
@@ -218,15 +218,15 @@ describe('AsignacionDetalle — finalización del evento', () => {
     asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, llegada_servicio_at: null });
     montar();
 
-    await screen.findByRole('button', { name: 'Llegada al servicio' });
-    expect(screen.queryByRole('button', { name: 'Finalización del evento' })).not.toBeInTheDocument();
+    await screen.findByRole('button', { name: 'Llegada a evento/servicio' });
+    expect(screen.queryByRole('button', { name: 'Fin evento/servicio' })).not.toBeInTheDocument();
   });
 
   it('tras la llegada lo ofrece, sin impedir finalizar la asignación', async () => {
     asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
     montar();
 
-    expect(await screen.findByRole('button', { name: 'Finalización del evento' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Fin evento/servicio' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
@@ -237,20 +237,20 @@ describe('AsignacionDetalle — finalización del evento', () => {
     });
     montar();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Finalización del evento' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Fin evento/servicio' }));
     await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5));
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Finalización del evento' })).not.toBeInTheDocument());
-    const etiqueta = screen.getByText('Finalización del evento');
+      expect(screen.queryByRole('button', { name: 'Fin evento/servicio' })).not.toBeInTheDocument());
+    const etiqueta = screen.getByText('Fin evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T09:10:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el evento');
   });
 
-  it('una finalizada sin finalización del evento registrada sale con guion', async () => {
+  it('una finalizada sin fin del evento/servicio registrado sale con guion', async () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, fin_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Finalización del evento');
+    const etiqueta = await screen.findByText('Fin evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });

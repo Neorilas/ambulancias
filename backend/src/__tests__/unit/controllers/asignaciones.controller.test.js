@@ -955,16 +955,16 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/Llegada al servicio/);
+      expect(res._json.message).toMatch(/Llegada a evento\/servicio/);
       expect(huboUpdate()).toBe(false);
     });
 
-    it('400 con mensaje propio en una asignación ya cerrada sin finalización del evento', async () => {
+    it('400 con mensaje propio en una asignación ya cerrada sin fin del evento/servicio', async () => {
       mockConLlegada({ estado: 'finalizada' });
       const res = mockRes();
       await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/finalización del evento .*finalizada/);
+      expect(res._json.message).toMatch(/fin del evento\/servicio .*finalizada/);
       expect(huboUpdate()).toBe(false);
     });
 
