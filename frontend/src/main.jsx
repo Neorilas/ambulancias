@@ -2,6 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
+import { instalarReporteDeErrores } from './utils/reporteErrores.js';
+
+// Errores de JS, de red y de proxy → panel Errores del superadmin. Antes de
+// montar React, para no perder un fallo del primer render.
+instalarReporteDeErrores();
 
 // Capturar beforeinstallprompt ANTES de que React monte.
 // El evento puede dispararse antes de que useEffect registre su listener.

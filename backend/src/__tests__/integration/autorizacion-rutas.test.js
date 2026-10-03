@@ -45,6 +45,7 @@ const ACCESO = {
   'POST /push/subscribe':        ['abierta', 'da de alta el dispositivo propio'],
   'DELETE /push/subscribe':      ['abierta', 'solo borra si es suya'],
   'POST /push/test':             ['abierta', 'aviso a uno mismo'],
+  'POST /errores-cliente':       ['abierta', 'con sesión: errores que vio la app, atribuidos a quien los manda'],
 
   // ── Listados filtrados por usuario ──────────────────────────
   'GET /vehicles/':              ['propia'],

@@ -755,7 +755,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v29_fin_servicio_at']);
+    expect(aplicadas[0]).toBe('v29_fin_servicio_at');
     const sql = ejecutadas.find(q => q.includes('ADD COLUMN fin_servicio_at'));
     expect(sql).toContain('DATETIME NULL DEFAULT NULL');
     expect(sql).toContain('AFTER llegada_servicio_at');
@@ -768,5 +768,18 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     });
     await runMigrations();
     expect(ejecutadas.some(q => q.includes('ADD COLUMN fin_servicio_at'))).toBe(false);
+  });
+
+  it('v30 añade a error_logs el origen (servidor por defecto), user_agent y ocurrido_at', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v29_fin_servicio_at') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v30_errores_cliente']);
+    const origen = ejecutadas.find(q => q.includes('ADD COLUMN origen'));
+    // Las filas que ya hay son 5xx de Express: el DEFAULT las deja bien.
+    expect(origen).toContain("ENUM('servidor','cliente') NOT NULL DEFAULT 'servidor'");
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN user_agent VARCHAR(500)'))).toBe(true);
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN ocurrido_at'))).toContain('DATETIME NULL DEFAULT NULL');
   });
 });

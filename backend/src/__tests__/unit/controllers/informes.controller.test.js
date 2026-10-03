@@ -9,7 +9,10 @@ jest.mock('../../../utils/fecha.utils', () => ({
   ahora: () => new Date('2026-09-27T10:00:00.000Z'),
 }));
 
+jest.mock('../../../controllers/admin.controller', () => ({ logError: jest.fn() }));
+
 const informes = require('../../../services/informes.service');
+const { logError } = require('../../../controllers/admin.controller');
 const { getInformeMensual } = require('../../../controllers/informes.controller');
 const { mockReq, mockRes } = require('../../helpers/mockReqRes');
 
@@ -56,5 +59,7 @@ describe('informes.controller · getInformeMensual', () => {
     const res = mockRes();
     await getInformeMensual(mockReq({ query: { mes: '2026-08' } }), res);
     expect(res.status).toHaveBeenCalledWith(500);
+    // Contesta él mismo en vez de next(err): sin esto no llegaba al panel.
+    expect(logError).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 500, errorMessage: 'BD caída' }));
   });
 });

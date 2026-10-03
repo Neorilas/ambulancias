@@ -6,8 +6,10 @@
 'use strict';
 
 const express        = require('express');
-const { apiLimiter, cspReportLimiter } = require('../middleware/rateLimiter.middleware');
+const { apiLimiter, cspReportLimiter, erroresClienteLimiter } = require('../middleware/rateLimiter.middleware');
 const { recibirInforme } = require('../controllers/csp.controller');
+const { recibirErrores } = require('../controllers/erroresCliente.controller');
+const { authenticate }   = require('../middleware/auth.middleware');
 const { auditarAccesosDenegados } = require('../middleware/auditoria403.middleware');
 
 const authRoutes     = require('./auth.routes');
@@ -38,6 +40,10 @@ router.use(apiLimiter);
 
 // Todo 403 a un usuario autenticado queda en la auditoría (access_denied)
 router.use(auditarAccesosDenegados);
+
+// Errores que ve la app y no llegan a Express (red, timeout, 502, JS) →
+// error_logs con origen 'cliente'. Con sesión y cupo propio por usuario.
+router.post('/errores-cliente', authenticate, erroresClienteLimiter, recibirErrores);
 
 // Montar rutas
 router.use('/auth',      authRoutes);

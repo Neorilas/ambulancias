@@ -4,7 +4,7 @@
  * Muestra:
  *   - Estadísticas generales del sistema
  *   - Historial de auditoría (quién hizo qué y cuándo)
- *   - Log de errores del servidor (5xx)
+ *   - Errores: 5xx del servidor y lo que reporta la app (red, timeout, 502, JS)
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { adminService } from '../services/admin.service.js';
@@ -279,6 +279,7 @@ function TabErrores() {
   const [loading, setLoading] = useState(false);
   const [desde,   setDesde]   = useState('');
   const [hasta,   setHasta]   = useState('');
+  const [origen,  setOrigen]  = useState('');
   const [expanded, setExpanded] = useState(null);
 
   const load = useCallback(async () => {
@@ -288,15 +289,16 @@ function TabErrores() {
         page, limit: 20,
         desde: desde || undefined,
         hasta: hasta || undefined,
+        origen: origen || undefined,
       });
       setLogs(r.data || []);
       setTotal(r.pagination?.total || 0);
     } catch { notify.error('Error al cargar logs de error'); }
     finally { setLoading(false); }
-  }, [page, desde, hasta]);
+  }, [page, desde, hasta, origen]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [desde, hasta]);
+  useEffect(() => { setPage(1); }, [desde, hasta, origen]);
 
   const totalPages = Math.ceil(total / 20);
 
@@ -304,11 +306,18 @@ function TabErrores() {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-sm text-neutral-500">{total} error{total !== 1 ? 'es' : ''} registrado{total !== 1 ? 's' : ''}</p>
-        <DateFilter
-          desde={desde} hasta={hasta}
-          onDesde={setDesde} onHasta={setHasta}
-          onReset={() => { setDesde(''); setHasta(''); }}
-        />
+        <div className="flex flex-wrap gap-2 items-center">
+          <select className="input text-sm py-1" value={origen} onChange={e => setOrigen(e.target.value)}>
+            <option value="">Todos los orígenes</option>
+            <option value="servidor">Servidor (5xx)</option>
+            <option value="cliente">App (red, timeout, JS)</option>
+          </select>
+          <DateFilter
+            desde={desde} hasta={hasta}
+            onDesde={setDesde} onHasta={setHasta}
+            onReset={() => { setDesde(''); setHasta(''); }}
+          />
+        </div>
       </div>
 
       {loading ? <PageLoading /> : (
@@ -316,20 +325,29 @@ function TabErrores() {
           {logs.length === 0 ? (
             <div className="empty">
               <p className="empty-title">Sin errores registrados</p>
-              <p className="empty-hint">El servidor no ha devuelto ningún 5xx en este periodo</p>
+              <p className="empty-hint">Ni 5xx del servidor ni errores reportados por la app en este periodo</p>
             </div>
           ) : (
             <div className="space-y-2">
               {logs.map(log => (
-                <div key={log.id} className="card border-l-4 border-l-red-400 space-y-1">
+                <div key={log.id} className={`card border-l-4 space-y-1 ${log.origen === 'cliente' ? 'border-l-warn-500' : 'border-l-red-400'}`}>
                   <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="badge bg-bad-50 text-bad-600 font-mono text-xs">{log.status_code}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`badge text-xs ${log.origen === 'cliente' ? 'bg-warn-50 text-warn-600' : 'bg-bad-50 text-bad-600'}`}>
+                        {log.origen === 'cliente' ? 'App' : 'Servidor'}
+                      </span>
+                      {log.status_code && <span className="badge bg-bad-50 text-bad-600 font-mono text-xs">{log.status_code}</span>}
                       <span className="text-xs font-medium text-neutral-600">
                         {log.method} <span className="font-mono text-neutral-800 break-all">{log.url}</span>
                       </span>
                     </div>
-                    <span className="text-xs text-neutral-400 flex-shrink-0">{formatDateTime(log.created_at)}</span>
+                    <span className="text-xs text-neutral-400 flex-shrink-0 text-right">
+                      {formatDateTime(log.ocurrido_at || log.created_at)}
+                      {/* Sin red, el error llega cuando vuelve: se avisa si fue bastante después. */}
+                      {log.ocurrido_at && new Date(log.created_at) - new Date(log.ocurrido_at) > 5 * 60 * 1000 && (
+                        <span className="block">recibido {formatDateTime(log.created_at)}</span>
+                      )}
+                    </span>
                   </div>
 
                   <p className="text-sm text-bad-600 font-medium">{log.error_message}</p>
@@ -340,13 +358,18 @@ function TabErrores() {
                       {log.ip_address && <span className="ml-2">{log.ip_address}</span>}
                     </p>
                   )}
+                  {log.user_agent && (
+                    <p className="text-[11px] text-neutral-400 font-mono break-all">{log.user_agent}</p>
+                  )}
 
-                  <button
-                    onClick={() => setExpanded(expanded === log.id ? null : log.id)}
-                    className="text-xs text-primary-600 hover:underline"
-                  >
-                    {expanded === log.id ? 'Ocultar stack trace' : 'Ver stack trace'}
-                  </button>
+                  {log.stack_trace && (
+                    <button
+                      onClick={() => setExpanded(expanded === log.id ? null : log.id)}
+                      className="text-xs text-primary-600 hover:underline"
+                    >
+                      {expanded === log.id ? 'Ocultar detalle' : 'Ver detalle'}
+                    </button>
+                  )}
 
                   {expanded === log.id && log.stack_trace && (
                     <pre className="text-[10px] bg-neutral-900 text-ok-500 rounded p-3 overflow-x-auto max-h-48 mt-1">

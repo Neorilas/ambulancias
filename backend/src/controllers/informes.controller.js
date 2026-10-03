@@ -9,6 +9,7 @@ const { success, error } = require('../utils/response.utils');
 const informes = require('../services/informes.service');
 const { ahora } = require('../utils/fecha.utils');
 const logger = require('../utils/logger.utils');
+const { registrarErrorServidor } = require('../middleware/error.middleware');
 
 /**
  * GET /informes/mensual?mes=YYYY-MM
@@ -38,6 +39,7 @@ async function getInformeMensual(req, res) {
     });
   } catch (err) {
     logger.error(`Informes: error calculando ${mes}: ${err.message}`);
+    registrarErrorServidor(req, err);
     return error(res, 'No se pudo calcular el informe');
   }
 }
