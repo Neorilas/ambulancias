@@ -8,7 +8,11 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import UserForm from './UserForm.jsx';
 import ResetPasswordModal from './ResetPasswordModal.jsx';
-import { ROLES } from '../../utils/constants.js';
+import { ROLES, ROL_LABELS, labelRol } from '../../utils/constants.js';
+
+// Valor del filtro «Sin rol». Mismo literal que ROL_FILTRO_NINGUNO en
+// backend (users.controller → listUsers); ningún rol real puede llamarse así.
+const SIN_ROL = 'sin-rol';
 
 /**
  * ¿A este usuario se le mandan avisos push?
@@ -54,6 +58,11 @@ export default function UserList() {
   const [pagination, setPagination] = useState(null);
   const [page,       setPage]       = useState(1);
   const [search,     setSearch]     = useState('');
+  const [rolFiltro,  setRolFiltro]  = useState('');
+  // Opciones del filtro: los roles conocidos más los creados desde la app.
+  // GET /users/roles al gestor solo le da los que puede repartir, por eso se
+  // parte de ROL_LABELS: filtrar por administrador también le sirve a él.
+  const [rolesFiltro, setRolesFiltro] = useState(Object.keys(ROL_LABELS));
   const [loading,    setLoading]    = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [editUser,   setEditUser]   = useState(null);
@@ -84,7 +93,9 @@ export default function UserList() {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await usersService.list({ page, search: busqueda || undefined, limit: 15 });
+      const resp = await usersService.list({
+        page, search: busqueda || undefined, role: rolFiltro || undefined, limit: 15,
+      });
       setUsers(resp.data || []);
       setPagination(resp.pagination);
     } catch (err) {
@@ -92,11 +103,17 @@ export default function UserList() {
     } finally {
       setLoading(false);
     }
-  }, [page, busqueda]);
+  }, [page, busqueda, rolFiltro]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  useEffect(() => { setPage(1); }, [busqueda]);
+  useEffect(() => { setPage(1); }, [busqueda, rolFiltro]);
+
+  useEffect(() => {
+    usersService.listRoles()
+      .then(roles => setRolesFiltro(prev => [...new Set([...prev, ...roles.map(r => r.nombre)])]))
+      .catch(() => {}); // sin la lista de la BD quedan los roles conocidos
+  }, []);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -124,7 +141,9 @@ export default function UserList() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
           <h1 className="text-[19px] font-semibold text-neutral-900">Usuarios</h1>
-          <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} usuarios registrados</p>
+          <p className="text-neutral-500 text-sm">
+            {pagination?.total ?? 0} {busqueda || rolFiltro ? 'usuarios encontrados' : 'usuarios registrados'}
+          </p>
         </div>
         {puedeCrear && (
           <button onClick={() => { setEditUser(null); setShowForm(true); }} className="btn-primary">
@@ -133,14 +152,26 @@ export default function UserList() {
         )}
       </div>
 
-      {/* Buscador */}
-      <input
-        type="search"
-        className="input"
-        placeholder="Buscar por nombre, username, email..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      {/* Buscador y filtro por rol */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="search"
+          className="input flex-1"
+          placeholder="Buscar por nombre, username, email..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <select
+          className="input sm:w-52"
+          aria-label="Filtrar por rol"
+          value={rolFiltro}
+          onChange={e => setRolFiltro(e.target.value)}
+        >
+          <option value="">Todos los roles</option>
+          {rolesFiltro.map(r => <option key={r} value={r}>{labelRol(r)}</option>)}
+          <option value={SIN_ROL}>Sin rol</option>
+        </select>
+      </div>
 
       {/* Tabla */}
       {loading ? <PageLoading /> : (

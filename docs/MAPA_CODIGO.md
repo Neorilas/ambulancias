@@ -75,7 +75,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | Grupo | Fichero rutas | Controlador | Endpoints |
 |---|---|---|---|
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
-| `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
+| `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` (`?search`, `?role=<rol>|sin-rol`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
@@ -751,6 +751,16 @@ Resetear contraseñas, activar/desactivar y borrar siguen siendo de admin. Todo
 en `users.controller` (`motivoRolProhibido` + `motivoGestor`). **Los roles que llegan se normalizan antes de comprobar nada** (`normalizarRoles`: minúsculas, sin espacios, sin repetir): la tabla compara sin distinguir mayúsculas y las listas del código no, así que «Administrador» o «Superadmin» esquivaban las reglas; `GET
 /users/roles` ya solo le devuelve al gestor los roles que puede dar, y
 `UserList`/`UserForm` esconden lo que no puede hacer (el backend es quien manda).
+
+**Filtro por rol en `/usuarios` (2026-10-03).** `GET /users?role=<nombre>`
+filtra por un rol; `?role=sin-rol` saca los que no tienen ninguno (la mayoría
+en producción). El literal lleva guion a propósito: `POST /users/roles` solo
+admite `[a-z_]`, así que ningún rol real puede chocar con él; está duplicado en
+`users.controller` (`ROL_FILTRO_NINGUNO`) y `UserList` (`SIN_ROL`). Si `role`
+llega repetido se usa el primero (un array en el `= ?` daba error de SQL). Las
+opciones del selector parten de `ROL_LABELS` y se completan con
+`GET /users/roles`: esa ruta al gestor solo le da los roles que puede repartir,
+y sin `ROL_LABELS` no podría filtrar por administrador.
 
 **Los roles no son excluyentes.** Un administrador o un gestor pueden llevar
 además `tecnico` porque también salen de servicio. Por eso `isOperacional()`

@@ -141,6 +141,12 @@ async function resolverRoles(conn, nombres) {
 // ============================================================
 // GET /users
 // ============================================================
+
+// `?role=sin-rol`: usuarios sin ningún rol (la mayoría en producción). Lleva
+// guion a propósito: POST /users/roles solo admite [a-z_], así que ningún rol
+// real puede llamarse así. Mismo valor en frontend (UserList.jsx).
+const ROL_FILTRO_NINGUNO = 'sin-rol';
+
 async function listUsers(req, res, next) {
   try {
     const page  = Math.max(1, parseInt(req.query.page)  || PAGINATION.DEFAULT_PAGE);
@@ -150,7 +156,10 @@ async function listUsers(req, res, next) {
     ));
     const offset = (page - 1) * limit;
     const search = req.query.search ? `%${req.query.search}%` : null;
-    const roleFilter = req.query.role || null;
+    // `?role=a&role=b` llega como array y el `= ?` de abajo reventaría en SQL:
+    // se filtra por un solo rol, el primero.
+    const roleRaw = Array.isArray(req.query.role) ? req.query.role[0] : req.query.role;
+    const roleFilter = roleRaw ? String(roleRaw) : null;
     const showDeleted = isAdmin(req.user) && req.query.deleted === 'true';
 
     let whereClauses = showDeleted ? [] : ['u.deleted_at IS NULL'];
@@ -161,7 +170,9 @@ async function listUsers(req, res, next) {
       params.push(search, search, search, search);
     }
 
-    if (roleFilter) {
+    if (roleFilter === ROL_FILTRO_NINGUNO) {
+      whereClauses.push('NOT EXISTS (SELECT 1 FROM user_roles ur2 WHERE ur2.user_id = u.id)');
+    } else if (roleFilter) {
       whereClauses.push('EXISTS (SELECT 1 FROM user_roles ur2 JOIN roles r2 ON ur2.role_id = r2.id WHERE ur2.user_id = u.id AND r2.nombre = ?)');
       params.push(roleFilter);
     }
