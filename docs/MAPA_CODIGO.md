@@ -382,7 +382,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/login` | `pages/Login.jsx` | público | — |
 | `/` | redirige a `/mis-asignaciones` | | |
 | `/mis-asignaciones` | `asignaciones/MisAsignaciones.jsx` | cualquiera | `menu_mis_asignaciones` |
-| `/asignaciones` | `asignaciones/AsignacionList.jsx` (`?id=<n>` abre ese detalle, que es un panel del listado y no una página) | admin, gestor, super | `menu_asignaciones` |
+| `/asignaciones` | `asignaciones/AsignacionList.jsx` (`?id=<n>` abre ese detalle, que es un panel del listado y no una página; la columna «Nº» enseña `#id`, el mismo número que el detalle, los avisos y la ficha del vehículo — sustituyó a «Km inicio» el 2026-10-03, que casi siempre salía «—» por lo mismo que en §2.7) | admin, gestor, super | `menu_asignaciones` |
 | `/vehiculos` | `vehicles/VehicleList.jsx` | admin, gestor, super | `menu_vehiculos` |
 | `/vehiculos/:id` y `/vehiculos/:id/historial` | `vehicles/VehicleHistory.jsx` (**el mismo componente**, con pestañas; desde el listado se llega pinchando la fila entera; `?tab=<clave>` abre esa pestaña, `tabInicial`) | ídem | `menu_vehiculos` |
 | `/usuarios` | `users/UserList.jsx` | admin, gestor, super | `menu_usuarios` |

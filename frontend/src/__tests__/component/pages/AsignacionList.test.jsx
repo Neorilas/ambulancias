@@ -66,3 +66,22 @@ describe('AsignacionList · ?id=', () => {
     expect(screen.queryByText(/^detalle/)).not.toBeInTheDocument();
   });
 });
+
+// El número es lo que se dicen por teléfono y lo que sale en el detalle, los
+// avisos y la ficha del vehículo («Asignación #N»): sin él no se cruzan.
+describe('AsignacionList · número', () => {
+  it('cada fila enseña su número', async () => {
+    asignacionesService.list.mockResolvedValue({
+      data: [{
+        id: 123, estado: 'activa', vehiculo_alias: 'AMB 1', matricula: '1234ABC',
+        responsable_nombre: 'Jose Lopez', responsable_username: 'jlopez',
+        fecha_inicio: '2026-10-03T08:00:00Z', fecha_fin: null,
+      }],
+      pagination: { total: 1 },
+    });
+    montar('/asignaciones');
+    expect(await screen.findByText('#123')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Nº' })).toBeInTheDocument();
+    expect(screen.queryByText('Km inicio')).not.toBeInTheDocument();
+  });
+});
