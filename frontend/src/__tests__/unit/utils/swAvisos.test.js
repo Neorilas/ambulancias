@@ -16,15 +16,15 @@ const datos = (cuerpo) => ({
 describe('leerAviso', () => {
   it('usa el payload del backend tal cual', () => {
     const aviso = leerAviso(datos(JSON.stringify({
-      titulo: 'Alfa 1 · servicio finalizado',
-      cuerpo: 'Juan López ha finalizado el servicio con fotos.',
+      titulo: 'Alfa 1 · asignación finalizada',
+      cuerpo: 'Juan López ha finalizado la asignación con fotos.',
       url:    '/asignaciones?id=12',
       tag:    'asig-12-finalizada',
     })));
 
     expect(aviso).toEqual({
-      titulo: 'Alfa 1 · servicio finalizado',
-      cuerpo: 'Juan López ha finalizado el servicio con fotos.',
+      titulo: 'Alfa 1 · asignación finalizada',
+      cuerpo: 'Juan López ha finalizado la asignación con fotos.',
       url:    '/asignaciones?id=12',
       tag:    'asig-12-finalizada',
     });

@@ -55,7 +55,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    expect(await screen.findByText('Fin real de servicio')).toBeInTheDocument();
+    expect(await screen.findByText('Fin de la asignación')).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.finalizado_at))).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.inicio_real_at))).toBeInTheDocument();
   });
@@ -64,7 +64,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, estado: 'activa', finalizado_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Fin real de servicio');
+    const etiqueta = await screen.findByText('Fin de la asignación');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 
@@ -75,7 +75,7 @@ describe('AsignacionDetalle — horas reales', () => {
     montar();
 
     await screen.findByText('Fin previsto');
-    expect(screen.queryByText('Fin real de servicio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fin de la asignación')).not.toBeInTheDocument();
   });
 });
 
@@ -110,7 +110,7 @@ describe('AsignacionDetalle — editar', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    await screen.findByText('Fin real de servicio');
+    await screen.findByText('Fin de la asignación');
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 
@@ -147,7 +147,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
     montar();
 
-    expect(await screen.findByRole('button', { name: 'Llegada a evento/servicio' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Inicio evento/servicio' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
@@ -158,10 +158,10 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     });
     montar();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Llegada a evento/servicio' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Inicio evento/servicio' }));
     await waitFor(() => expect(asignacionesService.registrarLlegada).toHaveBeenCalledWith(5));
     expect(await screen.findByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Llegada a evento/servicio' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inicio evento/servicio' })).not.toBeInTheDocument();
   });
 
   it('sin las fotos de inicio no ofrece la llegada', async () => {
@@ -172,7 +172,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     montar();
 
     await screen.findByText('Faltan fotos de inicio');
-    expect(screen.queryByRole('button', { name: 'Llegada a evento/servicio' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inicio evento/servicio' })).not.toBeInTheDocument();
   });
 
   it('en una finalizada, el admin ve la hora de llegada y lo que tardó desde el inicio', async () => {
@@ -182,7 +182,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: '2026-09-21T06:40:00.000Z' });
     montar();
 
-    const etiqueta = await screen.findByText('Llegada a evento/servicio');
+    const etiqueta = await screen.findByText('Inicio evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T06:40:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('33 min desde el inicio');
   });
@@ -191,7 +191,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Llegada a evento/servicio');
+    const etiqueta = await screen.findByText('Inicio evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });
@@ -218,7 +218,7 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, llegada_servicio_at: null });
     montar();
 
-    await screen.findByRole('button', { name: 'Llegada a evento/servicio' });
+    await screen.findByRole('button', { name: 'Inicio evento/servicio' });
     expect(screen.queryByRole('button', { name: 'Fin evento/servicio' })).not.toBeInTheDocument();
   });
 
@@ -279,7 +279,7 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
     montar();
 
     const aviso = await screen.findByTestId('aviso-fotos-inicio-tarde');
-    expect(aviso).toHaveTextContent('1 foto se subió más de 30 min después del inicio de servicio');
+    expect(aviso).toHaveTextContent('1 foto se subió más de 30 min después del inicio de la asignación');
     expect(aviso).toHaveTextContent('hasta 1h 35min después');
     // Solo la tardía lleva la marca
     expect(screen.getByText('+1h 35min')).toBeInTheDocument();

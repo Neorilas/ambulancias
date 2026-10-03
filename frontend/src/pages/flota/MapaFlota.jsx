@@ -161,7 +161,7 @@ function Ficha({ entrada, onCerrar, puedeVerAsignaciones }) {
             <br />
             {entrada.asignacion.responsable}
             {!entrada.asignacion.iniciada && (
-              <span className="text-warn-700"> · activa, pero nadie ha iniciado el servicio</span>
+              <span className="text-warn-700"> · activa, pero nadie ha iniciado la asignación</span>
             )}
           </p>
         ) : (

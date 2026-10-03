@@ -197,7 +197,7 @@ export function toInputDate(date) {
 }
 
 /**
- * Instante desde el que se puede pulsar «Inicio de servicio»: la hora prevista
+ * Instante desde el que se puede pulsar «Inicio de la asignación»: la hora prevista
  * menos INICIO_ANTICIPADO_MAX_MINUTOS. null si la fecha no es válida (entonces
  * no se bloquea en pantalla; el backend decide igual).
  */
@@ -207,7 +207,7 @@ export function inicioServicioPermitidoDesde(fechaInicio) {
   return new Date(d.getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
 }
 
-/** ¿Todavía es pronto para iniciar el servicio? */
+/** ¿Todavía es pronto para iniciar la asignación? */
 export function esProntoParaIniciar(fechaInicio, ahora = new Date()) {
   const desde = inicioServicioPermitidoDesde(fechaInicio);
   return !!desde && ahora < desde;

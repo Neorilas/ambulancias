@@ -174,7 +174,7 @@ export default function Informes() {
         <>
           <Seccion
             titulo="Puntualidad"
-            nota={`Tarde = «Inicio de servicio» más de ${umbral} min después de la hora prevista. Los cierres, frente a la hora de fin prevista con el mismo margen.`}
+            nota={`Tarde = «Inicio de la asignación» más de ${umbral} min después de la hora prevista. Los cierres, frente a la hora de fin prevista con el mismo margen.`}
           >
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
               <Kpi titulo="Inicios tardíos" clave="inicios_tardios" datos={cmp}
@@ -185,10 +185,10 @@ export default function Informes() {
                 detalle={r.retraso_medio_min != null ? `media ${fmtMin(r.retraso_medio_min)}, solo los tardíos` : 'solo los tardíos'} />
               <Kpi titulo="Sin iniciar" clave="sin_iniciar" datos={cmp}
                 valor={fmt(r.sin_iniciar)}
-                detalle="nadie pulsó «Inicio de servicio»" />
+                detalle="nadie pulsó «Inicio de la asignación»" />
               <Kpi titulo="Desplazamiento (mediana)" clave="desplazamiento" datos={cmp}
                 valor={fmtMin(r.desplazamiento_mediana_min)}
-                detalle="de inicio a llegada a evento/servicio" />
+                detalle="de inicio de la asignación a inicio del evento/servicio" />
               <Kpi titulo="Cierres tardíos" clave="cierres_tardios" datos={cmp}
                 valor={fmt(valorMetrica('cierres_tardios', r), ' %')}
                 detalle={`${fmt(r.cierres_tardios)} de ${fmt(r.finalizados)} finalizados`} />
@@ -214,10 +214,10 @@ export default function Informes() {
 
           <Seccion
             titulo="Calidad del registro"
-            nota="Si la app se usa como debe. La llegada a evento/servicio se registra desde el 25/09/2026: antes sale baja porque no existía."
+            nota="Si la app se usa como debe. El inicio del evento/servicio se registra desde el 25/09/2026: antes sale baja porque no existía."
           >
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              <Kpi titulo="Con llegada registrada" clave="con_llegada" datos={cmp}
+              <Kpi titulo="Con inicio evento/servicio" clave="con_llegada" datos={cmp}
                 valor={fmt(valorMetrica('con_llegada', r), ' %')}
                 detalle={`${fmt(r.con_llegada)} de ${fmt(r.iniciados)} iniciados`} />
               <Kpi titulo="Con fotos de inicio tardías" clave="fotos_tarde" datos={cmp}
@@ -267,7 +267,7 @@ export default function Informes() {
                 { clave: 't', titulo: 'Inicios tardíos', num: true, pintar: t => conPct(t.inicios_tardios, t.iniciados) },
                 { clave: 'r', titulo: 'Retraso mediano', num: true, pintar: t => fmtMin(t.retraso_mediana_min) },
                 { clave: 'x', titulo: 'Sin iniciar', num: true, pintar: t => fmt(t.sin_iniciar) },
-                { clave: 'l', titulo: 'Con llegada', num: true, pintar: t => conPct(t.con_llegada, t.iniciados) },
+                { clave: 'l', titulo: 'Con inicio ev./serv.', num: true, pintar: t => conPct(t.con_llegada, t.iniciados) },
                 { clave: 'f', titulo: 'Fotos tarde', num: true, pintar: t => fmt(t.con_fotos_inicio_tarde) },
                 { clave: 'i', titulo: 'Incidencias', num: true, pintar: t => fmt(t.incidencias) },
               ]}

@@ -259,12 +259,12 @@ export default function AsignacionDetalle({ id, onClose }) {
     }
   };
 
-  // «Llegada a evento/servicio»: la hora la pone el servidor, no el móvil.
+  // «Inicio evento/servicio»: la hora la pone el servidor, no el móvil.
   const handleLlegada = async () => {
     setRegistrandoLlegada(true);
     try {
       setAsig(await asignacionesService.registrarLlegada(id));
-      notify.success('Llegada a evento/servicio registrada');
+      notify.success('Inicio evento/servicio registrado');
     } catch (err) {
       notify.error(err.response?.data?.message || 'No se pudo registrar la llegada');
     } finally {
@@ -310,7 +310,7 @@ export default function AsignacionDetalle({ id, onClose }) {
     return { desde, hasta: hasta === desde.slice(-5) ? null : hasta };
   };
   const rangoInicio = rangoFotos(Object.values(evInicio));
-  // Fotos de inicio subidas más de N min después de «Inicio de servicio»: ya
+  // Fotos de inicio subidas más de N min después de «Inicio de la asignación»: ya
   // no enseñan la ambulancia al recogerla. Lo calcula el backend
   // (`fotos_inicio_tarde`, `ev.tardia`) y solo lo ve gestión: al técnico no le
   // sirve de nada y la marca es para quien revisa la evidencia.
@@ -328,7 +328,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
   // Tras las fotos de inicio va el desplazamiento; al llegar se pulsa
-  // «Llegada a evento/servicio». Es OPCIONAL a propósito: quien se olvide tiene que
+  // «Inicio evento/servicio». Es OPCIONAL a propósito: quien se olvide tiene que
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
   const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
@@ -420,17 +420,17 @@ export default function AsignacionDetalle({ id, onClose }) {
               {(asig.inicio_real_at || asig.finalizado_at) && (
                 <>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Inicio real de servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio de la asignación</p>
                     <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin real de servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin de la asignación</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
-                      en el sitio empieza aquí, no en el «Inicio real». */}
+                      en el sitio empieza aquí, no en el «Inicio de la asignación». */}
                   <div className="col-span-2">
-                    <p className="text-neutral-400 text-xs mb-0.5">Llegada a evento/servicio</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio evento/servicio</p>
                     <p className="text-neutral-900">
                       {asig.llegada_servicio_at ? formatDateTime(asig.llegada_servicio_at) : '—'}
                       {asig.llegada_servicio_at && asig.inicio_real_at && (
@@ -518,8 +518,9 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <div>
                   <p className="font-semibold text-primary-800 text-sm">¿Has llegado al evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al llegar al punto donde se presta el servicio: se guarda la hora real
-                    a la que empieza el trabajo en el sitio.
+                    Púlsalo al llegar al lugar donde se interviene: se guarda la hora real a la
+                    que empieza el servicio en el sitio. No es el inicio de la asignación, que
+                    ya se marcó en base con las fotos.
                   </p>
                 </div>
                 <button
@@ -527,7 +528,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   disabled={registrandoLlegada}
                   className="btn-primary w-full"
                 >
-                  {registrandoLlegada ? 'Registrando…' : 'Llegada a evento/servicio'}
+                  {registrandoLlegada ? 'Registrando…' : 'Inicio evento/servicio'}
                 </button>
               </div>
             )}
@@ -538,8 +539,9 @@ export default function AsignacionDetalle({ id, onClose }) {
                 <div>
                   <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al acabar en el evento, antes de volver a base. La asignación se
-                    cierra después, en base, con las fotos de fin.
+                    Púlsalo al abandonar el lugar donde se interviene, antes de volver a base.
+                    No es el fin de la asignación: esa se cierra después, en base, con las
+                    fotos de fin.
                   </p>
                 </div>
                 <button
@@ -701,7 +703,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                   <p className="font-semibold">Fotos de inicio subidas tarde</p>
                   <p>
                     {inicioTarde.fotos === 1 ? '1 foto se subió' : `${inicioTarde.fotos} fotos se subieron`}{' '}
-                    más de {inicioTarde.umbral_min} min después del inicio de servicio
+                    más de {inicioTarde.umbral_min} min después del inicio de la asignación
                     (hasta {formatMinutos(inicioTarde.max_retraso_min)} después). Puede que no muestren
                     el estado del vehículo al recogerlo.
                   </p>
@@ -726,7 +728,7 @@ export default function AsignacionDetalle({ id, onClose }) {
                           />
                           {inicioTarde && ev.tardia && (
                             <span className="absolute top-1 right-1 bg-warn-600 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                                  title={`Subida ${formatMinutos(ev.retraso_min)} después del inicio de servicio`}>
+                                  title={`Subida ${formatMinutos(ev.retraso_min)} después del inicio de la asignación`}>
                               +{formatMinutos(ev.retraso_min)}
                             </span>
                           )}

@@ -12,14 +12,14 @@ import {
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 
 /**
- * Wizard de INICIO de servicio — revisión del vehículo antes de arrancar.
+ * Wizard de INICIO de la asignación — revisión del vehículo antes de arrancar.
  *
  * Está construido sobre una lista de SECCIONES configurable, para poder
  * añadir en el futuro nuevas secciones tipo menú ("material", etc.) sin
  * reescribir el flujo: basta con añadir una entrada a `secciones`.
  *
  * Secciones actuales:
- *   1. inicio    — botón "Inicio de servicio" (registra la hora real / activa)
+ *   1. inicio    — botón "Inicio de la asignación" (registra la hora real / activa)
  *   2. photos    — Revisión mecánica (aceite, líquidos, cuadro)
  *   3. photos    — Estado exterior (4 caras, orden libre)
  *   4. incidencias — fotos opcionales + observaciones / "No hay incidencias"
@@ -32,7 +32,7 @@ import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from
 
 // ── Definición de secciones (extensible) ─────────────────────────────────
 const SECCIONES = [
-  { id: 'inicio',      tipo: 'inicio',      titulo: 'Inicio de servicio' },
+  { id: 'inicio',      tipo: 'inicio',      titulo: 'Inicio de la asignación' },
   { id: 'mecanica',    tipo: 'photos',      titulo: 'Revisión mecánica',
     subtitulo: 'Aceite, líquidos y cuadro de instrumentos', fotos: IMAGEN_TIPOS_INICIO_MECANICA },
   { id: 'exterior',    tipo: 'photos',      titulo: 'Estado exterior',
@@ -101,17 +101,17 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
     }
   };
 
-  // ── Paso 1: Inicio de servicio ──────────────────────────────
+  // ── Paso 1: Inicio de la asignación ──────────────────────────────
   const handleInicioServicio = async () => {
     if (activado) { setStep(step + 1); return; }
     setActivando(true);
     try {
       await asignacionesService.activar(asignacion.id);
       setActivado(true);
-      notify.success('Servicio iniciado');
+      notify.success('Asignación iniciada');
       setStep(step + 1);
     } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo iniciar el servicio');
+      notify.error(err.response?.data?.message || 'No se pudo iniciar la asignación');
     } finally {
       setActivando(false);
     }
@@ -211,7 +211,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
     </div>
   );
 
-  // ── Sección: Inicio de servicio ─────────────────────────────
+  // ── Sección: Inicio de la asignación ─────────────────────────────
   if (seccion.tipo === 'inicio') {
     return (
       <div className="space-y-6">
@@ -236,7 +236,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         {esPronto ? (
           <div className="card bg-warn-50 border border-warn-200">
             <p className="text-warn-700 text-sm">
-              Aún es pronto. Podrás iniciar el servicio a partir del{' '}
+              Aún es pronto. Podrás iniciar la asignación a partir del{' '}
               <strong className="data">{formatDateTime(inicioServicioPermitidoDesde(asignacion.fecha_inicio))}</strong>,
               media hora antes de la hora prevista.
             </p>
@@ -244,15 +244,16 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
         ) : (
           <div className="card bg-primary-50 border border-primary-200">
             <p className="text-primary-800 text-sm">
-              Al pulsar <strong>Inicio de servicio</strong> se registra la fecha y la hora reales.
-              Después documenta el estado del vehículo antes de arrancar.
+              Púlsalo en base, al recoger la ambulancia: se registra la fecha y la hora reales
+              y después se hacen las fotos del vehículo. La llegada al lugar del servicio se
+              marca más tarde, con <strong>Inicio evento/servicio</strong>.
             </p>
           </div>
         )}
         <div className="flex gap-3">
           <button onClick={onCancel} className="btn-secondary flex-1" disabled={activando}>Cancelar</button>
           <button onClick={handleInicioServicio} className="btn-primary flex-1" disabled={activando || esPronto}>
-            {activando ? 'Iniciando…' : activado ? 'Continuar →' : '▶ Inicio de servicio'}
+            {activando ? 'Iniciando…' : activado ? 'Continuar →' : '▶ Inicio de la asignación'}
           </button>
         </div>
       </div>

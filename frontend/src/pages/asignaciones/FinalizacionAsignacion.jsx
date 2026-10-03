@@ -97,7 +97,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             ({asignacion.progreso.inicio.completado}/{asignacion.progreso.inicio.total} fotos).
           </p>
           <p className="text-warn-600 text-xs">
-            Cierra esta ventana y pulsa <strong>"Inicio de servicio"</strong> en el detalle.
+            Cierra esta ventana y pulsa <strong>"Inicio de la asignación"</strong> en el detalle.
           </p>
         </div>
         <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
@@ -132,7 +132,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         motivo_fin: motivo || null,
         material_usado: material.trim(),
       });
-      notify.success('Servicio finalizado correctamente');
+      notify.success('Asignación finalizada correctamente');
       onDone?.();
     } catch (err) {
       if (esFalloDeRed(err)) {

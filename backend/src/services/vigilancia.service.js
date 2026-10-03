@@ -26,7 +26,7 @@ const { AVISO_SIN_INICIAR_MINUTOS } = require('../config/constants');
  * iniciar. Avisa a los administradores UNA vez.
  *
  * Qué cuenta como iniciada: `inicio_real_at`, que lo sella el responsable al
- * pulsar «Inicio de servicio». El `estado` NO sirve para esto — el cron pone
+ * pulsar «Inicio de la asignación». El `estado` NO sirve para esto — el cron pone
  * en `activa` todo lo que llega a su hora, así que una asignación activa con
  * `inicio_real_at` a NULL es justo la que hay que vigilar: arrancó sola y
  * nadie ha entrado. Por eso el filtro mira `inicio_real_at` y usa el estado
@@ -110,7 +110,7 @@ async function revisarAsignacionesSinIniciar() {
  * Se apoya en la MISMA marca que el push (`aviso_sin_iniciar_at`) para que los
  * dos canales digan lo mismo: suena en la app lo que ya se avisó al teléfono,
  * ni antes ni otra cosa. Deja de salir sola en cuanto el responsable pulsa
- * «Inicio de servicio» o la asignación se cierra, se cancela o se borra.
+ * «Inicio de la asignación» o la asignación se cierra, se cancela o se borra.
  *
  * El `fecha_inicio <= límite` se repite a propósito: si alguien aplaza la
  * asignación después del aviso, `updateAsignacion` limpia la marca, pero

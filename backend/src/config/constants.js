@@ -65,7 +65,7 @@ module.exports = {
   AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
     ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
     : 30,
-  // Cuánto antes de la hora prevista se puede pulsar «Inicio de servicio».
+  // Cuánto antes de la hora prevista se puede pulsar «Inicio de la asignación».
   // Un servicio de las 8:00 se puede iniciar desde las 7:30, no antes: la hora
   // real que sella el botón es la evidencia de cuándo empezó el servicio.
   // Vale para todos, gestión incluida. Espejo en frontend/src/utils/constants.js.
@@ -75,7 +75,7 @@ module.exports = {
   // marca como tardía para los administradores. No bloquea nada. Lo calcula el
   // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
   FOTOS_INICIO_TARDE_MINUTOS: 30,
-  // Informes: un servicio se inició tarde si «Inicio de servicio» se pulsó más
+  // Informes: un servicio se inició tarde si «Inicio de la asignación» se pulsó más
   // de estos minutos después de la hora prevista. El mismo margen decide los
   // cierres tardíos/anticipados frente a `fecha_fin`. Decisión de
   // administración (2026-09-27). Cambiarlo no reescribe los meses ya

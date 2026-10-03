@@ -17,7 +17,7 @@
  *   - Inicio tardío: `inicio_real_at` más de INICIO_TARDIO_MINUTOS después de
  *     la hora prevista. Coincide con el aviso de «sin iniciar» (30 min), pero
  *     no es lo mismo: el aviso sale también de las que nunca se inician.
- *   - Sin iniciar: nadie pulsó «Inicio de servicio» y ya pasó el margen. En el
+ *   - Sin iniciar: nadie pulsó «Inicio de la asignación» y ya pasó el margen. En el
  *     mes en curso solo cuentan las que ya deberían haber empezado.
  *   - La llegada (v26) existe desde el 2026-09-25: antes, «no consta».
  *   - El retraso de un técnico es el de los servicios en que va de
