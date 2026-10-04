@@ -5,7 +5,8 @@
  * admin y superadmin: lo decide el backend por rol (routes/facturas.routes.js);
  * el flag `menu_facturas` solo pone la pantalla en el menú.
  *
- * Se suben a mano o llegan solas desde el buzón de facturas@ (lo lee el
+ * Se suben a mano en dos pasos (el backend lee el PDF y el admin revisa y
+ * completa, ver SubirFactura) o llegan solas desde el buzón de facturas@ (lo lee el
  * backend, services/buzonFacturas.service.js). Las del buzón llevan
  * `origen: 'correo'` y se marcan con una etiqueta; arriba va el estado de la
  * última revisión y un botón para revisarlo ya.
@@ -94,15 +95,33 @@ function EstadoBuzon({ estado, revisando, onRevisar }) {
   );
 }
 
-function SubirFactura({ isOpen, onClose, onSubida, proveedores }) {
+const CAMPOS_LEIDOS = ['proveedor', 'numero', 'fecha_emision', 'importe'];
+
+/** 65.23 → «65,23», 1210 → «1210,00», como lo escribiría el admin. */
+const importeATexto = (n) => (n === null || n === undefined ? '' : Number(n).toFixed(2).replace('.', ','));
+
+/**
+ * Subida en dos pasos:
+ *   1. Elegir el PDF. El backend lo lee (POST /facturas/leer) y devuelve
+ *      proveedor, número, fecha e importe, sin guardar nada.
+ *   2. El formulario sale relleno con eso. Lo que no se ha encontrado va
+ *      marcado en ámbar para rellenarlo a mano; lo encontrado, para
+ *      comprobarlo. Al guardar, el PDF vuelve a subir con los datos (POST /facturas).
+ * Si la lectura falla (red, PDF raro) se pasa igual al paso 2, vacío: leer es
+ * una ayuda, no un requisito para poder subir la factura.
+ */
+function SubirFactura({ isOpen, onClose, onSubida, proveedores, facturas }) {
   const { notify } = useNotification();
+  const [paso, setPaso] = useState(1);
   const [form, setForm] = useState(formularioVacio());
   const [errores, setErrores] = useState({});
+  const [leyendo, setLeyendo] = useState(false);
+  const [lectura, setLectura] = useState(null);   // { con_texto, encontrados: Set, fallo? }
   const [enviando, setEnviando] = useState(false);
   const hoy = hoyEnEspana();
 
   useEffect(() => {
-    if (isOpen) { setForm(formularioVacio()); setErrores({}); }
+    if (isOpen) { setPaso(1); setForm(formularioVacio()); setErrores({}); setLectura(null); }
   }, [isOpen]);
 
   const set = (campo) => (e) => setForm(f => ({ ...f, [campo]: e.target.value }));
@@ -111,6 +130,45 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores }) {
     const fichero = e.target.files?.[0] || null;
     setForm(f => ({ ...f, fichero }));
     setErrores(er => ({ ...er, fichero: undefined }));
+  };
+
+  const validarFichero = () => {
+    let error;
+    if (!form.fichero) error = 'Elige el PDF de la factura';
+    else if (form.fichero.type && form.fichero.type !== 'application/pdf') error = 'Tiene que ser un PDF';
+    else if (form.fichero.size > MAX_MB * 1024 * 1024) error = `El PDF no puede pasar de ${MAX_MB} MB`;
+    setErrores(er => ({ ...er, fichero: error }));
+    return !error;
+  };
+
+  const leer = async (e) => {
+    e.preventDefault();
+    if (leyendo || !validarFichero()) return;
+    setLeyendo(true);
+    try {
+      const { con_texto, datos } = await facturasService.leer(form.fichero);
+      const encontrados = new Set(CAMPOS_LEIDOS.filter(c => datos[c] !== null && datos[c] !== undefined && datos[c] !== ''));
+      setForm(f => ({
+        ...f,
+        proveedor:     datos.proveedor || '',
+        numero:        datos.numero || '',
+        fecha_emision: datos.fecha_emision || '',
+        importe:       importeATexto(datos.importe),
+      }));
+      setLectura({ con_texto, encontrados });
+    } catch (err) {
+      // Un 400 (no es un PDF de verdad) se queda en el paso 1: el paso 2 tampoco lo guardaría
+      if (err.status === 400) {
+        setErrores(er => ({ ...er, fichero: err.message }));
+        setLeyendo(false);
+        return;
+      }
+      setForm(f => ({ ...formularioVacio(), proveedor: '', fichero: f.fichero }));
+      setLectura({ con_texto: false, encontrados: new Set(), fallo: err.message });
+    }
+    setLeyendo(false);
+    setErrores({});
+    setPaso(2);
   };
 
   const validar = () => {
@@ -123,9 +181,6 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores }) {
     if (form.importe.trim() && !IMPORTE.test(form.importe.replace(/\s|€/g, ''))) {
       er.importe = 'Importe no válido (ej. 65,23)';
     }
-    if (!form.fichero) er.fichero = 'Elige el PDF de la factura';
-    else if (form.fichero.type && form.fichero.type !== 'application/pdf') er.fichero = 'Tiene que ser un PDF';
-    else if (form.fichero.size > MAX_MB * 1024 * 1024) er.fichero = `El PDF no puede pasar de ${MAX_MB} MB`;
     setErrores(er);
     return Object.keys(er).length === 0;
   };
@@ -152,66 +207,127 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores }) {
     }
   };
 
+  // La misma (proveedor, número) ya guardada: el backend la rechazaría con un 409; mejor verlo antes.
+  const repetida = paso === 2 && form.proveedor.trim() && form.numero.trim()
+    && facturas.find(f => f.proveedor.toLowerCase() === form.proveedor.trim().toLowerCase() && f.numero === form.numero.trim());
+
   const Aviso = ({ campo }) => (errores[campo] ? <p className="text-xs text-bad-600 mt-1">{errores[campo]}</p> : null);
+
+  /** Bajo cada campo del paso 2: si se ha leído del PDF o hay que escribirlo. */
+  const Origen = ({ campo, opcional }) => {
+    if (errores[campo] || !lectura) return null;
+    if (lectura.encontrados.has(campo)) return <p className="text-xs text-neutral-500 mt-1">Leído del PDF, compruébalo</p>;
+    return <p className="text-xs text-warn-700 mt-1">No está en el PDF{opcional ? ', escríbelo si lo sabes' : ', rellénalo a mano'}</p>;
+  };
+
+  /** Ámbar en lo que falta y sigue vacío, para ver de un vistazo qué queda por rellenar. */
+  const claseFalta = (campo) => (lectura && !lectura.encontrados.has(campo) && !form[campo] ? ' border-warn-500 bg-warn-50' : '');
+
+  const pie = paso === 1 ? (
+    <>
+      <button type="button" className="btn-secondary w-full sm:w-auto" onClick={onClose} disabled={leyendo}>Cancelar</button>
+      <button type="submit" form="form-factura-pdf" className="btn-primary w-full sm:w-auto" disabled={leyendo || !form.fichero}>
+        {leyendo ? 'Leyendo la factura…' : 'Siguiente'}
+      </button>
+    </>
+  ) : (
+    <>
+      <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => { setPaso(1); setErrores({}); }} disabled={enviando}>Atrás</button>
+      <button type="submit" form="form-factura" className="btn-primary w-full sm:w-auto" disabled={enviando}>
+        {enviando ? 'Subiendo…' : 'Guardar factura'}
+      </button>
+    </>
+  );
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={enviando ? () => {} : onClose}
-      title="Subir factura"
-      footer={
-        <>
-          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={onClose} disabled={enviando}>Cancelar</button>
-          <button type="submit" form="form-factura" className="btn-primary w-full sm:w-auto" disabled={enviando}>
-            {enviando ? 'Subiendo…' : 'Guardar factura'}
-          </button>
-        </>
-      }
+      onClose={enviando || leyendo ? () => {} : onClose}
+      title={paso === 1 ? 'Subir factura · 1 de 2' : 'Revisar los datos · 2 de 2'}
+      footer={pie}
     >
-      <form id="form-factura" onSubmit={enviar} className="space-y-4" noValidate>
-        <div>
-          <label className="label" htmlFor="factura-fichero">PDF de la factura <span className="text-bad-500">*</span></label>
-          <input id="factura-fichero" type="file" accept="application/pdf,.pdf" className="input" onChange={elegirFichero} />
-          {form.fichero && !errores.fichero && (
-            <p className="text-xs text-neutral-500 mt-1 break-all">{form.fichero.name} · {fmtTamano(form.fichero.size)}</p>
+      {paso === 1 ? (
+        <form id="form-factura-pdf" onSubmit={leer} className="space-y-3" noValidate>
+          <p className="text-sm text-neutral-600">
+            Elige el PDF. Se leen el proveedor, el número, la fecha y el importe, y en el paso siguiente
+            revisas los datos y completas lo que falte.
+          </p>
+          <div>
+            <label className="label" htmlFor="factura-fichero">PDF de la factura <span className="text-bad-500">*</span></label>
+            <input id="factura-fichero" type="file" accept="application/pdf,.pdf" className="input" onChange={elegirFichero} disabled={leyendo} />
+            {form.fichero && !errores.fichero && (
+              <p className="text-xs text-neutral-500 mt-1 break-all">{form.fichero.name} · {fmtTamano(form.fichero.size)}</p>
+            )}
+            <Aviso campo="fichero" />
+          </div>
+        </form>
+      ) : (
+        <form id="form-factura" onSubmit={enviar} className="space-y-4" noValidate>
+          <p className="text-xs text-neutral-500 break-all">
+            <span className="font-mono">{form.fichero?.name}</span> · {fmtTamano(form.fichero?.size)}
+          </p>
+          {lectura?.fallo && (
+            <div className="rounded-lg border border-warn-200 bg-warn-50 p-3 text-sm text-warn-700">
+              No se ha podido leer la factura ({lectura.fallo}). Rellena los datos a mano.
+            </div>
           )}
-          <Aviso campo="fichero" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label" htmlFor="factura-proveedor">Proveedor <span className="text-bad-500">*</span></label>
-            <input id="factura-proveedor" className="input" list="facturas-proveedores" maxLength={100}
-              value={form.proveedor} onChange={set('proveedor')} />
-            <datalist id="facturas-proveedores">
-              {[...new Set([PROVEEDOR_POR_DEFECTO, ...proveedores])].map(p => <option key={p} value={p} />)}
-            </datalist>
-            <Aviso campo="proveedor" />
+          {lectura && !lectura.fallo && !lectura.con_texto && (
+            <div className="rounded-lg border border-warn-200 bg-warn-50 p-3 text-sm text-warn-700">
+              Este PDF no tiene texto que leer (parece escaneado). Rellena los datos a mano.
+            </div>
+          )}
+          {lectura?.con_texto && (
+            <p className="text-sm text-neutral-600">
+              {lectura.encontrados.size === CAMPOS_LEIDOS.length
+                ? 'Se han leído todos los datos del PDF. Compruébalos antes de guardar.'
+                : 'Lo que no se ha encontrado en el PDF está marcado en ámbar: rellénalo a mano.'}
+            </p>
+          )}
+          {repetida && (
+            <div className="rounded-lg border border-bad-200 bg-bad-50 p-3 text-sm text-bad-700">
+              Ya hay una factura {repetida.numero} de {repetida.proveedor} ({formatFechaSola(repetida.fecha_emision)}). No se puede guardar dos veces.
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label" htmlFor="factura-proveedor">Proveedor <span className="text-bad-500">*</span></label>
+              <input id="factura-proveedor" className={`input${claseFalta('proveedor')}`} list="facturas-proveedores" maxLength={100}
+                value={form.proveedor} onChange={set('proveedor')} />
+              <datalist id="facturas-proveedores">
+                {[...new Set([PROVEEDOR_POR_DEFECTO, ...proveedores])].map(p => <option key={p} value={p} />)}
+              </datalist>
+              <Aviso campo="proveedor" />
+              <Origen campo="proveedor" />
+            </div>
+            <div>
+              <label className="label" htmlFor="factura-numero">Nº de factura <span className="text-bad-500">*</span></label>
+              <input id="factura-numero" className={`input font-mono${claseFalta('numero')}`} maxLength={64}
+                value={form.numero} onChange={set('numero')} />
+              <Aviso campo="numero" />
+              <Origen campo="numero" />
+            </div>
+            <div>
+              <label className="label" htmlFor="factura-fecha">Fecha de emisión <span className="text-bad-500">*</span></label>
+              <input id="factura-fecha" type="date" className={`input${claseFalta('fecha_emision')}`} max={hoy}
+                value={form.fecha_emision} onChange={set('fecha_emision')} />
+              <Aviso campo="fecha_emision" />
+              <Origen campo="fecha_emision" />
+            </div>
+            <div>
+              <label className="label" htmlFor="factura-importe">Importe (€, IVA incl.)</label>
+              <input id="factura-importe" className={`input font-mono${claseFalta('importe')}`} inputMode="decimal" placeholder="65,23"
+                value={form.importe} onChange={set('importe')} />
+              <Aviso campo="importe" />
+              <Origen campo="importe" opcional />
+            </div>
           </div>
           <div>
-            <label className="label" htmlFor="factura-numero">Nº de factura <span className="text-bad-500">*</span></label>
-            <input id="factura-numero" className="input font-mono" maxLength={64}
-              value={form.numero} onChange={set('numero')} />
-            <Aviso campo="numero" />
+            <label className="label" htmlFor="factura-notas">Notas</label>
+            <input id="factura-notas" className="input" maxLength={255}
+              value={form.notas} onChange={set('notas')} />
           </div>
-          <div>
-            <label className="label" htmlFor="factura-fecha">Fecha de emisión <span className="text-bad-500">*</span></label>
-            <input id="factura-fecha" type="date" className="input" max={hoy}
-              value={form.fecha_emision} onChange={set('fecha_emision')} />
-            <Aviso campo="fecha_emision" />
-          </div>
-          <div>
-            <label className="label" htmlFor="factura-importe">Importe (€, IVA incl.)</label>
-            <input id="factura-importe" className="input font-mono" inputMode="decimal" placeholder="65,23"
-              value={form.importe} onChange={set('importe')} />
-            <Aviso campo="importe" />
-          </div>
-        </div>
-        <div>
-          <label className="label" htmlFor="factura-notas">Notas</label>
-          <input id="factura-notas" className="input" maxLength={255}
-            value={form.notas} onChange={set('notas')} />
-        </div>
-      </form>
+        </form>
+      )}
     </Modal>
   );
 }
@@ -409,6 +525,7 @@ export default function Facturas() {
         isOpen={subiendo}
         onClose={() => setSubiendo(false)}
         proveedores={proveedores}
+        facturas={facturas}
         onSubida={(f) => {
           setSubiendo(false);
           if (f) setFacturas(fs => [f, ...fs].sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || '') || b.id - a.id));

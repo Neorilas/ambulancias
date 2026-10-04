@@ -16,10 +16,13 @@ jest.mock('../../../services/buzonFacturas.service', () => ({
   revisarBuzon: jest.fn(),
 }));
 
+jest.mock('../../../services/lectorFacturas.service', () => ({ leerFactura: jest.fn() }));
+
 const { query } = require('../../../config/database');
 const { logAudit } = require('../../../controllers/admin.controller');
 const ctrl = require('../../../controllers/facturas.controller');
 const buzon = require('../../../services/buzonFacturas.service');
+const lector = require('../../../services/lectorFacturas.service');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 const ADMIN = { id: 67, username: 'fjtamayo', roles: ['administrador'] };
@@ -172,6 +175,59 @@ describe('facturas.controller', () => {
       query.mockRejectedValueOnce(new Error('caída'));
       const next = mockNext();
       await ctrl.createFactura(subida(), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  describe('leerFactura (paso 1: leer sin guardar)', () => {
+    const DATOS = { proveedor: 'Google Ads', numero: '5705694492', fecha_emision: '2026-09-30', importe: 65.23 };
+    const lectura = () => mockReq({ user: ADMIN, file: { buffer: PDF, size: PDF.length, originalname: '5705694492.pdf' } });
+
+    beforeEach(() => lector.leerFactura.mockReset());
+
+    it('devuelve lo leído con los proveedores ya guardados como pista, y no guarda nada', async () => {
+      lector.leerFactura.mockResolvedValue({ con_texto: true, datos: DATOS });
+      query.mockResolvedValueOnce([[{ proveedor: 'Google Ads' }, { proveedor: 'Repsol' }]])
+        .mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await ctrl.leerFactura(lectura(), res, mockNext());
+      expect(lector.leerFactura).toHaveBeenCalledWith(PDF, { nombreFichero: '5705694492.pdf', proveedores: ['Google Ads', 'Repsol'] });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { con_texto: true, datos: DATOS, duplicada: false } }));
+      expect(query.mock.calls.some(([sql]) => /INSERT/i.test(sql))).toBe(false);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('avisa si esa factura ya está guardada', async () => {
+      lector.leerFactura.mockResolvedValue({ con_texto: true, datos: DATOS });
+      query.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ id: 3 }]]);
+      const res = mockRes();
+      await ctrl.leerFactura(lectura(), res, mockNext());
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ duplicada: true }) }));
+    });
+
+    it('sin proveedor o número no busca duplicada', async () => {
+      lector.leerFactura.mockResolvedValue({ con_texto: false, datos: { ...DATOS, proveedor: null } });
+      query.mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      await ctrl.leerFactura(lectura(), res, mockNext());
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ con_texto: false, duplicada: false }) }));
+    });
+
+    it('sin fichero o con uno que no es PDF → 400 sin leer nada', async () => {
+      let res = mockRes();
+      await ctrl.leerFactura(mockReq({ user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      res = mockRes();
+      await ctrl.leerFactura(mockReq({ user: ADMIN, file: { buffer: Buffer.from('<html>'), size: 6 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(lector.leerFactura).not.toHaveBeenCalled();
+    });
+
+    it('un fallo de BD va al manejador de errores', async () => {
+      query.mockRejectedValueOnce(new Error('BD caída'));
+      const next = mockNext();
+      await ctrl.leerFactura(lectura(), mockRes(), next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });

@@ -149,6 +149,39 @@ async function createFactura(req, res, next) {
   }
 }
 
+/**
+ * POST /facturas/leer (multipart: `fichero`) — paso 1 de la subida: lee el PDF
+ * y devuelve lo que ha sacado, SIN guardar nada. El paso 2 es el formulario
+ * relleno con esto, que el admin revisa y completa; al guardar, el PDF vuelve
+ * a subir con POST /facturas (son pocos KB, y así no queda nada a medias en
+ * el servidor si cierra el formulario).
+ * Responde { con_texto, datos: { proveedor, numero, fecha_emision, importe }, duplicada }.
+ */
+async function leerFactura(req, res, next) {
+  try {
+    const fichero = req.file;
+    if (!fichero) return error(res, 'Falta el PDF de la factura', 400);
+    if (!esPdf(fichero.buffer)) return error(res, 'El fichero no es un PDF', 400);
+
+    // Los proveedores ya guardados: si el PDF nombra a uno, se escribe igual
+    // y el UNIQUE (proveedor, numero) detecta la repetida.
+    const [provs] = await query('SELECT DISTINCT proveedor FROM facturas');
+    const { con_texto, datos } = await lector().leerFactura(fichero.buffer, {
+      nombreFichero: fichero.originalname,
+      proveedores:   provs.map(p => p.proveedor),
+    });
+
+    let duplicada = false;
+    if (datos.proveedor && datos.numero) {
+      const [ya] = await query('SELECT id FROM facturas WHERE proveedor = ? AND numero = ? LIMIT 1', [datos.proveedor, datos.numero]);
+      duplicada = ya.length > 0;
+    }
+    return success(res, { con_texto, datos, duplicada });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /facturas/:id/descarga — el PDF, como descarga y sin caché. */
 async function downloadFactura(req, res, next) {
   try {
@@ -208,9 +241,10 @@ async function deleteFactura(req, res, next) {
   }
 }
 
-// El servicio del buzón usa esPdf e importeValido de aquí: se carga al usarlo
-// para no hacer un require circular.
+// Los servicios del buzón y del lector usan esPdf, importeValido y fechaValida
+// de aquí: se cargan al usarlos para no hacer un require circular.
 const buzon = () => require('../services/buzonFacturas.service');
+const lector = () => require('../services/lectorFacturas.service');
 
 /** GET /facturas/buzon — si el buzón está configurado y cómo fue la última revisión. */
 function getBuzon(_req, res) {
@@ -226,7 +260,7 @@ async function revisarBuzon(req, res) {
 }
 
 module.exports = {
-  listFacturas, createFactura, downloadFactura, deleteFactura, getBuzon, revisarBuzon,
+  listFacturas, createFactura, leerFactura, downloadFactura, deleteFactura, getBuzon, revisarBuzon,
   // para los tests
   importeValido, fechaValida, esPdf, nombreDescarga,
 };
