@@ -34,7 +34,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', f
 
       {/* Panel */}
       <div
-        className={`relative w-full ${sizeClasses[size]} bg-white
+        className={`relative w-full ${sizeClasses[size]} bg-superficie
                     rounded-t-2xl sm:rounded-2xl shadow-2xl animate-slide-up
                     pb-[var(--safe-bottom)] sm:pb-0
                     max-h-[90dvh] flex flex-col`}

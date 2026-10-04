@@ -96,7 +96,7 @@ export function UserCombobox({ users, value, onChange, error }) {
       </div>
 
       {open && (
-        <ul className="absolute z-50 mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+        <ul className="absolute z-50 mt-1 w-full bg-superficie border border-neutral-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
             <li className="px-3 py-2 text-sm text-neutral-400 text-center">Sin resultados</li>
           ) : (

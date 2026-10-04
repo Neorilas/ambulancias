@@ -20,7 +20,7 @@ export default function Layout() {
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Contenido principal */}
-        <main className="flex-1 overflow-y-auto bg-neutral-50 safe-x">
+        <main className="flex-1 overflow-y-auto bg-app safe-x">
           <div className="max-w-7xl mx-auto p-4 sm:p-6 pb-[calc(5rem+var(--safe-bottom))]">
             <Outlet />
           </div>

@@ -354,9 +354,9 @@ export default function AsignacionDetalle({ id, onClose }) {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel derecho */}
-      <div className="relative ml-auto w-full max-w-xl bg-white h-full shadow-2xl flex flex-col overflow-y-auto animate-slide-up pb-[var(--safe-bottom)] safe-x">
+      <div className="relative ml-auto w-full max-w-xl bg-superficie h-full shadow-2xl flex flex-col overflow-y-auto animate-slide-up pb-[var(--safe-bottom)] safe-x">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-neutral-100 px-5 pt-[calc(1rem+var(--safe-top))] pb-4 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-superficie border-b border-neutral-100 px-5 pt-[calc(1rem+var(--safe-top))] pb-4 flex items-center justify-between z-10">
           <div>
             <h2 className="font-semibold text-neutral-900">Detalle de asignación #{id}</h2>
             {asig && (
@@ -828,7 +828,7 @@ export default function AsignacionDetalle({ id, onClose }) {
 
             {/* Modales inicio / fin */}
             {showInicio && (
-              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
+              <div className="fixed inset-0 z-[70] bg-superficie overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <InicioAsignacion
                   asignacion={asig}
                   onDone={() => { setShowInicio(false); load(); }}
@@ -837,7 +837,7 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
             )}
             {showFin && (
-              <div className="fixed inset-0 z-[70] bg-white overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
+              <div className="fixed inset-0 z-[70] bg-superficie overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <FinalizacionAsignacion
                   asignacion={asig}
                   onDone={() => { setShowFin(false); load(); }}

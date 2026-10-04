@@ -103,7 +103,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Panel lateral */}
       <aside
-        className={`fixed top-0 left-0 h-full w-56 bg-white border-r border-neutral-200 z-30
+        className={`fixed top-0 left-0 h-full w-56 bg-menu border-r border-neutral-200 z-30
                     flex flex-col pl-[var(--safe-left)] transition-transform duration-300 ease-out
                     pt-[calc(3rem+var(--safe-top))]
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'}

@@ -602,6 +602,13 @@ configuración. El precio es que `skipWaiting` + `clientsClaim` (que ponía
 de `sw.js`**: si se tocan sin cuidado, la PWA deja de actualizarse sola o deja
 de funcionar sin cobertura.
 
+**En `npm run dev` la precaché está vacía**: el plugin sustituye
+`__WB_MANIFEST` por `[]`. Por eso el fallback de navegación
+(`createHandlerBoundToURL(index.html)`) va detrás de `!import.meta.env.DEV`;
+sin eso el SW de desarrollo lanzaba `non-precached-url` y no se instalaba, y
+el navegador se quedaba con un registro clásico antiguo que daba «Cannot use
+import statement outside a module». En el build `DEV` es `false` y no cambia.
+
 **Las cachés de Workbox se indexan por URL, no por usuario.** Por eso la regla
 de `api-cache` va anclada al listado (`/vehicles` y `/trabajos/calendario`,
 nunca las subrutas de un vehículo) y `utils/cachesSesion.js` borra `api-cache`
@@ -767,7 +774,36 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
 | `components/common/AvisosPush.jsx` | Además del alta/baja, el bloque plegable «¿Suena demasiado flojo o llega tarde?»: `AjustesDelTelefono` elige entre `AjustesIPhone` y `AjustesAndroid` según `esIOS()`. Son instrucciones del SISTEMA OPERATIVO, no ajustes de la app — están aquí porque el volumen y el tono no se pueden tocar desde el código (§2.5) |
-| `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src` |
+| `index.css`, `tailwind.config.js` | Estilos. Tailwind **purga** `@layer components` no usadas en `src`. Los grises que cambian con el tema salen de variables (ver «Tema oscuro» abajo) |
+| `utils/tema.js` | Tema `claro`/`oscuro`: `leerTema`, `aplicarTema` (pone `data-tema` en `<html>`), `cambiarTema`. Se aplica en `main.jsx` antes del primer render; el botón luna/sol está en `Navbar` |
+
+**Tema oscuro (2026-10-04, v2.3.0).** No es un modo noche de fondo negro:
+fondo gris, tarjetas en gris claro y texto hacia el negro, para leer mejor al
+sol. Cómo está montado y sus trampas:
+
+- **Escalas separadas por uso.** En `tailwind.config.js`, `textColor`,
+  `backgroundColor` y `borderColor` de `neutral` leen de variables CSS
+  (`--txt-400…900`, `--fnd-50…200`, `--brd-100…400`, tripletes RGB) que
+  `index.css` define en `:root` (= el hex de siempre: el tema claro no
+  cambia) y redefine en `html[data-tema="oscuro"]`. Separadas para poder
+  oscurecer el texto sin oscurecer los fondos. Texto 50-300 y fondo 300-900
+  son fijos: el texto claro va sobre el negro del visor de fotos.
+- **No aplastar la escala de texto.** Con todo a «casi negro» los títulos de
+  grupo del menú, las cabeceras de tabla y las etiquetas (400) se confundían
+  con lo que etiquetan. El 400 se queda en gris medio.
+- **Capas de fondo:** `--fondo-app` (página, utilidad `bg-app`) <
+  `--fondo-menu` (`bg-menu`) < `--superficie` (`.card`, `bg-superficie` en
+  modales, panel de detalle de asignación, desplegables) < blanco (inputs y
+  botones, para que se vea qué se toca). Los tintados `bg-neutral-50…` van
+  un punto MÁS OSCUROS que la superficie, como en claro respecto al blanco.
+  Un panel nuevo que deba seguir el tema usa `bg-superficie`, no `bg-white`.
+- Retoques solo del oscuro (cebra de tablas, sombra de tarjeta, raya entre
+  grupos del menú) al final de `index.css`, fuera de `@layer`.
+- La preferencia va en localStorage `vapss:tema`, **sin** el prefijo de
+  entorno de `sessionStorage.js`: es del dispositivo y `limpiarEntorno()` al
+  cerrar sesión no debe borrarla.
+- **Trampa de desarrollo:** el `npm run dev` no recarga `tailwind.config.js`;
+  tras tocarlo hay que reiniciar el servidor o se ve la config vieja.
 
 Tests frontend: `frontend/src/__tests__/{unit,component}` (servicios, utils,
 contextos, hooks, `VehicleHistory`). Vitest.
@@ -1477,6 +1513,7 @@ solo actúa en el navegador no es un control de acceso.
 | Si cambias… | Toca |
 |---|---|
 | La versión que enseña la app | `frontend/package.json` → `version` (se sube a mano con cada cambio: mayor/menor/parche, regla en `CLAUDE.md` → «Versión») → `vite.config.js` la inyecta como `__APP_VERSION__` → `utils/version.js` (`VERSION_APP`, «desarrollo» fuera de Vite) → pie de `components/Layout/Sidebar.jsx`. El backend no la tiene: su `/health` da `commit`, y su `version` es siempre 1.0.0 (`npm_package_version` no existe con `node server.js`). |
+| Colores grises o un fondo de panel | Si debe seguir el tema oscuro: variables de `index.css` (`:root` y `html[data-tema="oscuro"]`) + escalas de `tailwind.config.js`; paneles con `bg-superficie`. Reiniciar `npm run dev` tras tocar la config (§3.4 «Tema oscuro») |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` y `trabajos.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`, `InicioTrabajo`, `Finalizacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
