@@ -39,9 +39,51 @@ const ALIAS = [[/\bgoogle\b/i, 'Google Ads']];
 // ── Del PDF al texto ─────────────────────────────────────────────────────────
 
 /**
- * El texto de las primeras páginas, con un salto de línea donde el PDF cambia
- * de renglón (las etiquetas «Total:» y su cifra suelen ir en el mismo).
- * '' si no tiene texto, está cifrado o no se puede abrir.
+ * Los renglones de una página tal como se VEN, no en el orden en que el PDF
+ * guarda el texto. Las facturas de Google guardan la tabla de «Detalles» por
+ * columnas: primero todas las etiquetas («Número de factura», «Fecha de la
+ * factura»…) y luego todos los valores, así que en el orden del PDF «Fecha de
+ * la factura» y «30 jun 2026» quedaban en renglones distintos y no se leía ni
+ * la fecha ni el total. Por eso se agrupa por altura (y) y se ordena de
+ * izquierda a derecha (x).
+ *
+ * Tolerancia de altura: el 30 % de la letra más pequeña de las dos. En la de
+ * Google, «Total en EUR» (letra 8) y su importe (letra 13,5) están a 1,5 de
+ * diferencia y son el mismo renglón; el renglón de encima está a 3 y no lo es.
+ * Se quitan los puntos de relleno («.........»), que separarían la etiqueta de
+ * su valor más de lo que miran las heurísticas.
+ */
+function renglones(items) {
+  const trozos = items
+    .filter(it => typeof it.str === 'string' && it.str.trim() && !/^[\s.·_…-]+$/.test(it.str))
+    .map((it, orden) => ({
+      str: it.str,
+      x: it.transform?.[4] ?? 0,
+      y: it.transform?.[5] ?? 0,
+      alto: it.height > 0 ? it.height : 10,
+      orden,
+    }))
+    // De arriba abajo; a igual altura, el orden del PDF
+    .sort((a, b) => b.y - a.y || a.orden - b.orden);
+
+  const filas = [];
+  for (const t of trozos) {
+    const fila = filas[filas.length - 1];
+    if (fila && Math.abs(fila.y - t.y) <= Math.max(1, 0.3 * Math.min(fila.alto, t.alto))) {
+      fila.trozos.push(t);
+      fila.alto = Math.min(fila.alto, t.alto);
+    } else {
+      filas.push({ y: t.y, alto: t.alto, trozos: [t] });
+    }
+  }
+  return filas
+    .map(f => f.trozos.sort((a, b) => a.x - b.x || a.orden - b.orden).map(t => t.str).join(' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+/**
+ * El texto de las primeras páginas, un renglón visual por línea (ver
+ * `renglones`). '' si no tiene texto, está cifrado o no se puede abrir.
  */
 async function textoDePdf(buffer) {
   let pdf;
@@ -56,22 +98,9 @@ async function textoDePdf(buffer) {
       for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGINAS); n++) {
         const pagina = await pdf.getPage(n);
         const { items } = await pagina.getTextContent();
-        let linea = '';
-        let y = null;
-        for (const it of items.slice(0, MAX_ITEMS_PAGINA)) {
-          if (typeof it.str !== 'string') continue;
-          const yItem = it.transform?.[5];
-          if (y !== null && yItem !== undefined && Math.abs(yItem - y) > 2 && linea.trim()) {
-            lineas.push(linea);
-            linea = '';
-          }
-          linea += (linea && !linea.endsWith(' ') && !it.str.startsWith(' ') ? ' ' : '') + it.str;
-          if (yItem !== undefined) y = yItem;
-          if (it.hasEOL) { lineas.push(linea); linea = ''; y = null; }
-        }
-        if (linea.trim()) lineas.push(linea);
+        lineas.push(...renglones(items.slice(0, MAX_ITEMS_PAGINA)));
       }
-      return lineas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n').slice(0, MAX_TEXTO);
+      return lineas.join('\n').slice(0, MAX_TEXTO);
     })();
     const tope = new Promise((_, rechazar) => {
       reloj = setTimeout(() => rechazar(new Error('tiempo agotado leyendo el PDF')), TIMEOUT_MS);
@@ -260,5 +289,5 @@ async function leerFactura(buffer, { nombreFichero, proveedores = [] } = {}) {
 module.exports = {
   leerFactura,
   // para los tests
-  textoDePdf, datosDelTexto, proveedorDe, numeroDe, fechaDe, importeDe, primeraFecha,
+  textoDePdf, renglones, datosDelTexto, proveedorDe, numeroDe, fechaDe, importeDe, primeraFecha,
 };
