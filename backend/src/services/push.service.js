@@ -434,12 +434,34 @@ async function contarDispositivosPorUsuario() {
   return rows;
 }
 
+/**
+ * Avisa a todos los superadmin activos. Para lo que solo les incumbe a ellos
+ * (la descarga de un backup). Mismas reglas: nunca lanza.
+ */
+async function notificarSuperadmins(aviso) {
+  try {
+    const [rows] = await query(
+      `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         JOIN roles r       ON r.id       = ur.role_id
+        WHERE r.nombre = ? AND u.activo = 1 AND u.deleted_at IS NULL`,
+      [ROLES.SUPERADMIN]
+    );
+    return await notificarUsuarios(rows.map(r => r.id), aviso);
+  } catch (err) {
+    logger.error(`Push: fallo al notificar a superadmins — ${err.message}`);
+    return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'error' };
+  }
+}
+
 module.exports = {
   estaConfigurado,
   clavePublica,
   notificarAdmins,
   notificarUsuario,
   notificarUsuarios,
+  notificarSuperadmins,
   guardarSuscripcion,
   borrarSuscripcion,
   tieneSuscripcion,

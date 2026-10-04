@@ -348,6 +348,31 @@ describe('push.service', () => {
     });
   });
 
+  describe('notificarSuperadmins', () => {
+    it('busca a los superadmin activos y les avisa a ellos', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[{ id: 1 }, { id: 9 }]]);       // superadmins
+      query.mockResolvedValueOnce([[SUSCRIPCION(3, 1)]]);          // sus suscripciones
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      const res = await push.notificarSuperadmins({ titulo: 'Backup', cuerpo: 'x', tag: 'b' });
+
+      expect(res.enviados).toBe(1);
+      const [sql, params] = query.mock.calls[0];
+      expect(params).toEqual(['superadmin']);
+      expect(sql).toMatch(/u\.activo = 1 AND u\.deleted_at IS NULL/);
+      expect(query.mock.calls[1][1]).toEqual([1, 9]);
+    });
+
+    it('no lanza si la BD falla', async () => {
+      const push = cargarPush();
+      query.mockRejectedValueOnce(new Error('BD caída'));
+      await expect(push.notificarSuperadmins({ titulo: 'x', cuerpo: 'y' }))
+        .resolves.toMatchObject({ omitido: 'error' });
+    });
+  });
+
   // ── Alta y baja ──────────────────────────────────────────
   describe('guardarSuscripcion', () => {
     it('inserta actualizando si el endpoint ya existía', async () => {

@@ -5,7 +5,8 @@
  * carpeta temporal (BACKUPS_DIR se fija antes de cargar las constantes).
  *
  * Lo que importa: que no se pueda salir de la carpeta con el nombre, que solo
- * se listen dumps, que cada descarga quede auditada y que no se cachee.
+ * se listen dumps, que la descarga pida la contraseña (SEC-18), que cada una
+ * quede auditada y avise a los superadmin, y que no se cachee.
  */
 
 const fs   = require('fs');
@@ -17,12 +18,19 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'backups-test-'));
 process.env.BACKUPS_DIR = DIR;
 
 jest.mock('../../../controllers/admin.controller', () => ({ logAudit: jest.fn(), logError: jest.fn() }));
+jest.mock('../../../services/push.service', () => ({ notificarSuperadmins: jest.fn().mockResolvedValue({}) }));
 
+const { query } = require('../../../config/database');
+const { hashPassword } = require('../../../utils/password.utils');
+const push = require('../../../services/push.service');
 const { logAudit } = require('../../../controllers/admin.controller');
 const { listBackups, downloadBackup } = require('../../../controllers/backups.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 const SUPER = { id: 1, username: 'findelias', roles: ['superadmin'] };
+const PASS  = 'Clave.De.Prueba1';
+const NOMBRE = 'ambulancia_20260926_034500.sql.gz';
+let HASH;
 
 function escribir(nombre, contenido, mtime) {
   const ruta = path.join(DIR, nombre);
@@ -45,9 +53,13 @@ function resDescarga() {
 }
 
 describe('backups.controller', () => {
+  beforeAll(async () => { HASH = await hashPassword(PASS); });
   beforeEach(() => {
     for (const f of fs.readdirSync(DIR)) fs.unlinkSync(path.join(DIR, f));
     logAudit.mockReset();
+    push.notificarSuperadmins.mockClear();
+    query.mockReset();
+    query.mockResolvedValue([[{ password_hash: HASH }]]);
   });
   afterAll(() => fs.rmSync(DIR, { recursive: true, force: true }));
 
@@ -87,16 +99,20 @@ describe('backups.controller', () => {
 
   describe('downloadBackup', () => {
     it('sirve el fichero sin caché y deja rastro en la auditoría', async () => {
-      escribir('ambulancia_20260926_034500.sql.gz', 'DUMP');
+      escribir(NOMBRE, 'DUMP');
       const res = resDescarga();
       const cuerpo = res.cuerpo();
 
       await downloadBackup(
-        mockReq({ user: SUPER, params: { nombre: 'ambulancia_20260926_034500.sql.gz' } }),
+        mockReq({ user: SUPER, params: { nombre: NOMBRE }, body: { password: PASS } }),
         res, mockNext()
       );
 
       expect(await cuerpo).toBe('DUMP');
+      expect(query.mock.calls[0][1]).toEqual([1]);
+      expect(push.notificarSuperadmins).toHaveBeenCalledWith(expect.objectContaining({
+        url: '/admin', cuerpo: expect.stringContaining(`findelias ha descargado ${NOMBRE}`),
+      }));
       expect(res.cabeceras['Cache-Control']).toBe('no-store');
       expect(res.cabeceras['Content-Disposition']).toBe('attachment; filename="ambulancia_20260926_034500.sql.gz"');
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -120,11 +136,33 @@ describe('backups.controller', () => {
     it('404 si no existe, sin auditar', async () => {
       const res = mockRes();
       await downloadBackup(
-        mockReq({ user: SUPER, params: { nombre: 'ambulancia_20200101_000000.sql.gz' } }),
+        mockReq({ user: SUPER, params: { nombre: 'ambulancia_20200101_000000.sql.gz' }, body: { password: PASS } }),
         res, mockNext()
       );
       expect(res.statusCode).toBe(404);
       expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['incorrecta', { password: 'otra-cosa' }],
+      ['vacía',      { password: '' }],
+      ['ausente',    {}],
+      ['que no es texto', { password: ['x'] }],
+    ])('con la contraseña %s: 403, sin fichero, sin auditar descarga ni avisar (SEC-18)', async (_c, body) => {
+      escribir(NOMBRE, 'DUMP');
+      const res = mockRes();
+      await downloadBackup(mockReq({ user: SUPER, params: { nombre: NOMBRE }, body }), res, mockNext());
+      expect(res.statusCode).toBe(403);
+      expect(res._json.message).toBe('Contraseña incorrecta');
+      expect(logAudit).not.toHaveBeenCalled();
+      expect(push.notificarSuperadmins).not.toHaveBeenCalled();
+    });
+
+    it('403 si el usuario no tiene hash (no se compara contra nada)', async () => {
+      query.mockResolvedValue([[]]);
+      const res = mockRes();
+      await downloadBackup(mockReq({ user: SUPER, params: { nombre: NOMBRE }, body: { password: PASS } }), res, mockNext());
+      expect(res.statusCode).toBe(403);
     });
 
     it('no se descarga viendo la app como otro superadmin', async () => {

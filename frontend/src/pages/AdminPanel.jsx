@@ -12,6 +12,7 @@ import { featuresService } from '../services/features.service.js';
 import { useNotification } from '../context/NotificationContext.jsx';
 import { useFeatures } from '../context/FeaturesContext.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
+import Modal from '../components/common/Modal.jsx';
 import { formatDateTime } from '../utils/dateUtils.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -412,6 +413,10 @@ function TabBackups() {
   const [datos,   setDatos]   = useState(null);
   const [loading, setLoading] = useState(true);
   const [bajando, setBajando] = useState(null);
+  // Copia elegida, a la espera de la contraseña (el backend la vuelve a pedir)
+  const [pidiendo, setPidiendo] = useState(null);
+  const [password, setPassword] = useState('');
+  const [fallo,    setFallo]    = useState('');
 
   useEffect(() => {
     adminService.listBackups()
@@ -420,13 +425,26 @@ function TabBackups() {
       .finally(() => setLoading(false));
   }, []);
 
-  const descargar = async (nombre) => {
-    setBajando(nombre);
+  const pedirPassword = (nombre) => { setPidiendo(nombre); setPassword(''); setFallo(''); };
+  const cerrar = () => { if (!bajando) setPidiendo(null); };
+
+  const descargar = async (e) => {
+    e.preventDefault();
+    if (!password || bajando) return;   // dos Enter seguidos: un solo POST
+    setBajando(pidiendo);
+    setFallo('');
     try {
-      await adminService.descargarBackup(nombre);
-    } catch {
-      notify.error('No se pudo descargar el backup');
+      await adminService.descargarBackup(pidiendo, password);
+      setPidiendo(null);
+    } catch (err) {
+      // Contraseña mal o demasiados intentos: se dice en el propio diálogo
+      if (err.status === 403 || err.status === 429) setFallo(err.message);
+      else {
+        setFallo('No se pudo descargar. Vuelve a intentarlo.');
+        notify.error(err.message || 'No se pudo descargar el backup');
+      }
     } finally {
+      setPassword('');
       setBajando(null);
     }
   };
@@ -440,7 +458,8 @@ function TabBackups() {
         <p className="text-sm font-medium text-neutral-800">Copia completa de la base de datos</p>
         <p className="text-xs text-neutral-500">
           Lleva todos los datos, incluidos los personales de la plantilla y las contraseñas cifradas.
-          Guárdala en un sitio cifrado y no la reenvíes. Cada descarga queda en la auditoría.
+          Guárdala en un sitio cifrado y no la reenvíes. Pide tu contraseña, cada descarga queda
+          en la auditoría y avisa a todos los superadmin.
           Las fotos no van aquí: están en la copia externa del servidor.
         </p>
       </div>
@@ -468,7 +487,7 @@ function TabBackups() {
               </div>
               <button
                 className="btn-secondary flex-shrink-0"
-                onClick={() => descargar(b.nombre)}
+                onClick={() => pedirPassword(b.nombre)}
                 disabled={bajando !== null}
               >
                 {bajando === b.nombre ? 'Descargando…' : 'Descargar'}
@@ -477,6 +496,34 @@ function TabBackups() {
           ))}
         </div>
       )}
+
+      <Modal isOpen={pidiendo !== null} onClose={cerrar} title="Confirma tu contraseña" size="sm">
+        <form onSubmit={descargar} className="space-y-3">
+          <p className="text-sm text-neutral-600">
+            Para descargar <span className="font-mono text-xs break-all">{pidiendo}</span> escribe
+            tu contraseña.
+          </p>
+          <input
+            type="password"
+            className={`input ${fallo ? 'input-error' : ''}`}
+            autoComplete="current-password"
+            autoFocus
+            aria-label="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={bajando !== null}
+          />
+          {fallo && <p className="field-error" role="alert">{fallo}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={cerrar} disabled={bajando !== null}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={!password || bajando !== null}>
+              {bajando ? 'Descargando…' : 'Descargar'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

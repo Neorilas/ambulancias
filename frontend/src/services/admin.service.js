@@ -18,11 +18,22 @@ export const adminService = {
     return api.get('/admin/backups').then(r => r.data.data);
   },
   /**
-   * Descarga un dump. Va por axios (con el token) y no por un <a href>, que
-   * no lleva Authorization; el blob se entrega al navegador y se suelta.
+   * Descarga un dump con la contraseña del superadmin (el backend la vuelve a
+   * pedir, SEC-18). Va por axios (con el token) y no por un <a href>, que no
+   * lleva Authorization; el blob se entrega al navegador y se suelta.
+   * Si falla, lanza un Error con el mensaje del servidor: con
+   * responseType 'blob' el JSON de error llega también como Blob.
    */
-  async descargarBackup(nombre) {
-    const r = await api.get(`/admin/backups/${encodeURIComponent(nombre)}`, { responseType: 'blob' });
+  async descargarBackup(nombre, password) {
+    let r;
+    try {
+      r = await api.post(`/admin/backups/${encodeURIComponent(nombre)}/descarga`,
+        { password }, { responseType: 'blob' });
+    } catch (err) {
+      let mensaje = null;
+      try { mensaje = JSON.parse(await err.response?.data?.text?.())?.message; } catch { /* no era JSON */ }
+      throw Object.assign(new Error(mensaje || 'No se pudo descargar el backup'), { status: err.response?.status });
+    }
     const url = URL.createObjectURL(r.data);
     try {
       const a = document.createElement('a');

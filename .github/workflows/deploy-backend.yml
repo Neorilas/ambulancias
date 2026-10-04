@@ -19,6 +19,7 @@ on:
       - 'backend/**'
       - 'database/**'
       - 'docker-compose.yml'
+      - 'scripts/dependencias-obsoletas.mjs'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
@@ -118,6 +119,14 @@ jobs:
       - name: Dependencias sin vulnerabilidades altas
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
+
+      # `npm audit` no ve las versiones prerelease (multer 1.4.5-lts.2 pasó
+      # meses con avisos públicos y daba 0). Esto mira si npm marca una
+      # dependencia de producción como obsoleta: una directa para el deploy;
+      # una transitiva solo deja un aviso en el resumen del run.
+      - name: Dependencias directas no obsoletas
+        timeout-minutes: 5
+        run: node scripts/dependencias-obsoletas.mjs backend
 
   desplegar:
     needs: [destino, comprobar]

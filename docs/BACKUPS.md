@@ -380,6 +380,11 @@ Cómo llega el fichero a la app:
 Seguridad:
 
 - Solo superadmin, y nunca viendo la app como otro usuario.
+- **Pide otra vez la contraseña** (desde 2026-10-04). Como mucho 5 intentos
+  fallidos cada 15 minutos (las descargas buenas no cuentan). Así un token robado o un fallo de XSS no bastan para
+  sacar la BD entera.
+- Cada descarga manda un **aviso push a todos los superadmin** con quién ha
+  bajado qué fichero, para enterarse en el momento y no al revisar la auditoría.
 - El nombre se valida contra un patrón cerrado (`<stack>_AAAAMMDD_HHMMSS.sql.gz`):
   no se puede pedir otro fichero ni salir de la carpeta.
 - Cada descarga queda en la auditoría como «Descargó un backup de la BD», con
