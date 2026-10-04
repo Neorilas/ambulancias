@@ -7,12 +7,13 @@
 'use strict';
 
 const express = require('express');
-const { query: queryParam, param } = require('express-validator');
+const { query: queryParam, param, body } = require('express-validator');
 const ctrl   = require('../controllers/admin.controller');
 const backups = require('../controllers/backups.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
 const { requireSuperAdmin } = require('../middleware/roles.middleware');
 const { handleValidation }  = require('../middleware/validate.middleware');
+const { backupLimiter }     = require('../middleware/rateLimiter.middleware');
 
 const router = express.Router();
 
@@ -56,10 +57,12 @@ router.get('/errors',
 // GET /admin/backups — dumps de la BD disponibles (docs/BACKUPS.md §9)
 router.get('/backups', backups.listBackups);
 
-// GET /admin/backups/:nombre — descarga de un dump. El patrón cierra el paso a
-// cualquier ruta: solo nombres tal cual los escribe el script de backup.
-router.get('/backups/:nombre',
-  [param('nombre').matches(backups.PATRON_DUMP)],
+// POST /admin/backups/:nombre/descarga — descarga de un dump, con la
+// contraseña otra vez (SEC-18). El patrón cierra el paso a cualquier ruta:
+// solo nombres tal cual los escribe el script de backup.
+router.post('/backups/:nombre/descarga',
+  backupLimiter,
+  [param('nombre').matches(backups.PATRON_DUMP), body('password').isString().isLength({ min: 1, max: 200 })],
   handleValidation,
   backups.downloadBackup
 );

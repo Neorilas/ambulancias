@@ -11,8 +11,11 @@
  * Un dump lleva la BD entera: datos personales de la plantilla y los hashes
  * de las contraseñas. Por eso:
  *   - solo superadmin (admin.routes) y nunca viendo la app como otro;
+ *   - pide otra vez la contraseña (POST, con su propio limitador): un token
+ *     robado o un XSS no bastan para sacar la BD entera (SEC-18);
  *   - el nombre se valida contra un patrón cerrado, sin rutas;
- *   - cada descarga queda en audit_logs (`download_backup`);
+ *   - cada descarga queda en audit_logs (`download_backup`) y avisa por push
+ *     a todos los superadmin, para que nadie se entere días después;
  *   - `Cache-Control: no-store`: ni el navegador ni un proxy se lo guardan.
  */
 
@@ -23,6 +26,9 @@ const { success, error, notFound, forbidden } = require('../utils/response.utils
 const logger = require('../utils/logger.utils');
 const { logAudit } = require('./admin.controller');
 const { registrarErrorServidor } = require('../middleware/error.middleware');
+const { query } = require('../config/database');
+const { comparePassword } = require('../utils/password.utils');
+const push = require('../services/push.service');
 
 // Lo que escribe backup-ambulancia.sh: <stack>_AAAAMMDD_HHMMSS.sql.gz
 const PATRON_DUMP = /^[a-z0-9-]+_\d{8}_\d{6}\.sql\.gz$/;
@@ -54,7 +60,12 @@ async function listBackups(req, res, next) {
   }
 }
 
-/** GET /admin/backups/:nombre — el fichero, como descarga. */
+/**
+ * POST /admin/backups/:nombre/descarga  body: { password } — el fichero, como descarga.
+ *
+ * La contraseña incorrecta es un 403 y no un 401: la app trata el 401 como
+ * sesión caducada (refresca o echa al login), y aquí la sesión es buena.
+ */
 async function downloadBackup(req, res, next) {
   try {
     // Viendo la app como otro no se es superadmin y el middleware ya lo para;
@@ -65,6 +76,13 @@ async function downloadBackup(req, res, next) {
 
     const { nombre } = req.params;
     if (!PATRON_DUMP.test(nombre)) return error(res, 'Nombre de backup no válido', 400);
+
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const [filas] = await query('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
+    const hash = filas[0]?.password_hash;
+    if (!password || !hash || !(await comparePassword(password, hash))) {
+      return forbidden(res, 'Contraseña incorrecta');
+    }
 
     const ruta = path.join(BACKUPS_DIR, nombre);
     let st;
@@ -94,6 +112,14 @@ async function downloadBackup(req, res, next) {
       details:    { nombre, tamano: st.size },
       ip:         req.ip,
       userAgent:  req.headers['user-agent'],
+    });
+
+    // Sin await: el aviso no retrasa la descarga y push nunca lanza.
+    push.notificarSuperadmins({
+      titulo: 'Descarga de un backup de la BD',
+      cuerpo: `${req.user.username} ha descargado ${nombre}. Si no has sido tú o no te suena, revisa la auditoría.`,
+      url:    '/admin',
+      tag:    `backup-${nombre}`,
     });
 
     res.set({

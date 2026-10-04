@@ -160,6 +160,26 @@ const uploadLimiter = rateLimit({
 });
 
 /**
+ * POST /admin/backups/:nombre/descarga — la descarga pide la contraseña.
+ *
+ * Por usuario y contando solo los FALLOS (contraseña mal, nombre inválido):
+ * 5 cada 15 min dejan equivocarse al teclear y frenan a quien tenga un token
+ * robado y pruebe contraseñas aquí en vez de en el login (que tiene su propio
+ * bloqueo de cuenta, y este no). Las descargas buenas no gastan cupo: bajar
+ * varias copias seguidas no debe dejar al superadmin bloqueado.
+ */
+const backupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max:      5,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `backup:${claveCliente(req)}`,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { success: false, message: 'Demasiados intentos de descarga. Espera unos minutos.' },
+  handler: avisar429('backup'),
+});
+
+/**
  * Rate limiter para el alta/baja y la prueba de avisos push.
  *
  * Por usuario, como el resto. 20 por minuto sobra para activar los avisos y
@@ -212,4 +232,4 @@ const cspReportLimiter = rateLimit({
   handler: (_req, res) => res.status(204).end(),
 });
 
-module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, cspReportLimiter, erroresClienteLimiter, claveCliente };
+module.exports = { apiLimiter, loginLimiter, refreshLimiter, uploadLimiter, pushLimiter, cspReportLimiter, erroresClienteLimiter, backupLimiter, claveCliente };

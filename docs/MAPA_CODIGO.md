@@ -81,7 +81,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
-| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y `/backups/:nombre` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9) (solo superadmin) |
+| `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
@@ -1295,7 +1295,7 @@ solo actúa en el navegador no es un control de acceso.
 | Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de la asignación», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Inicio evento/servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin evento/servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del evento/servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio de la asignación» y «Fin de la asignación» en pareja (se llamaron «Inicio/Fin real de servicio» hasta el 2026-10-03: el usuario reserva «evento/servicio» para lo que pasa en el sitio —llegada y fin— y llama asignación a lo que va de las fotos de inicio a las de cierre) y debajo «Inicio evento/servicio» con lo que tardó desde el inicio (`duration`) y «Fin evento/servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y «Fin evento/servicio» en la tarjeta. Reglas de ambos en §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura), `VehicleHistory` (día+hora y badge de momento) y `TrabajoDetail` |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
-| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10 |
+| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10. **Si es `denegada` y no es para gestor o más, va también en `NIVEL`** (`administrador` o `superadmin`): el test prueba que el escalón de abajo recibe 403 y que el que debe entrar no, y que un token de «Ver como» no abre nada de superadmin |
 | Un rol nuevo **de campo** (sale de servicio con la ambulancia) | Migración que lo da de alta + `ROLES` en `backend/config/constants.js` **y** `frontend/utils/constants.js` + `tieneRolDeCampo` (`roles.middleware.js`) + `isOperacional` (`AuthContext.jsx`) + `ROL_LABELS` y color en `RolBadge`. Crearlo solo desde `/usuarios` deja un rol que el código no reconoce: 403 al subir la evidencia de su propia asignación (§6) |
 | Quién puede gestionar el gestor | `motivoGestor` en `users.controller`: «por debajo de su rol» = sin rol de mando **ni rol con algún permiso**, y vale tanto para los roles que se le dan como para los que **ya tiene** el usuario (hasta 2026-10-04 los actuales solo se miraban «de mando», SEC-20). Un rol propio al que se le den permisos deja a sus usuarios fuera del alcance del gestor |
 | Menú / nueva pantalla | `App.jsx` (ruta + `requiredFeature`) + `Sidebar.jsx` + feature en `migrations.js` |
@@ -1331,10 +1331,17 @@ solo actúa en el navegador no es un control de acceso.
 `.github/workflows/deploy-backend.yml` (empaqueta `backend database
 docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
 `/health`; **antes, el job `comprobar`: `npm test` + `npm audit --omit=dev
---audit-level=high`, y si falla no se despliega** — hasta 2026-09-26 el backend
-llegaba a producción sin pasar un test en CI) y `deploy-frontend.yml` (job
-`build`: tests + el mismo `npm audit` + build; job `publicar`:
+--audit-level=high` + `scripts/dependencias-obsoletas.mjs`, y si falla no se
+despliega** — hasta 2026-09-26 el backend llegaba a producción sin pasar un
+test en CI) y `deploy-frontend.yml` (job `build`: tests + los mismos dos
+controles + build; job `publicar`:
 subida por FTPS al hosting de `vapss.net/app[-pre]/`).
+**`dependencias-obsoletas.mjs` existe porque `npm audit` no ve las prerelease:**
+multer 1.4.5-lts.2 pasó meses con avisos públicos y daba 0. El script lee el
+lockfile y pregunta al registro si npm marca obsoleta cada dependencia de
+producción: una **directa** para el deploy (se cambia en `package.json`); una
+transitiva solo deja un aviso en el run; si el registro no responde, avisa y
+no falla. Se prueba en local con `node scripts/dependencias-obsoletas.mjs backend`.
 **La subida la hace `frontend/scripts/publicador/publicar-ftp.mjs`, no FTP-Deploy-Action**
 (desde 2026-09-26): `FTP_HOST` es una IP y el certificado del FTP es el de
 Hostalia (`*.servicio-online.net`), así que la acción solo funcionaba sin
@@ -1382,7 +1389,10 @@ asignaciones cerradas hace N meses y lo purgado solo sigue allí. Por eso
 **nunca `rclone sync`**: dejaría Drive igual que el servidor, borrando el archivo.
 Los 15 GB gratis dan para ~3 años al ritmo actual (§3 de BACKUPS.md).
 **Los dumps se descargan desde `/admin` → Backups** (superadmin, auditado como
-`download_backup`). El backend no los genera: `docker-compose.yml` monta la
+`download_backup`, **pidiendo otra vez la contraseña** y con aviso push a todos
+los superadmin, SEC-18: un token robado o un XSS no bastan para sacar la BD
+entera en una petición; la contraseña mal es 403 y no 401, porque la app trata
+el 401 como sesión caducada). El backend no los genera: `docker-compose.yml` monta la
 carpeta del host en solo lectura (`/root/<STACK_NAME>-backups/db` →
 `/app/backups`, por stack para que PRE nunca vea los de producción), y el
 script de backup les da lectura al **grupo** del backend, porque corre como

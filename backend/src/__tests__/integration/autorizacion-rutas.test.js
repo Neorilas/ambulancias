@@ -21,12 +21,18 @@
  *
  * Una ruta nueva sin clasificar hace fallar el test: obliga a decidir quién
  * puede usarla ANTES de que llegue a producción.
+ *
+ * Escalones (2026-10-04): las `denegada` tienen además un rol mínimo en NIVEL
+ * (por defecto `gestion`: gestor o más). Se prueba en los dos sentidos: el
+ * escalón de abajo recibe 403 y el que debe entrar NO recibe 403. Lo segundo
+ * es lo que pilla una ruta mal clasificada, que si no pasaría en silencio.
+ * Y un token de «Ver como» nunca abre lo del superadmin.
  */
 
 const express = require('express');
 const request = require('supertest');
 const { query, transaction } = require('../../config/database');
-const { generateAccessToken } = require('../../utils/jwt.utils');
+const { generateAccessToken, generateImpersonationToken } = require('../../utils/jwt.utils');
 const router = require('../../routes');
 
 const ACCESO = {
@@ -109,12 +115,37 @@ const ACCESO = {
   'GET /admin/errors':                 ['denegada'],
   'POST /admin/impersonar/:id':        ['denegada'],
   'GET /admin/backups':                ['denegada'],
-  'GET /admin/backups/:nombre':        ['denegada'],
+  'POST /admin/backups/:nombre/descarga': ['denegada'],
   'GET /features/':                    ['denegada'],
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],
   'GET /informes/mensual':             ['denegada'],
 };
+
+// Rol mínimo de las rutas `denegada` que no son de gestión (gestor o más).
+const NIVEL = {
+  'GET /admin/stats':                      'superadmin',
+  'GET /admin/audit/users':                'superadmin',
+  'GET /admin/audit':                      'superadmin',
+  'GET /admin/errors':                     'superadmin',
+  'POST /admin/impersonar/:id':            'superadmin',
+  'GET /admin/backups':                    'superadmin',
+  'POST /admin/backups/:nombre/descarga':  'superadmin',
+  'GET /features/':                        'superadmin',
+  'PUT /features/:key':                    'superadmin',
+  'POST /users/roles':                     'administrador',
+  'POST /users/:id/reset-password':        'administrador',
+  'DELETE /users/:id':                     'administrador',
+  'GET /vehicles/alertas':                 'administrador',
+  'DELETE /vehicles/:id':                  'administrador',
+  'DELETE /vehicles/:vehicleId/revisiones/:revId': 'administrador',
+  'GET /informes/mensual':                 'administrador',
+  'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
+};
+const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';
+
+// Permisos de gestión que dan v4 a administrador y gestor
+const PERMISOS_GESTION = ['manage_vehicles', 'manage_users', 'manage_trabajos', 'view_all_trabajos', 'manage_incidencias'];
 
 const USUARIO_ID = 900;
 const BARRA_INVERTIDA = String.fromCharCode(92);
@@ -150,15 +181,24 @@ const TOKEN = generateAccessToken({ id: USUARIO_ID, username: 'prueba', roles: [
 const ES_CONSULTA_DE_SESION = /GROUP_CONCAT[\s\S]*FROM users u|FROM role_permissions rp/;
 
 let rolesActuales = '';
+let permisosActuales = [];
+let flotaEncendida = false;
 
-/** BD vacía, salvo el usuario de la sesión (con los roles del caso y sin permisos). */
+/** BD vacía, salvo el usuario de la sesión (con los roles y permisos del caso). */
 function bdVacia() {
   query.mockReset();
-  query.mockImplementation(async (sql) => {
+  query.mockImplementation(async (sql, params = []) => {
+    // Solo la fila de la sesión: si un controlador carga a OTRO usuario (el
+    // objeto de la ruta, id 1), no existe y no se confunde con el de la sesión.
     if (/GROUP_CONCAT[\s\S]*FROM users u/.test(sql)) {
+      if (!params.includes(USUARIO_ID)) return [[]];
       return [[{ id: USUARIO_ID, username: 'prueba', nombre: 'P', apellidos: 'P',
         activo: 1, deleted_at: null, roles: rolesActuales }]];
     }
+    if (/FROM role_permissions rp/.test(sql)) return [permisosActuales.map(nombre => ({ nombre }))];
+    // Quien está detrás de un token de «Ver como»: superadmin activo, sesión abierta
+    if (/JOIN impersonaciones i/.test(sql)) return [[{ id: 1, username: 'super' }]];
+    if (/FROM app_features WHERE feature_key/.test(sql)) return [[{ enabled: flotaEncendida ? 1 : 0 }]];
     if (/COUNT\(/i.test(sql)) return [[{ total: 0 }]];
     return [[]];
   });
@@ -167,10 +207,10 @@ function bdVacia() {
     fn({ execute: jest.fn().mockResolvedValue([[]]), query: jest.fn().mockResolvedValue([[]]) }));
 }
 
-function llamar(ruta) {
+function llamar(ruta, token = TOKEN) {
   const [metodo, patron] = ruta.split(' ');
   const url = '/api/v1' + patron.replace(/:[a-zA-Z]+/g, '1');
-  return request(app)[metodo.toLowerCase()](url).set('Authorization', `Bearer ${TOKEN}`).send({});
+  return request(app)[metodo.toLowerCase()](url).set('Authorization', `Bearer ${token}`).send({});
 }
 
 describe('autorización de todas las rutas', () => {
@@ -184,8 +224,13 @@ describe('autorización de todas las rutas', () => {
     expect({ sinClasificar, sobran }).toEqual({ sinClasificar: [], sobran: [] });
   });
 
+  it('NIVEL solo nombra rutas denegadas que existen', () => {
+    const malas = Object.keys(NIVEL).filter((r) => ACCESO[r]?.[0] !== 'denegada');
+    expect(malas).toEqual([]);
+  });
+
   describe.each([['sin rol', ''], ['técnico sin permisos', 'tecnico']])('%s', (_nombre, roles) => {
-    beforeEach(() => { rolesActuales = roles; bdVacia(); });
+    beforeEach(() => { rolesActuales = roles; permisosActuales = []; flotaEncendida = false; bdVacia(); });
 
     const denegadas = RUTAS.filter((r) => ACCESO[r]?.[0] === 'denegada');
     it.each(denegadas)('%s → 403', async (ruta) => {
@@ -201,6 +246,75 @@ describe('autorización de todas las rutas', () => {
       expect(deDatos.length).toBeGreaterThan(0);
       const sinFiltrar = deDatos.filter(([, params]) => !(params || []).includes(USUARIO_ID));
       expect(sinFiltrar.map(([sql]) => sql.replace(/\s+/g, ' ').slice(0, 120))).toEqual([]);
+    });
+  });
+
+  // ── Escalones: gestor < administrador < superadmin ─────────
+  const denegadas = RUTAS.filter((r) => ACCESO[r]?.[0] === 'denegada');
+  const deNivel = (...niveles) => denegadas.filter((r) => niveles.includes(nivelDe(r)));
+  // «Entra» = la autorización deja pasar: ni 401 ni 403. No se exige < 500:
+  // con esta BD falsa (cualquier COUNT devuelve una fila inventada) algún
+  // controlador revienta después de autorizar, p. ej. finalizeTrabajo con un
+  // trabajo que no existe, y eso no dice nada del control de acceso.
+  const entra = (res) => {
+    expect([401, 403]).not.toContain(res.status);
+  };
+
+
+  describe('gestor', () => {
+    beforeEach(() => {
+      rolesActuales = 'gestor'; permisosActuales = PERMISOS_GESTION; flotaEncendida = true; bdVacia();
+    });
+
+    it.each(deNivel('administrador', 'superadmin'))('%s → 403', async (ruta) => {
+      expect((await llamar(ruta)).status).toBe(403);
+    });
+
+    it.each(deNivel('gestion'))('%s → entra', async (ruta) => {
+      entra(await llamar(ruta));
+    });
+  });
+
+  describe('administrador', () => {
+    beforeEach(() => {
+      rolesActuales = 'administrador'; permisosActuales = PERMISOS_GESTION; flotaEncendida = true; bdVacia();
+    });
+
+    it.each(deNivel('superadmin'))('%s → 403', async (ruta) => {
+      expect((await llamar(ruta)).status).toBe(403);
+    });
+
+    it.each(deNivel('gestion', 'administrador'))('%s → entra', async (ruta) => {
+      entra(await llamar(ruta));
+    });
+
+    it('GET /flota/ubicaciones con menu_flota apagado → 403', async () => {
+      flotaEncendida = false;
+      expect((await llamar('GET /flota/ubicaciones')).status).toBe(403);
+    });
+  });
+
+  describe('superadmin', () => {
+    beforeEach(() => {
+      rolesActuales = 'superadmin'; permisosActuales = PERMISOS_GESTION; flotaEncendida = false; bdVacia();
+    });
+
+    // Sentido positivo de lo de superadmin: una ruta de gestión puesta por
+    // error tras requireSuperAdmin la pillan los de arriba; esto pilla una de
+    // superadmin que no deje entrar ni al superadmin.
+    it.each(deNivel('superadmin'))('%s → entra', async (ruta) => {
+      entra(await llamar(ruta));
+    });
+  });
+
+  describe('«Ver como»: token de superadmin impersonando a un administrador', () => {
+    const tokenImp = () => generateImpersonationToken({ id: USUARIO_ID, username: 'prueba', roles: ['administrador'] }, 1);
+    beforeEach(() => {
+      rolesActuales = 'administrador'; permisosActuales = PERMISOS_GESTION; flotaEncendida = false; bdVacia();
+    });
+
+    it.each(deNivel('superadmin'))('%s → 403', async (ruta) => {
+      expect((await llamar(ruta, tokenImp())).status).toBe(403);
     });
   });
 });
