@@ -445,8 +445,22 @@ y un botón «Revisar ahora» (`POST /facturas/buzon/revisar`). Reglas y trampas
 - **Solo remitentes de `FACTURAS_REMITENTES`** (por defecto `google.com`, y sus
   subdominios; `google.com.estafa.io` no vale). El buzón recibe correo de
   cualquiera. Se comprueba en el sobre (para no descargar) y otra vez en la
-  cabecera parseada. El remitente se puede falsificar; el riesgo es un PDF de
-  más en un panel de administradores, que se borra.
+  cabecera parseada. **Y además la firma** (`firmaValida`): el From se
+  falsifica gratis, y con él alguien podría colar un PDF como «Google Ads» o,
+  peor, ocupar el número de una factura real para que la buena se descarte como
+  «ya estaba». Se exige `dkim=pass header.d=<dominio permitido>` o `dmarc=pass
+  header.from=<dominio>` en el **primer** `Authentication-Results`, el que pone
+  el servidor de Hostalia al recibir (los de debajo los puede traer el correo).
+  Lo descartado por esto se cuenta en `sin_firma` y la pantalla lo avisa.
+  `FACTURAS_EXIGIR_FIRMA=0` lo apaga, solo si Hostalia no añadiera la cabecera.
+- **`cliente.on('error')` es obligatorio.** Ya conectado, imapflow avisa de
+  los fallos de red con un evento `error`; sin listener, ese evento lanza fuera
+  de cualquier try y el `uncaughtException` de `server.js` hace `exit(1)`: un
+  corte con Hostalia tumbaría la API entera.
+- **Un adjunto que falla no para la pasada** (`errores`): si lo hiciera, ese
+  correo bloquearía todos los de detrás en cada revisión. Por lo mismo,
+  `numeroDe` recorta siempre a 64 (la columna) y, sin número a la vista, añade
+  el día al nombre del fichero (dos «factura.pdf» no son la misma).
 - **Lo que se deduce es heurístico** (`datosDeFactura`) hasta ver un correo
   real de Google: proveedor por el remitente (Google → «Google Ads», el mismo
   nombre que a mano, para que el UNIQUE case); número por el nombre del PDF
@@ -457,6 +471,8 @@ y un botón «Revisar ahora» (`POST /facturas/buzon/revisar`). Reglas y trampas
 - Nunca lanza: devuelve un resumen (`ultima`) que vive en memoria; tras un
   deploy la pantalla dice «todavía no se ha revisado» hasta la primera pasada.
   Cron y botón a la vez comparten la misma pasada (`enCurso`).
+- `GET /api/` (público) lista los grupos de la API: `/facturas` no sale, por
+  lo mismo que la sección está oculta.
 - La importación queda en `audit_logs` como `import_factura`, a nombre de
   «sistema (buzón de facturas)».
 - El servicio usa `esPdf`/`importeValido` del controlador y el controlador

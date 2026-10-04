@@ -117,6 +117,9 @@ services:
       FACTURAS_IMAP_CARPETA:    ${FACTURAS_IMAP_CARPETA:-INBOX}
       # Solo se guardan PDF de estos remitentes (dominios o direcciones, con comas)
       FACTURAS_REMITENTES:      ${FACTURAS_REMITENTES:-google.com}
+      # Exige la firma DKIM/DMARC del remitente que comprobó el servidor de
+      # correo (Authentication-Results): el From se falsifica. 0 = no mirarla.
+      FACTURAS_EXIGIR_FIRMA:    ${FACTURAS_EXIGIR_FIRMA:-1}
       FACTURAS_BUZON_DIAS:      ${FACTURAS_BUZON_DIAS:-45}
       FACTURAS_BUZON_MINUTOS:   ${FACTURAS_BUZON_MINUTOS:-60}
 

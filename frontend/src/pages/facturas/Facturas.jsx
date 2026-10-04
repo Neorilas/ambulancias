@@ -80,6 +80,12 @@ function EstadoBuzon({ estado, revisando, onRevisar }) {
             : null}
         </span>
         {u && !u.ok && <span className="text-bad-600"> · falló {haceCuanto(u.at)}: {u.error}</span>}
+        {u?.ok && u.sin_firma > 0 && (
+          <span className="text-warn-700"> · {u.sin_firma} sin firma válida del remitente, no se han guardado</span>
+        )}
+        {u?.ok && u.errores > 0 && (
+          <span className="text-bad-600"> · {u.errores} no se {u.errores === 1 ? 'ha' : 'han'} podido guardar</span>
+        )}
       </div>
       <button className="btn-secondary self-start sm:self-auto py-1.5 text-sm" onClick={onRevisar} disabled={revisando}>
         {revisando ? 'Revisando…' : 'Revisar ahora'}

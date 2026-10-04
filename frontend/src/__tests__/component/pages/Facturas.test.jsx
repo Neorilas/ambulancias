@@ -212,6 +212,14 @@ describe('Facturas', () => {
       expect(screen.getByText(/revisado hace 5 min, nada nuevo/)).toBeInTheDocument();
     });
 
+    it('avisa de los correos descartados por la firma y de los que no se pudieron guardar', async () => {
+      facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net',
+        ultima: { at: hace(5), ok: true, importadas: 1, sin_firma: 2, errores: 1 } });
+      montar();
+      expect(await screen.findByText(/2 sin firma válida del remitente/)).toBeInTheDocument();
+      expect(screen.getByText(/1 no se ha podido guardar/)).toBeInTheDocument();
+    });
+
     it('si la última revisión falló, dice por qué', async () => {
       facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net',
         ultima: { at: hace(120), ok: false, error: 'Usuario o contraseña del buzón incorrectos' } });

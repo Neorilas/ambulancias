@@ -16,6 +16,7 @@ const mockCliente = {
   fetch: jest.fn(),
   fetchOne: jest.fn(),
   logout: jest.fn(),
+  on: jest.fn(),
 };
 const mockRelease = jest.fn();
 const mockOpciones = [];
@@ -48,8 +49,11 @@ const estructuraConPdf = { type: 'multipart/mixed', childNodes: [
   { type: 'application/octet-stream', dispositionParameters: { filename: '5705694492.pdf' } },
 ] };
 
+const FIRMA_GOOGLE = 'mx.hostalia.es; dkim=pass header.d=google.com header.s=20230601; spf=pass smtp.mailfrom=google.com; dmarc=pass (p=REJECT) header.from=google.com';
+
 function correoGoogle(extra = {}) {
   return {
+    headers: new Map([['authentication-results', FIRMA_GOOGLE]]),
     from: { value: [{ address: 'payments-noreply@google.com', name: 'Google Payments' }] },
     subject: 'Tu factura de Google Ads está disponible',
     text: 'Importe total: 65,23 €',
@@ -111,11 +115,30 @@ describe('buzonFacturas.service', () => {
       expect(buzon.tienePdf(null)).toBe(false);
     });
 
-    it('numeroDe: el número del nombre del PDF, o el del texto, o el nombre', () => {
+    it('numeroDe: el número del nombre del PDF, o el del texto, o el nombre con el día', () => {
       expect(buzon.numeroDe('5705694492.pdf', '')).toBe('5705694492');
       expect(buzon.numeroDe('factura.pdf', 'Número de factura: FA-2026-77')).toBe('FA-2026-77');
-      expect(buzon.numeroDe('octubre.pdf', 'hola')).toBe('octubre');
+      expect(buzon.numeroDe('octubre.pdf', 'hola', '2026-10-02')).toBe('octubre-2026-10-02');
       expect(buzon.numeroDe('', '')).toBe('sin-numero');
+    });
+
+    it('numeroDe nunca pasa de 64 caracteres (la columna): si pasara, ese correo bloquearía el buzón', () => {
+      expect(buzon.numeroDe(`${'9'.repeat(90)}.pdf`, '')).toHaveLength(64);
+      expect(buzon.numeroDe('x.pdf', `Invoice number: ${'A'.repeat(90)}`)).toHaveLength(64);
+      expect(buzon.numeroDe(`${'n'.repeat(90)}.pdf`, '', '2026-10-02')).toHaveLength(64);
+      expect(buzon.numeroDe(`${'n'.repeat(90)}.pdf`, '', '2026-10-02')).toMatch(/-2026-10-02$/);
+    });
+
+    it('firmaValida: solo el primer Authentication-Results, con DKIM o DMARC del dominio permitido', () => {
+      expect(buzon.firmaValida(FIRMA_GOOGLE, ['google.com'])).toBe(true);
+      expect(buzon.firmaValida('mx; dkim=pass header.d=accounts.google.com', ['google.com'])).toBe(true);
+      expect(buzon.firmaValida('mx; dkim=fail header.d=google.com; dmarc=fail header.from=google.com', ['google.com'])).toBe(false);
+      expect(buzon.firmaValida('mx; dkim=pass header.d=estafa.io; dmarc=pass header.from=estafa.io', ['google.com'])).toBe(false);
+      expect(buzon.firmaValida('mx; dkim=pass header.d=google.com.estafa.io', ['google.com'])).toBe(false);
+      // Uno falso que traiga el propio correo va debajo del de nuestro servidor
+      expect(buzon.firmaValida(['mx; dkim=none', FIRMA_GOOGLE], ['google.com'])).toBe(false);
+      expect(buzon.firmaValida(FIRMA_GOOGLE, ['payments-noreply@google.com'])).toBe(true);
+      expect(buzon.firmaValida(undefined, ['google.com'])).toBe(false);
     });
 
     it('importeDe: el total del texto, o null', () => {
@@ -127,6 +150,8 @@ describe('buzonFacturas.service', () => {
     it('datosDeFactura: fecha en hora española del día que llegó el correo', () => {
       const d = buzon.datosDeFactura(correoGoogle({ date: new Date('2026-09-30T22:30:00Z') }), { filename: '5705694492.pdf' });
       expect(d).toMatchObject({ proveedor: 'Google Ads', numero: '5705694492', fecha: '2026-10-01', importe: 65.23 });
+      const sinFecha = buzon.datosDeFactura(correoGoogle({ date: undefined }), { filename: 'f.pdf' });
+      expect(sinFecha.fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(d.notas).toMatch(/^Recibida por correo: Tu factura/);
     });
   });
@@ -143,7 +168,10 @@ describe('buzonFacturas.service', () => {
     it('guarda el PDF con origen correo, lo audita y abre el buzón en solo lectura por TLS', async () => {
       const r = await buzon.revisarBuzon();
 
-      expect(r).toMatchObject({ ok: true, revisados: 1, importadas: 1, ya_estaban: 0, descartados: 0 });
+      expect(r).toMatchObject({ ok: true, revisados: 1, importadas: 1, ya_estaban: 0, descartados: 0, sin_firma: 0, errores: 0 });
+      // Sin este listener, un corte de red tras conectar tumbaría el proceso
+      expect(mockCliente.on).toHaveBeenCalledWith('error', expect.any(Function));
+      expect(() => mockCliente.on.mock.calls[0][1](Object.assign(new Error('x'), { code: 'ECONNRESET' }))).not.toThrow();
       expect(mockOpciones[0]).toMatchObject({ host: 'imap.servidor-correo.net', port: 993, secure: true,
         auth: { user: 'facturas@vapss.net', pass: 'secreta' } });
       expect(mockCliente.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
@@ -189,6 +217,39 @@ describe('buzonFacturas.service', () => {
 
       simpleParser.mockResolvedValueOnce(correoGoogle({ from: { value: [{ address: 'otro@estafa.io' }] } }));
       expect(await buzon.revisarBuzon()).toMatchObject({ ok: true, importadas: 0, descartados: 1 });
+    });
+
+    it('sin la firma de Google que puso nuestro servidor, no entra (el From se falsifica)', async () => {
+      simpleParser.mockResolvedValueOnce(correoGoogle({ headers: new Map([['authentication-results', 'mx; dkim=fail header.d=google.com']]) }));
+      expect(await buzon.revisarBuzon()).toMatchObject({ ok: true, importadas: 0, sin_firma: 1 });
+      expect(query.mock.calls.some(([sql]) => /INSERT/.test(sql))).toBe(false);
+
+      simpleParser.mockResolvedValueOnce(correoGoogle({ headers: new Map() }));
+      expect(await buzon.revisarBuzon()).toMatchObject({ ok: true, importadas: 0, sin_firma: 1 });
+    });
+
+    it('con FACTURAS_EXIGIR_FIRMA=0 no se mira la firma', async () => {
+      process.env.FACTURAS_EXIGIR_FIRMA = '0';
+      simpleParser.mockResolvedValueOnce(correoGoogle({ headers: new Map() }));
+      expect(await buzon.revisarBuzon()).toMatchObject({ ok: true, importadas: 1, sin_firma: 0 });
+      delete process.env.FACTURAS_EXIGIR_FIRMA;
+    });
+
+    it('un adjunto que no se puede guardar no para la pasada: se cuenta y sigue con el siguiente', async () => {
+      simpleParser.mockResolvedValueOnce(correoGoogle({ attachments: [
+        { filename: '1111111111.pdf', content: PDF },
+        { filename: '2222222222.pdf', content: PDF },
+      ] }));
+      let inserts = 0;
+      query.mockImplementation(async (sql) => {
+        if (/INSERT INTO facturas/.test(sql)) {
+          inserts++;
+          if (inserts === 1) throw Object.assign(new Error('Data too long'), { code: 'ER_DATA_TOO_LONG' });
+          return [{ insertId: 22 }];
+        }
+        return [[]];
+      });
+      expect(await buzon.revisarBuzon()).toMatchObject({ ok: true, importadas: 1, errores: 1 });
     });
 
     it('un buzón sin correos recientes es una pasada buena', async () => {

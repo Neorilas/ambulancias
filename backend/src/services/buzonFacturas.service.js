@@ -10,7 +10,10 @@
  *     guardado se salta por (proveedor, numero). Da igual que alguien abra el
  *     correo a mano antes.
  *   - Solo remitentes de FACTURAS_REMITENTES (dominios o direcciones). El
- *     buzón es público: sin esto, cualquiera mete un PDF en el panel.
+ *     buzón es público: sin esto, cualquiera mete un PDF en el panel. Y como
+ *     el From se puede falsificar, además se exige que el servidor de correo
+ *     que lo recibió diga que la firma es buena (DKIM o DMARC del dominio
+ *     permitido, en Authentication-Results). FACTURAS_EXIGIR_FIRMA=0 lo quita.
  *   - Un adjunto solo entra si de verdad es un PDF (cabecera `%PDF-`).
  *   - Nunca lanza: devuelve un resumen, que es lo que enseña la pantalla.
  *
@@ -40,6 +43,7 @@ function config() {
     carpeta:    e.FACTURAS_IMAP_CARPETA || 'INBOX',
     remitentes: (e.FACTURAS_REMITENTES || 'google.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
     dias:       parseInt(e.FACTURAS_BUZON_DIAS, 10) || 45,
+    exigirFirma: e.FACTURAS_EXIGIR_FIRMA !== '0',
   };
 }
 
@@ -55,6 +59,23 @@ function remitentePermitido(direccion, permitidos = config().remitentes) {
   return permitidos.some(p => (p.includes('@')
     ? dir === p
     : dominio === p || dominio.endsWith(`.${p}`)));
+}
+
+/**
+ * ¿Dice el servidor que lo recibió que la firma es de un dominio permitido?
+ * Se mira solo el PRIMER Authentication-Results, que es el que añade nuestro
+ * servidor al recibir; los de más abajo los puede traer el propio correo.
+ * Vale `dkim=pass` con `header.d=<dominio>` o `dmarc=pass` con
+ * `header.from=<dominio>` (o un subdominio).
+ */
+function firmaValida(cabecera, permitidos = config().remitentes) {
+  const primera = String(Array.isArray(cabecera) ? cabecera[0] : (cabecera || '')).toLowerCase();
+  if (!primera) return false;
+  const dominios = permitidos.map(p => (p.includes('@') ? p.split('@')[1] : p));
+  const encaja = (d) => dominios.some(p => d === p || d.endsWith(`.${p}`));
+  const dkim  = [...primera.matchAll(/dkim=pass[^;]*?header\.d=([a-z0-9.-]+)/g)].map(m => m[1]);
+  const dmarc = [...primera.matchAll(/dmarc=pass[^;]*?header\.from=([a-z0-9.-]+)/g)].map(m => m[1]);
+  return [...dkim, ...dmarc].some(encaja);
 }
 
 /** El proveedor por el remitente: Google → «Google Ads» (lo que se usa a mano), el resto por su nombre. */
@@ -77,13 +98,16 @@ function tienePdf(nodo) {
  * por su número), si no el que diga el texto del correo, y si no, el nombre
  * del fichero tal cual.
  */
-function numeroDe(nombreFichero, texto) {
+function numeroDe(nombreFichero, texto, fecha) {
   const base = String(nombreFichero || '').replace(/\.pdf$/i, '').trim();
   const largo = base.match(/\d{6,}/);
-  if (largo) return largo[0];
+  if (largo) return largo[0].slice(0, 64);
   const enTexto = String(texto || '').match(/(?:n[úu]mero de (?:la )?factura|n\.?º de factura|invoice number|factura n\.?º?)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{3,})/i);
-  if (enTexto) return enTexto[1];
-  return (base || 'sin-numero').slice(0, 64);
+  if (enTexto) return enTexto[1].slice(0, 64);
+  // Sin número a la vista: el nombre del fichero y el día, para que dos
+  // «factura.pdf» de meses distintos no se tomen por la misma.
+  const sufijo = fecha ? `-${fecha}` : '';
+  return `${(base || 'sin-numero').slice(0, 64 - sufijo.length)}${sufijo}`;
 }
 
 /** Importe en euros que diga el texto del correo («Total: 65,23 €», «Importe: €65,23»), o null. */
@@ -99,12 +123,13 @@ function datosDeFactura(correo, adjunto) {
   const de = correo.from?.value?.[0] || {};
   const texto = [correo.subject, correo.text].filter(Boolean).join('\n');
   const recibido = correo.date instanceof Date && !Number.isNaN(correo.date.getTime()) ? correo.date : ahora();
+  // Fecha en que llegó el correo, en hora española. La de emisión de verdad
+  // está en el PDF; Google emite el último día del mes y manda el correo días después.
+  const fecha = fechaEnEspana(recibido);
   return {
     proveedor: proveedorDe(de.address, de.name),
-    numero:    numeroDe(adjunto.filename, texto),
-    // Fecha en que llegó el correo, en hora española. La de emisión de verdad
-    // está en el PDF; Google emite el último día del mes y manda el correo días después.
-    fecha:     fechaEnEspana(recibido),
+    numero:    numeroDe(adjunto.filename, texto, fecha),
+    fecha,
     importe:   importeDe(texto),
     notas:     `Recibida por correo: ${String(correo.subject || '(sin asunto)')}`.slice(0, 255),
     nombre:    String(adjunto.filename || 'factura.pdf').slice(0, 255),
@@ -146,7 +171,7 @@ async function guardar(d, adjunto) {
 
 async function pasada() {
   const c = config();
-  const res = { at: ahora().toISOString(), ok: false, revisados: 0, importadas: 0, ya_estaban: 0, descartados: 0 };
+  const res = { at: ahora().toISOString(), ok: false, revisados: 0, importadas: 0, ya_estaban: 0, descartados: 0, sin_firma: 0, errores: 0 };
   if (!configurado()) return { ...res, error: 'Buzón sin configurar' };
 
   const cliente = new ImapFlow({
@@ -155,6 +180,12 @@ async function pasada() {
     logger: false,
     socketTimeout: 60000,
   });
+  // Imprescindible: una vez conectado, imapflow avisa de los fallos de red
+  // (timeout, ECONNRESET a mitad de un fetch) con un evento 'error'. Sin
+  // nadie escuchando, ese evento lanza fuera de este try y el
+  // uncaughtException de server.js tumba la API entera. La operación en curso
+  // falla igual y la recoge el catch de abajo.
+  cliente.on('error', (err) => logger.error(`Buzón de facturas (conexión): ${err.code || err.message}`));
 
   try {
     await cliente.connect();
@@ -180,22 +211,31 @@ async function pasada() {
         const correo = await simpleParser(m.source);
         // Lo que dice el sobre puede no coincidir con la cabecera parseada: se vuelve a mirar.
         if (!remitentePermitido(correo.from?.value?.[0]?.address, c.remitentes)) { res.descartados++; continue; }
+        // El From se falsifica gratis; la firma que comprobó nuestro servidor, no.
+        if (c.exigirFirma && !firmaValida(correo.headers?.get?.('authentication-results'), c.remitentes)) {
+          res.sin_firma++;
+          continue;
+        }
 
         const pdfs = (correo.attachments || []).filter(a =>
           Buffer.isBuffer(a.content) && a.content.length <= MAX_PDF_BYTES && esPdf(a.content));
         if (!pdfs.length) { res.descartados++; continue; }
 
         for (const adjunto of pdfs) {
-          const d = datosDeFactura(correo, adjunto);
-          if (await yaEsta(d.proveedor, d.numero)) { res.ya_estaban++; continue; }
+          // Un adjunto que falla (un dato que no cabe, un fallo de BD) no para
+          // la pasada: si lo hiciera, ese correo bloquearía todos los de detrás
+          // en cada revisión.
           try {
+            const d = datosDeFactura(correo, adjunto);
+            if (await yaEsta(d.proveedor, d.numero)) { res.ya_estaban++; continue; }
             await guardar(d, adjunto);
             res.importadas++;
             logger.info(`Buzón de facturas: guardada ${d.proveedor} ${d.numero} (${adjunto.content.length} B)`);
           } catch (err) {
             // Otra pasada o una subida a mano la ha metido entre medias
-            if (err.code === 'ER_DUP_ENTRY') res.ya_estaban++;
-            else throw err;
+            if (err.code === 'ER_DUP_ENTRY') { res.ya_estaban++; continue; }
+            res.errores++;
+            logger.error(`Buzón de facturas: no se pudo guardar un adjunto (uid ${uid}): ${err.code || err.message}`);
           }
         }
       }
@@ -220,7 +260,7 @@ async function pasada() {
 async function revisarBuzon() {
   if (!enCurso) {
     enCurso = pasada()
-      .catch((err) => ({ at: ahora().toISOString(), ok: false, revisados: 0, importadas: 0, ya_estaban: 0, descartados: 0, error: err.message }))
+      .catch((err) => ({ at: ahora().toISOString(), ok: false, revisados: 0, importadas: 0, ya_estaban: 0, descartados: 0, sin_firma: 0, errores: 0, error: err.message }))
       .then((r) => { ultima = r; return r; })
       .finally(() => { enCurso = null; });
   }
@@ -230,6 +270,6 @@ async function revisarBuzon() {
 module.exports = {
   revisarBuzon, estado, configurado, config,
   // para los tests
-  remitentePermitido, proveedorDe, tienePdf, numeroDe, importeDe, datosDeFactura,
+  remitentePermitido, firmaValida, proveedorDe, tienePdf, numeroDe, importeDe, datosDeFactura,
   _reiniciar: () => { enCurso = null; ultima = null; },
 };
