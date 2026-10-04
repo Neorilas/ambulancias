@@ -40,6 +40,24 @@ const multerUpload = multer({
 });
 
 /**
+ * Sube una imagen del campo `campo`. Es `multerUpload.single` más una cosa:
+ * los fallos que no son MulterError (multipart mal formado, cuerpo cortado a
+ * mitad, petición abortada por el móvil) salen de busboy como Error genérico y
+ * acababan en 500 y en error_logs como fallo del servidor. Son de la petición,
+ * no nuestros: 400, y así nadie llena error_logs mandando subidas rotas.
+ */
+function subirImagen(campo) {
+  const single = multerUpload.single(campo);
+  return (req, res, next) => single(req, res, (err) => {
+    if (err && !(err instanceof multer.MulterError)) {
+      err.status = 400;
+      err.multipartRoto = true;
+    }
+    next(err);
+  });
+}
+
+/**
  * Middleware para procesar una imagen con Sharp (resize + compress)
  * y guardarla en disco. Añade req.processedFile con info del archivo guardado.
  * @param {string} subdir - subdirectorio dentro de uploads (ej: 'vehicles/123')
@@ -136,4 +154,4 @@ function deleteFile(relativePath) {
   }
 }
 
-module.exports = { multerUpload, processAndSave, processAndSaveMultiple, deleteFile };
+module.exports = { multerUpload, subirImagen, processAndSave, processAndSaveMultiple, deleteFile };

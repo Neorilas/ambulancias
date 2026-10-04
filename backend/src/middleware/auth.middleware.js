@@ -70,9 +70,10 @@ async function authenticate(req, res, next) {
     );
 
     // Impersonación: el token es del usuario impersonado, pero solo vale
-    // mientras quien está detrás siga siendo superadmin y esté activo. Quitarle
-    // el rol o darle de baja corta en el acto las sesiones que tenga abiertas
-    // como otros, sin esperar a que caduquen.
+    // mientras quien está detrás siga siendo superadmin y esté activo, y
+    // mientras la sesión siga abierta en `impersonaciones` (v31). Quitarle el
+    // rol, darle de baja o pulsar «Volver a mi sesión» corta el token en el
+    // acto, sin esperar a que caduque.
     let impersonadoPor = null;
     if (decoded.imp != null) {
       const [impRows] = await query(
@@ -80,8 +81,10 @@ async function authenticate(req, res, next) {
          FROM users u
          JOIN user_roles ur ON ur.user_id = u.id
          JOIN roles r ON r.id = ur.role_id
+         JOIN impersonaciones i ON i.jti = ? AND i.superadmin_id = u.id
+                               AND i.user_id = ? AND i.fin_at IS NULL
          WHERE u.id = ? AND u.activo = 1 AND u.deleted_at IS NULL AND r.nombre = 'superadmin'`,
-        [decoded.imp]
+        [String(decoded.jti ?? ''), decoded.sub, decoded.imp]
       );
       if (!impRows.length) return unauthorized(res, 'Sesión de impersonación no válida');
       impersonadoPor = { id: impRows[0].id, username: impRows[0].username };
@@ -95,7 +98,7 @@ async function authenticate(req, res, next) {
       apellidos: user.apellidos,
       roles:    user.roles ? user.roles.split(',') : [],
       permissions: permRows.map(r => r.nombre),
-      ...(impersonadoPor && { impersonadoPor }),
+      ...(impersonadoPor && { impersonadoPor, impersonacionJti: decoded.jti }),
     };
 
     // El resto de la petición corre dentro del contexto: logAudit lo lee para
@@ -115,4 +118,17 @@ async function optionalAuth(req, res, next) {
   return authenticate(req, res, next);
 }
 
-module.exports = { authenticate, optionalAuth };
+/**
+ * Vuelve a abrir el contexto de la petición. Va justo DETRÁS de multer en las
+ * rutas de subida. multer 1.x llamaba a `next()` desde los eventos del stream,
+ * que pertenecen al contexto asíncrono de antes de `authenticate`: lo que
+ * corría después veía `contextoActual()` vacío y una auditoría impersonando
+ * quedaba sin el «vía superadmin» (BUG-03). multer 2.4 ya lo conserva solo
+ * (AsyncResource); esto queda de refuerzo, por si se cambia de parser o de
+ * versión, porque el fallo era silencioso.
+ */
+function reabrirContexto(req, res, next) {
+  conContexto({ impersonadoPor: req.user?.impersonadoPor ?? null }, next);
+}
+
+module.exports = { authenticate, optionalAuth, reabrirContexto };

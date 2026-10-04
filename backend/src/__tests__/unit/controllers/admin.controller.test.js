@@ -58,6 +58,7 @@ describe('admin.controller', () => {
       query
         .mockResolvedValueOnce(fila())
         .mockResolvedValueOnce([[{ nombre: 'manage_vehicles' }]])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       const req = mockReq({ params: { id: '5' }, user: superadmin });
       const res = mockRes();
@@ -69,7 +70,13 @@ describe('admin.controller', () => {
       expect(payload).toMatchObject({ sub: 5, imp: 1, type: 'access' });
       expect(payload.exp - payload.iat).toBe(data.expiraEnMin * 60);
       expect(data.refreshToken).toBeUndefined();
-      const audit = query.mock.calls[2][1];
+      // La sesión queda apuntada para poder revocarla (SEC-19)
+      const [sqlSesion, sesion] = query.mock.calls[2];
+      expect(sqlSesion).toContain('INSERT INTO impersonaciones');
+      expect(sesion.slice(0, 3)).toEqual([payload.jti, 1, 5]);
+      expect(sesion[3]).toEqual(new Date(payload.iat * 1000));
+      expect(sesion[4]).toEqual(new Date(payload.exp * 1000));
+      const audit = query.mock.calls[3][1];
       expect(audit[0]).toBe(1);
       expect(audit[2]).toBe('impersonate_start');
     });

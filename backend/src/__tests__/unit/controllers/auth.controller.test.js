@@ -197,12 +197,17 @@ describe('auth.controller', () => {
 
   // -- finImpersonacion --
   describe('finImpersonacion', () => {
-    it('audita el fin a nombre del superadmin', async () => {
+    it('cierra la sesión (el token deja de valer) y audita el fin a nombre del superadmin', async () => {
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
       const res = mockRes();
       await finImpersonacion(mockReq({
-        user: { id: 5, username: 'jlopez', impersonadoPor: { id: 1, username: 'findelias' } },
+        user: { id: 5, username: 'jlopez', impersonadoPor: { id: 1, username: 'findelias' }, impersonacionJti: 'abc' },
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toContain('UPDATE impersonaciones SET fin_at = ?');
+      expect(params[0]).toBeInstanceOf(Date);
+      expect(params[1]).toBe('abc');
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
         userId: 1, action: 'impersonate_end', entityId: 5,
       }));
@@ -213,6 +218,7 @@ describe('auth.controller', () => {
       await finImpersonacion(mockReq({ user: { id: 5, username: 'jlopez' } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
       expect(logAudit).not.toHaveBeenCalled();
+      expect(query).not.toHaveBeenCalled();
     });
   });
 });

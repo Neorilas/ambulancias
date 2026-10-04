@@ -1056,6 +1056,27 @@ const MIGRATIONS = [
         `ALTER TABLE error_logs ADD INDEX idx_origen (origen)`);
     },
   },
+  {
+    name: 'v31_impersonaciones',
+    description: 'Sesiones de impersonación del superadmin, para poder revocarlas al terminar',
+    async run() {
+      // El token de «Ver como» es un JWT sin refresh: hasta aquí, pulsar
+      // «Volver a mi sesión» solo lo apuntaba en la auditoría y el token
+      // seguía valiendo hasta caducar. auth.middleware exige ahora que su
+      // jti esté aquí y sin fin_at; /auth/impersonacion/fin lo cierra.
+      // Las fechas las pone Node (UTC), nunca NOW().
+      await query(`CREATE TABLE IF NOT EXISTS impersonaciones (
+        jti            CHAR(36)     NOT NULL,
+        superadmin_id  INT UNSIGNED NOT NULL,
+        user_id        INT UNSIGNED NOT NULL,
+        inicio_at      DATETIME     NOT NULL COMMENT 'UTC',
+        expira_at      DATETIME     NOT NULL COMMENT 'UTC',
+        fin_at         DATETIME     NULL DEFAULT NULL COMMENT 'UTC; NULL = sigue abierta',
+        PRIMARY KEY (jti),
+        INDEX idx_imp_superadmin (superadmin_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 // ============================================================

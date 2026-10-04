@@ -9,10 +9,10 @@ const express = require('express');
 const { fechaApiAMysql } = require('../utils/fecha.utils');
 const { body, param } = require('express-validator');
 const ctrl = require('../controllers/asignaciones.controller');
-const { authenticate }          = require('../middleware/auth.middleware');
+const { authenticate, reabrirContexto } = require('../middleware/auth.middleware');
 const { requirePermission }     = require('../middleware/roles.middleware');
 const { handleValidation }      = require('../middleware/validate.middleware');
-const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
+const { subirImagen, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
 const { requireAsignacionEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
@@ -152,7 +152,8 @@ router.post('/:id/incidencias',
 // POST /asignaciones/:id/evidencias  (multer → processAndSave → controller)
 router.post('/:id/evidencias',
   uploadLimiter,
-  multerUpload.single('image'),
+  subirImagen('image'),
+  reabrirContexto, // refuerzo: el contexto de la petición, aunque cambie el parser (BUG-03)
   [
     param('id').isInt({ min: 1 }),
     body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)

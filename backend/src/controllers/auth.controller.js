@@ -276,12 +276,17 @@ async function me(req, res, next) {
 // ============================================================
 // POST /auth/impersonacion/fin
 // ============================================================
-// Solo deja constancia: el token impersonado no tiene refresh y caduca solo;
-// volver a la sesión del superadmin lo hace el frontend, que la guardó aparte.
+// Cierra la sesión en `impersonaciones`: desde aquí el token impersonado da
+// 401 aunque no haya caducado (SEC-19). Volver a la sesión del superadmin lo
+// hace el frontend, que la guardó aparte.
 async function finImpersonacion(req, res, next) {
   try {
     const imp = req.user.impersonadoPor;
     if (!imp) return error(res, 'No hay ninguna impersonación activa', 400);
+    await query(
+      'UPDATE impersonaciones SET fin_at = ? WHERE jti = ? AND fin_at IS NULL',
+      [ahora(), req.user.impersonacionJti]
+    );
     const { logAudit } = require('./admin.controller');
     await logAudit({
       userId:     imp.id,

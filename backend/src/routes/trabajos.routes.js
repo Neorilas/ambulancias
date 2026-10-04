@@ -8,10 +8,10 @@ const express = require('express');
 const { fechaApiAMysql } = require('../utils/fecha.utils');
 const { body, param, query: qv } = require('express-validator');
 const ctrl    = require('../controllers/trabajos.controller');
-const { authenticate }             = require('../middleware/auth.middleware');
+const { authenticate, reabrirContexto } = require('../middleware/auth.middleware');
 const { requireAdminOrGestor, requirePermission } = require('../middleware/roles.middleware');
 const { handleValidation }         = require('../middleware/validate.middleware');
-const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
+const { subirImagen, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
 const { requireTrabajoEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { TRABAJO_TIPOS, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
@@ -146,7 +146,8 @@ router.post('/:id/finalize',
 // esté disponible con los campos del multipart/form-data
 router.post('/:id/evidencias',
   uploadLimiter,
-  multerUpload.single('image'),
+  subirImagen('image'),
+  reabrirContexto, // refuerzo: el contexto de la petición, aunque cambie el parser (BUG-03)
   [
     param('id').isInt({ min: 1 }),
     body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),

@@ -9,7 +9,7 @@
 const { query }    = require('../config/database');
 const { success, paginated, error, notFound, forbidden } = require('../utils/response.utils');
 const { PAGINATION, ROLES } = require('../config/constants');
-const { generateImpersonationToken, IMPERSONATION_EXPIRY_MIN } = require('../utils/jwt.utils');
+const { generateImpersonationToken, decodeToken, IMPERSONATION_EXPIRY_MIN } = require('../utils/jwt.utils');
 const { inicioDelDiaEnEspana, haceHoras } = require('../utils/fecha.utils');
 const { contextoActual } = require('../utils/contextoPeticion.utils');
 
@@ -250,6 +250,14 @@ async function impersonar(req, res, next) {
 
     const accessToken = generateImpersonationToken(
       { id: target.id, username: target.username, roles }, req.user.id
+    );
+    // Se apunta la sesión para poder cerrarla: auth.middleware solo acepta un
+    // token `imp` cuyo jti esté aquí abierto (SEC-19).
+    const { jti, iat, exp } = decodeToken(accessToken);
+    await query(
+      `INSERT INTO impersonaciones (jti, superadmin_id, user_id, inicio_at, expira_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [jti, req.user.id, target.id, new Date(iat * 1000), new Date(exp * 1000)]
     );
 
     await logAudit({
