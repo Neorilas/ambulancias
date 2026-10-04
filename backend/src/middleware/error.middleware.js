@@ -55,11 +55,13 @@ function errorHandler(err, req, res, _next) {
     });
   }
 
-  // Multipart roto o cortado (subirImagen): culpa de la petición, no un 5xx
+  // Multipart roto o cortado (subirImagen, subirPdf): culpa de la petición, no un 5xx
   if (err.multipartRoto) {
     return res.status(400).json({
       success: false,
-      message: 'La foto llegó incompleta o dañada. Vuelve a intentarlo.',
+      message: err.multipartRoto === 'pdf'
+        ? 'El PDF llegó incompleto o dañado. Vuelve a intentarlo.'
+        : 'La foto llegó incompleta o dañada. Vuelve a intentarlo.',
     });
   }
 

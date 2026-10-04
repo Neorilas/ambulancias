@@ -26,13 +26,33 @@ jest.mock('mysql2/promise', () => ({
   },
 }));
 
+jest.mock('../../../utils/logger.utils', () => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() }));
+
 describe('config/database', () => {
   let poolMock;
+  let db;
+  let logger;
 
   beforeAll(() => {
     jest.isolateModules(() => {
-      poolMock = require('../../../config/database').pool;
+      db = require('../../../config/database');
+      logger = require('../../../utils/logger.utils');
+      poolMock = db.pool;
     });
+  });
+
+  it('un error de BD no vuelca al log el PDF de una factura (ni textos enormes)', async () => {
+    const pdf = Buffer.alloc(5 * 1024 * 1024, 1);
+    poolMock.query.mockRejectedValueOnce(Object.assign(new Error('Duplicate entry'), { code: 'ER_DUP_ENTRY' }));
+
+    await expect(db.query('INSERT INTO facturas VALUES (?, ?, ?)', ['Google Ads', pdf, 'x'.repeat(2000)]))
+      .rejects.toMatchObject({ code: 'ER_DUP_ENTRY' });
+
+    const [, meta] = logger.error.mock.calls[0];
+    expect(meta.params[0]).toBe('Google Ads');
+    expect(meta.params[1]).toBe(`[Buffer ${pdf.length} B]`);
+    expect(meta.params[2]).toMatch(/\[2000 caracteres\]$/);
+    expect(JSON.stringify(meta).length).toBeLessThan(1000);
   });
 
   it('crea el pool en UTC: mysql2 serializa las fechas sin desplazarlas', () => {

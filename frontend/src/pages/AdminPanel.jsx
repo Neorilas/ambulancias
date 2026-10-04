@@ -28,7 +28,8 @@ const ACTION_TONE = {
   delete_asignacion:   'bg-bad-500',
   delete_vehicle:      'bg-bad-500',
   delete_user:         'bg-bad-500',
-  reset_password:      'bg-warn-500',
+  delete_factura:      'bg-bad-500',
+  reset_password:     'bg-warn-500',
   toggle_feature:      'bg-warn-500',
   impersonate_start:   'bg-warn-500',
   impersonate_end:     'bg-warn-500',
@@ -79,6 +80,8 @@ const ACTION_LABEL = {
   // La hace el sistema (user_info «sistema (retención)»); details.ids dice cuáles.
   purga_retencion:     'Purgó asignaciones antiguas',
   download_backup:     'Descargó un backup de la BD',
+  create_factura:      'Subió una factura',
+  delete_factura:      'Eliminó una factura',
 };
 
 // El resto de acciones (crear/editar/activar) son rutina: azul de marca.

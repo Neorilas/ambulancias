@@ -5,6 +5,14 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
+ * Versión que enseña la app en el pie del menú. Sale de package.json y se
+ * sube a mano en el mismo commit que el cambio, según su tamaño (regla en
+ * CLAUDE.md → «Versión»): feature gorda → mayor, implementación pequeña →
+ * menor, fix → parche.
+ */
+const VERSION = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version;
+
+/**
  * Sustituye los marcadores __BASE_PATH__ del .htaccess que Vite copia de
  * public/ a dist/.
  *
@@ -62,6 +70,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: BASE,
+    // Lo lee src/utils/version.js; ver VERSION arriba.
+    define: {
+      __APP_VERSION__: JSON.stringify(VERSION),
+    },
     plugins: [
       react(),
       htaccessConBase(BASE, env.VITE_API_URL),

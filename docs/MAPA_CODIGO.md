@@ -50,7 +50,7 @@ equipo de 0..N personas que ve la ficha. Listo pero oculto tras los flags
 
 `server.js` → helmet/cors/compress/morgan/json → `/uploads` estático →
 `routes/index.js` (aplica `apiLimiter`, monta `/auth /users /vehicles /trabajos
-/asignaciones /admin /features /push /flota /informes`) → `routes/*.routes.js` (middleware por ruta) →
+/asignaciones /admin /features /push /flota /informes /facturas`) → `routes/*.routes.js` (middleware por ruta) →
 `controllers/*.controller.js` → `config/database.js` (`query`) → MySQL.
 Errores: `middleware/error.middleware.js` (5xx van a `error_logs`, origen
 `servidor`). Lo que ve la app y no llega a Express lo manda ella misma a
@@ -88,6 +88,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 | `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
+| `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id`. **Solo administrador y superadmin, por rol, comprobado antes de multer**. El flag `menu_facturas` es solo de menú (§2.8) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
@@ -109,7 +110,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `auth.middleware.js` | `authenticate` | Verifica JWT y **consulta permisos en BD en cada request** (no van en el token). Con `imp` en el token (impersonación, §6.3) comprueba que ese id sigue siendo superadmin activo, pone `req.user.impersonadoPor` y corre el resto de la petición dentro de `contextoPeticion` |
 | `roles.middleware.js` | `requireRole`, `requirePermission`, `requireSuperAdmin`, `requireAdmin`, `requireAdminOrGestor`, `requireAnyRole`, `hasRole`, `hasPermission`, `isSuperAdmin/isAdmin/isOperacional` | superadmin bypassa todo; 403 se audita como `access_denied` |
 | `ownership.middleware.js` | `tieneElVehiculoAsignado`, `requireVehicleUploadAccess`, `requireTrabajoEvidenciaAccess`, `requireAsignacionEvidenciaAccess` | Quién puede subir fotos a qué. Solo cuentan los **responsables**: nunca el personal de una asignación ni el equipo de un trabajo. En trabajos se mira el estado de la fila `trabajo_vehiculos`, no el del trabajo. Van antes de `processAndSave`: un 403 no deja la foto huérfana en disco |
-| `upload.middleware.js` | Multer (memoria) + Sharp | Límites en `constants.UPLOAD`. **multer 2.x** desde 2026-10-04: la 1.4.5-lts tenía caídas del proceso con un multipart roto, y `npm audit` no las veía porque una versión prerelease no casa con el rango de los avisos (test `integration/subida-multipart.test.js`). Las rutas usan `subirImagen(campo)`, no `multerUpload.single`: convierte en **400** lo que no es `MulterError` (multipart mal formado, cuerpo cortado, petición abortada), que salía de busboy como `Error` genérico y acababa en 500 y en `error_logs` como fallo del servidor — una vía para llenar la tabla saltándose el tope de `/errores-cliente`. Detrás va siempre `reabrirContexto` (§6.3) |
+| `upload.middleware.js` | Multer (memoria) + Sharp. `subirPdf(campo)` es el gemelo de `subirImagen` para las facturas (§2.8): sin Sharp y **sin `fileFilter`**, el PDF lo valida el controlador por su cabecera | Límites en `constants.UPLOAD`. **multer 2.x** desde 2026-10-04: la 1.4.5-lts tenía caídas del proceso con un multipart roto, y `npm audit` no las veía porque una versión prerelease no casa con el rango de los avisos (test `integration/subida-multipart.test.js`). Las rutas usan `subirImagen(campo)`, no `multerUpload.single`: convierte en **400** lo que no es `MulterError` (multipart mal formado, cuerpo cortado, petición abortada), que salía de busboy como `Error` genérico y acababa en 500 y en `error_logs` como fallo del servidor — una vía para llenar la tabla saltándose el tope de `/errores-cliente`. Detrás va siempre `reabrirContexto` (§6.3) |
 | `rateLimiter.middleware.js` | `apiLimiter`, login, `uploadLimiter`, `pushLimiter`, `cspReportLimiter`, `erroresClienteLimiter` | Límite **por usuario**, no por IP. `cspReportLimiter` es por IP, con cupo propio y **antes** de `apiLimiter`: los informes CSP llegan sin token y no pueden gastar el cupo anónimo de la IP (dejaría sin login a los técnicos de esa red) |
 | `auditoria403.middleware.js` | `auditarAccesosDenegados` | Montado en `routes/index.js` tras `apiLimiter`: **todo** 403 a un usuario autenticado se audita como `access_denied` (con el `message` como `motivo`), también los que decide el controlador. `requirePermission`/`requireFeature` auditan con más detalle y marcan `req._accesoDenegadoAuditado` para no duplicar |
 | `features.middleware.js` | `requireFeature(key)`, `featureActiva(key)` | Feature flags como control de acceso REAL, no solo como menú. superadmin bypassa; un fallo de BD **deniega**; el 403 se audita como `access_denied` |
@@ -381,6 +382,58 @@ vivo. Trampas:
   `informe_mensual` sigue vacía en todos los entornos. Para volver a medirlo
   habría que obligar a anotar el cuentakilómetros al iniciar el servicio.
 
+### 2.8 Facturas de proveedores (2026-10-04)
+
+Pantalla `/facturas` (`pages/facturas/Facturas.jsx`) ← `services/facturas.service.js`
+← `/facturas` (`facturas.controller.js`). Las facturas de Google Ads (y de
+cualquier otro proveedor) se suben en PDF y se descargan desde la app. Solo
+administrador y superadmin, por rol en el backend; el gestor recibe 403.
+
+**Por qué no se sacan de la API de Google Ads.** Se miró el 2026-10-04: la
+cuenta VAPSS paga en **pospago con tarjeta** (pagos automáticos), y
+`InvoiceService` de la API de Google Ads solo devuelve facturas a las cuentas
+con **facturación mensual** (línea de crédito). Las facturas existen (una al
+mes en Facturación → Documentos), pero la API no las da. La vía automática que
+queda es el **correo**: un buzón dedicado, dado de alta en Google Ads →
+Facturación → Configuración → Usuarios del perfil de pagos, que el backend lea
+para coger los PDF adjuntos. **Falta comprobar que Google adjunta el PDF** y no
+solo un enlace. Para ese día ya está preparado: la columna `origen`
+(`manual` | `correo`, la pantalla marca las segundas con «llegó por correo») y
+el `UNIQUE (proveedor, numero)`, para que la misma factura no entre dos veces,
+ni a mano ni por correo.
+
+**El PDF va dentro de la BD (`facturas.contenido`, MEDIUMBLOB), no en
+`uploads/`.** `/uploads` se sirve estático y sin sesión (son las fotos): una
+factura ahí quedaría a una URL de cualquiera. En la BD entra sola en el dump
+diario cifrado sin tocar el backup ni `docker-compose.yml`. Son pocas y
+pequeñas (~100 KB al mes); el tope de subida es el de siempre, 10 MB
+(`UPLOAD.MAX_SIZE_BYTES`), y MEDIUMBLOB admite 16 MB. Trampas:
+- **El listado nombra las columnas una a una** (`COLUMNAS`). Un `SELECT *` o
+  un `f.*` arrastraría todos los PDF en cada carga de la pantalla.
+- `fecha_emision` sale con `DATE_FORMAT`: un DATE leído con la sesión en UTC
+  llega como Date a medianoche y se pintaría el día anterior.
+- Que sea un PDF lo decide la cabecera del fichero (`%PDF-`, `esPdf`), no el
+  mimetype que declara el navegador. Por eso `subirPdf` no lleva `fileFilter`:
+  un `MulterError` con texto propio no sirve, porque su segundo argumento es el
+  campo y no el mensaje.
+- La descarga va por axios con el token y se entrega como blob (como los
+  backups); un `<a href>` no llevaría `Authorization`. `Cache-Control:
+  no-store`. El nombre del fichero (`Factura_<proveedor>_<numero>.pdf`) lo
+  calculan igual `nombreDescarga` del controlador y de la página.
+- Borrar es un `DELETE` de verdad (fila y PDF), para corregir una subida
+  equivocada. Subir (`create_factura`) y borrar (`delete_factura`) quedan en
+  `audit_logs`; descargar no.
+- Sin edición: si un dato está mal, se borra y se vuelve a subir.
+- **`query()` (`config/database.js`) escribía en el log TODOS los parámetros de
+  una consulta que falla**, y una factura duplicada pasa por ahí antes de que el
+  controlador la convierta en 409: el PDF salía byte a byte como JSON (decenas
+  de MB por línea). Ahora `paramsParaLog` cambia un Buffer por `[Buffer N B]` y
+  recorta los textos de más de 500 caracteres. Vale para cualquier otro BLOB
+  que se guarde en el futuro.
+- Tope del PDF: `PDF_MAX_BYTES` = el de las fotos, pero nunca más de 15 MB
+  (MEDIUMBLOB son 16). Un multipart roto devuelve un mensaje de PDF, no de foto
+  (`multipartRoto = 'pdf'`).
+
 ## 3. Frontend
 
 ### 3.1 Arranque
@@ -421,6 +474,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
 | `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/informes` | `informes/Informes.jsx` | admin, super | `menu_informes` (encendida, v28; §2.7) |
+| `/facturas` | `facturas/Facturas.jsx` | admin, super | `menu_facturas` (encendida, v32; §2.8) |
 | `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups) | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
@@ -453,6 +507,7 @@ render intermedio en que un `loading` guardado seguía en false. Menú: `compone
 | `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
 | `Informes` | `informes.service` + `utils/informes.js` | `GET /informes/mensual` |
+| `Facturas` | `facturas.service` (`subir` con el timeout de las fotos, `SUBIDA_FOTO_TIMEOUT_MS`; `descargar` como blob) | `/facturas` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
@@ -709,7 +764,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -779,7 +834,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v31_impersonaciones**. (En alguna BD local puede
+Última migración: **v32_facturas**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1243,7 +1298,7 @@ Backend: `features.controller.js`. Frontend: `FeaturesContext` +
 `requiredFeature` en `ProtectedRoute` + `Sidebar`. Claves: `menu_dashboard`,
 `menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
 `menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
-`menu_usuarios`, `menu_alertas`, `menu_informes` (encendidas; la última nace así en v28); `menu_flota` (apagada, v20).
+`menu_usuarios`, `menu_alertas`, `menu_informes`, `menu_facturas` (encendidas; las dos últimas nacen así en v28 y v32); `menu_flota` (apagada, v20).
 
 **PENDIENTE — quitar el `personal` de las asignaciones cuando se active
 Trabajos.** El personal en asignaciones libres (rol `personal` de
@@ -1272,6 +1327,7 @@ solo actúa en el navegador no es un control de acceso.
 
 | Si cambias… | Toca |
 |---|---|
+| La versión que enseña la app | `frontend/package.json` → `version` (se sube a mano con cada cambio: mayor/menor/parche, regla en `CLAUDE.md` → «Versión») → `vite.config.js` la inyecta como `__APP_VERSION__` → `utils/version.js` (`VERSION_APP`, «desarrollo» fuera de Vite) → pie de `components/Layout/Sidebar.jsx`. El backend no la tiene: su `/health` da `commit`, y su `version` es siempre 1.0.0 (`npm_package_version` no existe con `node server.js`). |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` y `trabajos.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`, `InicioTrabajo`, `Finalizacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
@@ -1306,6 +1362,7 @@ solo actúa en el navegador no es un control de acceso.
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. Una ruta de subida: `subirImagen` + `reabrirContexto` detrás. La sesión vive en `impersonaciones` (v31): lo que cambie su duración o su cierre toca `impersonar`, `auth.middleware` y `finImpersonacion` a la vez. §6.3 |
 | La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
 | El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. §2.7 |
+| Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (rol) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Para que lleguen solas por correo: insertar con `origen = 'correo'` y apoyarse en el `UNIQUE (proveedor, numero)` (§2.8) |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |

@@ -108,9 +108,24 @@ async function query(sql, params = []) {
     const [rows, fields] = await pool.query(sql, params);
     return [rows, fields];
   } catch (err) {
-    logger.error(`DB Error → ${sql.substring(0, 120)}`, { params, message: err.message });
+    logger.error(`DB Error → ${sql.substring(0, 120)}`, { params: paramsParaLog(params), message: err.message });
     throw err;
   }
+}
+
+/**
+ * Los parámetros, aptos para el log. Un Buffer (el PDF de una factura, hasta
+ * 10 MB) se escribiría byte a byte como JSON: decenas de MB por línea, event
+ * loop parado y logs_data lleno. Y una factura duplicada pasa por aquí (el
+ * ER_DUP_ENTRY lo convierte en 409 el controlador, después de este log).
+ */
+function paramsParaLog(params) {
+  if (!Array.isArray(params)) return params;
+  return params.map((p) => {
+    if (Buffer.isBuffer(p)) return `[Buffer ${p.length} B]`;
+    if (typeof p === 'string' && p.length > 500) return `${p.slice(0, 500)}… [${p.length} caracteres]`;
+    return p;
+  });
 }
 
 /**

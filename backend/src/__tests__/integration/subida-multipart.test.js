@@ -81,6 +81,24 @@ describe('subida con multipart malformado (SEC-15)', () => {
     const res = await multipartCrudo(`--${BOUNDARY}\r\nX-Otra: y\r\n\r\nx\r\n--${BOUNDARY}--\r\n`);
     esUn4xxSinRastroEnErrorLogs(res);
   });
+
+  it('un PDF de factura cortado da 400 con un mensaje que habla del PDF, no de una foto', async () => {
+    query.mockImplementation(async (sql) => {
+      if (/GROUP_CONCAT[\s\S]*FROM users u/.test(sql)) {
+        return [[{ id: 7, username: 'prueba', nombre: 'P', apellidos: 'P', activo: 1, deleted_at: null, roles: 'administrador' }]];
+      }
+      return [[]];
+    });
+    const res = await request(app)
+      .post('/api/v1/facturas')
+      .set('Authorization', `Bearer ${generateAccessToken({ id: 7, username: 'prueba', roles: ['administrador'] })}`)
+      .set('Content-Type', `multipart/form-data; boundary=${BOUNDARY}`)
+      .send(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="fichero"; filename="f.pdf"\r\n`
+        + 'Content-Type: application/pdf\r\n\r\n%PDF-1.4 sin cierre');
+    esUn4xxSinRastroEnErrorLogs(res);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('El PDF llegó incompleto o dañado. Vuelve a intentarlo.');
+  });
 });
 
 describe('POST /errores-cliente: tope de tamaño del cuerpo (SEC-16)', () => {
