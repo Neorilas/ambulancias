@@ -101,13 +101,14 @@ desktop.ini
 # ============================================================
 # Claude Code
 # ============================================================
-# Los comandos y agentes SI se versionan: son el flujo de trabajo del proyecto
-# (/local, /verifica, /a-pro). Lo demas es local de cada maquina.
+# Los comandos SI se versionan: son el flujo de trabajo del proyecto
+# (/local, /verifica, /a-pro). Lo demas es local de cada maquina, incluidos los
+# agentes (.claude/agents/): no hacen falta en produccion y el repo es publico
+# (diagnostico-pro describe el acceso al servidor). Decision del 2026-10-04.
 # Ojo: tiene que ser `.claude/*` y no `.claude/`; si se excluye el directorio
 # entero, git no desciende y las negaciones de abajo no sirven de nada.
 .claude/*
 !.claude/commands/
-!.claude/agents/
 
 # ============================================================
 # Vite / PWA dev

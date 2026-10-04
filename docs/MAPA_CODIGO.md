@@ -30,7 +30,7 @@ frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2�
 | `database/` | `schema.sql` (base), `seed.sql` (roles), `migration_v2..v16.sql` (referencia) |
 | `docs/` | Documentación (§10) |
 | `.github/workflows/` | CI/CD (§9) |
-| `.claude/` | Comandos `/local`, `/verifica`, `/a-pro`; agentes `probador-local` (prueba en local) y `diagnostico-pro` (investiga un fallo en PRO por SSH, solo lectura: no arregla ni escribe, y si el SSH se deniega devuelve los comandos para que los lance el usuario) |
+| `.claude/` | Comandos `/local`, `/verifica`, `/a-pro` (versionados); agentes `probador-local` (prueba en local) y `diagnostico-pro` (investiga un fallo en PRO por SSH, solo lectura: no arregla ni escribe, y si el SSH se deniega devuelve los comandos para que los lance el usuario). **Los agentes NO se versionan desde el 2026-10-04** (`.gitignore`): solo existen en la máquina del usuario, no hacen falta en producción y el repo es público. Un clon nuevo no los trae; `/verifica` cuenta con `probador-local` |
 | `scripts/deploy.sh`, `docker-compose*.yml` | Despliegue y entorno local |
 
 Dominio: **vehículos** (ambulancias) + **asignaciones libres** (1..N
