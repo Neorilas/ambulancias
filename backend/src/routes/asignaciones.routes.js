@@ -106,7 +106,11 @@ router.post('/:id/llegada',
 
 // POST /asignaciones/:id/fin-servicio  (responsables o admin/gestor; el personal no)
 router.post('/:id/fin-servicio',
-  [param('id').isInt({ min: 1 })],
+  [
+    param('id').isInt({ min: 1 }),
+    // Obligatorio solo si termina antes de fecha_fin: lo decide el controlador.
+    body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+  ],
   handleValidation,
   ctrl.registrarFinServicio
 );
@@ -116,6 +120,7 @@ router.post('/:id/finalizar',
   [
     param('id').isInt({ min: 1 }),
     body('km_fin').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
+    // Solo si se finaliza antes de fecha_fin sin haber pulsado «Fin evento/servicio».
     body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
     // Aquí solo se acota el tamaño: que sea obligatorio lo decide el
     // controlador, para poder devolver el mensaje que explica qué escribir

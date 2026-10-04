@@ -936,6 +936,36 @@ llegada se renombró igual (ruta `/llegada`, columna y acción
 §2.5), dentro del `if (affectedRows)`, igual que la auditoría. Informes
 lo usa para las horas «en el evento/servicio» de cada técnico (§2.7).
 
+**El motivo de fin anticipado se pide en «Fin evento/servicio», no al
+finalizar la asignación (decisión del usuario, 2026-10-04).** Lo que acaba
+antes de tiempo es el evento; la vuelta a base y las fotos de fin no explican
+nada. Si se pulsa antes de `fecha_fin`, la tarjeta de `AsignacionDetalle`
+(`finAnticipado`) muestra un textarea y el botón no se habilita sin texto;
+`registrarFinServicio` lo vuelve a comprobar con el reloj del servidor (400 sin
+motivo, sin tocar la fila), lo guarda en **la misma columna `motivo_fin`** de
+siempre (sin migración; pasada `fecha_fin` guarda NULL aunque llegue uno) y lo
+audita en `end_service_asignacion` (`anticipado`, `motivo_fin`).
+**Red si se olvida el botón (mismo día):** el fin del evento es opcional y
+exige la llegada, así que `finalizarAsignacion` vuelve a pedir el motivo
+**solo** si es antes de `fecha_fin` y **no hay `motivo_fin` guardado**
+(`pideMotivo`; 400 sin él), y `FinalizacionAsignacion` añade el paso «motivo»
+con la misma condición, calculada una vez al abrir (si se recalculara, al pasar
+`fecha_fin` con el asistente abierto cambiaría el número de pasos bajo `step`).
+Se mira el motivo y **no** `fin_servicio_at` a propósito: un fin del evento
+pulsado tras `fecha_fin` (sin motivo) seguido de una `fecha_fin` ampliada por
+gestión, o una asignación en curso de antes del cambio, cerrarían antes de hora
+sin motivo. Con motivo ya guardado no se pide, y los dos `UPDATE` usan
+`motivo_fin = COALESCE(?, motivo_fin)` con NULL: **no cambiarlo por
+`motivo_fin = ?`**, pisaría con NULL el que ya había.
+**Reloj del móvil frente al del servidor:** la pantalla decide con
+`new Date()` si enseña el campo, y el servidor con `ahora()`. Si discrepan y el
+servidor lo exige, el 400 lleva `errors: [{ field: 'motivo_fin' }]` y la
+pantalla reacciona: `AsignacionDetalle` enseña el textarea (`forzarMotivo`) y
+`FinalizacionAsignacion` inserta el paso del motivo justo antes de «Confirmar»,
+de modo que `step` pasa a apuntar a él (las fotos ya subidas no se repiten).
+En la ficha se lee «Motivo de fin anticipado»; las asignaciones anteriores
+conservan el que se escribió al cerrar.
+
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
 (`uploadEvidencia` solo corta en `finalizada`), y `finalizarAsignacion` exige

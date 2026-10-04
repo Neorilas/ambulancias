@@ -204,6 +204,10 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [showEditar, setShowEditar] = useState(false);
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
   const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
+  const [motivoFin, setMotivoFin] = useState('');
+  // El servidor exigió el motivo aunque el reloj del móvil decía que ya era la
+  // hora prevista: se enseña el campo igual.
+  const [forzarMotivo, setForzarMotivo] = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -275,12 +279,17 @@ export default function AsignacionDetalle({ id, onClose }) {
   // «Fin evento/servicio»: la inversa de la llegada, al terminar en el
   // evento y antes de volver a base. También la hora la pone el servidor. Se
   // dice «evento» para no confundirla con «Finalizar asignación» (el cierre).
+  // Si se pulsa antes de fecha_fin hay que escribir el motivo: se pide aquí y
+  // no al finalizar la asignación (el servidor vuelve a comprobarlo con su reloj).
   const handleFinServicio = async () => {
     setRegistrandoFinServicio(true);
     try {
-      setAsig(await asignacionesService.registrarFinServicio(id));
+      setAsig(await asignacionesService.registrarFinServicio(id, finAnticipado ? motivoFin.trim() : null));
+      setMotivoFin('');
+      setForzarMotivo(false);
       notify.success('Fin del evento/servicio registrado');
     } catch (err) {
+      if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivo(true);
       notify.error(err.response?.data?.message || 'No se pudo registrar el fin del evento/servicio');
     } finally {
       setRegistrandoFinServicio(false);
@@ -336,6 +345,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
   const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
+  const finAnticipado    = faltaFinServicio && (forzarMotivo || new Date() < new Date(asig?.fecha_fin));
   const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
 
   return (
@@ -465,7 +475,7 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
               {asig.motivo_fin && (
                 <div className="col-span-2">
-                  <p className="text-neutral-400 text-xs mb-0.5">Motivo finalización</p>
+                  <p className="text-neutral-400 text-xs mb-0.5">Motivo de fin anticipado</p>
                   <p className="text-neutral-700 italic">{asig.motivo_fin}</p>
                 </div>
               )}
@@ -544,9 +554,22 @@ export default function AsignacionDetalle({ id, onClose }) {
                     fotos de fin.
                   </p>
                 </div>
+                {finAnticipado && (
+                  <div>
+                    <p className="text-xs text-warn-600 mb-1">
+                      Estaba previsto hasta el {formatDateTime(asig.fecha_fin)}. Terminas antes de esa hora.
+                    </p>
+                    <label className="label">Motivo <span className="text-bad-500">*</span></label>
+                    <textarea
+                      className="input resize-none" rows={3}
+                      placeholder="Explica por qué terminas antes de lo previsto"
+                      value={motivoFin} onChange={e => setMotivoFin(e.target.value)}
+                    />
+                  </div>
+                )}
                 <button
                   onClick={handleFinServicio}
-                  disabled={registrandoFinServicio}
+                  disabled={registrandoFinServicio || (finAnticipado && !motivoFin.trim())}
                   className="btn-primary w-full"
                 >
                   {registrandoFinServicio ? 'Registrando…' : 'Fin evento/servicio'}

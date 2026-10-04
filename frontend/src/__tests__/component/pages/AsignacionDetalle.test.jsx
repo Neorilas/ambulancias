@@ -238,12 +238,53 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     montar();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Fin evento/servicio' }));
-    await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5, null));
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Fin evento/servicio' })).not.toBeInTheDocument());
     const etiqueta = screen.getByText('Fin evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T09:10:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el evento');
+  });
+
+  // Antes de fecha_fin el motivo es obligatorio, y se pide aquí, no al
+  // finalizar la asignación.
+  it('antes de la hora prevista exige el motivo y lo manda', async () => {
+    const futuro = new Date(Date.now() + 3600000).toISOString();
+    asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, fecha_fin: futuro });
+    asignacionesService.registrarFinServicio.mockResolvedValue({
+      ...TRAS_LLEGADA, fecha_fin: futuro, fin_servicio_at: '2026-09-21T09:10:00.000Z', motivo_fin: 'Traslado cancelado',
+    });
+    montar();
+
+    const boton = await screen.findByRole('button', { name: 'Fin evento/servicio' });
+    expect(boton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/terminas antes de lo previsto/), { target: { value: '  Traslado cancelado ' } });
+    expect(boton).toBeEnabled();
+    fireEvent.click(boton);
+    await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5, 'Traslado cancelado'));
+    expect(await screen.findByText('Traslado cancelado')).toBeInTheDocument();
+  });
+
+  // El reloj del móvil puede ir adelantado: si el servidor exige el motivo,
+  // el campo aparece aunque la pantalla creyera que ya era la hora.
+  it('si el servidor exige el motivo, enseña el campo', async () => {
+    asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
+    asignacionesService.registrarFinServicio.mockRejectedValue({ response: { status: 400, data: {
+      message: 'Hay que explicar el motivo', errors: [{ field: 'motivo_fin', msg: 'obligatorio' }],
+    } } });
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fin evento/servicio' }));
+    expect(await screen.findByPlaceholderText(/terminas antes de lo previsto/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fin evento/servicio' })).toBeDisabled();
+  });
+
+  it('pasada la hora prevista no pide motivo', async () => {
+    asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Fin evento/servicio' })).toBeEnabled();
+    expect(screen.queryByPlaceholderText(/terminas antes de lo previsto/)).not.toBeInTheDocument();
   });
 
   it('una finalizada sin fin del evento/servicio registrado sale con guion', async () => {

@@ -21,7 +21,7 @@ import { asignacionesService }  from '../../../services/asignaciones.service.js'
 
 const ASIGNACION = {
   id: 5, vehiculo_alias: 'Ambulancia 3', km_inicio: 1000,
-  fecha_fin: '2000-01-01T00:00:00.000Z',   // ya vencida: sin paso de motivo
+  fecha_fin: '2000-01-01T00:00:00.000Z',
   progreso: { inicio: { completo: true, completado: 7, total: 7 } },
 };
 
@@ -67,6 +67,32 @@ describe('FinalizacionAsignacion — orden de pasos', () => {
     fireEvent.click(screen.getByRole('button', { name: /Atrás/ }));
     expect(screen.getByRole('heading', { name: 'Material utilizado' })).toBeInTheDocument();
     expect(screen.getByRole('textbox')).toHaveValue('Sin gasto de material');
+  });
+});
+
+// El motivo de fin anticipado se pide en «Fin evento/servicio»; el asistente
+// de cierre solo lo pide si ese botón se olvidó.
+describe('FinalizacionAsignacion — motivo de fin anticipado', () => {
+  const FUTURO = new Date(Date.now() + 3600000).toISOString();
+  const pintar = (asig) => render(
+    <NotificationProvider>
+      <FinalizacionAsignacion asignacion={asig} onDone={() => {}} onCancel={() => {}} />
+    </NotificationProvider>
+  );
+
+  it('antes de la hora prevista y sin motivo guardado añade el paso del motivo', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: null });
+    expect(screen.getByText(/Paso 1 de 5/)).toBeInTheDocument();
+  });
+
+  it('con el motivo ya dejado en «Fin evento/servicio» no lo pide', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: '2026-10-04T08:00:00.000Z', motivo_fin: 'Traslado cancelado' });
+    expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
+  });
+
+  it('pasada la hora prevista no lo pide', () => {
+    pintar(ASIGNACION);
+    expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
   });
 });
 
