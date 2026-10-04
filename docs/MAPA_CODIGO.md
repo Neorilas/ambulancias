@@ -30,7 +30,7 @@ frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2�
 | `database/` | `schema.sql` (base), `seed.sql` (roles), `migration_v2..v16.sql` (referencia) |
 | `docs/` | Documentación (§10) |
 | `.github/workflows/` | CI/CD (§9) |
-| `.claude/` | Comandos `/local`, `/verifica`, `/a-pro` y agente `probador-local` |
+| `.claude/` | Comandos `/local`, `/verifica`, `/a-pro` (versionados); agentes `probador-local` (prueba en local) y `diagnostico-pro` (investiga un fallo en PRO por SSH, solo lectura: no arregla ni escribe, y si el SSH se deniega devuelve los comandos para que los lance el usuario). **Los agentes NO se versionan desde el 2026-10-04** (`.gitignore`): solo existen en la máquina del usuario, no hacen falta en producción y el repo es público. Un clon nuevo no los trae; `/verifica` cuenta con `probador-local` |
 | `scripts/deploy.sh`, `docker-compose*.yml` | Despliegue y entorno local |
 
 Dominio: **vehículos** (ambulancias) + **asignaciones libres** (1..N
@@ -317,6 +317,33 @@ la puntualidad es la de los servicios en que va de **responsable** (si hay
 varios, el retraso cuenta para todos); el personal solo suma «como personal».
 Incidencias: nuevas por `created_at`, resueltas por `resuelto_at`, abiertas al
 cerrar el mes por las dos fechas; una «resuelto» sin fecha no cuenta abierta.
+
+**«Por técnico»: carga de trabajo en tres pestañas (2026-10-04,
+`VERSION_INFORME` 2).** El objetivo, dicho por el usuario, es **fiscalizar la
+carga de trabajo**: el sumatorio de horas del mes de cada técnico. Por eso las
+pestañas de horas son escuetas, van de más carga a menos y llevan fila
+**Total** (`pie` de `Tabla`, que suma en el frontend). Pestañas
+(`PESTANAS_TECNICO` en `Informes.jsx`):
+- «Horas de asignación»: suma `inicio_real_at` → `finalizado_at`
+  (`minutos_asignacion`), asignaciones finalizadas (`asignaciones_medidas`) e
+  iniciadas sin finalizar (`asignaciones_sin_finalizar`).
+- «Horas de evento/servicio»: suma `llegada_servicio_at` → `fin_servicio_at`
+  (`minutos_en_evento`), completos (`eventos_medidos`) y con inicio sin fin
+  (`eventos_sin_fin`). Los dos botones son opcionales: si falta uno no suma.
+- «Puntualidad»: las columnas de siempre, solo de responsable.
+
+Tres iteraciones en el mismo día, para no repetirlas: (1) cambiar solo la cifra
+de horas con la pestaña → «no cambia nada, mismas cabeceras»; (2) cada pestaña
+con su batería de columnas, medias y medianas → «no se entiende y las medianas
+no aportan». Lo que quiere es el **total de horas** con títulos que se lean
+solos. El backend manda **minutos** y se pinta «15 h 15 min», no horas
+decimales. **Lo abierto no se cuenta hasta ahora**: una asignación o evento sin
+cerrar no suma y sale en su columna. **El tiempo cuenta todos los servicios del
+técnico, también los de personal** (ese tiempo lo echa aunque no pulse
+botones); la puntualidad, solo de responsable. Esto último es decisión mía,
+pendiente de que el usuario lo confirme; cambiarlo es una línea en el bucle de
+`miembros` de `calcularInforme`. Un archivado v1 no trae los campos y se pinta
+«—».
 
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
@@ -907,7 +934,7 @@ toasts, mensajes de la API, auditoría en `AdminPanel`); la columna
 llegada se renombró igual (ruta `/llegada`, columna y acción
 `arrive_asignacion` intactas). Llegada y fin del evento/servicio **avisan por push a gestión** (`avisarLlegadaEvento`, `avisarFinEvento`,
 §2.5), dentro del `if (affectedRows)`, igual que la auditoría. Informes
-no lo usa todavía (el tiempo en el sitio sería una métrica nueva).
+lo usa para las horas «en el evento/servicio» de cada técnico (§2.7).
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
@@ -1358,7 +1385,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-27** (fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

@@ -22,6 +22,15 @@
  *   - La llegada (v26) existe desde el 2026-09-25: antes, «no consta».
  *   - El retraso de un técnico es el de los servicios en que va de
  *     RESPONSABLE; el personal no puede iniciar (MAPA_CODIGO §6.1).
+ *   - El TIEMPO de un técnico, en cambio, es el de todos sus servicios,
+ *     vaya de responsable o de personal: lo echa igual. Dos sumas, en minutos:
+ *     de asignación (`inicio_real_at` → `finalizado_at`, solo finalizadas) y
+ *     en el evento/servicio (`llegada_servicio_at` → `fin_servicio_at`, las
+ *     dos opcionales; si falta una, ese servicio no suma). Cada una va con
+ *     cuántos servicios la miden, para que un total bajo se entienda; los
+ *     que no suman por falta del botón de cierre salen aparte
+ *     (`asignaciones_sin_finalizar`, `eventos_sin_fin`). Sirve para
+ *     fiscalizar la carga de trabajo: lo abierto NO se cuenta hasta ahora.
  *
  * El JSON se guarda tal cual en `informe_mensual.datos`: si cambia su forma,
  * se sube VERSION_INFORME y el frontend tiene que tolerar la vieja (un campo
@@ -33,7 +42,7 @@ const { INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } = require('../config
 const { ahora, instanteEnEspana, anioMesEnEspana } = require('../utils/fecha.utils');
 const logger = require('../utils/logger.utils');
 
-const VERSION_INFORME = 1;
+const VERSION_INFORME = 2;   // 2: tiempo por técnico (asignación y en el evento)
 const MINUTO = 60000;
 const RE_MES = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
@@ -104,6 +113,10 @@ function analizarServicio(a, limiteSinIniciar) {
     cierre_tardio:  false,
     cierre_anticipado: false,
     minutos_servicio: null,
+    minutos_en_sitio: a.llegada_servicio_at && a.fin_servicio_at
+      ? Math.max(0, minutosEntre(a.llegada_servicio_at, a.fin_servicio_at)) : null,
+    evento_sin_fin: Boolean(a.llegada_servicio_at && !a.fin_servicio_at),
+    sin_finalizar:  Boolean(inicio && !a.finalizado_at),
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -162,7 +175,7 @@ async function calcularInforme(mes, instante = ahora()) {
 
   const [asignaciones] = await query(
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
-            al.inicio_real_at, al.llegada_servicio_at, al.finalizado_at,
+            al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             v.alias, v.matricula,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'
@@ -219,7 +232,9 @@ async function calcularInforme(mes, instante = ahora()) {
   const fichaTecnico = (r) => {
     if (!porTecnico.has(r.user_id)) {
       porTecnico.set(r.user_id, { user_id: r.user_id, nombre: nombreDe(r),
-                                  acc: nuevoAcumulado(), como_personal: 0, incidencias: 0 });
+                                  acc: nuevoAcumulado(), como_personal: 0, incidencias: 0,
+                                  tiempo: { minutos_asignacion: 0, asignaciones_medidas: 0, asignaciones_sin_finalizar: 0,
+                                            minutos_en_evento: 0, eventos_medidos: 0, eventos_sin_fin: 0 } });
     }
     return porTecnico.get(r.user_id);
   };
@@ -229,6 +244,10 @@ async function calcularInforme(mes, instante = ahora()) {
     const t = fichaTecnico(m);
     if (m.rol === 'responsable') acumular(t.acc, s);
     else t.como_personal++;
+    if (s.minutos_servicio != null) { t.tiempo.minutos_asignacion += s.minutos_servicio; t.tiempo.asignaciones_medidas++; }
+    if (s.minutos_en_sitio != null) { t.tiempo.minutos_en_evento += s.minutos_en_sitio; t.tiempo.eventos_medidos++; }
+    if (s.evento_sin_fin) t.tiempo.eventos_sin_fin++;
+    if (s.sin_finalizar)  t.tiempo.asignaciones_sin_finalizar++;
   }
 
   // ── Incidencias ──
@@ -273,7 +292,7 @@ async function calcularInforme(mes, instante = ahora()) {
     .sort((x, y) => String(x.alias).localeCompare(String(y.alias), 'es'));
 
   const filaVehiculo = ({ acc, ...v }) => ({ ...v, ...cerrar(acc) });
-  const filaTecnico  = ({ acc, ...t }) => ({ ...t, ...cerrar(acc) });
+  const filaTecnico  = ({ acc, tiempo, ...t }) => ({ ...t, ...cerrar(acc), ...tiempo });
 
   return {
     version: VERSION_INFORME,

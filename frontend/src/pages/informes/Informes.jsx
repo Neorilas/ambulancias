@@ -71,7 +71,7 @@ function Seccion({ titulo, nota, children }) {
 }
 
 /** Tabla con scroll horizontal propio: la página nunca se desborda en móvil. */
-function Tabla({ columnas, filas, vacio }) {
+function Tabla({ columnas, filas, vacio, pie }) {
   if (!filas.length) return <div className="card text-sm text-neutral-500">{vacio}</div>;
   return (
     <div className="card p-0 overflow-hidden">
@@ -97,11 +97,88 @@ function Tabla({ columnas, filas, vacio }) {
               </tr>
             ))}
           </tbody>
+          {pie && (
+            <tfoot className="bg-neutral-50 border-t border-neutral-200 font-semibold text-neutral-900">
+              <tr>
+                {columnas.map(c => (
+                  <td key={c.clave} className={`px-3 py-2.5 ${c.num ? 'text-right font-mono whitespace-nowrap' : ''}`}>
+                    {c.total ? c.total(pie) : c.clave === columnas[0].clave ? 'Total' : ''}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
   );
 }
+
+const colTecnico = { clave: 'n', titulo: 'Técnico', pintar: t => <span className="font-medium text-neutral-900">{t.nombre}</span> };
+
+/** Suma un campo de todas las filas; «—» si ninguna lo trae (archivado viejo). */
+const suma = (campo) => (filas) => {
+  const vals = filas.map(f => f[campo]).filter(v => v != null);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+};
+
+/**
+ * Pestañas de «Por técnico». Las dos primeras son para fiscalizar la carga de
+ * trabajo: el sumatorio de horas del mes de cada técnico, de mayor a menor y
+ * con fila de total. Suman todos sus servicios, vaya de responsable o de
+ * personal, y solo lo cerrado (lo que sigue abierto sale en su columna). La
+ * puntualidad va aparte y es solo de responsable. Los campos de tiempo nacen
+ * en VERSION_INFORME 2: en un archivado anterior salen «—».
+ */
+const PESTANAS_TECNICO = [
+  {
+    key: 'asignacion',
+    label: 'Horas de asignación',
+    nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna.',
+    orden: 'minutos_asignacion',
+    columnas: [
+      colTecnico,
+      { clave: 'tt', titulo: 'Horas con asignación activa', num: true,
+        pintar: t => fmtMin(t.minutos_asignacion), total: f => fmtMin(suma('minutos_asignacion')(f)) },
+      { clave: 'tm', titulo: 'Asignaciones finalizadas', num: true,
+        pintar: t => fmt(t.asignaciones_medidas), total: f => fmt(suma('asignaciones_medidas')(f)) },
+      { clave: 'ts', titulo: 'Iniciadas sin finalizar', num: true,
+        pintar: t => fmt(t.asignaciones_sin_finalizar), total: f => fmt(suma('asignaciones_sin_finalizar')(f)) },
+    ],
+  },
+  {
+    key: 'evento',
+    label: 'Horas de evento/servicio',
+    nota: 'Suma del tiempo entre «Inicio evento/servicio» y «Fin evento/servicio» de todos sus servicios del mes, de responsable o de personal. Si falta alguno de los dos botones ese servicio no suma; los que tienen inicio y no fin salen en la última columna.',
+    orden: 'minutos_en_evento',
+    columnas: [
+      colTecnico,
+      { clave: 'et', titulo: 'Horas con evento/servicio activo', num: true,
+        pintar: t => fmtMin(t.minutos_en_evento), total: f => fmtMin(suma('minutos_en_evento')(f)) },
+      { clave: 'em', titulo: 'Eventos/servicios completos', num: true,
+        pintar: t => fmt(t.eventos_medidos), total: f => fmt(suma('eventos_medidos')(f)) },
+      { clave: 'es', titulo: 'Con inicio y sin fin', num: true,
+        pintar: t => fmt(t.eventos_sin_fin), total: f => fmt(suma('eventos_sin_fin')(f)) },
+    ],
+  },
+  {
+    key: 'puntualidad',
+    label: 'Puntualidad',
+    nota: 'Solo las asignaciones que lleva de responsable (el personal no inicia ni cierra). Si hay varios responsables, el retraso cuenta para todos.',
+    columnas: [
+      colTecnico,
+      { clave: 's',  titulo: 'De responsable', num: true, pintar: t => fmt(t.servicios) },
+      { clave: 'p',  titulo: 'De personal', num: true, pintar: t => fmt(t.como_personal) },
+      { clave: 't',  titulo: 'Inicios tardíos', num: true, pintar: t => conPct(t.inicios_tardios, t.iniciados) },
+      { clave: 'x',  titulo: 'Sin iniciar', num: true, pintar: t => fmt(t.sin_iniciar) },
+      { clave: 'ct', titulo: 'Cierres tardíos', num: true, pintar: t => conPct(t.cierres_tardios, t.finalizados) },
+      { clave: 'ca', titulo: 'Cierres anticipados', num: true, pintar: t => conPct(t.cierres_anticipados, t.finalizados) },
+      { clave: 'l',  titulo: 'Con inicio ev./serv.', num: true, pintar: t => conPct(t.con_llegada, t.iniciados) },
+      { clave: 'f',  titulo: 'Fotos tarde', num: true, pintar: t => fmt(t.con_fotos_inicio_tarde) },
+      { clave: 'i',  titulo: 'Incidencias', num: true, pintar: t => fmt(t.incidencias) },
+    ],
+  },
+];
 
 /** «3 (12,5 %)» o «—» si no hay denominador. */
 function conPct(n, total) {
@@ -115,6 +192,8 @@ export default function Informes() {
   const [mes, setMes]         = useState(maxMes);
   const [datos, setDatos]     = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tabTecnico, setTabTecnico] = useState(PESTANAS_TECNICO[0].key);
+  const pestanaTec = PESTANAS_TECNICO.find(p => p.key === tabTecnico);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -138,6 +217,9 @@ export default function Informes() {
     anioAnterior: datos?.comparativa?.anio_anterior?.resumen,
   };
   const umbral = actual?.umbral_min ?? 30;
+  // En las pestañas de horas, de más carga a menos; en puntualidad, el orden del backend.
+  const filasTecnico = (actual?.por_tecnico || []).map(t => ({ ...t, key: t.user_id }));
+  if (pestanaTec.orden) filasTecnico.sort((a, b) => (b[pestanaTec.orden] ?? -1) - (a[pestanaTec.orden] ?? -1));
   const inc = r?.incidencias || {};
 
   return (
@@ -255,22 +337,27 @@ export default function Informes() {
 
           <Seccion
             titulo="Por técnico"
-            nota="Puntualidad de los servicios en que va como responsable (el personal no inicia). Si hay varios responsables, el retraso cuenta para todos."
           >
+            <div className="tabs" role="tablist" aria-label="Tramo del servicio">
+              {PESTANAS_TECNICO.map(p => (
+                <button
+                  key={p.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabTecnico === p.key}
+                  onClick={() => setTabTecnico(p.key)}
+                  className={tabTecnico === p.key ? 'tab-active' : 'tab'}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-500">{pestanaTec.nota}</p>
             <Tabla
               vacio="Nadie tuvo servicios este mes."
-              filas={(actual.por_tecnico || []).map(t => ({ ...t, key: t.user_id }))}
-              columnas={[
-                { clave: 'n', titulo: 'Técnico', pintar: t => <span className="font-medium text-neutral-900">{t.nombre}</span> },
-                { clave: 's', titulo: 'Responsable', num: true, pintar: t => fmt(t.servicios) },
-                { clave: 'p', titulo: 'Personal', num: true, pintar: t => fmt(t.como_personal) },
-                { clave: 't', titulo: 'Inicios tardíos', num: true, pintar: t => conPct(t.inicios_tardios, t.iniciados) },
-                { clave: 'r', titulo: 'Retraso mediano', num: true, pintar: t => fmtMin(t.retraso_mediana_min) },
-                { clave: 'x', titulo: 'Sin iniciar', num: true, pintar: t => fmt(t.sin_iniciar) },
-                { clave: 'l', titulo: 'Con inicio ev./serv.', num: true, pintar: t => conPct(t.con_llegada, t.iniciados) },
-                { clave: 'f', titulo: 'Fotos tarde', num: true, pintar: t => fmt(t.con_fotos_inicio_tarde) },
-                { clave: 'i', titulo: 'Incidencias', num: true, pintar: t => fmt(t.incidencias) },
-              ]}
+              filas={filasTecnico}
+              columnas={pestanaTec.columnas}
+              pie={pestanaTec.orden ? filasTecnico : null}
             />
           </Seccion>
         </>
