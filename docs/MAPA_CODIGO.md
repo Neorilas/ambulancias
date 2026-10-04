@@ -936,6 +936,24 @@ llegada se renombró igual (ruta `/llegada`, columna y acción
 §2.5), dentro del `if (affectedRows)`, igual que la auditoría. Informes
 lo usa para las horas «en el evento/servicio» de cada técnico (§2.7).
 
+**El motivo de fin anticipado se pide en «Fin evento/servicio», no al
+finalizar la asignación (decisión del usuario, 2026-10-04).** Lo que acaba
+antes de tiempo es el evento; la vuelta a base y las fotos de fin no explican
+nada. Si se pulsa antes de `fecha_fin`, la tarjeta de `AsignacionDetalle`
+(`finAnticipado`) muestra un textarea y el botón no se habilita sin texto;
+`registrarFinServicio` lo vuelve a comprobar con el reloj del servidor (400 sin
+motivo, sin tocar la fila), lo guarda en **la misma columna `motivo_fin`** de
+siempre (sin migración; pasada `fecha_fin` guarda NULL aunque llegue uno) y lo
+audita en `end_service_asignacion` (`anticipado`, `motivo_fin`).
+`finalizarAsignacion` ya no lo pide **ni escribe `motivo_fin`** —si lo hiciera
+pisaría con NULL el del evento—, y `FinalizacionAsignacion` perdió el paso
+«motivo». En la ficha se lee «Motivo de fin anticipado»; las asignaciones
+anteriores conservan el que se escribió al cerrar. **Trampa:** como el fin del
+evento es opcional y exige la llegada, quien no pulse ninguno de los dos y
+cierre antes de hora ya no deja motivo. Es la consecuencia de «moverlo»; si se
+quiere red, habría que volver a pedirlo en el cierre cuando falte
+`fin_servicio_at`.
+
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
 (`uploadEvidencia` solo corta en `finalizada`), y `finalizarAsignacion` exige

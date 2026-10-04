@@ -21,7 +21,7 @@ import { asignacionesService }  from '../../../services/asignaciones.service.js'
 
 const ASIGNACION = {
   id: 5, vehiculo_alias: 'Ambulancia 3', km_inicio: 1000,
-  fecha_fin: '2000-01-01T00:00:00.000Z',   // ya vencida: sin paso de motivo
+  fecha_fin: '2000-01-01T00:00:00.000Z',
   progreso: { inicio: { completo: true, completado: 7, total: 7 } },
 };
 

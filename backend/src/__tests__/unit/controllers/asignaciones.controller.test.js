@@ -1096,6 +1096,40 @@ describe('asignaciones.controller', () => {
       expect(avisos.avisarFinEvento).not.toHaveBeenCalled();
     });
 
+    it('antes de fecha_fin: 400 sin motivo, y no toca la fila', async () => {
+      mockConLlegada({ fecha_fin: new Date(Date.now() + 3600000) });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, body: { motivo_fin: '   ' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/motivo/);
+      expect(huboUpdate()).toBe(false);
+    });
+
+    it('antes de fecha_fin con motivo: lo guarda y lo audita', async () => {
+      mockConLlegada({ fecha_fin: new Date(Date.now() + 3600000) });
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, body: { motivo_fin: ' Paciente trasladado ' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => /SET fin_servicio_at/.test(sql));
+      expect(upd[1][1]).toBe('Paciente trasladado');
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        details: expect.objectContaining({ anticipado: true, motivo_fin: 'Paciente trasladado' }),
+      }));
+    });
+
+    it('pasada fecha_fin: no pide motivo y guarda NULL aunque llegue uno', async () => {
+      mockConLlegada({ fecha_fin: new Date(Date.now() - 3600000) });
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      mockConLlegada({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await registrarFinServicio(mockReq({ params: { id: '1' }, body: { motivo_fin: 'sobra' }, user: TECNICO }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => /SET fin_servicio_at/.test(sql));
+      expect(upd[1][1]).toBeNull();
+    });
+
     it('403 para el personal', async () => {
       mockAsignacionCompleta({ inicio_real_at: new Date(), llegada_servicio_at: new Date(), miembros: [
         { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 5, rol: 'personal', orden: 0 },
@@ -1218,15 +1252,22 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('returns 400 for anticipada finalization without motivo', async () => {
-      // fecha_fin is in the future → anticipada
+    // El motivo de fin anticipado se pide en «Fin evento/servicio», no aquí:
+    // el cierre anticipado pasa sin él y no pisa el que ya se guardó.
+    it('finaliza antes de fecha_fin sin pedir motivo ni tocar motivo_fin', async () => {
       mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() + 86400000) });
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
+      query.mockResolvedValueOnce([]); // UPDATE vehicles
+      mockAsignacionCompleta({ estado: 'finalizada' });
       const res = mockRes();
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: { km_fin: 50100 }, // no motivo_fin
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' },
         user: { id: 2, roles: ['tecnico'], permissions: [] },
       }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => /estado\s*=\s*'finalizada'/.test(sql));
+      expect(upd[0]).not.toContain('motivo_fin');
     });
 
     it('returns 400 when km_fin < km_inicio', async () => {

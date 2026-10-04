@@ -950,9 +950,22 @@ async function registrarFinServicio(req, res, next) {
       return error(res, 'Primero hay que pulsar «Inicio evento/servicio»', 400);
     }
 
+    // Terminar en el sitio antes de la hora prevista (fecha_fin) exige
+    // explicarlo. Se pide aquí y no al «Finalizar asignación» (decisión del
+    // usuario, 2026-10-04): lo que acaba antes de tiempo es el evento; la
+    // vuelta a base y las fotos de fin no dicen nada del porqué. Se guarda en
+    // la misma columna motivo_fin que usaba el cierre, para no migrar.
+    const instante = ahora();
+    const esAnticipado = instante < new Date(asig.fecha_fin);
+    const motivo = typeof req.body?.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
+    if (esAnticipado && !motivo) {
+      return error(res, 'Hay que explicar el motivo: el evento/servicio termina antes de la hora prevista', 400);
+    }
+
     const [result] = await query(
-      'UPDATE asignaciones_libres SET fin_servicio_at = ? WHERE id = ? AND fin_servicio_at IS NULL',
-      [ahora(), asig.id]
+      `UPDATE asignaciones_libres SET fin_servicio_at = ?, motivo_fin = ?
+       WHERE id = ? AND fin_servicio_at IS NULL`,
+      [instante, esAnticipado ? motivo : null, asig.id]
     );
 
     // Mismo orden que la llegada: auditoría y aviso antes de releer.
@@ -962,7 +975,7 @@ async function registrarFinServicio(req, res, next) {
         userInfo: req.user.username,
         action:   'end_service_asignacion',
         entityType: 'asignacion', entityId: asig.id,
-        details:  { vehiculo: asig.matricula },
+        details:  { vehiculo: asig.matricula, anticipado: esAnticipado, motivo_fin: esAnticipado ? motivo : null },
         ip: req.ip,
       });
       avisos.avisarFinEvento(asig);
@@ -996,13 +1009,11 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, 'No se puede finalizar una asignación cancelada', 400);
     }
 
-    const { km_fin, motivo_fin, material_usado } = req.body;
+    const { km_fin, material_usado } = req.body;
 
-    // Si es anticipada (ahora < fecha_fin), el motivo es obligatorio
+    // El motivo de fin anticipado ya NO se pide aquí: se pide al pulsar «Fin
+    // evento/servicio» (registrarFinServicio). El cierre no toca motivo_fin.
     const esAnticipada = ahora() < new Date(asig.fecha_fin);
-    if (esAnticipada && (!motivo_fin || !motivo_fin.trim())) {
-      return error(res, 'motivo_fin es obligatorio cuando la finalización es anticipada', 400);
-    }
 
     // El material gastado se exige SIEMPRE, y no se acepta en blanco. Un campo
     // vacío no distingue «no gastó nada» de «no lo rellenó», y ese es
@@ -1063,12 +1074,11 @@ async function finalizarAsignacion(req, res, next) {
         `UPDATE asignaciones_libres SET
            estado         = 'finalizada',
            km_fin         = ?,
-           motivo_fin     = ?,
            material_usado = ?,
            finalizado_por = ?,
            finalizado_at  = ?
          WHERE id = ?`,
-        [km_fin ?? null, motivo_fin || null, material, req.user.id, ahora(), asig.id]
+        [km_fin ?? null, material, req.user.id, ahora(), asig.id]
       );
 
       // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
@@ -1100,7 +1110,7 @@ async function finalizarAsignacion(req, res, next) {
       userInfo: req.user.username,
       action:   'finalize_asignacion',
       entityType: 'asignacion', entityId: asig.id,
-      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: motivo_fin || null, material_usado: material },
+      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, material_usado: material },
       ip: req.ip,
     });
     const updated = await getAsignacionCompleta(asig.id);

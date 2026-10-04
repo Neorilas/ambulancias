@@ -27,8 +27,9 @@ export const asignacionesService = {
   registrarLlegada(id) {
     return api.post(`/asignaciones/${id}/llegada`).then(r => r.data.data);
   },
-  registrarFinServicio(id) {
-    return api.post(`/asignaciones/${id}/fin-servicio`).then(r => r.data.data);
+  // motivo_fin solo hace falta si termina antes de fecha_fin.
+  registrarFinServicio(id, motivoFin = null) {
+    return api.post(`/asignaciones/${id}/fin-servicio`, { motivo_fin: motivoFin }).then(r => r.data.data);
   },
   finalizar(id, data) {
     return api.post(`/asignaciones/${id}/finalizar`, data).then(r => r.data.data);

@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
-import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
@@ -18,8 +17,10 @@ import {
  *   1. material — material gastado en el servicio (obligatorio)
  *   2. exterior — 4 caras del vehículo (orden libre)
  *   3. km       — foto del cuadro + kilómetros finales
- *   4. motivo   — solo si la finalización es anticipada
- *   5. confirm  — resumen y envío
+ *   4. confirm  — resumen y envío
+ *
+ * El motivo de fin anticipado ya no se pide aquí: va en «Fin evento/servicio»
+ * (AsignacionDetalle), que es lo que de verdad termina antes de tiempo.
  *
  * El material va primero, antes de las fotos de fin: decisión de negocio.
  *
@@ -29,12 +30,10 @@ import {
  */
 export default function FinalizacionAsignacion({ asignacion, onDone, onCancel }) {
   const { notify } = useNotification();
-  const isAnticipada = new Date() < new Date(asignacion?.fecha_fin);
 
   const [step,   setStep]   = useState(0);
   const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
   const [kmFin,  setKmFin]  = useState('');
-  const [motivo, setMotivo] = useState('');
   const [material, setMaterial] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
@@ -56,7 +55,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   }, [fotos]);
   useEffect(() => () => Object.values(previews).forEach(URL.revokeObjectURL), [previews]);
 
-  // ── Secciones (motivo condicional) ──────────────────────────
+  // ── Secciones ───────────────────────────────────────────────
   const secciones = useMemo(() => {
     const base = [
       { id: 'material', tipo: 'material', titulo: 'Material utilizado',
@@ -66,10 +65,9 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       { id: 'km', tipo: 'km', titulo: 'Kilometraje',
         subtitulo: 'Foto del cuadro y kilómetros finales' },
     ];
-    if (isAnticipada) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
     base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
     return base;
-  }, [isAnticipada]);
+  }, []);
 
   const seccion = secciones[step];
 
@@ -129,7 +127,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       }
       await asignacionesService.finalizar(asignacion.id, {
         km_fin:     parseKm(kmFin),
-        motivo_fin: motivo || null,
         material_usado: material.trim(),
       });
       notify.success('Asignación finalizada correctamente');
@@ -170,7 +167,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       <div>
         <p className="text-xs text-neutral-400">
           Paso {step + 1} de {secciones.length} — {asignacion.vehiculo_alias}
-          {isAnticipada && <span className="ml-2 text-warn-600 font-medium">Anticipada</span>}
         </p>
         <h2 className="text-lg font-semibold text-neutral-900">{seccion.titulo}</h2>
         {seccion.subtitulo && <p className="text-sm text-neutral-500">{seccion.subtitulo}</p>}
@@ -296,30 +292,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     );
   }
 
-  // ── Sección: motivo (anticipada) ────────────────────────────
-  if (seccion.tipo === 'motivo') {
-    return (
-      <div className="space-y-6">
-        <Header />
-        <p className="text-sm text-warn-600">
-          El plazo termina el {formatDateTime(asignacion.fecha_fin)}. Estás finalizando antes de esa fecha.
-        </p>
-        <div>
-          <label className="label">Motivo <span className="text-bad-500">*</span></label>
-          <textarea
-            className="input resize-none" rows={5}
-            placeholder="Explica el motivo por el que finalizas antes de lo previsto"
-            value={motivo} onChange={e => setMotivo(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
-          <button onClick={() => setStep(step + 1)} disabled={!motivo.trim()} className="btn-primary flex-1">Siguiente →</button>
-        </div>
-      </div>
-    );
-  }
-
   // ── Sección: material utilizado ─────────────────────────────
   // Obligatoria siempre. El texto libre es a propósito: el material de una
   // ambulancia no cabe en una lista cerrada, y lo que se busca es que quede
@@ -376,12 +348,6 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length} / {IMAGEN_TIPOS_FIN.length}
           </span>
         </div>
-        {motivo && (
-          <div>
-            <span className="text-neutral-500 block mb-1">Motivo anticipado</span>
-            <p className="text-neutral-700 italic">{motivo}</p>
-          </div>
-        )}
         <div>
           <span className="text-neutral-500 block mb-1">Material utilizado</span>
           <p className="text-neutral-700 whitespace-pre-line">{material.trim() || '—'}</p>
