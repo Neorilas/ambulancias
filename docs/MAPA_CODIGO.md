@@ -945,14 +945,15 @@ nada. Si se pulsa antes de `fecha_fin`, la tarjeta de `AsignacionDetalle`
 motivo, sin tocar la fila), lo guarda en **la misma columna `motivo_fin`** de
 siempre (sin migración; pasada `fecha_fin` guarda NULL aunque llegue uno) y lo
 audita en `end_service_asignacion` (`anticipado`, `motivo_fin`).
-`finalizarAsignacion` ya no lo pide **ni escribe `motivo_fin`** —si lo hiciera
-pisaría con NULL el del evento—, y `FinalizacionAsignacion` perdió el paso
-«motivo». En la ficha se lee «Motivo de fin anticipado»; las asignaciones
-anteriores conservan el que se escribió al cerrar. **Trampa:** como el fin del
-evento es opcional y exige la llegada, quien no pulse ninguno de los dos y
-cierre antes de hora ya no deja motivo. Es la consecuencia de «moverlo»; si se
-quiere red, habría que volver a pedirlo en el cierre cuando falte
-`fin_servicio_at`.
+**Red si se olvida el botón (mismo día):** el fin del evento es opcional y
+exige la llegada, así que `finalizarAsignacion` vuelve a pedir el motivo
+**solo** si es antes de `fecha_fin` y no hay `fin_servicio_at` (`pideMotivo`;
+400 sin él), y `FinalizacionAsignacion` añade el paso «motivo» con la misma
+condición. Con el fin del evento sellado no se pide y el `UPDATE` usa
+`motivo_fin = COALESCE(?, motivo_fin)` con NULL: **no cambiarlo por
+`motivo_fin = ?`**, pisaría con NULL el que se escribió en el evento.
+En la ficha se lee «Motivo de fin anticipado»; las asignaciones anteriores
+conservan el que se escribió al cerrar.
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza

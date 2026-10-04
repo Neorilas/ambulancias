@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
+import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
@@ -17,10 +18,12 @@ import {
  *   1. material — material gastado en el servicio (obligatorio)
  *   2. exterior — 4 caras del vehículo (orden libre)
  *   3. km       — foto del cuadro + kilómetros finales
- *   4. confirm  — resumen y envío
+ *   4. motivo   — solo si es anticipada Y nadie pulsó «Fin evento/servicio»
+ *   5. confirm  — resumen y envío
  *
- * El motivo de fin anticipado ya no se pide aquí: va en «Fin evento/servicio»
- * (AsignacionDetalle), que es lo que de verdad termina antes de tiempo.
+ * El motivo de fin anticipado se pide en «Fin evento/servicio»
+ * (AsignacionDetalle), que es lo que de verdad termina antes de tiempo. Aquí
+ * solo como red, si ese botón se olvidó.
  *
  * El material va primero, antes de las fotos de fin: decisión de negocio.
  *
@@ -30,10 +33,12 @@ import {
  */
 export default function FinalizacionAsignacion({ asignacion, onDone, onCancel }) {
   const { notify } = useNotification();
+  const pideMotivo = !asignacion?.fin_servicio_at && new Date() < new Date(asignacion?.fecha_fin);
 
   const [step,   setStep]   = useState(0);
   const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
   const [kmFin,  setKmFin]  = useState('');
+  const [motivo, setMotivo] = useState('');
   const [material, setMaterial] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
@@ -55,7 +60,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   }, [fotos]);
   useEffect(() => () => Object.values(previews).forEach(URL.revokeObjectURL), [previews]);
 
-  // ── Secciones ───────────────────────────────────────────────
+  // ── Secciones (motivo condicional) ──────────────────────────
   const secciones = useMemo(() => {
     const base = [
       { id: 'material', tipo: 'material', titulo: 'Material utilizado',
@@ -65,9 +70,10 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       { id: 'km', tipo: 'km', titulo: 'Kilometraje',
         subtitulo: 'Foto del cuadro y kilómetros finales' },
     ];
+    if (pideMotivo) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
     base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
     return base;
-  }, []);
+  }, [pideMotivo]);
 
   const seccion = secciones[step];
 
@@ -127,6 +133,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       }
       await asignacionesService.finalizar(asignacion.id, {
         km_fin:     parseKm(kmFin),
+        motivo_fin: pideMotivo ? motivo.trim() : null,
         material_usado: material.trim(),
       });
       notify.success('Asignación finalizada correctamente');
@@ -292,6 +299,31 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     );
   }
 
+  // ── Sección: motivo (anticipada sin «Fin evento/servicio») ──
+  if (seccion.tipo === 'motivo') {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <p className="text-sm text-warn-600">
+          Estaba previsto hasta el {formatDateTime(asignacion.fecha_fin)} y no se marcó
+          «Fin evento/servicio». Explica por qué termina antes.
+        </p>
+        <div>
+          <label className="label">Motivo <span className="text-bad-500">*</span></label>
+          <textarea
+            className="input resize-none" rows={5}
+            placeholder="Explica el motivo por el que finalizas antes de lo previsto"
+            value={motivo} onChange={e => setMotivo(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
+          <button onClick={() => setStep(step + 1)} disabled={!motivo.trim()} className="btn-primary flex-1">Siguiente →</button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Sección: material utilizado ─────────────────────────────
   // Obligatoria siempre. El texto libre es a propósito: el material de una
   // ambulancia no cabe en una lista cerrada, y lo que se busca es que quede
@@ -348,6 +380,12 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length} / {IMAGEN_TIPOS_FIN.length}
           </span>
         </div>
+        {pideMotivo && (
+          <div>
+            <span className="text-neutral-500 block mb-1">Motivo anticipado</span>
+            <p className="text-neutral-700 italic">{motivo.trim() || '—'}</p>
+          </div>
+        )}
         <div>
           <span className="text-neutral-500 block mb-1">Material utilizado</span>
           <p className="text-neutral-700 whitespace-pre-line">{material.trim() || '—'}</p>

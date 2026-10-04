@@ -1252,22 +1252,47 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    // El motivo de fin anticipado se pide en «Fin evento/servicio», no aquí:
-    // el cierre anticipado pasa sin él y no pisa el que ya se guardó.
-    it('finaliza antes de fecha_fin sin pedir motivo ni tocar motivo_fin', async () => {
-      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() + 86400000) });
+    // El motivo de fin anticipado se pide en «Fin evento/servicio»; aquí solo
+    // si ese botón se olvidó.
+    function mockCierreOk(overrides) {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() + 86400000), ...overrides });
       query.mockResolvedValueOnce([progresoCompletoRows()]);
       query.mockResolvedValueOnce([]); // UPDATE asignaciones_libres
       query.mockResolvedValueOnce([]); // UPDATE vehicles
       mockAsignacionCompleta({ estado: 'finalizada' });
+    }
+    const updCierre = () => query.mock.calls.find(([sql]) => /estado\s*=\s*'finalizada'/.test(sql));
+    const TEC = { id: 2, roles: ['tecnico'], permissions: [] };
+
+    it('antes de fecha_fin y sin «Fin evento/servicio»: 400 sin motivo', async () => {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() + 86400000) });
       const res = mockRes();
       await finalizarAsignacion(mockReq({
-        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' },
-        user: { id: 2, roles: ['tecnico'], permissions: [] },
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TEC,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/motivo/);
+    });
+
+    it('antes de fecha_fin y sin «Fin evento/servicio»: guarda el motivo', async () => {
+      mockCierreOk();
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material', motivo_fin: ' Avería ' }, user: TEC,
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
-      const upd = query.mock.calls.find(([sql]) => /estado\s*=\s*'finalizada'/.test(sql));
-      expect(upd[0]).not.toContain('motivo_fin');
+      expect(updCierre()[0]).toContain('COALESCE(?, motivo_fin)');
+      expect(updCierre()[1][1]).toBe('Avería');
+    });
+
+    it('con «Fin evento/servicio» ya sellado no pide motivo y conserva el suyo', async () => {
+      mockCierreOk({ fin_servicio_at: new Date() });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TEC,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(updCierre()[1][1]).toBeNull();   // NULL → COALESCE deja el que había
     });
 
     it('returns 400 when km_fin < km_inicio', async () => {

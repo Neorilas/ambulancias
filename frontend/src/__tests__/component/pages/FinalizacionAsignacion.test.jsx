@@ -70,6 +70,32 @@ describe('FinalizacionAsignacion — orden de pasos', () => {
   });
 });
 
+// El motivo de fin anticipado se pide en «Fin evento/servicio»; el asistente
+// de cierre solo lo pide si ese botón se olvidó.
+describe('FinalizacionAsignacion — motivo de fin anticipado', () => {
+  const FUTURO = new Date(Date.now() + 3600000).toISOString();
+  const pintar = (asig) => render(
+    <NotificationProvider>
+      <FinalizacionAsignacion asignacion={asig} onDone={() => {}} onCancel={() => {}} />
+    </NotificationProvider>
+  );
+
+  it('antes de la hora prevista y sin «Fin evento/servicio» añade el paso del motivo', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: null });
+    expect(screen.getByText(/Paso 1 de 5/)).toBeInTheDocument();
+  });
+
+  it('con «Fin evento/servicio» ya pulsado no lo pide', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: '2026-10-04T08:00:00.000Z' });
+    expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
+  });
+
+  it('pasada la hora prevista no lo pide', () => {
+    pintar(ASIGNACION);
+    expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
+  });
+});
+
 // Avanza desde el paso 0 (material) hasta dejar el wizard en el paso de
 // kilometraje, con las 4 fotos exteriores ya completadas por la cámara mock.
 function irAPasoKm() {
