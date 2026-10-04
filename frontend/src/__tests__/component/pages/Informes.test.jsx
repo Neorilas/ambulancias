@@ -28,8 +28,13 @@ const DATOS = {
                     inicios_tardios: 2, retraso_mediana_min: 95, sin_iniciar: 0, con_llegada: 4,
                     con_fotos_inicio_tarde: 1, incidencias: 1,
                     finalizados: 7, cierres_tardios: 1, cierres_anticipados: 0, desplazamiento_mediana_min: 25,
-                    minutos_asignacion: 3690, asignaciones_medidas: 9,
-                    minutos_en_evento: 1995, eventos_medidos: 6, eventos_sin_fin: 2 }],
+                    minutos_asignacion: 3690, asignaciones_medidas: 9, asignaciones_sin_finalizar: 1,
+                    minutos_en_evento: 1995, eventos_medidos: 6, eventos_sin_fin: 2 },
+                  { user_id: 8, nombre: 'Luis Gil', servicios: 0, como_personal: 3, iniciados: 0,
+                    inicios_tardios: 0, sin_iniciar: 0, con_llegada: 0, con_fotos_inicio_tarde: 0, incidencias: 0,
+                    finalizados: 0, cierres_tardios: 0, cierres_anticipados: 0,
+                    minutos_asignacion: 4500, asignaciones_medidas: 3, asignaciones_sin_finalizar: 0,
+                    minutos_en_evento: 600, eventos_medidos: 2, eventos_sin_fin: 0 }],
   },
   comparativa: {
     anterior: { mes: '2026-07', resumen: { ...RESUMEN, inicios_tardios: 2 } },
@@ -59,27 +64,31 @@ describe('Informes', () => {
     // 20 % frente a 10 % del mes anterior: peor
     expect(screen.getByText('+10 pt')).toHaveClass('text-bad-600');
     expect(screen.getByText('Ana Ruiz')).toBeInTheDocument();
-    expect(screen.getByText('1 h 35 min')).toBeInTheDocument();
     expect(screen.getByText('Ambulancia 1')).toBeInTheDocument();
     expect(screen.getByText(/Sin servicio: Ambulancia 3/)).toBeInTheDocument();
     expect(screen.getByText('12,5 h')).toBeInTheDocument();
   });
 
-  it('por técnico: cada pestaña tiene sus columnas y su tiempo total', async () => {
+  it('por técnico: sumatorio de horas por pestaña, de más carga a menos y con total', async () => {
     montar();
     await screen.findByText('Ana Ruiz');
-    expect(screen.getByRole('tab', { name: 'Asignación' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText('61 h 30 min')).toBeInTheDocument();          // 3690 min
-    expect(screen.getByText('6 h 50 min')).toBeInTheDocument();           // media de 9
-    expect(screen.getByRole('columnheader', { name: 'Cierres tardíos' })).toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: 'Sin fin de evento' })).not.toBeInTheDocument();
+    const filas = () => [...screen.getByText('Ana Ruiz').closest('table').rows].slice(1).map(r => r.textContent);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Evento/servicio' }));
-    expect(screen.getByText('33 h 15 min')).toBeInTheDocument();          // 1995 min
-    expect(screen.getByText('5 h 33 min')).toBeInTheDocument();           // media de 6
-    expect(screen.getByRole('columnheader', { name: 'Sin fin de evento' })).toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: 'Cierres tardíos' })).not.toBeInTheDocument();
-    expect(screen.queryByText('61 h 30 min')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Horas de asignación' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('columnheader', { name: 'Horas con asignación activa' })).toBeInTheDocument();
+    // Luis (75 h) antes que Ana (61 h 30 min); total 136 h 30 min
+    expect(filas()[0]).toMatch(/^Luis Gil75 h/);
+    expect(filas()[1]).toMatch(/^Ana Ruiz61 h 30 min/);
+    expect(filas()[2]).toMatch(/^Total136 h 30 min121$/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Horas de evento/servicio' }));
+    expect(screen.getByRole('columnheader', { name: 'Horas con evento/servicio activo' })).toBeInTheDocument();
+    expect(filas()[0]).toMatch(/^Ana Ruiz33 h 15 min/);
+    expect(filas()[2]).toMatch(/^Total43 h 15 min82$/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Puntualidad' }));
+    expect(screen.getByRole('columnheader', { name: 'Cierres tardíos' })).toBeInTheDocument();
+    expect(screen.queryByText('Total')).not.toBeInTheDocument();
   });
 
   it('un informe sin tiempos por técnico (archivado viejo) pinta «—»', async () => {
@@ -88,7 +97,7 @@ describe('Informes', () => {
     montar();
     const celdas = (await screen.findByText('Ana Ruiz')).closest('tr').querySelectorAll('td');
     expect(celdas[1]).toHaveTextContent('—');
-    expect(celdas[3]).toHaveTextContent('—');
+    expect(celdas[2]).toHaveTextContent('—');
   });
 
   it('cambiar de mes vuelve a pedir el informe', async () => {

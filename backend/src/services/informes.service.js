@@ -27,8 +27,10 @@
  *     de asignación (`inicio_real_at` → `finalizado_at`, solo finalizadas) y
  *     en el evento/servicio (`llegada_servicio_at` → `fin_servicio_at`, las
  *     dos opcionales; si falta una, ese servicio no suma). Cada una va con
- *     cuántos servicios la miden, para que un total bajo se entienda, y
- *     `eventos_sin_fin` cuenta los que tienen inicio de evento y no fin.
+ *     cuántos servicios la miden, para que un total bajo se entienda; los
+ *     que no suman por falta del botón de cierre salen aparte
+ *     (`asignaciones_sin_finalizar`, `eventos_sin_fin`). Sirve para
+ *     fiscalizar la carga de trabajo: lo abierto NO se cuenta hasta ahora.
  *
  * El JSON se guarda tal cual en `informe_mensual.datos`: si cambia su forma,
  * se sube VERSION_INFORME y el frontend tiene que tolerar la vieja (un campo
@@ -114,6 +116,7 @@ function analizarServicio(a, limiteSinIniciar) {
     minutos_en_sitio: a.llegada_servicio_at && a.fin_servicio_at
       ? Math.max(0, minutosEntre(a.llegada_servicio_at, a.fin_servicio_at)) : null,
     evento_sin_fin: Boolean(a.llegada_servicio_at && !a.fin_servicio_at),
+    sin_finalizar:  Boolean(inicio && !a.finalizado_at),
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -230,7 +233,7 @@ async function calcularInforme(mes, instante = ahora()) {
     if (!porTecnico.has(r.user_id)) {
       porTecnico.set(r.user_id, { user_id: r.user_id, nombre: nombreDe(r),
                                   acc: nuevoAcumulado(), como_personal: 0, incidencias: 0,
-                                  tiempo: { minutos_asignacion: 0, asignaciones_medidas: 0,
+                                  tiempo: { minutos_asignacion: 0, asignaciones_medidas: 0, asignaciones_sin_finalizar: 0,
                                             minutos_en_evento: 0, eventos_medidos: 0, eventos_sin_fin: 0 } });
     }
     return porTecnico.get(r.user_id);
@@ -244,6 +247,7 @@ async function calcularInforme(mes, instante = ahora()) {
     if (s.minutos_servicio != null) { t.tiempo.minutos_asignacion += s.minutos_servicio; t.tiempo.asignaciones_medidas++; }
     if (s.minutos_en_sitio != null) { t.tiempo.minutos_en_evento += s.minutos_en_sitio; t.tiempo.eventos_medidos++; }
     if (s.evento_sin_fin) t.tiempo.eventos_sin_fin++;
+    if (s.sin_finalizar)  t.tiempo.asignaciones_sin_finalizar++;
   }
 
   // ── Incidencias ──

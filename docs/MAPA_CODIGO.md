@@ -318,23 +318,32 @@ varios, el retraso cuenta para todos); el personal solo suma «como personal».
 Incidencias: nuevas por `created_at`, resueltas por `resuelto_at`, abiertas al
 cerrar el mes por las dos fechas; una «resuelto» sin fecha no cuenta abierta.
 
-**«Por técnico» en dos pestañas (2026-10-04, `VERSION_INFORME` 2).** Cada
-pestaña tiene **sus propias columnas** (`PESTANAS_TECNICO` en `Informes.jsx`);
-la primera versión solo cambiaba la cifra de horas y el usuario no veía
-diferencia. «Asignación»: tiempo total `inicio_real_at` → `finalizado_at`
-(solo finalizadas: `minutos_asignacion` / `asignaciones_medidas`), media,
-puntualidad, cierres tardíos/anticipados, fotos e incidencias. «Evento/servicio»:
-tiempo total `llegada_servicio_at` → `fin_servicio_at` (`minutos_en_evento` /
-`eventos_medidos`; los dos botones son opcionales y si falta uno ese servicio no
-suma), media, `eventos_sin_fin` (inicio de evento sin fin), con inicio de evento
-y desplazamiento mediano. El backend manda **minutos** y la pantalla pinta
-«15 h 15 min» (lo pidió así: el sumatorio de tiempo, no horas decimales).
-**El tiempo cuenta todos los servicios del técnico, también los de personal**
-(el personal no inicia ni cierra, pero ese tiempo lo echa); la puntualidad, los
-cierres, «con inicio ev./serv.» y el desplazamiento siguen siendo solo de
-responsable. Decisión mía a falta de que el usuario diga otra cosa; cambiarlo es
-una línea en el bucle de `miembros` de `calcularInforme`. Un archivado v1 no
-trae los campos y se pinta «—».
+**«Por técnico»: carga de trabajo en tres pestañas (2026-10-04,
+`VERSION_INFORME` 2).** El objetivo, dicho por el usuario, es **fiscalizar la
+carga de trabajo**: el sumatorio de horas del mes de cada técnico. Por eso las
+pestañas de horas son escuetas, van de más carga a menos y llevan fila
+**Total** (`pie` de `Tabla`, que suma en el frontend). Pestañas
+(`PESTANAS_TECNICO` en `Informes.jsx`):
+- «Horas de asignación»: suma `inicio_real_at` → `finalizado_at`
+  (`minutos_asignacion`), asignaciones finalizadas (`asignaciones_medidas`) e
+  iniciadas sin finalizar (`asignaciones_sin_finalizar`).
+- «Horas de evento/servicio»: suma `llegada_servicio_at` → `fin_servicio_at`
+  (`minutos_en_evento`), completos (`eventos_medidos`) y con inicio sin fin
+  (`eventos_sin_fin`). Los dos botones son opcionales: si falta uno no suma.
+- «Puntualidad»: las columnas de siempre, solo de responsable.
+
+Tres iteraciones en el mismo día, para no repetirlas: (1) cambiar solo la cifra
+de horas con la pestaña → «no cambia nada, mismas cabeceras»; (2) cada pestaña
+con su batería de columnas, medias y medianas → «no se entiende y las medianas
+no aportan». Lo que quiere es el **total de horas** con títulos que se lean
+solos. El backend manda **minutos** y se pinta «15 h 15 min», no horas
+decimales. **Lo abierto no se cuenta hasta ahora**: una asignación o evento sin
+cerrar no suma y sale en su columna. **El tiempo cuenta todos los servicios del
+técnico, también los de personal** (ese tiempo lo echa aunque no pulse
+botones); la puntualidad, solo de responsable. Esto último es decisión mía,
+pendiente de que el usuario lo confirme; cambiarlo es una línea en el bucle de
+`miembros` de `calcularInforme`. Un archivado v1 no trae los campos y se pinta
+«—».
 
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
@@ -1376,7 +1385,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-10-04** («Por técnico» en dos pestañas con tiempo total: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

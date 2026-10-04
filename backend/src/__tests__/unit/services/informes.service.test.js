@@ -166,11 +166,11 @@ describe('informes.service · calcularInforme', () => {
     });
     const r = await inf.calcularInforme('2026-09', AHORA);
     expect(r.por_tecnico.find(t => t.user_id === 7)).toMatchObject({
-      minutos_asignacion: 715, asignaciones_medidas: 2,       // 7h55 + 4h
+      minutos_asignacion: 715, asignaciones_medidas: 2, asignaciones_sin_finalizar: 1,   // 7h55 + 4h; la 3 sigue activa
       minutos_en_evento: 390, eventos_medidos: 2, eventos_sin_fin: 1,   // 5h30 + 1h
     });
     expect(r.por_tecnico.find(t => t.user_id === 8)).toMatchObject({
-      minutos_asignacion: 475, asignaciones_medidas: 1,
+      minutos_asignacion: 475, asignaciones_medidas: 1, asignaciones_sin_finalizar: 0,
       minutos_en_evento: 330, eventos_medidos: 1, eventos_sin_fin: 0,
     });
   });
