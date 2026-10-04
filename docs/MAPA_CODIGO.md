@@ -631,7 +631,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/flota` | `flota/MapaFlota.jsx` | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
 | `/informes` | `informes/Informes.jsx` | admin, super | `menu_informes` (encendida, v28; §2.7) |
 | `/facturas` | `facturas/Facturas.jsx` | admin, super | `menu_facturas` (encendida, v32; §2.8) |
-| `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups) | solo super | — |
+| `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups; en Resumen, las cards «Errores totales» y «Errores hoy» abren la pestaña Errores sin filtros, `StatCard` con `onClick`) | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
 | `/trabajos` | `trabajos/TrabajoList.jsx` | admin, gestor, super | `menu_trabajos` (off) |

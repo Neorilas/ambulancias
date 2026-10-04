@@ -103,13 +103,22 @@ function actionLabel(action) {
 }
 
 // ── StatCard ──────────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, color = 'text-neutral-900' }) {
+function StatCard({ label, value, sub, color = 'text-neutral-900', onClick }) {
+  // <span className="block">, no <p>: un <p> dentro de <button> no es HTML válido.
+  const contenido = (
+    <>
+      <span className="micro block">{label}</span>
+      <span className={`data block text-[25px] font-semibold leading-tight mt-0.5 ${color}`}>{value ?? '–'}</span>
+      {sub && <span className="block text-xs text-neutral-400 mt-1">{sub}</span>}
+    </>
+  );
+  if (!onClick) return <div className="card">{contenido}</div>;
+  // flex + justify-start: un <button> centra en vertical y, en móvil, con la
+  // fila estirada por una etiqueta de dos líneas, se descuadraba de su vecina.
   return (
-    <div className="card">
-      <p className="micro">{label}</p>
-      <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${color}`}>{value ?? '–'}</p>
-      {sub && <p className="text-xs text-neutral-400 mt-1">{sub}</p>}
-    </div>
+    <button type="button" onClick={onClick} className="card flex flex-col justify-start text-left w-full hover:bg-neutral-50 transition-colors">
+      {contenido}
+    </button>
   );
 }
 
@@ -672,8 +681,8 @@ export default function AdminPanel() {
           <div className="space-y-5">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <StatCard label="Acciones auditadas" value={stats.audit_total?.toLocaleString()} />
-              <StatCard label="Errores totales"    value={stats.errors_total?.toLocaleString()} color="text-bad-600" />
-              <StatCard label="Errores hoy"        value={stats.errors_hoy}   color={stats.errors_hoy > 0 ? 'text-warn-600' : 'text-neutral-900'} />
+              <StatCard label="Errores totales"    value={stats.errors_total?.toLocaleString()} color="text-bad-600" onClick={() => setTab('errores')} />
+              <StatCard label="Errores hoy"        value={stats.errors_hoy}   color={stats.errors_hoy > 0 ? 'text-warn-600' : 'text-neutral-900'} onClick={() => setTab('errores')} />
               <StatCard label="Logins fallidos 24h" value={stats.logins_fallidos_24h} color={stats.logins_fallidos_24h > 10 ? 'text-bad-600' : 'text-neutral-900'} />
             </div>
 
