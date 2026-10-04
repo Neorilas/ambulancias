@@ -58,6 +58,30 @@ function subirImagen(campo) {
 }
 
 /**
+ * Igual que subirImagen, pero para un PDF (facturas). Va en memoria y no pasa
+ * por Sharp: el controlador lo guarda tal cual en la BD. Sin fileFilter a
+ * propósito: el mimetype lo declara el navegador y no prueba nada; que sea un
+ * PDF lo decide el controlador por la cabecera del fichero (`%PDF-`), con su
+ * propio mensaje. (Un MulterError con texto propio no sirve: el segundo
+ * argumento es el campo, no el mensaje.)
+ */
+const multerPdf = multer({
+  storage,
+  limits: { fileSize: UPLOAD.MAX_SIZE_BYTES, files: 1 },
+});
+
+function subirPdf(campo) {
+  const single = multerPdf.single(campo);
+  return (req, res, next) => single(req, res, (err) => {
+    if (err && !(err instanceof multer.MulterError)) {
+      err.status = 400;
+      err.multipartRoto = true;
+    }
+    next(err);
+  });
+}
+
+/**
  * Middleware para procesar una imagen con Sharp (resize + compress)
  * y guardarla en disco. Añade req.processedFile con info del archivo guardado.
  * @param {string} subdir - subdirectorio dentro de uploads (ej: 'vehicles/123')
@@ -154,4 +178,4 @@ function deleteFile(relativePath) {
   }
 }
 
-module.exports = { multerUpload, subirImagen, processAndSave, processAndSaveMultiple, deleteFile };
+module.exports = { multerUpload, subirImagen, subirPdf, processAndSave, processAndSaveMultiple, deleteFile };

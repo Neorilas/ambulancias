@@ -1077,6 +1077,48 @@ const MIGRATIONS = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+
+  {
+    name: 'v32_facturas',
+    description: 'Facturas de proveedores (PDF dentro de la BD) + flag menu_facturas',
+    async run() {
+      // El PDF va en la BD y no en uploads/ a propósito: /uploads se sirve
+      // estático y sin sesión (son las fotos), y una factura no puede quedar
+      // a una URL de cualquiera. Además así entra sola en el dump diario
+      // cifrado, sin tocar el backup. Son pocas y pequeñas (una al mes de
+      // Google Ads, ~100 KB); el tope de subida es 10 MB y MEDIUMBLOB da 16.
+      //
+      // UNIQUE (proveedor, numero): la misma factura no entra dos veces, ni a
+      // mano ni cuando llegue sola por correo (origen 'correo').
+      await query(`CREATE TABLE IF NOT EXISTS facturas (
+        id             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+        proveedor      VARCHAR(100)  NOT NULL,
+        numero         VARCHAR(64)   NOT NULL,
+        fecha_emision  DATE          NOT NULL,
+        importe        DECIMAL(10,2) NULL DEFAULT NULL COMMENT 'Total con IVA, en euros',
+        notas          VARCHAR(255)  NULL DEFAULT NULL,
+        nombre_fichero VARCHAR(255)  NOT NULL COMMENT 'Nombre original del PDF',
+        tamano         INT UNSIGNED  NOT NULL COMMENT 'Bytes',
+        contenido      MEDIUMBLOB    NOT NULL,
+        origen         ENUM('manual','correo') NOT NULL DEFAULT 'manual',
+        subido_por     INT UNSIGNED  NULL DEFAULT NULL,
+        created_at     DATETIME      NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_factura_proveedor_numero (proveedor, numero),
+        INDEX idx_factura_fecha (fecha_emision),
+        CONSTRAINT fk_factura_subido_por FOREIGN KEY (subido_por) REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Como menu_informes: el acceso lo decide el rol en el backend; el flag
+      // solo pone la pantalla en el menú, y nace encendido porque se pidió.
+      await query(`INSERT IGNORE INTO app_features
+                     (feature_key, label, description, category, enabled, display_order)
+                   VALUES
+                     ('menu_facturas', 'Facturas',
+                      'Facturas de proveedores (Google Ads…) para descargar (solo administradores)',
+                      'menu', 1, 96)`);
+    },
+  },
 ];
 
 // ============================================================

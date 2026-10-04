@@ -18,6 +18,7 @@ import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
 import MapaFlota                from './pages/flota/MapaFlota.jsx';
 import Informes                 from './pages/informes/Informes.jsx';
+import Facturas                 from './pages/facturas/Facturas.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
@@ -163,6 +164,18 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_informes">
                     <Informes />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Facturas de proveedores. Solo admin y superadmin; quien manda
+                  es el backend (routes/facturas.routes.js), el flag solo pone
+                  el menú. */}
+              <Route
+                path="/facturas"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_facturas">
+                    <Facturas />
                   </ProtectedRoute>
                 }
               />

@@ -788,9 +788,25 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v31_impersonaciones']);
+    expect(aplicadas[0]).toBe('v31_impersonaciones');
     const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS impersonaciones'));
     expect(tabla).toContain('PRIMARY KEY (jti)');
     expect(tabla).toMatch(/fin_at\s+DATETIME\s+NULL DEFAULT NULL/);
+  });
+
+  it('v32 crea facturas con el PDF en la BD, sin duplicados por proveedor+número, y el flag menu_facturas encendido', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v31_impersonaciones') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v32_facturas']);
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS facturas'));
+    expect(tabla).toMatch(/contenido\s+MEDIUMBLOB\s+NOT NULL/);
+    expect(tabla).toContain('UNIQUE KEY uq_factura_proveedor_numero (proveedor, numero)');
+    expect(tabla).toContain("ENUM('manual','correo') NOT NULL DEFAULT 'manual'");
+    expect(tabla).toContain('ON DELETE SET NULL');
+    const flag = ejecutadas.find(q => q.includes("'menu_facturas'"));
+    expect(flag).toContain('INSERT IGNORE INTO app_features');
+    expect(flag).toMatch(/'menu', 1, 96/);
   });
 });

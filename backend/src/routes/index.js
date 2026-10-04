@@ -22,6 +22,7 @@ const featuresRoutes     = require('./features.routes');
 const pushRoutes         = require('./push.routes');
 const flotaRoutes        = require('./flota.routes');
 const informesRoutes     = require('./informes.routes');
+const facturasRoutes     = require('./facturas.routes');
 
 const router = express.Router();
 
@@ -67,13 +68,14 @@ router.use('/features',     featuresRoutes);
 router.use('/push',         pushRoutes);
 router.use('/flota',        flotaRoutes);
 router.use('/informes',     informesRoutes);
+router.use('/facturas',     facturasRoutes);
 
 // Ruta raíz de la API - info básica
 router.get('/', (_req, res) => {
   res.json({
     name:    'Ambulancias API',
     version: '1.0.0',
-    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin', '/push', '/flota', '/informes'],
+    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin', '/push', '/flota', '/informes', '/facturas'],
   });
 });
 
