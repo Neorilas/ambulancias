@@ -28,6 +28,11 @@ AddType text/javascript            .js
   # Sin includeSubDomains: vale para todo vapss.net (el WordPress incluido),
   # que ya redirige de http a https; solo impide que se vuelva atrás.
   Header always set Strict-Transport-Security "max-age=15552000"
+  # La app es interna: fuera de Google. Va en cabecera (y no solo en el
+  # <meta> de index.html) para cubrir también manifest, iconos y assets.
+  # NO bloquear /app/ en el robots.txt del WordPress: si Google no puede
+  # rastrearla, no ve este noindex y puede seguir listando la URL.
+  Header always set X-Robots-Tag "noindex, nofollow"
 
   # CSP en modo SOLO AVISO: no bloquea nada. Las violaciones llegan a
   # POST /csp-report de la API y salen en su log como «CSP (report-only)».
