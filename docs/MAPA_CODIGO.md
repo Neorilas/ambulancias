@@ -509,6 +509,18 @@ Trampas y porqués:
 - **Leer es una ayuda, no un requisito.** Si `/leer` falla por red o da 5xx,
   se pasa igual al paso 2, vacío, con el aviso. Solo un **400** (no es un PDF
   de verdad) se queda en el paso 1, porque `POST /facturas` lo rechazaría igual.
+- **El texto se rehace por posición (`renglones`), no en el orden del PDF.**
+  Las facturas de Google guardan la tabla «Detalles» por columnas (todas las
+  etiquetas y luego todos los valores) y con puntos de relleno, así que en el
+  orden del PDF «Fecha de la factura» y «30 jun 2026» —y «Total en EUR» y su
+  importe— caían en renglones distintos: la primera versión no leía ni fecha ni
+  importe de ninguna factura de Google (lo vio el usuario). Se agrupa por altura
+  con tolerancia del 30 % de la letra más pequeña (el total va en letra 13,5 a
+  1,5 de su etiqueta; el renglón de encima está a 3), se ordena por x y se
+  quitan los trozos que son solo puntos. Comprobado con las tres facturas
+  reales de PRO (junio-agosto 2026): número, fecha e importe idénticos a los
+  guardados a mano. El test de `renglones` usa sus coordenadas con datos
+  inventados.
 - **Heurístico y conservador**: lo dudoso queda en null, porque un campo vacío
   salta a la vista y uno mal rellenado no. En concreto: la fecha solo con
   etiqueta («Fecha de factura/emisión/expedición», «Invoice date», un «Fecha:»

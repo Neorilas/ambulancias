@@ -156,6 +156,36 @@ describe('lectorFacturas.service', () => {
     });
   });
 
+  describe('renglones (el texto como se ve, no como lo guarda el PDF)', () => {
+    // Coordenadas como las de una factura real de Google Ads: la tabla
+    // «Detalles» se guarda por columnas (etiquetas, luego valores), con
+    // puntos de relleno, y el total en letra más grande, 1,5 más abajo.
+    const trozo = (str, x, y, height = 8.2) => ({ str, transform: [1, 0, 0, 1, x, y], height });
+    const GOOGLE_POR_COLUMNAS = [
+      trozo('..............', 48, 557.7), trozo('1234567890', 175.8, 557.7),
+      trozo('..............', 48, 544.2), trozo('30 jun 2026', 175.8, 544.2),
+      trozo('Detalles', 48, 571.2),
+      trozo('Número de factura', 48, 557.7),
+      trozo('Fecha de la factura', 48, 544.2),
+      trozo('99,99', 502.7, 539.7, 13.5), trozo('€', 539.7, 539.7, 13.5),
+      trozo('Total en EUR', 297.6, 541.2),
+    ];
+
+    it('junta cada etiqueta con su valor aunque el PDF los guarde por columnas', () => {
+      expect(lector.renglones(GOOGLE_POR_COLUMNAS)).toEqual([
+        'Detalles',
+        'Número de factura 1234567890',
+        'Fecha de la factura 30 jun 2026',
+        'Total en EUR 99,99 €',
+      ]);
+    });
+
+    it('con eso salen la fecha y el total de la factura de Google', () => {
+      const d = lector.datosDelTexto(lector.renglones(GOOGLE_POR_COLUMNAS).join('\n'));
+      expect(d).toMatchObject({ numero: '1234567890', fecha_emision: '2026-06-30', importe: 99.99 });
+    });
+  });
+
   describe('textoDePdf y leerFactura', () => {
     it('une los trozos de cada renglón y separa los renglones por su altura', async () => {
       getDocumentProxy.mockResolvedValue(mockDoc);
