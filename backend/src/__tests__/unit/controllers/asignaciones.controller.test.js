@@ -1102,6 +1102,7 @@ describe('asignaciones.controller', () => {
       await registrarFinServicio(mockReq({ params: { id: '1' }, body: { motivo_fin: '   ' }, user: TECNICO }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res._json.message).toMatch(/motivo/);
+      expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
       expect(huboUpdate()).toBe(false);
     });
 
@@ -1285,8 +1286,19 @@ describe('asignaciones.controller', () => {
       expect(updCierre()[1][1]).toBe('Avería');
     });
 
-    it('con «Fin evento/servicio» ya sellado no pide motivo y conserva el suyo', async () => {
-      mockCierreOk({ fin_servicio_at: new Date() });
+    it('fin del evento sellado tras fecha_fin y fecha_fin ampliada luego: lo pide', async () => {
+      mockAsignacionCompleta({ estado: 'activa', user_id: 2, fecha_fin: new Date(Date.now() + 86400000),
+        fin_servicio_at: new Date(), motivo_fin: null });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TEC,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
+    });
+
+    it('con el motivo ya dejado en «Fin evento/servicio» no lo pide y lo conserva', async () => {
+      mockCierreOk({ fin_servicio_at: new Date(), motivo_fin: 'Paciente trasladado' });
       const res = mockRes();
       await finalizarAsignacion(mockReq({
         params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TEC,

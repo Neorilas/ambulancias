@@ -18,12 +18,12 @@ import {
  *   1. material — material gastado en el servicio (obligatorio)
  *   2. exterior — 4 caras del vehículo (orden libre)
  *   3. km       — foto del cuadro + kilómetros finales
- *   4. motivo   — solo si es anticipada Y nadie pulsó «Fin evento/servicio»
+ *   4. motivo   — solo si es anticipada y no hay motivo guardado
  *   5. confirm  — resumen y envío
  *
  * El motivo de fin anticipado se pide en «Fin evento/servicio»
  * (AsignacionDetalle), que es lo que de verdad termina antes de tiempo. Aquí
- * solo como red, si ese botón se olvidó.
+ * solo como red, si no quedó motivo (botón olvidado, fecha_fin ampliada…).
  *
  * El material va primero, antes de las fotos de fin: decisión de negocio.
  *
@@ -33,7 +33,11 @@ import {
  */
 export default function FinalizacionAsignacion({ asignacion, onDone, onCancel }) {
   const { notify } = useNotification();
-  const pideMotivo = !asignacion?.fin_servicio_at && new Date() < new Date(asignacion?.fecha_fin);
+  // Se decide UNA vez al abrir: si se recalculara en cada render, al pasar
+  // fecha_fin con el asistente abierto cambiaría el número de pasos bajo `step`.
+  const [pideMotivo, setPideMotivo] = useState(
+    () => !asignacion?.motivo_fin && new Date() < new Date(asignacion?.fecha_fin)
+  );
 
   const [step,   setStep]   = useState(0);
   const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
@@ -139,7 +143,14 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       notify.success('Asignación finalizada correctamente');
       onDone?.();
     } catch (err) {
-      if (esFalloDeRed(err)) {
+      if (!pideMotivo && err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) {
+        // El reloj del servidor dice que aún es antes de la hora prevista. Se
+        // añade el paso del motivo justo antes de «Confirmar», así que `step`
+        // (que apuntaba a «Confirmar») pasa a apuntar a él. Las fotos ya
+        // subidas no se repiten (`subidas`).
+        setPideMotivo(true);
+        notify.error(err.response.data.message);
+      } else if (esFalloDeRed(err)) {
         notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Finalizar asignación' }), DURACION_AVISO_FALLO_SUBIDA_MS);
       } else {
         notify.error(err.response?.data?.message || err.message);

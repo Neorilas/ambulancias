@@ -205,6 +205,9 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
   const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
   const [motivoFin, setMotivoFin] = useState('');
+  // El servidor exigió el motivo aunque el reloj del móvil decía que ya era la
+  // hora prevista: se enseña el campo igual.
+  const [forzarMotivo, setForzarMotivo] = useState(false);
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -283,8 +286,10 @@ export default function AsignacionDetalle({ id, onClose }) {
     try {
       setAsig(await asignacionesService.registrarFinServicio(id, finAnticipado ? motivoFin.trim() : null));
       setMotivoFin('');
+      setForzarMotivo(false);
       notify.success('Fin del evento/servicio registrado');
     } catch (err) {
+      if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivo(true);
       notify.error(err.response?.data?.message || 'No se pudo registrar el fin del evento/servicio');
     } finally {
       setRegistrandoFinServicio(false);
@@ -340,7 +345,7 @@ export default function AsignacionDetalle({ id, onClose }) {
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
   const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
-  const finAnticipado    = faltaFinServicio && new Date() < new Date(asig?.fecha_fin);
+  const finAnticipado    = faltaFinServicio && (forzarMotivo || new Date() < new Date(asig?.fecha_fin));
   const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
 
   return (

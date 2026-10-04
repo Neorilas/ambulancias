@@ -947,11 +947,22 @@ siempre (sin migración; pasada `fecha_fin` guarda NULL aunque llegue uno) y lo
 audita en `end_service_asignacion` (`anticipado`, `motivo_fin`).
 **Red si se olvida el botón (mismo día):** el fin del evento es opcional y
 exige la llegada, así que `finalizarAsignacion` vuelve a pedir el motivo
-**solo** si es antes de `fecha_fin` y no hay `fin_servicio_at` (`pideMotivo`;
-400 sin él), y `FinalizacionAsignacion` añade el paso «motivo» con la misma
-condición. Con el fin del evento sellado no se pide y el `UPDATE` usa
+**solo** si es antes de `fecha_fin` y **no hay `motivo_fin` guardado**
+(`pideMotivo`; 400 sin él), y `FinalizacionAsignacion` añade el paso «motivo»
+con la misma condición, calculada una vez al abrir (si se recalculara, al pasar
+`fecha_fin` con el asistente abierto cambiaría el número de pasos bajo `step`).
+Se mira el motivo y **no** `fin_servicio_at` a propósito: un fin del evento
+pulsado tras `fecha_fin` (sin motivo) seguido de una `fecha_fin` ampliada por
+gestión, o una asignación en curso de antes del cambio, cerrarían antes de hora
+sin motivo. Con motivo ya guardado no se pide, y los dos `UPDATE` usan
 `motivo_fin = COALESCE(?, motivo_fin)` con NULL: **no cambiarlo por
-`motivo_fin = ?`**, pisaría con NULL el que se escribió en el evento.
+`motivo_fin = ?`**, pisaría con NULL el que ya había.
+**Reloj del móvil frente al del servidor:** la pantalla decide con
+`new Date()` si enseña el campo, y el servidor con `ahora()`. Si discrepan y el
+servidor lo exige, el 400 lleva `errors: [{ field: 'motivo_fin' }]` y la
+pantalla reacciona: `AsignacionDetalle` enseña el textarea (`forzarMotivo`) y
+`FinalizacionAsignacion` inserta el paso del motivo justo antes de «Confirmar»,
+de modo que `step` pasa a apuntar a él (las fotos ya subidas no se repiten).
 En la ficha se lee «Motivo de fin anticipado»; las asignaciones anteriores
 conservan el que se escribió al cerrar.
 

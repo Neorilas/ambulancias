@@ -959,11 +959,14 @@ async function registrarFinServicio(req, res, next) {
     const esAnticipado = instante < new Date(asig.fecha_fin);
     const motivo = typeof req.body?.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
     if (esAnticipado && !motivo) {
-      return error(res, 'Hay que explicar el motivo: el evento/servicio termina antes de la hora prevista', 400);
+      // errors[].field: el móvil decide con SU reloj si enseña el campo; si
+      // discrepa del servidor, con esto sabe que tiene que pedirlo.
+      return error(res, 'Hay que explicar el motivo: el evento/servicio termina antes de la hora prevista', 400,
+        [{ field: 'motivo_fin', msg: 'obligatorio' }]);
     }
 
     const [result] = await query(
-      `UPDATE asignaciones_libres SET fin_servicio_at = ?, motivo_fin = ?
+      `UPDATE asignaciones_libres SET fin_servicio_at = ?, motivo_fin = COALESCE(?, motivo_fin)
        WHERE id = ? AND fin_servicio_at IS NULL`,
       [instante, esAnticipado ? motivo : null, asig.id]
     );
@@ -1012,14 +1015,16 @@ async function finalizarAsignacion(req, res, next) {
     const { km_fin, material_usado } = req.body;
 
     // El motivo de fin anticipado se pide al pulsar «Fin evento/servicio»
-    // (registrarFinServicio). Solo si ese botón se olvidó se pide aquí, como
-    // red: cerrar antes de fecha_fin sin fin del evento exige el motivo. Con
-    // el fin del evento ya sellado, el cierre no toca motivo_fin.
+    // (registrarFinServicio). Aquí, como red, si se cierra antes de fecha_fin
+    // y no hay motivo guardado: botón olvidado, fin del evento pulsado tras
+    // fecha_fin y fecha_fin ampliada luego, o asignaciones de antes de esto.
+    // Se mira el motivo y no fin_servicio_at justo por esos dos últimos casos.
     const esAnticipada = ahora() < new Date(asig.fecha_fin);
-    const pideMotivo = esAnticipada && !asig.fin_servicio_at;
+    const pideMotivo = esAnticipada && !asig.motivo_fin;
     const motivo = typeof req.body.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
     if (pideMotivo && !motivo) {
-      return error(res, 'Hay que explicar el motivo: se finaliza antes de la hora prevista', 400);
+      return error(res, 'Hay que explicar el motivo: se finaliza antes de la hora prevista', 400,
+        [{ field: 'motivo_fin', msg: 'obligatorio' }]);
     }
 
     // El material gastado se exige SIEMPRE, y no se acepta en blanco. Un campo

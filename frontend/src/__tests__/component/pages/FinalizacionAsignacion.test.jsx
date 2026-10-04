@@ -80,13 +80,13 @@ describe('FinalizacionAsignacion — motivo de fin anticipado', () => {
     </NotificationProvider>
   );
 
-  it('antes de la hora prevista y sin «Fin evento/servicio» añade el paso del motivo', () => {
+  it('antes de la hora prevista y sin motivo guardado añade el paso del motivo', () => {
     pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: null });
     expect(screen.getByText(/Paso 1 de 5/)).toBeInTheDocument();
   });
 
-  it('con «Fin evento/servicio» ya pulsado no lo pide', () => {
-    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: '2026-10-04T08:00:00.000Z' });
+  it('con el motivo ya dejado en «Fin evento/servicio» no lo pide', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: '2026-10-04T08:00:00.000Z', motivo_fin: 'Traslado cancelado' });
     expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
   });
 

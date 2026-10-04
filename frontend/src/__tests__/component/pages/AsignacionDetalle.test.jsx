@@ -265,6 +265,20 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     expect(await screen.findByText('Traslado cancelado')).toBeInTheDocument();
   });
 
+  // El reloj del móvil puede ir adelantado: si el servidor exige el motivo,
+  // el campo aparece aunque la pantalla creyera que ya era la hora.
+  it('si el servidor exige el motivo, enseña el campo', async () => {
+    asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
+    asignacionesService.registrarFinServicio.mockRejectedValue({ response: { status: 400, data: {
+      message: 'Hay que explicar el motivo', errors: [{ field: 'motivo_fin', msg: 'obligatorio' }],
+    } } });
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fin evento/servicio' }));
+    expect(await screen.findByPlaceholderText(/terminas antes de lo previsto/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fin evento/servicio' })).toBeDisabled();
+  });
+
   it('pasada la hora prevista no pide motivo', async () => {
     asignacionesService.get.mockResolvedValue(TRAS_LLEGADA);
     montar();
