@@ -43,15 +43,18 @@ router.use(auditarAccesosDenegados);
 
 // Errores que ve la app y no llegan a Express (red, timeout, 502, JS) →
 // error_logs con origen 'cliente'. Con sesión y cupo propio por usuario.
-// Tope de cuerpo propio: 20 errores × ~10 KB. No vale un express.json aquí
-// porque el global de server.js (10 MB) ya ha parseado el cuerpo; se mira la
-// cabecera, que es lo que el parser global también respeta.
+// Tope de cuerpo propio: 20 errores × ~6 KB. No vale un express.json aquí
+// porque el global de server.js (10 MB) ya ha parseado el cuerpo. Se mide el
+// cuerpo ya parseado y no la cabecera content-length: con
+// Transfer-Encoding: chunked no hay cabecera y el tope no saltaba.
 const ERRORES_CLIENTE_MAX_BYTES = 256 * 1024;
-router.post('/errores-cliente', authenticate, erroresClienteLimiter,
-  (req, res, next) => (Number(req.headers['content-length']) > ERRORES_CLIENTE_MAX_BYTES
+function topeErroresCliente(req, res, next) {
+  const bytes = Buffer.byteLength(JSON.stringify(req.body ?? null));
+  return bytes > ERRORES_CLIENTE_MAX_BYTES
     ? res.status(413).json({ success: false, message: 'Demasiados datos' })
-    : next()),
-  recibirErrores);
+    : next();
+}
+router.post('/errores-cliente', authenticate, erroresClienteLimiter, topeErroresCliente, recibirErrores);
 
 // Montar rutas
 router.use('/auth',      authRoutes);

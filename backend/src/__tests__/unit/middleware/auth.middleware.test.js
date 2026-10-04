@@ -1,9 +1,9 @@
 'use strict';
 
 const { query } = require('../../../config/database');
-const { generateAccessToken, generateImpersonationToken } = require('../../../utils/jwt.utils');
-const { contextoActual } = require('../../../utils/contextoPeticion.utils');
-const { authenticate, optionalAuth } = require('../../../middleware/auth.middleware');
+const { generateAccessToken, generateImpersonationToken, decodeToken } = require('../../../utils/jwt.utils');
+const { contextoActual, conContexto } = require('../../../utils/contextoPeticion.utils');
+const { authenticate, optionalAuth, reabrirContexto } = require('../../../middleware/auth.middleware');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 describe('auth.middleware', () => {
@@ -90,7 +90,8 @@ describe('auth.middleware', () => {
         .mockResolvedValueOnce(tecnico)
         .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([[{ id: 1, username: 'findelias' }]]);
-      const req = mockReq({ headers: { authorization: `Bearer ${token()}` } });
+      const t = token();
+      const req = mockReq({ headers: { authorization: `Bearer ${t}` } });
       let ctx;
       const next = jest.fn(() => { ctx = contextoActual(); });
       await authenticate(req, mockRes(), next);
@@ -98,9 +99,24 @@ describe('auth.middleware', () => {
       expect(req.user.id).toBe(5);
       expect(req.user.roles).toEqual(['tecnico']);
       expect(req.user.impersonadoPor).toEqual({ id: 1, username: 'findelias' });
+      expect(req.user.impersonacionJti).toBe(decodeToken(t).jti);
       expect(ctx.impersonadoPor).toEqual({ id: 1, username: 'findelias' });
       expect(query.mock.calls[2][0]).toContain("r.nombre = 'superadmin'");
-      expect(query.mock.calls[2][1]).toEqual([1]);
+      // La sesión tiene que estar abierta en impersonaciones (SEC-19)
+      expect(query.mock.calls[2][0]).toMatch(/JOIN impersonaciones i ON i\.jti = \?[\s\S]*i\.fin_at IS NULL/);
+      expect(query.mock.calls[2][1]).toEqual([decodeToken(t).jti, 5, 1]);
+    });
+
+    it('401 si la sesión ya se cerró con «Volver a mi sesión» (no hay fila abierta)', async () => {
+      query
+        .mockResolvedValueOnce(tecnico)
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]]);
+      const res = mockRes();
+      const next = mockNext();
+      await authenticate(mockReq({ headers: { authorization: `Bearer ${token()}` } }), res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
     });
 
     it('401 si quien impersona ya no es superadmin activo', async () => {
@@ -124,6 +140,34 @@ describe('auth.middleware', () => {
       expect(query).toHaveBeenCalledTimes(2);
       expect(req.user.impersonadoPor).toBeUndefined();
       expect(ctx.impersonadoPor).toBeNull();
+    });
+  });
+
+  describe('reabrirContexto', () => {
+    it('vuelve a poner al superadmin en el contexto aunque se haya perdido', (done) => {
+      const req = { user: { id: 5, impersonadoPor: { id: 1, username: 'findelias' } } };
+      // Fuera de cualquier contexto, como deja las cosas multer
+      expect(contextoActual()).toBeUndefined();
+      reabrirContexto(req, {}, () => {
+        expect(contextoActual().impersonadoPor).toEqual({ id: 1, username: 'findelias' });
+        done();
+      });
+    });
+
+    it('sin impersonación deja el contexto con null', (done) => {
+      reabrirContexto({ user: { id: 5 } }, {}, () => {
+        expect(contextoActual().impersonadoPor).toBeNull();
+        done();
+      });
+    });
+
+    it('dentro de otro contexto manda el del usuario de la petición', (done) => {
+      conContexto({ impersonadoPor: { id: 9, username: 'otro' } }, () => {
+        reabrirContexto({ user: { id: 5 } }, {}, () => {
+          expect(contextoActual().impersonadoPor).toBeNull();
+          done();
+        });
+      });
     });
   });
 

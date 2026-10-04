@@ -18,9 +18,15 @@
 
 'use strict';
 
-const { logError } = require('./admin.controller');
+const { query }     = require('../config/database');
+const { logError }  = require('./admin.controller');
+const { haceHoras } = require('../utils/fecha.utils');
 
 const LOTE_MAX          = 20;
+// Filas al día por usuario. El limitador de minuto solo frena el ritmo: sin
+// esto, una cuenta podía meter ~1,3 GB al día en error_logs, y la tabla entra
+// entera en cada backup. Una app sana no se acerca: la cola local guarda 30.
+const TOPE_DIARIO       = 200;
 const OCURRIDO_MAX_DIAS = 7;
 const MARGEN_FUTURO_MS  = 5 * 60 * 1000;
 const TIPOS             = ['red', 'timeout', 'http', 'js', 'promesa'];
@@ -59,7 +65,7 @@ function normalizar(e, ahoraMs) {
   const detalle = [
     pagina  && `Página: ${pagina}`,
     version && `Versión app: ${version}`,
-    texto(e.stack, 8000),
+    texto(e.stack, 4000),
   ].filter(Boolean).join('\n');
 
   return {
@@ -79,6 +85,12 @@ async function recibirErrores(req, res, next) {
   try {
     const lote = Array.isArray(req.body?.errores) ? req.body.errores.slice(0, LOTE_MAX) : [];
     const ahoraMs = Date.now();
+    const [[{ hoy }]] = await query(
+      `SELECT COUNT(*) AS hoy FROM error_logs
+        WHERE origen = 'cliente' AND user_id = ? AND created_at >= ?`,
+      [req.user.id, haceHoras(24, new Date(ahoraMs))]
+    );
+    let cupo = Math.max(0, TOPE_DIARIO - Number(hoy));
     const userInfo = req.user.impersonadoPor
       ? `${req.user.username} (vía ${req.user.impersonadoPor.username})`
       : `${req.user.username} (${req.user.nombre})`;
@@ -87,6 +99,10 @@ async function recibirErrores(req, res, next) {
     for (const bruto of lote) {
       const e = normalizar(bruto, ahoraMs);
       if (!e) continue;
+      // Pasado el tope se descarta en silencio con 202: un 429 o un 503 harían
+      // que la app guardase la cola y lo reintentara sin fin.
+      if (cupo <= 0) break;
+      cupo--;
       validos++;
       const ok = await logError({
         ...e,
@@ -108,4 +124,4 @@ async function recibirErrores(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { recibirErrores, normalizar, ocurridoVerosimil, LOTE_MAX };
+module.exports = { recibirErrores, normalizar, ocurridoVerosimil, LOTE_MAX, TOPE_DIARIO };

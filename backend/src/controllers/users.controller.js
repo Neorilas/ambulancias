@@ -101,7 +101,13 @@ async function motivoGestor(caller, { targetId = null, targetRoles = [], newRole
 
   const sinCambioDeRoles = newRoles === undefined || mismoConjunto(newRoles, targetRoles);
 
-  if (targetRoles.some(r => ROLES_DE_MANDO.includes(r))) {
+  // Los roles que YA tiene el usuario cuentan igual que los nuevos: de mando
+  // o con algún permiso es estar a su nivel. Antes solo se miraba «de mando»,
+  // y un rol propio con permisos (p. ej. un «coordinador» con
+  // manage_trabajos) dejaba al gestor editar o quitar ese rol (SEC-20).
+  const aSuNivel = targetRoles.some(r => ROLES_DE_MANDO.includes(r))
+    || (await rolesConPermisos(targetRoles)).length > 0;
+  if (aSuNivel) {
     const esSuFicha = targetId !== null && targetId === caller.id;
     if (!(esSuFicha && sinCambioDeRoles)) return MSG_POR_DEBAJO;
   }

@@ -775,11 +775,22 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v30_errores_cliente']);
+    expect(aplicadas[0]).toBe('v30_errores_cliente');
     const origen = ejecutadas.find(q => q.includes('ADD COLUMN origen'));
     // Las filas que ya hay son 5xx de Express: el DEFAULT las deja bien.
     expect(origen).toContain("ENUM('servidor','cliente') NOT NULL DEFAULT 'servidor'");
     expect(ejecutadas.some(q => q.includes('ADD COLUMN user_agent VARCHAR(500)'))).toBe(true);
     expect(ejecutadas.find(q => q.includes('ADD COLUMN ocurrido_at'))).toContain('DATETIME NULL DEFAULT NULL');
+  });
+
+  it('v31 crea impersonaciones con el jti de clave y fin_at NULL-able', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v30_errores_cliente') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v31_impersonaciones']);
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS impersonaciones'));
+    expect(tabla).toContain('PRIMARY KEY (jti)');
+    expect(tabla).toMatch(/fin_at\s+DATETIME\s+NULL DEFAULT NULL/);
   });
 });

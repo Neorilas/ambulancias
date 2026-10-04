@@ -541,6 +541,7 @@ describe('users.controller', () => {
 
     it('a un técnico puede quitarle o darle roles de campo', async () => {
       query.mockResolvedValueOnce([[{ id: 9, activo: 1, roles: 'tecnico' }]]);
+      query.mockResolvedValueOnce([[]]);   // rolesConPermisos(['tecnico']) → ninguno (los que ya tiene)
       query.mockResolvedValueOnce([[]]);   // rolesConPermisos(['enfermero']) → ninguno
       transaction.mockResolvedValueOnce(undefined);
 
@@ -549,6 +550,26 @@ describe('users.controller', () => {
 
       expect(res.status).not.toHaveBeenCalledWith(403);
       expect(transaction).toHaveBeenCalled();
+    });
+
+    it('no puede editar ni quitar un rol propio con permisos que ya tiene el usuario (SEC-20)', async () => {
+      query.mockResolvedValueOnce([[{ id: 9, activo: 1, roles: 'coordinador' }]]);
+      query.mockResolvedValueOnce([[{ nombre: 'coordinador' }]]);   // tiene manage_trabajos
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '9' }, body: { roles: [] }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(query.mock.calls[1][1]).toEqual(['coordinador']);
+    });
+
+    it('tampoco le cambia los datos a quien tiene ese rol, aunque no toque los roles', async () => {
+      query.mockResolvedValueOnce([[{ id: 9, activo: 1, roles: 'coordinador' }]]);
+      query.mockResolvedValueOnce([[{ nombre: 'coordinador' }]]);
+      const res = mockRes();
+      await updateUser(mockReq({ params: { id: '9' }, body: { email: 'otro@x.es' }, user: GESTOR }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(403);
     });
 
     it.each([['Gestor'], [' gestor '], ['ADMINISTRADOR']])('mayúsculas o espacios no cuelan un rol de mando (%p)', async (rol) => {

@@ -236,6 +236,13 @@ async function startServer() {
     `${require('./src/config/constants').AVISO_SIN_INICIAR_MINUTOS} min`
   );
 
+  // Limpieza de error_logs: siempre encendida (no depende del backup como la
+  // retención de asignaciones: son logs, no datos del servicio). Al arrancar y
+  // cada 6 h. La función no lanza nunca.
+  const { purgarErroresAntiguos } = require('./src/services/limpiezaErrores.service');
+  purgarErroresAntiguos();
+  setInterval(purgarErroresAntiguos, 6 * 60 * 60 * 1000);
+
   // Retención: borra las asignaciones cerradas hace más de N meses con sus
   // fotos. Apagada si RETENCION_ASIGNACIONES_MESES no está en el .env (ver
   // docs/BACKUPS.md §8: solo se enciende con el backup externo funcionando).

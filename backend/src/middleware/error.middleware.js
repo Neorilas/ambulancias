@@ -55,6 +55,14 @@ function errorHandler(err, req, res, _next) {
     });
   }
 
+  // Multipart roto o cortado (subirImagen): culpa de la petición, no un 5xx
+  if (err.multipartRoto) {
+    return res.status(400).json({
+      success: false,
+      message: 'La foto llegó incompleta o dañada. Vuelve a intentarlo.',
+    });
+  }
+
   // Errores de validación de express-validator (lanzados manualmente)
   if (err.type === 'validation') {
     return res.status(422).json({

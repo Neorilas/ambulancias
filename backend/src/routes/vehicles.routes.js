@@ -7,11 +7,11 @@
 const express = require('express');
 const { body, param } = require('express-validator');
 const ctrl    = require('../controllers/vehicles.controller');
-const { authenticate }          = require('../middleware/auth.middleware');
+const { authenticate, reabrirContexto } = require('../middleware/auth.middleware');
 const { requireAdminOrGestor, requireAdmin, requireRole } = require('../middleware/roles.middleware');
 const { ROLES } = require('../config/constants');
 const { handleValidation }      = require('../middleware/validate.middleware');
-const { multerUpload, processAndSave } = require('../middleware/upload.middleware');
+const { subirImagen, processAndSave } = require('../middleware/upload.middleware');
 const { uploadLimiter }         = require('../middleware/rateLimiter.middleware');
 const { requireVehicleUploadAccess } = require('../middleware/ownership.middleware');
 const { IMAGEN_TIPOS }          = require('../config/constants');
@@ -116,7 +116,8 @@ router.delete('/:id',
 // IMPORTANTE: multer antes de express-validator para que req.body esté disponible
 router.post('/:id/images',
   uploadLimiter,
-  multerUpload.single('image'),
+  subirImagen('image'),
+  reabrirContexto, // refuerzo: el contexto de la petición, aunque cambie el parser (BUG-03)
   [
     param('id').isInt({ min: 1 }),
     body('tipo_imagen').notEmpty().isIn(IMAGEN_TIPOS)

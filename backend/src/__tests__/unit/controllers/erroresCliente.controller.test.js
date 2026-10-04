@@ -6,8 +6,9 @@
 
 jest.mock('../../../controllers/admin.controller', () => ({ logError: jest.fn().mockResolvedValue(true) }));
 
+const { query }    = require('../../../config/database');
 const { logError } = require('../../../controllers/admin.controller');
-const { recibirErrores, normalizar, ocurridoVerosimil, LOTE_MAX } =
+const { recibirErrores, normalizar, ocurridoVerosimil, LOTE_MAX, TOPE_DIARIO } =
   require('../../../controllers/erroresCliente.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
@@ -15,7 +16,56 @@ const USER = { id: 7, username: 'jlopez', nombre: 'Juan' };
 const AHORA = Date.parse('2026-10-03T12:00:00Z');
 
 describe('erroresCliente.controller', () => {
-  beforeEach(() => { jest.clearAllMocks(); logError.mockResolvedValue(true); });
+  // Por defecto el usuario no ha mandado nada en las últimas 24 h.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    logError.mockResolvedValue(true);
+    query.mockReset();
+    query.mockResolvedValue([[{ hoy: 0 }]]);
+  });
+
+  describe('tope diario por usuario', () => {
+    const lote = (n) => ({ errores: Array.from({ length: n }, () => ({ tipo: 'red', mensaje: 'Network Error' })) });
+
+    it('cuenta solo lo de la app de ese usuario en las últimas 24 h', async () => {
+      await recibirErrores(mockReq({ user: USER, body: lote(1) }), mockRes(), mockNext());
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toMatch(/origen = 'cliente' AND user_id = \? AND created_at >= \?/);
+      expect(params[0]).toBe(7);
+      expect(params[1]).toBeInstanceOf(Date);
+      expect(Date.now() - params[1].getTime()).toBeGreaterThanOrEqual(24 * 3600 * 1000 - 1000);
+    });
+
+    it('con el cupo casi gastado guarda solo lo que cabe', async () => {
+      query.mockResolvedValue([[{ hoy: TOPE_DIARIO - 3 }]]);
+      const res = mockRes();
+      await recibirErrores(mockReq({ user: USER, body: lote(10) }), res, mockNext());
+      expect(logError).toHaveBeenCalledTimes(3);
+      expect(res.status).toHaveBeenCalledWith(202);
+      expect(res._json.data.guardados).toBe(3);
+    });
+
+    it('pasado el tope no graba nada y contesta 202 (no 503: la app lo reintentaría sin fin)', async () => {
+      query.mockResolvedValue([[{ hoy: TOPE_DIARIO + 50 }]]);
+      const res = mockRes();
+      await recibirErrores(mockReq({ user: USER, body: lote(5) }), res, mockNext());
+      expect(logError).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(202);
+    });
+
+    it('si falla el recuento, pasa el error a next', async () => {
+      query.mockRejectedValue(new Error('BD caída'));
+      const next = mockNext();
+      await recibirErrores(mockReq({ user: USER, body: lote(1) }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+      expect(logError).not.toHaveBeenCalled();
+    });
+  });
+
+  it('recorta el stack a 4000 caracteres', () => {
+    const e = normalizar({ tipo: 'js', mensaje: 'm', stack: 'x'.repeat(9000) }, AHORA);
+    expect(e.stackTrace.length).toBe(4000);
+  });
 
   it('graba cada error con origen cliente, el usuario y el user-agent; responde 202', async () => {
     const res = mockRes();
