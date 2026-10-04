@@ -130,6 +130,7 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores, facturas }) {
     const fichero = e.target.files?.[0] || null;
     setForm(f => ({ ...f, fichero }));
     setErrores(er => ({ ...er, fichero: undefined }));
+    setLectura(null);   // otro PDF: hay que volver a leerlo
   };
 
   const validarFichero = () => {
@@ -144,6 +145,8 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores, facturas }) {
   const leer = async (e) => {
     e.preventDefault();
     if (leyendo || !validarFichero()) return;
+    // Atrás y Siguiente con el mismo PDF: no se relee, que pisaría lo ya corregido a mano
+    if (lectura) { setPaso(2); return; }
     setLeyendo(true);
     try {
       const { con_texto, datos } = await facturasService.leer(form.fichero);
@@ -157,8 +160,10 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores, facturas }) {
       }));
       setLectura({ con_texto, encontrados });
     } catch (err) {
-      // Un 400 (no es un PDF de verdad) se queda en el paso 1: el paso 2 tampoco lo guardaría
-      if (err.status === 400) {
+      // Un rechazo del backend (no es un PDF de verdad, pesa demasiado, sin
+      // permiso) se queda en el paso 1: el paso 2 tampoco lo guardaría. Solo un
+      // fallo de red, de tiempo o del servidor pasa al paso 2 para rellenar a mano.
+      if (err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429) {
         setErrores(er => ({ ...er, fichero: err.message }));
         setLeyendo(false);
         return;
@@ -209,7 +214,8 @@ function SubirFactura({ isOpen, onClose, onSubida, proveedores, facturas }) {
 
   // La misma (proveedor, número) ya guardada: el backend la rechazaría con un 409; mejor verlo antes.
   const repetida = paso === 2 && form.proveedor.trim() && form.numero.trim()
-    && facturas.find(f => f.proveedor.toLowerCase() === form.proveedor.trim().toLowerCase() && f.numero === form.numero.trim());
+    && facturas.find(f => f.proveedor.toLowerCase() === form.proveedor.trim().toLowerCase()
+      && f.numero.toLowerCase() === form.numero.trim().toLowerCase());   // el UNIQUE de MySQL no distingue mayúsculas
 
   const Aviso = ({ campo }) => (errores[campo] ? <p className="text-xs text-bad-600 mt-1">{errores[campo]}</p> : null);
 

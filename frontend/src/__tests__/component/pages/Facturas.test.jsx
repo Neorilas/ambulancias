@@ -232,6 +232,37 @@ describe('Facturas', () => {
       expect(screen.getByText('Guardar factura')).toBeInTheDocument();
     });
 
+    it('Atrás y Siguiente con el mismo PDF no relee ni pisa lo corregido; otro PDF sí se lee', async () => {
+      await abrir();
+      await leer({ con_texto: true, datos: LEIDA, duplicada: false });
+      fireEvent.change(screen.getByLabelText(/Nº de factura/), { target: { value: 'CORREGIDO-1' } });
+      fireEvent.click(screen.getByText('Atrás'));
+      fireEvent.click(screen.getByText('Siguiente'));
+      await screen.findByText('Revisar los datos · 2 de 2');
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('CORREGIDO-1');
+      expect(facturasService.leer).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByText('Atrás'));
+      await leer({ con_texto: true, datos: LEIDA, duplicada: false }, pdf('otra.pdf'));
+      expect(facturasService.leer).toHaveBeenCalledTimes(2);
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('5730000000');
+    });
+
+    it('un rechazo del backend que no es de red (413, 404) se queda en el paso 1', async () => {
+      facturasService.leer.mockRejectedValue(Object.assign(new Error('El PDF no puede pasar de 10 MB'), { status: 413 }));
+      await abrir();
+      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [pdf()] } });
+      fireEvent.click(screen.getByText('Siguiente'));
+      expect(await screen.findByText('El PDF no puede pasar de 10 MB')).toBeInTheDocument();
+      expect(screen.getByText('Subir factura · 1 de 2')).toBeInTheDocument();
+    });
+
+    it('avisa de la repetida aunque el número venga en otras mayúsculas', async () => {
+      await abrir();
+      await leer({ con_texto: true, datos: { ...LEIDA, proveedor: 'Taller Peñalara', numero: 't-1' } });
+      expect(screen.getByText(/Ya hay una factura T-1 de Taller Peñalara/)).toBeInTheDocument();
+    });
+
     it('Cancelar cierra sin leer ni enviar', async () => {
       await abrir();
       fireEvent.click(screen.getByText('Cancelar'));

@@ -144,6 +144,12 @@ describe('lectorFacturas.service', () => {
     it('formato inglés y el € delante', () => {
       expect(lector.importeDe('Total due €1,234.50')).toBe(1234.5);
     });
+    it('una racha enorme de dígitos tras «total» no cuelga la API (era cuadrático) ni da importe', () => {
+      const t0 = Date.now();
+      expect(lector.importeDe(`total ${'9'.repeat(200000)}`)).toBeNull();
+      expect(lector.datosDelTexto(`total factura nº ${'1'.repeat(150000)}\n`.repeat(2)).importe).toBeNull();
+      expect(Date.now() - t0).toBeLessThan(1000);
+    });
     it('sin una línea de total no hay importe (la base o el IVA solos no valen)', () => {
       expect(lector.importeDe('Base imponible 100,00\nIVA 21,00')).toBeNull();
       expect(lector.importeDe('Subtotal 100,00')).toBeNull();

@@ -25,6 +25,11 @@ const logger = require('../utils/logger.utils');
 const MAX_PAGINAS = 5;        // los datos están siempre en la primera; 5 por si hay portada
 const TIMEOUT_MS  = 15000;    // un PDF retorcido no deja la petición colgada
 const MAX = { proveedor: 100, numero: 64 };
+// Topes contra un PDF hecho para colgar la API: las heurísticas son síncronas y
+// el TIMEOUT no las corta. Una factura de verdad no se acerca a ninguno.
+const MAX_ITEMS_PAGINA = 20000;
+const MAX_TEXTO = 200000;
+const MAX_LINEA = 300;
 
 // Proveedores que en el PDF no se llaman como se guardan. Google factura como
 // «Google Ireland Limited», pero aquí es «Google Ads» (el mismo nombre que pone
@@ -53,7 +58,7 @@ async function textoDePdf(buffer) {
         const { items } = await pagina.getTextContent();
         let linea = '';
         let y = null;
-        for (const it of items) {
+        for (const it of items.slice(0, MAX_ITEMS_PAGINA)) {
           if (typeof it.str !== 'string') continue;
           const yItem = it.transform?.[5];
           if (y !== null && yItem !== undefined && Math.abs(yItem - y) > 2 && linea.trim()) {
@@ -66,7 +71,7 @@ async function textoDePdf(buffer) {
         }
         if (linea.trim()) lineas.push(linea);
       }
-      return lineas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+      return lineas.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n').slice(0, MAX_TEXTO);
     })();
     const tope = new Promise((_, rechazar) => {
       reloj = setTimeout(() => rechazar(new Error('tiempo agotado leyendo el PDF')), TIMEOUT_MS);
@@ -157,7 +162,9 @@ function cifra(s) {
   return v === undefined || Number.isNaN(v) ? null : v;
 }
 
-const IMPORTE = /(?:€|eur)?\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})\s*(?:€|eur)?/gi;
+// Con límites a los lados y \d{1,9}: sin ellos, una racha larga de dígitos tras
+// «total» se recorría desde cada posición (cuadrático, y síncrono).
+const IMPORTE = /(?<![\d.,])(?:€|eur)?\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{1,9}[.,]\d{2})(?![\d])\s*(?:€|eur)?/gi;
 
 /**
  * Importe total (IVA incluido): el mayor de los que van en un renglón con
@@ -168,7 +175,7 @@ const IMPORTE = /(?:€|eur)?\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2
 function importeDe(texto) {
   let mayor = null;
   for (const linea of String(texto).split('\n')) {
-    const l = sinTildes(linea);
+    const l = sinTildes(linea.slice(0, MAX_LINEA));
     const m = l.match(/\b(?:importe\s+)?total\b/);
     if (!m) continue;
     if (/sub\s*-?total|total\s+(?:base|bruto|neto|iva|impuestos?|tax|vat|sin\s+iva|excl)|base\s+imponible|pagado|paid/.test(l)) continue;

@@ -420,8 +420,11 @@ con **facturación mensual** (línea de crédito). Las facturas existen (una al
 mes en Facturación → Documentos), pero la API no las da. La vía automática que
 queda es el **correo**: un buzón dedicado, dado de alta en Google Ads →
 Facturación → Configuración → Usuarios del perfil de pagos, que el backend lea
-para coger los PDF adjuntos. **Falta comprobar que Google adjunta el PDF** y no
-solo un enlace. Para ese día ya está preparado: la columna `origen`
+para coger los PDF adjuntos. **Comprobado por el usuario el 2026-10-04: Google
+NO adjunta el PDF**, solo avisa de que está para descargar en Google Ads. Así
+que el buzón no va a traer las de Google; la vía real es la **subida a mano en
+dos pasos** (abajo). El buzón queda para proveedores que sí adjunten el PDF
+(habría que añadirlos a `FACTURAS_REMITENTES`). Lo que se preparó para él: la columna `origen`
 (`manual` | `correo`, la pantalla marca las segundas con «llegó por correo») y
 el `UNIQUE (proveedor, numero)`, para que la misma factura no entre dos veces,
 ni a mano ni por correo.
@@ -516,13 +519,21 @@ Trampas y porqués:
   (S.L., S.A., Ltd…). **Nunca la propia empresa** (`FACTURAS_EMPRESA_PROPIA`,
   por defecto «vapss»), que también sale en la factura como cliente.
 - **pdf.js con PDF de fuera**: `isEvalSupported: false` (CVE-2024-4367, JS
-  desde una fuente del PDF), máximo 5 páginas y 15 s de tope.
+  desde una fuente del PDF), máximo 5 páginas y 15 s de tope. **El tope de
+  tiempo no corta código síncrono** (ni las heurísticas ni partes de pdf.js),
+  así que además: 20 000 trozos por página, 200 000 caracteres de texto y 300
+  por renglón al buscar el total. La regex `IMPORTE` lleva límites a los lados
+  y `\d{1,9}`: sin ellos, «total» seguido de una racha larga de dígitos era
+  cuadrático y colgaba la API (revisión de código, 2026-10-04; hay test).
+- El popup **no relee** con Atrás → Siguiente si el PDF es el mismo (pisaría
+  lo corregido a mano); elegir otro PDF sí. Un 4xx de `/leer` (no es PDF, 413,
+  404) se queda en el paso 1; solo red, 408, 429 o 5xx pasan al paso 2 vacío.
 - `unpdf` **1.4.0 fijada**: las 1.5+ declaran `node >= 22` y el contenedor
   de PRO es `node:20-alpine` (probada en 20 y 22). Carga pdf.js con un
   `import()` dinámico que Jest no soporta: en los tests se simula `unpdf`.
 - El buzón **todavía no usa el lector** (sigue sacando los datos del correo y
-  poniendo como fecha la de llegada). Es el siguiente paso natural cuando
-  llegue la primera factura real de Google.
+  poniendo como fecha la de llegada). Con Google sin adjuntar PDF, solo
+  importaría si se añade un proveedor que sí los adjunte.
 
 **El PDF va dentro de la BD (`facturas.contenido`, MEDIUMBLOB), no en
 `uploads/`.** `/uploads` se sirve estático y sin sesión (son las fotos): una
