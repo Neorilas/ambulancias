@@ -2,6 +2,7 @@
 
 const { query } = require('../config/database');
 const { success } = require('../utils/response.utils');
+const { ROLES } = require('../config/constants');
 
 async function listFeatures(req, res, next) {
   try {
@@ -40,12 +41,18 @@ async function toggleFeature(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Flags de secciones que el resto de la plantilla no debe saber que existen:
+// solo se le dan a administradores y superadmin (ver routes/facturas.routes.js).
+const FLAGS_OCULTOS = ['menu_facturas'];
+const veFlagsOcultos = (user) => (user?.roles || []).some(r => r === ROLES.ADMINISTRADOR || r === ROLES.SUPERADMIN);
+
 async function getActiveFeatures(req, res, next) {
   try {
     const [rows] = await query(
       'SELECT feature_key FROM app_features WHERE enabled = 1'
     );
-    return success(res, rows.map(r => r.feature_key));
+    const ocultos = veFlagsOcultos(req.user) ? [] : FLAGS_OCULTOS;
+    return success(res, rows.map(r => r.feature_key).filter(k => !ocultos.includes(k)));
   } catch (err) { next(err); }
 }
 

@@ -65,6 +65,22 @@ export const facturasService = {
     }
   },
 
+  /** { configurado, buzon, ultima: { at, ok, revisados, importadas, ya_estaban, descartados, error? } | null } */
+  estadoBuzon() {
+    return api.get('/facturas/buzon').then(r => r.data.data);
+  },
+
+  /** Revisa el buzón ahora. Devuelve el mismo estado, con la revisión recién hecha. */
+  async revisarBuzon() {
+    try {
+      // Una revisión con varios PDF puede pasar de los 30 s por defecto.
+      const r = await api.post('/facturas/buzon/revisar', {}, { timeout: SUBIDA_FOTO_TIMEOUT_MS });
+      return r.data.data;
+    } catch (err) {
+      throw await mensajeDeError(err, 'No se pudo revisar el buzón');
+    }
+  },
+
   eliminar(id) {
     return api.delete(`/facturas/${id}`).then(r => r.data);
   },

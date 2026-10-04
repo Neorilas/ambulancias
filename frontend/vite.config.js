@@ -94,7 +94,9 @@ export default defineConfig(({ mode }) => {
           // TensorFlow (chunk `deteccion`) solo lo necesita quien abre la
           // cámara para fotos exteriores. Precacheado, lo bajaría TODO el que
           // instala o actualiza la app. Lo cachea src/sw.js en el primer uso.
-          globIgnores:  ['**/deteccion-*.js'],
+          // Facturas (lazy en App.jsx) es solo de administración: que no la
+          // baje al móvil el resto de la plantilla.
+          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js'],
         },
         devOptions: {
           enabled: true,   // habilitar SW en desarrollo para testing

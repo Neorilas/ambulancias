@@ -103,6 +103,26 @@ services:
       CARTRACK_CACHE_MS:  ${CARTRACK_CACHE_MS:-30000}
       CARTRACK_TIMEOUT_MS: ${CARTRACK_TIMEOUT_MS:-8000}
 
+      # ── Buzón de facturas (facturas@vapss.net, Hostalia) ───────────────────
+      # El backend lee el buzón y guarda solos los PDF de las facturas
+      # (services/buzonFacturas.service.js). Usuario y contraseña salen del
+      # .env del servidor, que NO está en el repo (es público). Vacíos = buzón
+      # apagado; la subida a mano de /facturas funciona igual.
+      # El host es el de Hostalia que casa con su certificado: imap.vapss.net
+      # apunta a la misma máquina pero el certificado no lleva ese nombre.
+      FACTURAS_IMAP_HOST:       ${FACTURAS_IMAP_HOST:-imap.servidor-correo.net}
+      FACTURAS_IMAP_PORT:       ${FACTURAS_IMAP_PORT:-993}
+      FACTURAS_IMAP_USUARIO:    ${FACTURAS_IMAP_USUARIO:-}
+      FACTURAS_IMAP_CONTRASENA: ${FACTURAS_IMAP_CONTRASENA:-}
+      FACTURAS_IMAP_CARPETA:    ${FACTURAS_IMAP_CARPETA:-INBOX}
+      # Solo se guardan PDF de estos remitentes (dominios o direcciones, con comas)
+      FACTURAS_REMITENTES:      ${FACTURAS_REMITENTES:-google.com}
+      # Exige la firma DKIM/DMARC del remitente que comprobó el servidor de
+      # correo (Authentication-Results): el From se falsifica. 0 = no mirarla.
+      FACTURAS_EXIGIR_FIRMA:    ${FACTURAS_EXIGIR_FIRMA:-1}
+      FACTURAS_BUZON_DIAS:      ${FACTURAS_BUZON_DIAS:-45}
+      FACTURAS_BUZON_MINUTOS:   ${FACTURAS_BUZON_MINUTOS:-60}
+
       # ── Uploads ─────────────────────────────────────────────────────────────
       UPLOADS_DIR: ./uploads
       MAX_FILE_SIZE_MB: 10

@@ -61,6 +61,40 @@ function requirePermission(perm) {
   };
 }
 
+/**
+ * ocultarSalvoRoles(...roles) — como requireRole, pero quien no tiene el rol
+ * recibe el MISMO 404 que una ruta que no existe (`notFound` de
+ * error.middleware), no un 403. Para secciones cuya existencia no debe
+ * conocer el resto de la plantilla (facturas: solo administración). Un 403
+ * con «Requiere rol: …» confirmaría que la ruta está ahí.
+ *
+ * Se audita igual que un 403 (`access_denied`), para que el intento no pase
+ * desapercibido. Va DESPUÉS de authenticate: un token caducado sigue dando
+ * 401, que es lo que hace que la app refresque la sesión del administrador.
+ */
+function ocultarSalvoRoles(...allowedRoles) {
+  return (req, res, next) => {
+    if (req.user && allowedRoles.some(role => (req.user.roles || []).includes(role))) return next();
+
+    req._accesoDenegadoAuditado = true;
+    if (req.user) {
+      try {
+        const { logAudit } = require('../controllers/admin.controller');
+        logAudit({
+          userId:     req.user.id,
+          userInfo:   req.user.username,
+          action:     'access_denied',
+          entityType: 'ruta_oculta',
+          details:    { ruta: `${req.method} ${req.originalUrl}`, motivo: `oculta salvo para: ${allowedRoles.join(', ')}` },
+          ip:         req.ip,
+          userAgent:  req.headers?.['user-agent'],
+        });
+      } catch { /* la auditoría nunca rompe la respuesta */ }
+    }
+    return res.status(404).json({ success: false, message: `Ruta no encontrada: ${req.method} ${req.originalUrl}` });
+  };
+}
+
 // ── Aliases de conveniencia ───────────────────────────────────
 
 const requireSuperAdmin    = requireRole(ROLES.SUPERADMIN);
@@ -115,6 +149,7 @@ const isOperacional = (user) =>
 
 module.exports = {
   requireRole,
+  ocultarSalvoRoles,
   requirePermission,
   requireSuperAdmin,
   requireAdmin,

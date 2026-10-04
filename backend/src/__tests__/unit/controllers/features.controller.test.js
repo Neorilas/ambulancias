@@ -75,6 +75,21 @@ describe('features.controller', () => {
       expect(res._json.data).toEqual(['menu_vehiculos', 'menu_mis_asignaciones']);
     });
 
+    it('menu_facturas solo se le enseña a administración: para el resto no existe', async () => {
+      const filas = [[{ feature_key: 'menu_vehiculos' }, { feature_key: 'menu_facturas' }]];
+      const pedir = async (roles) => {
+        query.mockResolvedValueOnce(filas);
+        const res = mockRes();
+        await getActiveFeatures(mockReq({ user: { id: 9, roles } }), res, mockNext());
+        return res._json.data;
+      };
+      expect(await pedir(['administrador'])).toEqual(['menu_vehiculos', 'menu_facturas']);
+      expect(await pedir(['superadmin'])).toEqual(['menu_vehiculos', 'menu_facturas']);
+      expect(await pedir(['gestor'])).toEqual(['menu_vehiculos']);
+      expect(await pedir(['tecnico'])).toEqual(['menu_vehiculos']);
+      expect(await pedir([])).toEqual(['menu_vehiculos']);
+    });
+
     it('sin ninguna activa devuelve una lista vacía', async () => {
       query.mockResolvedValueOnce([[]]);
 

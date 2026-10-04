@@ -10,10 +10,16 @@
  */
 
 jest.mock('../../../controllers/admin.controller', () => ({ logAudit: jest.fn(), logError: jest.fn() }));
+jest.mock('../../../services/buzonFacturas.service', () => ({
+  estado: jest.fn(() => ({ configurado: true, buzon: 'facturas@vapss.net', ultima: null })),
+  configurado: jest.fn(() => true),
+  revisarBuzon: jest.fn(),
+}));
 
 const { query } = require('../../../config/database');
 const { logAudit } = require('../../../controllers/admin.controller');
 const ctrl = require('../../../controllers/facturas.controller');
+const buzon = require('../../../services/buzonFacturas.service');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 const ADMIN = { id: 67, username: 'fjtamayo', roles: ['administrador'] };
@@ -236,6 +242,31 @@ describe('facturas.controller', () => {
       const next = mockNext();
       await ctrl.deleteFactura(mockReq({ user: ADMIN, params: { id: '3' } }), mockRes(), next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  describe('buzón', () => {
+    it('getBuzon devuelve el estado del servicio', () => {
+      const res = mockRes();
+      ctrl.getBuzon(mockReq({ user: ADMIN }), res);
+      expect(res._json.data).toEqual({ configurado: true, buzon: 'facturas@vapss.net', ultima: null });
+    });
+
+    it('revisarBuzon revisa ahora y devuelve el resultado', async () => {
+      buzon.revisarBuzon.mockResolvedValueOnce({ ok: true, importadas: 2 });
+      const res = mockRes();
+      await ctrl.revisarBuzon(mockReq({ user: ADMIN }), res);
+      expect(res.statusCode).toBe(200);
+      expect(res._json.data.ultima).toEqual({ ok: true, importadas: 2 });
+    });
+
+    it('revisarBuzon sin configurar → 409 sin intentar conectar', async () => {
+      buzon.configurado.mockReturnValueOnce(false);
+      buzon.revisarBuzon.mockClear();
+      const res = mockRes();
+      await ctrl.revisarBuzon(mockReq({ user: ADMIN }), res);
+      expect(res.statusCode).toBe(409);
+      expect(buzon.revisarBuzon).not.toHaveBeenCalled();
     });
   });
 });

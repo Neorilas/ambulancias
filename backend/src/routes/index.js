@@ -70,12 +70,13 @@ router.use('/flota',        flotaRoutes);
 router.use('/informes',     informesRoutes);
 router.use('/facturas',     facturasRoutes);
 
-// Ruta raíz de la API - info básica
+// Ruta raíz de la API - info básica. Es pública: /facturas no se lista, es
+// una sección oculta para quien no es administración (facturas.routes.js).
 router.get('/', (_req, res) => {
   res.json({
     name:    'Ambulancias API',
     version: '1.0.0',
-    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin', '/push', '/flota', '/informes', '/facturas'],
+    endpoints: ['/auth', '/users', '/vehicles', '/trabajos', '/asignaciones', '/admin', '/push', '/flota', '/informes'],
   });
 });
 

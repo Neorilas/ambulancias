@@ -68,4 +68,19 @@ describe('facturas.service', () => {
     await facturasService.eliminar(4);
     expect(api.delete).toHaveBeenCalledWith('/facturas/4');
   });
+
+  it('estadoBuzon llama a GET /facturas/buzon', async () => {
+    api.get.mockResolvedValueOnce({ data: { data: { configurado: true } } });
+    expect(await facturasService.estadoBuzon()).toEqual({ configurado: true });
+    expect(api.get).toHaveBeenCalledWith('/facturas/buzon');
+  });
+
+  it('revisarBuzon llama a POST /facturas/buzon/revisar con timeout largo y explica los fallos', async () => {
+    api.post.mockResolvedValueOnce({ data: { data: { ultima: { ok: true } } } });
+    expect(await facturasService.revisarBuzon()).toEqual({ ultima: { ok: true } });
+    expect(api.post).toHaveBeenCalledWith('/facturas/buzon/revisar', {}, { timeout: SUBIDA_FOTO_TIMEOUT_MS });
+
+    api.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'El buzón de facturas no está configurado en el servidor' } } });
+    await expect(facturasService.revisarBuzon()).rejects.toMatchObject({ status: 409, message: 'El buzón de facturas no está configurado en el servidor' });
+  });
 });
