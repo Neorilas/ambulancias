@@ -124,6 +124,8 @@ const ACCESO = {
   'POST /facturas/':                   ['denegada'],
   'GET /facturas/:id/descarga':        ['denegada'],
   'DELETE /facturas/:id':              ['denegada'],
+  'GET /facturas/buzon':               ['denegada'],
+  'POST /facturas/buzon/revisar':      ['denegada'],
 };
 
 // Rol mínimo de las rutas `denegada` que no son de gestión (gestor o más).
@@ -148,6 +150,8 @@ const NIVEL = {
   'POST /facturas/':                       'administrador',
   'GET /facturas/:id/descarga':            'administrador',
   'DELETE /facturas/:id':                  'administrador',
+  'GET /facturas/buzon':                   'administrador',
+  'POST /facturas/buzon/revisar':          'administrador',
   'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
 };
 const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';

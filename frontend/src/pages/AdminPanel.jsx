@@ -82,6 +82,8 @@ const ACTION_LABEL = {
   download_backup:     'Descargó un backup de la BD',
   create_factura:      'Subió una factura',
   delete_factura:      'Eliminó una factura',
+  // La hace el buzón de facturas@ (user_info «sistema (buzón de facturas)»).
+  import_factura:      'Llegó una factura por correo',
 };
 
 // El resto de acciones (crear/editar/activar) son rutina: azul de marca.

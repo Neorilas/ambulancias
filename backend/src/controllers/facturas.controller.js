@@ -208,8 +208,25 @@ async function deleteFactura(req, res, next) {
   }
 }
 
+// El servicio del buzón usa esPdf e importeValido de aquí: se carga al usarlo
+// para no hacer un require circular.
+const buzon = () => require('../services/buzonFacturas.service');
+
+/** GET /facturas/buzon — si el buzón está configurado y cómo fue la última revisión. */
+function getBuzon(_req, res) {
+  return success(res, buzon().estado());
+}
+
+/** POST /facturas/buzon/revisar — revisa el buzón ahora, sin esperar al cron. */
+async function revisarBuzon(req, res) {
+  const b = buzon();
+  if (!b.configurado()) return error(res, 'El buzón de facturas no está configurado en el servidor', 409);
+  const resultado = await b.revisarBuzon();
+  return success(res, { ...b.estado(), ultima: resultado });
+}
+
 module.exports = {
-  listFacturas, createFactura, downloadFactura, deleteFactura,
+  listFacturas, createFactura, downloadFactura, deleteFactura, getBuzon, revisarBuzon,
   // para los tests
   importeValido, fechaValida, esPdf, nombreDescarga,
 };

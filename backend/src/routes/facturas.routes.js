@@ -25,6 +25,10 @@ router.use(authenticate);
 router.use(requireRole(ROLES.SUPERADMIN, ROLES.ADMINISTRADOR));
 
 router.get('/', ctrl.listFacturas);
+// El buzón de facturas@ (services/buzonFacturas.service.js). Van antes de
+// /:id para que «buzon» no se lea como un id.
+router.get('/buzon', ctrl.getBuzon);
+router.post('/buzon/revisar', ctrl.revisarBuzon);
 router.post('/', uploadLimiter, subirPdf('fichero'), reabrirContexto, ctrl.createFactura);
 router.get('/:id/descarga', ctrl.downloadFactura);
 router.delete('/:id', ctrl.deleteFactura);

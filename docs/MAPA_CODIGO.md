@@ -88,7 +88,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 | `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
-| `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id`. **Solo administrador y superadmin, por rol, comprobado antes de multer**. El flag `menu_facturas` es solo de menú (§2.8) |
+| `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id` · GET `/buzon` (estado del buzón) · POST `/buzon/revisar` (revisa ya; 409 si no está configurado). **Solo administrador y superadmin, por rol, comprobado antes de multer**. El flag `menu_facturas` es solo de menú (§2.8) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
@@ -133,6 +133,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/limpiezaErrores.service.js` | Purga de `error_logs`: los de la app (`cliente`) a 30 días, los del servidor a 180, por tandas de 5000. **Siempre encendida** (son logs, no datos del servicio; no depende del backup como la retención). `server.js` la lanza al arrancar y cada 6 h. Nunca lanza |
 | `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
+| `services/buzonFacturas.service.js` | Lee el buzón de facturas@ por IMAP y guarda los PDF de los remitentes permitidos (§2.8). Apagado sin `FACTURAS_IMAP_USUARIO/CONTRASENA`. **Nunca lanza** |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
@@ -401,6 +402,44 @@ solo un enlace. Para ese día ya está preparado: la columna `origen`
 (`manual` | `correo`, la pantalla marca las segundas con «llegó por correo») y
 el `UNIQUE (proveedor, numero)`, para que la misma factura no entre dos veces,
 ni a mano ni por correo.
+
+**Buzón de facturas (2026-10-04): `services/buzonFacturas.service.js`.** El
+backend lee `facturas@vapss.net` (Hostalia) por IMAP y guarda solos los PDF
+adjuntos con `origen = 'correo'`. Se enciende poniendo en el `.env` del
+servidor (`/root/ambulancia/.env` en PRO) `FACTURAS_IMAP_USUARIO` y
+`FACTURAS_IMAP_CONTRASENA`; el resto tiene valor por defecto en
+`docker-compose.yml` (`.env.example` las documenta). `server.js` hace la
+primera pasada a los 2 min del arranque y luego cada `FACTURAS_BUZON_MINUTOS`
+(60). La pantalla enseña el estado de la última pasada (`GET /facturas/buzon`)
+y un botón «Revisar ahora» (`POST /facturas/buzon/revisar`). Reglas y trampas:
+- **Host `imap.servidor-correo.net`, no `imap.vapss.net`.** Los dos son la
+  misma máquina de Hostalia (217.116.0.237), pero el certificado TLS es el
+  compartido de Hostalia (`*.servidor-correo.net`): con `imap.vapss.net` la
+  verificación da «hostname mismatch». Comprobado desde el servidor de PRO.
+- **Solo lectura**: abre la carpeta con `readOnly`, no marca, no mueve, no
+  borra. Cada pasada mira los últimos `FACTURAS_BUZON_DIAS` (45) días y se salta
+  lo que ya está por (proveedor, número), con un SELECT previo para no llenar el
+  log de `ER_DUP_ENTRY` cada hora. Da igual que alguien abra el correo a mano.
+- **Solo remitentes de `FACTURAS_REMITENTES`** (por defecto `google.com`, y sus
+  subdominios; `google.com.estafa.io` no vale). El buzón recibe correo de
+  cualquiera. Se comprueba en el sobre (para no descargar) y otra vez en la
+  cabecera parseada. El remitente se puede falsificar; el riesgo es un PDF de
+  más en un panel de administradores, que se borra.
+- **Lo que se deduce es heurístico** (`datosDeFactura`) hasta ver un correo
+  real de Google: proveedor por el remitente (Google → «Google Ads», el mismo
+  nombre que a mano, para que el UNIQUE case); número por el nombre del PDF
+  (Google los llama por su número) o por el texto; importe por «Total/Importe»
+  del texto, o NULL; **fecha = día en que llegó el correo**, no la de emisión
+  (Google emite el último día del mes y avisa días después). Cuando llegue la
+  primera, ajustar con el correo de verdad delante.
+- Nunca lanza: devuelve un resumen (`ultima`) que vive en memoria; tras un
+  deploy la pantalla dice «todavía no se ha revisado» hasta la primera pasada.
+  Cron y botón a la vez comparten la misma pasada (`enCurso`).
+- La importación queda en `audit_logs` como `import_factura`, a nombre de
+  «sistema (buzón de facturas)».
+- El servicio usa `esPdf`/`importeValido` del controlador y el controlador
+  carga el servicio **dentro** de la función (`buzon()`): es un require
+  circular y así no se rompe.
 
 **El PDF va dentro de la BD (`facturas.contenido`, MEDIUMBLOB), no en
 `uploads/`.** `/uploads` se sirve estático y sin sesión (son las fotos): una
@@ -1362,7 +1401,7 @@ solo actúa en el navegador no es un control de acceso.
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. Una ruta de subida: `subirImagen` + `reabrirContexto` detrás. La sesión vive en `impersonaciones` (v31): lo que cambie su duración o su cierre toca `impersonar`, `auth.middleware` y `finImpersonacion` a la vez. §6.3 |
 | La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
 | El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. §2.7 |
-| Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (rol) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Para que lleguen solas por correo: insertar con `origen = 'correo'` y apoyarse en el `UNIQUE (proveedor, numero)` (§2.8) |
+| Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (rol) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |

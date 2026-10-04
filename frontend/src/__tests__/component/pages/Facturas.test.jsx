@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../../services/facturas.service.js', () => ({
-  facturasService: { list: vi.fn(), subir: vi.fn(), descargar: vi.fn(), eliminar: vi.fn() },
+  facturasService: { list: vi.fn(), subir: vi.fn(), descargar: vi.fn(), eliminar: vi.fn(), estadoBuzon: vi.fn(), revisarBuzon: vi.fn() },
 }));
 
 import { facturasService }      from '../../../services/facturas.service.js';
@@ -41,6 +41,7 @@ describe('Facturas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     facturasService.list.mockResolvedValue(FACTURAS);
+    facturasService.estadoBuzon.mockResolvedValue({ configurado: false, buzon: null, ultima: null });
   });
 
   it('lista las facturas con su total y filtra por año y proveedor', async () => {
@@ -191,6 +192,72 @@ describe('Facturas', () => {
       await abrir();
       fireEvent.click(screen.getByText('Cancelar'));
       expect(screen.queryByText('Guardar factura')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('buzón de facturas', () => {
+    const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+
+    it('sin buzón configurado no se pinta nada del buzón', async () => {
+      montar();
+      await screen.findByText('5705694492');
+      expect(screen.queryByText('Revisar ahora')).not.toBeInTheDocument();
+    });
+
+    it('enseña el buzón y la última revisión', async () => {
+      facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net',
+        ultima: { at: hace(5), ok: true, importadas: 0 } });
+      montar();
+      expect(await screen.findByText('facturas@vapss.net')).toBeInTheDocument();
+      expect(screen.getByText(/revisado hace 5 min, nada nuevo/)).toBeInTheDocument();
+    });
+
+    it('si la última revisión falló, dice por qué', async () => {
+      facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net',
+        ultima: { at: hace(120), ok: false, error: 'Usuario o contraseña del buzón incorrectos' } });
+      montar();
+      expect(await screen.findByText(/falló hace 2 h: Usuario o contraseña del buzón incorrectos/)).toBeInTheDocument();
+    });
+
+    it('sin revisiones aún lo dice, y si el estado no carga la pantalla sigue', async () => {
+      facturasService.estadoBuzon.mockResolvedValueOnce({ configurado: true, buzon: 'facturas@vapss.net', ultima: null });
+      const { unmount } = montar();
+      expect(await screen.findByText(/todavía no se ha revisado/)).toBeInTheDocument();
+      unmount();
+
+      facturasService.estadoBuzon.mockRejectedValueOnce(new Error('x'));
+      montar();
+      expect(await screen.findByText('5705694492')).toBeInTheDocument();
+    });
+
+    it('«Revisar ahora» con facturas nuevas avisa y recarga la lista', async () => {
+      facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net', ultima: null });
+      facturasService.revisarBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net',
+        ultima: { at: hace(0), ok: true, importadas: 2 } });
+      montar();
+      fireEvent.click(await screen.findByText('Revisar ahora'));
+
+      expect(await screen.findByText('2 facturas nuevas del buzón')).toBeInTheDocument();
+      expect(screen.getByText(/revisado ahora mismo, 2 nuevas/)).toBeInTheDocument();
+      await waitFor(() => expect(facturasService.list).toHaveBeenCalledTimes(2));
+    });
+
+    it('«Revisar ahora» sin nada nuevo, con fallo del buzón o con error de red', async () => {
+      facturasService.estadoBuzon.mockResolvedValue({ configurado: true, buzon: 'facturas@vapss.net', ultima: null });
+      facturasService.revisarBuzon
+        .mockResolvedValueOnce({ configurado: true, ultima: { at: hace(0), ok: true, importadas: 0 } })
+        .mockResolvedValueOnce({ configurado: true, ultima: { at: hace(0), ok: false, error: 'Mailbox busy' } })
+        .mockRejectedValueOnce(new Error('No se pudo revisar el buzón'));
+      montar();
+      const boton = await screen.findByText('Revisar ahora');
+
+      fireEvent.click(boton);
+      expect(await screen.findByText('No hay facturas nuevas en el buzón')).toBeInTheDocument();
+      fireEvent.click(screen.getByText('Revisar ahora'));
+      expect(await screen.findAllByText(/Mailbox busy/)).not.toHaveLength(0);
+      fireEvent.click(screen.getByText('Revisar ahora'));
+      expect(await screen.findByText('No se pudo revisar el buzón')).toBeInTheDocument();
+      expect(facturasService.list).toHaveBeenCalledTimes(1);
     });
   });
 });

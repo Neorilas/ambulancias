@@ -243,6 +243,23 @@ async function startServer() {
   purgarErroresAntiguos();
   setInterval(purgarErroresAntiguos, 6 * 60 * 60 * 1000);
 
+  // Buzón de facturas (facturas@vapss.net): guarda solos los PDF que mandan
+  // los proveedores. Apagado si faltan FACTURAS_IMAP_USUARIO/CONTRASENA en el
+  // .env. Primera pasada a los 2 min (que el arranque y las migraciones vayan
+  // antes) y luego cada FACTURAS_BUZON_MINUTOS. La función no lanza nunca.
+  const buzonFacturas = require('./src/services/buzonFacturas.service');
+  if (buzonFacturas.configurado()) {
+    const cadaMin = parseInt(process.env.FACTURAS_BUZON_MINUTOS, 10) || 60;
+    const pasadaBuzon = () => buzonFacturas.revisarBuzon().then((r) => {
+      if (r.ok && r.importadas) logger.info(`Buzón de facturas: ${r.importadas} nuevas`);
+    });
+    setTimeout(pasadaBuzon, 2 * 60 * 1000);
+    setInterval(pasadaBuzon, cadaMin * 60 * 1000);
+    logger.info(`Buzón de facturas: ${buzonFacturas.config().usuario}, revisión cada ${cadaMin} min`);
+  } else {
+    logger.info('Buzón de facturas: apagado (FACTURAS_IMAP_USUARIO / FACTURAS_IMAP_CONTRASENA sin definir)');
+  }
+
   // Retención: borra las asignaciones cerradas hace más de N meses con sus
   // fotos. Apagada si RETENCION_ASIGNACIONES_MESES no está en el .env (ver
   // docs/BACKUPS.md §8: solo se enciende con el backup externo funcionando).

@@ -5,9 +5,10 @@
  * admin y superadmin: lo decide el backend por rol (routes/facturas.routes.js);
  * el flag `menu_facturas` solo pone la pantalla en el menú.
  *
- * Hoy se suben a mano. El backend ya distingue `origen` ('manual' | 'correo')
- * para cuando lleguen solas desde el buzón de facturas; aquí se marca con una
- * etiqueta y nada más cambia.
+ * Se suben a mano o llegan solas desde el buzón de facturas@ (lo lee el
+ * backend, services/buzonFacturas.service.js). Las del buzón llevan
+ * `origen: 'correo'` y se marcan con una etiqueta; arriba va el estado de la
+ * última revisión y un botón para revisarlo ya.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -48,6 +49,43 @@ function nombreDescarga(f) {
 
 function formularioVacio(proveedor) {
   return { proveedor: proveedor || PROVEEDOR_POR_DEFECTO, numero: '', fecha_emision: '', importe: '', notas: '', fichero: null };
+}
+
+/** «hace 5 min», «hace 2 h», o la fecha si es de otro día. */
+function haceCuanto(iso) {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!Number.isFinite(min)) return '';
+  if (min < 1) return 'ahora mismo';
+  if (min < 60) return `hace ${min} min`;
+  if (min < 24 * 60) return `hace ${Math.round(min / 60)} h`;
+  return new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Estado del buzón de facturas@ (lo lee el backend solo, cada hora) y un botón
+ * para revisarlo ya. Sin buzón configurado en el servidor no se pinta nada:
+ * la subida a mano sigue igual.
+ */
+function EstadoBuzon({ estado, revisando, onRevisar }) {
+  if (!estado?.configurado) return null;
+  const u = estado.ultima;
+  return (
+    <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 text-sm">
+      <div className="flex-1 min-w-0">
+        <span className="text-neutral-600">Buzón </span>
+        <span className="font-mono text-neutral-900 break-all">{estado.buzon}</span>
+        <span className="text-neutral-500">
+          {!u ? ' · todavía no se ha revisado desde el último arranque'
+            : u.ok ? ` · revisado ${haceCuanto(u.at)}${u.importadas ? `, ${u.importadas} ${u.importadas === 1 ? 'nueva' : 'nuevas'}` : ', nada nuevo'}`
+            : null}
+        </span>
+        {u && !u.ok && <span className="text-bad-600"> · falló {haceCuanto(u.at)}: {u.error}</span>}
+      </div>
+      <button className="btn-secondary self-start sm:self-auto py-1.5 text-sm" onClick={onRevisar} disabled={revisando}>
+        {revisando ? 'Revisando…' : 'Revisar ahora'}
+      </button>
+    </div>
+  );
 }
 
 function SubirFactura({ isOpen, onClose, onSubida, proveedores }) {
@@ -182,6 +220,8 @@ export default function Facturas() {
   const [borrando, setBorrando] = useState(null);
   const [borrandoEnCurso, setBorrandoEnCurso] = useState(false);
   const [descargando, setDescargando] = useState(null);
+  const [buzon, setBuzon] = useState(null);
+  const [revisando, setRevisando] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -195,6 +235,28 @@ export default function Facturas() {
   }, [notify]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // El estado del buzón es un extra: si falla, la pantalla funciona igual.
+  useEffect(() => { facturasService.estadoBuzon().then(setBuzon).catch(() => {}); }, []);
+
+  const revisarBuzon = async () => {
+    setRevisando(true);
+    try {
+      const estado = await facturasService.revisarBuzon();
+      setBuzon(estado);
+      if (estado.ultima?.ok) {
+        const n = estado.ultima.importadas;
+        notify.success(n ? `${n} ${n === 1 ? 'factura nueva' : 'facturas nuevas'} del buzón` : 'No hay facturas nuevas en el buzón');
+        if (n) cargar();
+      } else {
+        notify.error(estado.ultima?.error || 'No se pudo revisar el buzón');
+      }
+    } catch (err) {
+      notify.error(err.message);
+    } finally {
+      setRevisando(false);
+    }
+  };
 
   const anios = useMemo(
     () => [...new Set(facturas.map(f => f.fecha_emision?.slice(0, 4)).filter(Boolean))].sort().reverse(),
@@ -249,10 +311,14 @@ export default function Facturas() {
         </button>
       </div>
 
+      <EstadoBuzon estado={buzon} revisando={revisando} onRevisar={revisarBuzon} />
+
       {loading ? <PageLoading /> : facturas.length === 0 ? (
         <div className="empty">
           <p className="empty-title">Todavía no hay facturas</p>
-          <p className="empty-hint">Sube la primera con «Subir factura»</p>
+          <p className="empty-hint">
+            {buzon?.configurado ? 'Llegarán solas desde el buzón, o súbelas con «Subir factura»' : 'Sube la primera con «Subir factura»'}
+          </p>
         </div>
       ) : (
         <>
