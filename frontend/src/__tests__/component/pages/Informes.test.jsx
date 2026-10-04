@@ -27,8 +27,9 @@ const DATOS = {
     por_tecnico: [{ user_id: 7, nombre: 'Ana Ruiz', servicios: 8, como_personal: 2, iniciados: 8,
                     inicios_tardios: 2, retraso_mediana_min: 95, sin_iniciar: 0, con_llegada: 4,
                     con_fotos_inicio_tarde: 1, incidencias: 1,
-                    horas_asignacion: 61.5, servicios_con_horas_asignacion: 9,
-                    horas_en_servicio: 33.2, servicios_con_horas_en_servicio: 6 }],
+                    finalizados: 7, cierres_tardios: 1, cierres_anticipados: 0, desplazamiento_mediana_min: 25,
+                    minutos_asignacion: 3690, asignaciones_medidas: 9,
+                    minutos_en_evento: 1995, eventos_medidos: 6, eventos_sin_fin: 2 }],
   },
   comparativa: {
     anterior: { mes: '2026-07', resumen: { ...RESUMEN, inicios_tardios: 2 } },
@@ -64,25 +65,30 @@ describe('Informes', () => {
     expect(screen.getByText('12,5 h')).toBeInTheDocument();
   });
 
-  it('por técnico: las pestañas cambian cómo se cuentan las horas', async () => {
+  it('por técnico: cada pestaña tiene sus columnas y su tiempo total', async () => {
     montar();
     await screen.findByText('Ana Ruiz');
-    expect(screen.getByRole('tab', { name: 'Asignación completa' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText('61,5')).toBeInTheDocument();
-    expect(screen.queryByText('33,2')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Asignación' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('61 h 30 min')).toBeInTheDocument();          // 3690 min
+    expect(screen.getByText('6 h 50 min')).toBeInTheDocument();           // media de 9
+    expect(screen.getByRole('columnheader', { name: 'Cierres tardíos' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Sin fin de evento' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'En el evento/servicio' }));
-    expect(screen.getByText('33,2')).toBeInTheDocument();
-    expect(screen.queryByText('61,5')).not.toBeInTheDocument();
-    expect(screen.getByText(/Un servicio sin alguno de los dos botones no suma/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Evento/servicio' }));
+    expect(screen.getByText('33 h 15 min')).toBeInTheDocument();          // 1995 min
+    expect(screen.getByText('5 h 33 min')).toBeInTheDocument();           // media de 6
+    expect(screen.getByRole('columnheader', { name: 'Sin fin de evento' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Cierres tardíos' })).not.toBeInTheDocument();
+    expect(screen.queryByText('61 h 30 min')).not.toBeInTheDocument();
   });
 
-  it('un informe sin horas por técnico (archivado viejo) pinta «—»', async () => {
-    const { horas_asignacion, servicios_con_horas_asignacion, ...sinHoras } = DATOS.actual.por_tecnico[0];
-    informesService.getMensual.mockResolvedValue({ ...DATOS, actual: { ...DATOS.actual, por_tecnico: [sinHoras] } });
+  it('un informe sin tiempos por técnico (archivado viejo) pinta «—»', async () => {
+    const { minutos_asignacion, asignaciones_medidas, ...sinTiempo } = DATOS.actual.por_tecnico[0];
+    informesService.getMensual.mockResolvedValue({ ...DATOS, actual: { ...DATOS.actual, por_tecnico: [sinTiempo] } });
     montar();
-    const fila = (await screen.findByText('Ana Ruiz')).closest('tr');
-    expect(fila.querySelectorAll('td')[1]).toHaveTextContent('—');
+    const celdas = (await screen.findByText('Ana Ruiz')).closest('tr').querySelectorAll('td');
+    expect(celdas[1]).toHaveTextContent('—');
+    expect(celdas[3]).toHaveTextContent('—');
   });
 
   it('cambiar de mes vuelve a pedir el informe', async () => {

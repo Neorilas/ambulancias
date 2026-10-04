@@ -145,7 +145,7 @@ describe('informes.service · calcularInforme', () => {
     expect(r.por_tecnico.some(t => t.user_id === 9)).toBe(false);
   });
 
-  it('por técnico: horas de asignación y en el evento, responsable y personal por igual', async () => {
+  it('por técnico: tiempo de asignación y en el evento, responsable y personal por igual', async () => {
     bd({
       asignaciones: [
         // 06:05 → 14:00 de asignación (7h55); 06:30 → 12:00 en el evento (5h30)
@@ -166,12 +166,12 @@ describe('informes.service · calcularInforme', () => {
     });
     const r = await inf.calcularInforme('2026-09', AHORA);
     expect(r.por_tecnico.find(t => t.user_id === 7)).toMatchObject({
-      horas_asignacion: 11.9, servicios_con_horas_asignacion: 2,
-      horas_en_servicio: 6.5, servicios_con_horas_en_servicio: 2,
+      minutos_asignacion: 715, asignaciones_medidas: 2,       // 7h55 + 4h
+      minutos_en_evento: 390, eventos_medidos: 2, eventos_sin_fin: 1,   // 5h30 + 1h
     });
     expect(r.por_tecnico.find(t => t.user_id === 8)).toMatchObject({
-      horas_asignacion: 7.9, servicios_con_horas_asignacion: 1,
-      horas_en_servicio: 5.5, servicios_con_horas_en_servicio: 1,
+      minutos_asignacion: 475, asignaciones_medidas: 1,
+      minutos_en_evento: 330, eventos_medidos: 1, eventos_sin_fin: 0,
     });
   });
 

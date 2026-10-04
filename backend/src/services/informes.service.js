@@ -22,12 +22,13 @@
  *   - La llegada (v26) existe desde el 2026-09-25: antes, «no consta».
  *   - El retraso de un técnico es el de los servicios en que va de
  *     RESPONSABLE; el personal no puede iniciar (MAPA_CODIGO §6.1).
- *   - Las HORAS de un técnico, en cambio, son las de todos sus servicios,
- *     vaya de responsable o de personal: las echa igual. Dos medidas:
+ *   - El TIEMPO de un técnico, en cambio, es el de todos sus servicios,
+ *     vaya de responsable o de personal: lo echa igual. Dos sumas, en minutos:
  *     de asignación (`inicio_real_at` → `finalizado_at`, solo finalizadas) y
  *     en el evento/servicio (`llegada_servicio_at` → `fin_servicio_at`, las
  *     dos opcionales; si falta una, ese servicio no suma). Cada una va con
- *     cuántos servicios la miden, para que un total bajo se entienda.
+ *     cuántos servicios la miden, para que un total bajo se entienda, y
+ *     `eventos_sin_fin` cuenta los que tienen inicio de evento y no fin.
  *
  * El JSON se guarda tal cual en `informe_mensual.datos`: si cambia su forma,
  * se sube VERSION_INFORME y el frontend tiene que tolerar la vieja (un campo
@@ -39,7 +40,7 @@ const { INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } = require('../config
 const { ahora, instanteEnEspana, anioMesEnEspana } = require('../utils/fecha.utils');
 const logger = require('../utils/logger.utils');
 
-const VERSION_INFORME = 2;   // 2: horas por técnico (asignación y en el evento)
+const VERSION_INFORME = 2;   // 2: tiempo por técnico (asignación y en el evento)
 const MINUTO = 60000;
 const RE_MES = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
@@ -112,6 +113,7 @@ function analizarServicio(a, limiteSinIniciar) {
     minutos_servicio: null,
     minutos_en_sitio: a.llegada_servicio_at && a.fin_servicio_at
       ? Math.max(0, minutosEntre(a.llegada_servicio_at, a.fin_servicio_at)) : null,
+    evento_sin_fin: Boolean(a.llegada_servicio_at && !a.fin_servicio_at),
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -228,7 +230,8 @@ async function calcularInforme(mes, instante = ahora()) {
     if (!porTecnico.has(r.user_id)) {
       porTecnico.set(r.user_id, { user_id: r.user_id, nombre: nombreDe(r),
                                   acc: nuevoAcumulado(), como_personal: 0, incidencias: 0,
-                                  horas: { asig_min: 0, asig_n: 0, sitio_min: 0, sitio_n: 0 } });
+                                  tiempo: { minutos_asignacion: 0, asignaciones_medidas: 0,
+                                            minutos_en_evento: 0, eventos_medidos: 0, eventos_sin_fin: 0 } });
     }
     return porTecnico.get(r.user_id);
   };
@@ -238,8 +241,9 @@ async function calcularInforme(mes, instante = ahora()) {
     const t = fichaTecnico(m);
     if (m.rol === 'responsable') acumular(t.acc, s);
     else t.como_personal++;
-    if (s.minutos_servicio != null) { t.horas.asig_min += s.minutos_servicio; t.horas.asig_n++; }
-    if (s.minutos_en_sitio != null) { t.horas.sitio_min += s.minutos_en_sitio; t.horas.sitio_n++; }
+    if (s.minutos_servicio != null) { t.tiempo.minutos_asignacion += s.minutos_servicio; t.tiempo.asignaciones_medidas++; }
+    if (s.minutos_en_sitio != null) { t.tiempo.minutos_en_evento += s.minutos_en_sitio; t.tiempo.eventos_medidos++; }
+    if (s.evento_sin_fin) t.tiempo.eventos_sin_fin++;
   }
 
   // ── Incidencias ──
@@ -284,12 +288,7 @@ async function calcularInforme(mes, instante = ahora()) {
     .sort((x, y) => String(x.alias).localeCompare(String(y.alias), 'es'));
 
   const filaVehiculo = ({ acc, ...v }) => ({ ...v, ...cerrar(acc) });
-  const aHoras = (min) => Math.round(min / 6) / 10;
-  const filaTecnico  = ({ acc, horas, ...t }) => ({
-    ...t, ...cerrar(acc),
-    horas_asignacion: aHoras(horas.asig_min), servicios_con_horas_asignacion: horas.asig_n,
-    horas_en_servicio: aHoras(horas.sitio_min), servicios_con_horas_en_servicio: horas.sitio_n,
-  });
+  const filaTecnico  = ({ acc, tiempo, ...t }) => ({ ...t, ...cerrar(acc), ...tiempo });
 
   return {
     version: VERSION_INFORME,
