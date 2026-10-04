@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { leerTema, cambiarTema } from '../../utils/tema.js';
 
 const ES_PRE = import.meta.env.VITE_APP_ENV === 'pre';
 
@@ -10,6 +11,8 @@ export default function Navbar({ onMenuToggle }) {
   const { notify } = useNotification();
   const navigate   = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [tema, setTema] = useState(leerTema);
+  const oscuro = tema === 'oscuro';
 
   const handleLogout = async () => {
     await logout();
@@ -58,6 +61,28 @@ export default function Navbar({ onMenuToggle }) {
 
         <div className="flex-1" />
 
+        {/* Tema: aquí y no en el menú lateral porque en el móvil el menú
+            está plegado y habría que abrirlo para cambiarlo */}
+        <button
+          type="button"
+          onClick={() => setTema(cambiarTema(oscuro ? 'claro' : 'oscuro'))}
+          className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+          aria-pressed={oscuro}
+          aria-label="Tema oscuro"
+          title={oscuro ? 'Pasar a tema claro' : 'Pasar a tema oscuro'}
+        >
+          {oscuro ? (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" strokeWidth={2} />
+              <path strokeLinecap="round" strokeWidth={2} d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
+        </button>
+
         {/* Avatar + menú usuario */}
         <div className="relative">
           <button
@@ -75,7 +100,7 @@ export default function Navbar({ onMenuToggle }) {
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
-              <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-lg border border-neutral-200 z-20 py-1 animate-slide-up">
+              <div className="absolute right-0 top-full mt-2 w-56 bg-superficie rounded-lg shadow-lg border border-neutral-200 z-20 py-1 animate-slide-up">
                 <div className="px-4 py-3 border-b border-neutral-100">
                   <p className="font-medium text-neutral-900 text-sm">{user?.nombre} {user?.apellidos}</p>
                   <p className="text-xs text-neutral-500 mt-0.5 font-mono">@{user?.username}</p>

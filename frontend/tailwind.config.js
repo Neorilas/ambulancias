@@ -1,3 +1,24 @@
+// Gris de UI con sesgo azul, para que se lea como familia del primary
+const NEUTRAL = {
+  50:  '#f5f7fa',
+  100: '#eef1f6',
+  200: '#e3e8f0',
+  300: '#cfd6e2',
+  400: '#aab4c4',
+  500: '#8592a8',
+  600: '#5d6a80',
+  700: '#47536b',
+  800: '#2a3446',
+  900: '#101623',
+};
+
+/** Tonos de NEUTRAL que no cambian con el tema. */
+const fijos = (...tonos) => Object.fromEntries(tonos.map(t => [t, NEUTRAL[t]]));
+
+/** Tonos que lee de `--<prefijo>-<tono>` (triplete RGB, admite /opacidad). */
+const variables = (prefijo, ...tonos) =>
+  Object.fromEntries(tonos.map(t => [t, `rgb(var(--${prefijo}-${t}) / <alpha-value>)`]));
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -18,25 +39,43 @@ export default {
           800: '#1e40af',
           900: '#1e3a8a',
         },
-        // Gris de UI con sesgo azul, para que se lea como familia del primary
-        neutral: {
-          50:  '#f5f7fa',
-          100: '#eef1f6',
-          200: '#e3e8f0',
-          300: '#cfd6e2',
-          400: '#aab4c4',
-          500: '#8592a8',
-          600: '#5d6a80',
-          700: '#47536b',
-          800: '#2a3446',
-          900: '#101623',
-        },
+        neutral: NEUTRAL,
         // Colores semanticos de estado. NO se usan con ningun otro fin:
         // ok = finalizado/correcto · warn = programado/proximo · bad = incidencia/vencido
         ok:   { 50: '#eaf6ee', 200: '#c3e6ce', 500: '#3d9b5f', 600: '#15803d', 700: '#136c34' },
         warn: { 50: '#fdf4e7', 200: '#f2ddb8', 500: '#e0a53a', 600: '#b45309', 700: '#96460a' },
         bad:  { 50: '#fdeeee', 200: '#f3cccc', 500: '#d24545', 600: '#c02626', 700: '#a11f1f' },
         idle: { 50: '#f2f4f8', 200: '#e0e5ee', 500: '#98a2b3', 600: '#6b7686' },
+      },
+      // Tema oscuro (utils/tema.js): los grises que cambian de un tema a otro
+      // salen de variables CSS (`--txt-*`, `--fnd-*`, `--brd-*` en index.css).
+      // Cada uso tiene su propia escala para poder moverlos por separado: el
+      // texto se va hacia el negro, los fondos claros se agrisan un punto y
+      // los bordes se marcan. Lo que no esta aqui sigue con el hex de
+      // `colors.neutral` en los dos temas:
+      //   - texto 50-300: va sobre el negro del visor de fotos (oscurecerlo
+      //     lo borraria) y en los huecos de foto vacios, donde tiene que
+      //     seguir leyendose como «aqui no hay nada»;
+      //   - fondo 300-900: pistas de interruptor, botones negros, consolas.
+      textColor: {
+        neutral: {
+          ...fijos(50, 100, 200, 300),
+          ...variables('txt', 400, 500, 600, 700, 800, 900),
+        },
+      },
+      backgroundColor: {
+        neutral: {
+          ...variables('fnd', 50, 100, 200),
+          ...fijos(300, 400, 500, 600, 700, 800, 900),
+        },
+      },
+      // divideColor hereda de aqui
+      borderColor: {
+        neutral: {
+          ...fijos(50),
+          ...variables('brd', 100, 200, 300, 400),
+          ...fijos(500, 600, 700, 800, 900),
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

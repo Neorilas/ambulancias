@@ -45,7 +45,17 @@ cleanupOutdatedCaches();
 // La app es una SPA: cualquier navegación se resuelve con index.html y el
 // router de React decide qué pintar. Sin esto, abrir /app/asignaciones sin
 // cobertura da un error de red.
-registerRoute(new NavigationRoute(createHandlerBoundToURL(`${BASE}index.html`)));
+//
+// En `npm run dev` NO: ahí el plugin sustituye __WB_MANIFEST por `[]`, así que
+// index.html no está precacheado y createHandlerBoundToURL lanza
+// «non-precached-url» al evaluar el SW. La instalación fallaba entera y, de
+// rebote, el navegador seguía con el registro clásico antiguo, que al buscar
+// actualización cargaba este fichero como script normal y daba «Cannot use
+// import statement outside a module». En el build `import.meta.env.DEV` es
+// `false` y la línea queda como siempre.
+if (!import.meta.env.DEV) {
+  registerRoute(new NavigationRoute(createHandlerBoundToURL(`${BASE}index.html`)));
+}
 
 // `registerType: 'autoUpdate'` da por hecho que el SW nuevo se activa solo.
 // Con generateSW lo hacía el plugin; aquí hay que pedirlo explícitamente, y sin

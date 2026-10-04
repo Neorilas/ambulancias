@@ -27,10 +27,78 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left:   env(safe-area-inset-left,   0px);
     --safe-right:  env(safe-area-inset-right,  0px);
+
+    /*
+      Grises que cambian con el tema (ver tailwind.config.js): texto
+      (text-neutral-400…900), fondos claros (bg-neutral-50…200) y bordes
+      (border-/divide-neutral-100…400). Tripletes RGB para que funcione el
+      /opacidad de Tailwind. Aquí son el hex de siempre de `neutral`: en el
+      tema claro no cambia nada.
+    */
+    --txt-400: 170 180 196;  /* #aab4c4 */
+    --txt-500: 133 146 168;  /* #8592a8 */
+    --txt-600:  93 106 128;  /* #5d6a80 */
+    --txt-700:  71  83 107;  /* #47536b */
+    --txt-800:  42  52  70;  /* #2a3446 */
+    --txt-900:  16  22  35;  /* #101623 */
+
+    --fnd-50:  245 247 250;  /* #f5f7fa */
+    --fnd-100: 238 241 246;  /* #eef1f6 */
+    --fnd-200: 227 232 240;  /* #e3e8f0 */
+
+    --brd-100: 238 241 246;  /* #eef1f6 */
+    --brd-200: 227 232 240;  /* #e3e8f0 */
+    --brd-300: 207 214 226;  /* #cfd6e2 */
+    --brd-400: 170 180 196;  /* #aab4c4 */
+
+    --fondo-app:  #f5f7fa;   /* neutral-50 */
+    --fondo-menu: #ffffff;
+    --superficie: #ffffff;   /* tarjetas, modales, paneles, desplegables */
+  }
+
+  /*
+    Tema «oscuro» (utils/tema.js). No es un modo noche de fondo negro: el
+    fondo pasa a gris, las tarjetas siguen blancas y destacan contra él, y el
+    texto se va hacia el negro.
+
+    Trampa de la jerarquía: si toda la escala de texto baja a «casi negro»,
+    los títulos de grupo del menú, las cabeceras de tabla y las etiquetas
+    (400) se confunden con lo que etiquetan (600-900). Por eso la escala se
+    comprime pero NO se aplasta: 400 se queda en un gris medio legible y el
+    salto hasta 600 se mantiene.
+
+    Capas de fondo, de fuera a dentro: página (--fondo-app) < menú
+    (--fondo-menu) < tarjeta (--superficie) y, encima, lo que se toca en
+    BLANCO: inputs y botones secundarios. Los fondos tintados (bg-neutral-50…)
+    van un punto MÁS OSCUROS que la tarjeta, igual que en claro lo son
+    respecto al blanco; si fueran más claros, la cabecera de una tabla o un
+    bloque de comentario se leería como un hueco y no como un tinte.
+  */
+  html[data-tema="oscuro"] {
+    --txt-400:  85  96 116;  /* #556074  etiquetas, títulos de grupo, th */
+    --txt-500:  57  67  85;  /* #394355  subtítulos, ayudas */
+    --txt-600:  31  39  52;  /* #1f2734  texto secundario, items del menú */
+    --txt-700:  22  28  40;  /* #161c28 */
+    --txt-800:  12  17  26;  /* #0c111a */
+    --txt-900:   3   5  10;  /* #03050a  texto principal */
+
+    --fnd-50:  221 225 232;  /* #dde1e8  cabecera de tabla, bloques tintados */
+    --fnd-100: 211 216 224;  /* #d3d8e0  hover, deshabilitado */
+    --fnd-200: 200 206 216;  /* #c8ced8 */
+
+    --brd-100: 217 222 230;  /* #d9dee6  separadores de fila */
+    --brd-200: 188 196 208;  /* #bcc4d0  bordes de tarjeta, pestañas */
+    --brd-300: 163 173 188;  /* #a3adbc  bordes de input */
+    --brd-400: 125 136 155;  /* #7d889b  hover de botón secundario */
+
+    --fondo-app:  #c7cdd7;
+    --fondo-menu: #d3d8e0;   /* un punto más claro que el contenido */
+    --superficie: #e6e9ef;   /* tarjetas: gris claro, no blanco */
   }
 
   body {
-    @apply bg-neutral-50 text-neutral-900 font-sans;
+    @apply text-neutral-900 font-sans;
+    background-color: var(--fondo-app);
     min-height: 100dvh; /* dynamic viewport height para móvil */
     overscroll-behavior: none; /* evitar bounce en iOS */
     -webkit-font-smoothing: antialiased;
@@ -127,7 +195,8 @@
   /* ── Tarjetas ────────────────────────────────────────────────────
      Borde de 1px en vez de sombra, radio 8px. */
   .card {
-    @apply relative bg-white rounded-lg border border-neutral-200 p-4;
+    @apply relative rounded-lg border border-neutral-200 p-4;
+    background-color: var(--superficie);
   }
   .card-header {
     @apply flex items-center justify-between mb-4;
@@ -242,8 +311,10 @@
 
   /* ── Pestañas ────────────────────────────────────────────────────
      Subrayado, no botón-cápsula. */
+  /* overflow-y-hidden: el -mb-px de .tab desborda 1px hacia abajo y, con
+     overflow-x-auto, salía un scroll vertical fantasma a la derecha */
   .tabs {
-    @apply flex gap-0.5 border-b border-neutral-200 overflow-x-auto;
+    @apply flex gap-0.5 border-b border-neutral-200 overflow-x-auto overflow-y-hidden;
   }
   .tab {
     @apply px-3.5 py-2.5 text-[13.5px] font-medium text-neutral-500 whitespace-nowrap
@@ -314,6 +385,12 @@
   .min-h-dvh   { min-height: 100dvh; }
   .h-dvh       { height:     100dvh; }
   .tnum        { font-variant-numeric: tabular-nums; }
+  /* Fondo de la zona de contenido: cambia con el tema (--fondo-app) */
+  .bg-app      { background-color: var(--fondo-app); }
+  .bg-menu     { background-color: var(--fondo-menu); }
+  /* Superficie de tarjeta para lo que no es .card: modales, paneles
+     laterales, desplegables. Blanco en claro, gris claro en oscuro */
+  .bg-superficie { background-color: var(--superficie); }
 
   /* Touch-friendly tap targets */
   .touch-target {
@@ -341,6 +418,51 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/*
+  Retoques del tema oscuro que no son solo cambiar un gris por otro. Fuera de
+  @layer a propósito: Tailwind no purga este CSS y el selector con
+  html[data-tema] gana a las utilidades sin !important.
+*/
+/* Las tarjetas se despegan del gris con una sombra corta, no solo el borde */
+html[data-tema="oscuro"] .card {
+  box-shadow: 0 1px 2px rgb(16 22 35 / 0.08), 0 1px 1px rgb(16 22 35 / 0.04);
+}
+/* Tablas: filas alternas para seguir la fila con la vista en tablas anchas
+   (flota, informes, facturas; todas las <table> de la app son de datos). El
+   hover se repite detrás porque la cebra es más específica que el hover de
+   .table y lo taparía. */
+html[data-tema="oscuro"] .table thead tr {
+  border-bottom-color: rgb(var(--brd-300));
+}
+html[data-tema="oscuro"] .table th {
+  color: rgb(var(--txt-500));
+}
+html[data-tema="oscuro"] table tbody tr:nth-child(even) {
+  background-color: rgb(16 22 35 / 0.035);
+}
+html[data-tema="oscuro"] table tbody tr:hover {
+  background-color: theme('colors.primary.50');
+}
+/* Menú: los títulos de grupo, separados por una raya, para que se lean como
+   cabecera y no como un item más */
+html[data-tema="oscuro"] aside .micro {
+  color: rgb(var(--txt-500));
+  letter-spacing: 0.11em;
+}
+/* El hover de los items (bg-neutral-100) coincide con el gris del menú */
+html[data-tema="oscuro"] aside nav a:hover {
+  background-color: rgb(255 255 255 / 0.45);
+}
+html[data-tema="oscuro"] aside nav > div + div {
+  border-top: 1px solid rgb(var(--brd-200));
+  margin-top: 0.5rem;
+}
+/* El placeholder se queda en gris claro en claro; en oscuro se aclara menos
+   el contraste del resto y se perdería al sol */
+html[data-tema="oscuro"] .input::placeholder {
+  color: theme('colors.neutral.500');
 }
 
 /* Splash screen durante carga inicial */
