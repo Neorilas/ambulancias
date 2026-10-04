@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider }         from './context/AuthContext.jsx';
 import { NotificationProvider } from './context/NotificationContext.jsx';
@@ -18,11 +18,16 @@ import AlertsPage               from './pages/AlertsPage.jsx';
 import AsignacionList           from './pages/asignaciones/AsignacionList.jsx';
 import MapaFlota                from './pages/flota/MapaFlota.jsx';
 import Informes                 from './pages/informes/Informes.jsx';
-import Facturas                 from './pages/facturas/Facturas.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
 import SWUpdater                from './components/common/SWUpdater.jsx';
+import { PageLoading }          from './components/common/LoadingSpinner.jsx';
+
+// Facturas va en su propio fichero y fuera del precache de la PWA
+// (vite.config.js, globIgnores): su código solo lo descarga quien la abre, que
+// solo puede ser administración. El resto ni la tiene en el móvil.
+const Facturas = lazy(() => import('./pages/facturas/Facturas.jsx'));
 
 export default function App() {
   return (
@@ -168,14 +173,16 @@ export default function App() {
                 }
               />
 
-              {/* Facturas de proveedores. Solo admin y superadmin; quien manda
-                  es el backend (routes/facturas.routes.js), el flag solo pone
-                  el menú. */}
+              {/* Facturas de proveedores. Solo admin y superadmin, y OCULTA para
+                  el resto: a quien no lo es, ProtectedRoute lo manda a
+                  /mis-asignaciones, igual que el `*` de abajo con una ruta que
+                  no existe; el backend le contesta 404 (ocultarSalvoRoles) y
+                  ni le enseña el flag. */}
               <Route
                 path="/facturas"
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_facturas">
-                    <Facturas />
+                    <Suspense fallback={<PageLoading />}><Facturas /></Suspense>
                   </ProtectedRoute>
                 }
               />

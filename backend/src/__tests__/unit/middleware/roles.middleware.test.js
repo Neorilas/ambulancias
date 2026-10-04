@@ -2,9 +2,10 @@
 
 const {
   hasRole, hasPermission, isSuperAdmin, isAdmin, isOperacional, tieneRolDeCampo,
-  requireRole, requirePermission, requireAnyRole,
+  requireRole, requirePermission, requireAnyRole, ocultarSalvoRoles,
 } = require('../../../middleware/roles.middleware');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
+const { logAudit } = require('../../../controllers/admin.controller');
 
 // Mock admin.controller logAudit to prevent side effects
 jest.mock('../../../controllers/admin.controller', () => ({
@@ -129,6 +130,38 @@ describe('roles.middleware', () => {
       const next = mockNext();
       requireAnyRole(req, mockRes(), next);
       expect(next).toHaveBeenCalled();
+    });
+  });
+
+  describe('ocultarSalvoRoles', () => {
+    const mw = ocultarSalvoRoles('superadmin', 'administrador');
+
+    it('deja pasar a quien tiene uno de los roles', () => {
+      const next = mockNext();
+      mw(mockReq({ user: { id: 1, roles: ['administrador', 'tecnico'] } }), mockRes(), next);
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('al resto le da el 404 de ruta inexistente, sin nombrar roles, y lo audita', () => {
+      logAudit.mockClear();
+      const res = mockRes();
+      const req = mockReq({ user: { id: 9, username: 'gestor1', roles: ['gestor'] }, method: 'GET', originalUrl: '/api/v1/facturas' });
+      const next = mockNext();
+      mw(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(404);
+      expect(res._json).toEqual({ success: false, message: 'Ruta no encontrada: GET /api/v1/facturas' });
+      expect(req._accesoDenegadoAuditado).toBe(true);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'access_denied', userId: 9, entityType: 'ruta_oculta' }));
+    });
+
+    it('sin usuario también 404, y sin auditar a nadie', () => {
+      logAudit.mockClear();
+      const res = mockRes();
+      mw(mockReq({ method: 'GET', originalUrl: '/api/v1/facturas' }), res, mockNext());
+      expect(res.statusCode).toBe(404);
+      expect(logAudit).not.toHaveBeenCalled();
     });
   });
 });

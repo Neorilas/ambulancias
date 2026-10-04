@@ -18,6 +18,9 @@
  *                 BD vacía no se puede probar aquí: la cubren los tests
  *                 unitarios del sitio que se cita.
  *   abierta     — a propósito, para cualquier sesión (o pública); con motivo.
+ *   oculta      — solo administrador y superadmin, y para el resto NO EXISTE:
+ *                 el mismo 404 que una ruta inventada, ni siquiera un 403
+ *                 (facturas, 2026-10-04). Se prueba también con el gestor.
  *
  * Una ruta nueva sin clasificar hace fallar el test: obliga a decidir quién
  * puede usarla ANTES de que llegue a producción.
@@ -120,12 +123,12 @@ const ACCESO = {
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],
   'GET /informes/mensual':             ['denegada'],
-  'GET /facturas/':                    ['denegada'],
-  'POST /facturas/':                   ['denegada'],
-  'GET /facturas/:id/descarga':        ['denegada'],
-  'DELETE /facturas/:id':              ['denegada'],
-  'GET /facturas/buzon':               ['denegada'],
-  'POST /facturas/buzon/revisar':      ['denegada'],
+  'GET /facturas/':                    ['oculta'],
+  'POST /facturas/':                   ['oculta'],
+  'GET /facturas/:id/descarga':        ['oculta'],
+  'DELETE /facturas/:id':              ['oculta'],
+  'GET /facturas/buzon':               ['oculta'],
+  'POST /facturas/buzon/revisar':      ['oculta'],
 };
 
 // Rol mínimo de las rutas `denegada` que no son de gestión (gestor o más).
@@ -146,12 +149,6 @@ const NIVEL = {
   'DELETE /vehicles/:id':                  'administrador',
   'DELETE /vehicles/:vehicleId/revisiones/:revId': 'administrador',
   'GET /informes/mensual':                 'administrador',
-  'GET /facturas/':                        'administrador',
-  'POST /facturas/':                       'administrador',
-  'GET /facturas/:id/descarga':            'administrador',
-  'DELETE /facturas/:id':                  'administrador',
-  'GET /facturas/buzon':                   'administrador',
-  'POST /facturas/buzon/revisar':          'administrador',
   'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
 };
 const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';
@@ -239,6 +236,43 @@ describe('autorización de todas las rutas', () => {
   it('NIVEL solo nombra rutas denegadas que existen', () => {
     const malas = Object.keys(NIVEL).filter((r) => ACCESO[r]?.[0] !== 'denegada');
     expect(malas).toEqual([]);
+  });
+
+  // ── Ocultas: para quien no es administración, no existen ───
+  const ocultas = RUTAS.filter((r) => ACCESO[r]?.[0] === 'oculta');
+
+  it('hay rutas ocultas (si esto da 0, se ha roto la clasificación)', () => {
+    expect(ocultas.length).toBeGreaterThan(0);
+  });
+
+  describe.each([
+    ['sin rol', '', []],
+    ['técnico sin permisos', 'tecnico', []],
+    ['gestor', 'gestor', PERMISOS_GESTION],
+  ])('ocultas para %s', (_nombre, roles, permisos) => {
+    beforeEach(() => { rolesActuales = roles; permisosActuales = permisos; flotaEncendida = false; bdVacia(); });
+
+    it.each(ocultas)('%s → el mismo 404 que una ruta que no existe', async (ruta) => {
+      const [metodo, patron] = ruta.split(' ');
+      const res = await llamar(ruta);
+      expect(res.status).toBe(404);
+      // El texto exacto de notFound (error.middleware) para cualquier ruta inventada
+      expect(res.body).toEqual({
+        success: false,
+        message: `Ruta no encontrada: ${metodo} /api/v1${patron.replace(/:[a-zA-Z]+/g, '1')}`,
+      });
+    });
+  });
+
+  describe.each([['administrador', 'administrador'], ['superadmin', 'superadmin']])('ocultas para %s', (_n, roles) => {
+    beforeEach(() => { rolesActuales = roles; permisosActuales = PERMISOS_GESTION; flotaEncendida = false; bdVacia(); });
+    // «Entra» = ni 401/403 ni el 404 de ruta oculta (un 404 de «Factura no
+    // encontrado», con la BD vacía, sí es haber entrado).
+    it.each(ocultas)('%s → entra', async (ruta) => {
+      const res = await llamar(ruta);
+      expect([401, 403]).not.toContain(res.status);
+      expect(res.body.message || '').not.toMatch(/^Ruta no encontrada/);
+    });
   });
 
   describe.each([['sin rol', ''], ['técnico sin permisos', 'tecnico']])('%s', (_nombre, roles) => {
