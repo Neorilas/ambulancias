@@ -145,6 +145,36 @@ describe('informes.service · calcularInforme', () => {
     expect(r.por_tecnico.some(t => t.user_id === 9)).toBe(false);
   });
 
+  it('por técnico: horas de asignación y en el evento, responsable y personal por igual', async () => {
+    bd({
+      asignaciones: [
+        // 06:05 → 14:00 de asignación (7h55); 06:30 → 12:00 en el evento (5h30)
+        asig({ id: 1, llegada_servicio_at: d('2026-09-10T06:30:00Z'), fin_servicio_at: d('2026-09-10T12:00:00Z') }),
+        // finalizada sin fin del evento: suma a la asignación (4h), no al evento
+        asig({ id: 2, inicio_real_at: d('2026-09-11T06:00:00Z'), finalizado_at: d('2026-09-11T10:00:00Z'),
+               llegada_servicio_at: d('2026-09-11T06:20:00Z'), fin_servicio_at: null }),
+        // aún activa con el evento cerrado: suma al evento (1h), no a la asignación
+        asig({ id: 3, estado: 'activa', finalizado_at: null,
+               llegada_servicio_at: d('2026-09-12T07:00:00Z'), fin_servicio_at: d('2026-09-12T08:00:00Z') }),
+      ],
+      miembros: [
+        { asignacion_id: 1, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' },
+        { asignacion_id: 2, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' },
+        { asignacion_id: 3, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' },
+        { asignacion_id: 1, user_id: 8, rol: 'personal', nombre: 'Luis', apellidos: 'Gil' },
+      ],
+    });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico.find(t => t.user_id === 7)).toMatchObject({
+      horas_asignacion: 11.9, servicios_con_horas_asignacion: 2,
+      horas_en_servicio: 6.5, servicios_con_horas_en_servicio: 2,
+    });
+    expect(r.por_tecnico.find(t => t.user_id === 8)).toMatchObject({
+      horas_asignacion: 7.9, servicios_con_horas_asignacion: 1,
+      horas_en_servicio: 5.5, servicios_con_horas_en_servicio: 1,
+    });
+  });
+
   it('incidencias: nuevas por gravedad, resueltas, abiertas al cierre y reparto', async () => {
     bd({
       asignaciones: [asig()],

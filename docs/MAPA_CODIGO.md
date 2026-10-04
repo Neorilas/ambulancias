@@ -318,6 +318,20 @@ varios, el retraso cuenta para todos); el personal solo suma «como personal».
 Incidencias: nuevas por `created_at`, resueltas por `resuelto_at`, abiertas al
 cerrar el mes por las dos fechas; una «resuelto» sin fecha no cuenta abierta.
 
+**Horas por técnico, dos pestañas (2026-10-04, `VERSION_INFORME` 2).** En la
+tabla «Por técnico», «Asignación completa» suma `inicio_real_at` →
+`finalizado_at` (solo finalizadas: `horas_asignacion`) y «En el
+evento/servicio» suma `llegada_servicio_at` → `fin_servicio_at`
+(`horas_en_servicio`; los dos botones son opcionales y si falta uno ese
+servicio no suma, aunque la asignación siga abierta). Cada una va con
+`servicios_con_horas_*`, la columna «Servicios medidos», porque un total bajo
+casi siempre es un botón sin pulsar, no poco trabajo. **A diferencia de la
+puntualidad, las horas cuentan todos los servicios del técnico, también los de
+personal**: el personal no inicia ni cierra, pero esas horas las echa. Decisión
+mía a falta de que el usuario diga otra cosa; si se quiere solo de responsable,
+es una línea en el bucle de `miembros` de `calcularInforme`. Un archivado v1 no
+trae los campos y se pinta «—».
+
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
 (`METRICAS`, con `mejorSiBaja`). Así un mes archivado y uno en vivo se
@@ -907,7 +921,7 @@ toasts, mensajes de la API, auditoría en `AdminPanel`); la columna
 llegada se renombró igual (ruta `/llegada`, columna y acción
 `arrive_asignacion` intactas). Llegada y fin del evento/servicio **avisan por push a gestión** (`avisarLlegadaEvento`, `avisarFinEvento`,
 §2.5), dentro del `if (affectedRows)`, igual que la auditoría. Informes
-no lo usa todavía (el tiempo en el sitio sería una métrica nueva).
+lo usa para las horas «en el evento/servicio» de cada técnico (§2.7).
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
@@ -1358,7 +1372,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-09-27** (fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-04** (horas por técnico en dos pestañas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

@@ -26,7 +26,9 @@ const DATOS = {
     vehiculos_sin_uso: [{ vehicle_id: 3, alias: 'Ambulancia 3', matricula: '3333CCC' }],
     por_tecnico: [{ user_id: 7, nombre: 'Ana Ruiz', servicios: 8, como_personal: 2, iniciados: 8,
                     inicios_tardios: 2, retraso_mediana_min: 95, sin_iniciar: 0, con_llegada: 4,
-                    con_fotos_inicio_tarde: 1, incidencias: 1 }],
+                    con_fotos_inicio_tarde: 1, incidencias: 1,
+                    horas_asignacion: 61.5, servicios_con_horas_asignacion: 9,
+                    horas_en_servicio: 33.2, servicios_con_horas_en_servicio: 6 }],
   },
   comparativa: {
     anterior: { mes: '2026-07', resumen: { ...RESUMEN, inicios_tardios: 2 } },
@@ -60,6 +62,27 @@ describe('Informes', () => {
     expect(screen.getByText('Ambulancia 1')).toBeInTheDocument();
     expect(screen.getByText(/Sin servicio: Ambulancia 3/)).toBeInTheDocument();
     expect(screen.getByText('12,5 h')).toBeInTheDocument();
+  });
+
+  it('por técnico: las pestañas cambian cómo se cuentan las horas', async () => {
+    montar();
+    await screen.findByText('Ana Ruiz');
+    expect(screen.getByRole('tab', { name: 'Asignación completa' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('61,5')).toBeInTheDocument();
+    expect(screen.queryByText('33,2')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'En el evento/servicio' }));
+    expect(screen.getByText('33,2')).toBeInTheDocument();
+    expect(screen.queryByText('61,5')).not.toBeInTheDocument();
+    expect(screen.getByText(/Un servicio sin alguno de los dos botones no suma/)).toBeInTheDocument();
+  });
+
+  it('un informe sin horas por técnico (archivado viejo) pinta «—»', async () => {
+    const { horas_asignacion, servicios_con_horas_asignacion, ...sinHoras } = DATOS.actual.por_tecnico[0];
+    informesService.getMensual.mockResolvedValue({ ...DATOS, actual: { ...DATOS.actual, por_tecnico: [sinHoras] } });
+    montar();
+    const fila = (await screen.findByText('Ana Ruiz')).closest('tr');
+    expect(fila.querySelectorAll('td')[1]).toHaveTextContent('—');
   });
 
   it('cambiar de mes vuelve a pedir el informe', async () => {

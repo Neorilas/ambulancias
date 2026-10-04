@@ -27,6 +27,21 @@ function mesActual() {
   return `${get('year')}-${get('month')}`;
 }
 
+/**
+ * Las dos formas de contar las horas de un técnico (pestañas de «Por técnico»).
+ * Suman todos sus servicios, de responsable o de personal; los campos los
+ * calcula el backend (informes.service, VERSION_INFORME 2). En un informe
+ * archivado anterior no existen y salen «—».
+ */
+const HORAS_TECNICO = [
+  { key: 'asignacion', label: 'Asignación completa', horas: 'horas_asignacion',
+    medidos: 'servicios_con_horas_asignacion',
+    nota: 'Horas desde «Inicio de la asignación» hasta «Finalizar asignación». Solo cuentan las asignaciones finalizadas.' },
+  { key: 'evento', label: 'En el evento/servicio', horas: 'horas_en_servicio',
+    medidos: 'servicios_con_horas_en_servicio',
+    nota: 'Horas desde «Inicio evento/servicio» hasta «Fin evento/servicio». Un servicio sin alguno de los dos botones no suma.' },
+];
+
 const COLOR_SENTIDO = { mejor: 'text-ok-700', peor: 'text-bad-600', igual: 'text-neutral-400' };
 
 function Variacion({ etiqueta, v }) {
@@ -115,6 +130,8 @@ export default function Informes() {
   const [mes, setMes]         = useState(maxMes);
   const [datos, setDatos]     = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tabHoras, setTabHoras] = useState(HORAS_TECNICO[0].key);
+  const horasTec = HORAS_TECNICO.find(h => h.key === tabHoras);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -255,13 +272,30 @@ export default function Informes() {
 
           <Seccion
             titulo="Por técnico"
-            nota="Puntualidad de los servicios en que va como responsable (el personal no inicia). Si hay varios responsables, el retraso cuenta para todos."
+            nota="Puntualidad de los servicios en que va como responsable (el personal no inicia). Si hay varios responsables, el retraso cuenta para todos. Las horas suman todos sus servicios, también los de personal."
           >
+            <div className="tabs" role="tablist" aria-label="Cómo contar las horas">
+              {HORAS_TECNICO.map(h => (
+                <button
+                  key={h.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabHoras === h.key}
+                  onClick={() => setTabHoras(h.key)}
+                  className={tabHoras === h.key ? 'tab-active' : 'tab'}
+                >
+                  {h.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-500">{horasTec.nota}</p>
             <Tabla
               vacio="Nadie tuvo servicios este mes."
               filas={(actual.por_tecnico || []).map(t => ({ ...t, key: t.user_id }))}
               columnas={[
                 { clave: 'n', titulo: 'Técnico', pintar: t => <span className="font-medium text-neutral-900">{t.nombre}</span> },
+                { clave: 'h', titulo: 'Horas', num: true, pintar: t => fmt(t[horasTec.horas]) },
+                { clave: 'hm', titulo: 'Servicios medidos', num: true, pintar: t => fmt(t[horasTec.medidos]) },
                 { clave: 's', titulo: 'Responsable', num: true, pintar: t => fmt(t.servicios) },
                 { clave: 'p', titulo: 'Personal', num: true, pintar: t => fmt(t.como_personal) },
                 { clave: 't', titulo: 'Inicios tardíos', num: true, pintar: t => conPct(t.inicios_tardios, t.iniciados) },

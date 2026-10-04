@@ -22,6 +22,12 @@
  *   - La llegada (v26) existe desde el 2026-09-25: antes, «no consta».
  *   - El retraso de un técnico es el de los servicios en que va de
  *     RESPONSABLE; el personal no puede iniciar (MAPA_CODIGO §6.1).
+ *   - Las HORAS de un técnico, en cambio, son las de todos sus servicios,
+ *     vaya de responsable o de personal: las echa igual. Dos medidas:
+ *     de asignación (`inicio_real_at` → `finalizado_at`, solo finalizadas) y
+ *     en el evento/servicio (`llegada_servicio_at` → `fin_servicio_at`, las
+ *     dos opcionales; si falta una, ese servicio no suma). Cada una va con
+ *     cuántos servicios la miden, para que un total bajo se entienda.
  *
  * El JSON se guarda tal cual en `informe_mensual.datos`: si cambia su forma,
  * se sube VERSION_INFORME y el frontend tiene que tolerar la vieja (un campo
@@ -33,7 +39,7 @@ const { INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } = require('../config
 const { ahora, instanteEnEspana, anioMesEnEspana } = require('../utils/fecha.utils');
 const logger = require('../utils/logger.utils');
 
-const VERSION_INFORME = 1;
+const VERSION_INFORME = 2;   // 2: horas por técnico (asignación y en el evento)
 const MINUTO = 60000;
 const RE_MES = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
@@ -104,6 +110,8 @@ function analizarServicio(a, limiteSinIniciar) {
     cierre_tardio:  false,
     cierre_anticipado: false,
     minutos_servicio: null,
+    minutos_en_sitio: a.llegada_servicio_at && a.fin_servicio_at
+      ? Math.max(0, minutosEntre(a.llegada_servicio_at, a.fin_servicio_at)) : null,
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
@@ -162,7 +170,7 @@ async function calcularInforme(mes, instante = ahora()) {
 
   const [asignaciones] = await query(
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
-            al.inicio_real_at, al.llegada_servicio_at, al.finalizado_at,
+            al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             v.alias, v.matricula,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'
@@ -219,7 +227,8 @@ async function calcularInforme(mes, instante = ahora()) {
   const fichaTecnico = (r) => {
     if (!porTecnico.has(r.user_id)) {
       porTecnico.set(r.user_id, { user_id: r.user_id, nombre: nombreDe(r),
-                                  acc: nuevoAcumulado(), como_personal: 0, incidencias: 0 });
+                                  acc: nuevoAcumulado(), como_personal: 0, incidencias: 0,
+                                  horas: { asig_min: 0, asig_n: 0, sitio_min: 0, sitio_n: 0 } });
     }
     return porTecnico.get(r.user_id);
   };
@@ -229,6 +238,8 @@ async function calcularInforme(mes, instante = ahora()) {
     const t = fichaTecnico(m);
     if (m.rol === 'responsable') acumular(t.acc, s);
     else t.como_personal++;
+    if (s.minutos_servicio != null) { t.horas.asig_min += s.minutos_servicio; t.horas.asig_n++; }
+    if (s.minutos_en_sitio != null) { t.horas.sitio_min += s.minutos_en_sitio; t.horas.sitio_n++; }
   }
 
   // ── Incidencias ──
@@ -273,7 +284,12 @@ async function calcularInforme(mes, instante = ahora()) {
     .sort((x, y) => String(x.alias).localeCompare(String(y.alias), 'es'));
 
   const filaVehiculo = ({ acc, ...v }) => ({ ...v, ...cerrar(acc) });
-  const filaTecnico  = ({ acc, ...t }) => ({ ...t, ...cerrar(acc) });
+  const aHoras = (min) => Math.round(min / 6) / 10;
+  const filaTecnico  = ({ acc, horas, ...t }) => ({
+    ...t, ...cerrar(acc),
+    horas_asignacion: aHoras(horas.asig_min), servicios_con_horas_asignacion: horas.asig_n,
+    horas_en_servicio: aHoras(horas.sitio_min), servicios_con_horas_en_servicio: horas.sitio_n,
+  });
 
   return {
     version: VERSION_INFORME,
