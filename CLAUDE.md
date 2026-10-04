@@ -42,3 +42,21 @@ Por eso:
 - Antes de un merge a `master`, comprobar `git log --oneline master..develop`
   **justo antes** del merge, no minutos antes, y avisar si hay commits ajenos.
   `master` despliega a producción en el acto, sin aprobación.
+
+## Versión
+
+La app enseña su versión en el pie del menú lateral. La única fuente es
+`frontend/package.json` → `version`, y **se sube en el mismo commit que el
+cambio**, según su tamaño:
+
+| Cambio | Qué se sube | Ejemplo |
+|---|---|---|
+| Feature gorda (un flujo nuevo, una pantalla nueva, algo que cambia cómo trabaja la gente) | **mayor** | 1.4.2 → 2.0.0 |
+| Implementación pequeña (`feat` que añade o ajusta algo dentro de lo que ya hay) | **menor** | 1.4.2 → 1.5.0 |
+| Fix (`fix`, corrige sin añadir) | **parche** | 1.4.2 → 1.4.3 |
+
+Con `npm version major|minor|patch --no-git-tag-version` dentro de
+`frontend/` (toca `package.json` y `package-lock.json`, los dos van al
+commit). Lo que no cambia nada que se ejecute (docs, tests, CI, `refactor`,
+`chore`) no sube versión. Si un commit mezcla, manda lo más gordo. Si no está
+claro si una feature es «gorda», preguntar.

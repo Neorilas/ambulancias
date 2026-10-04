@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
+import { VERSION_APP } from '../../utils/version.js';
 
 function NavItem({ to, label, end = false, onClick }) {
   return (
@@ -129,7 +130,8 @@ export default function Sidebar({ isOpen, onClose }) {
         {/* Footer del sidebar */}
         <div className="px-[18px] py-3.5 pb-[max(0.875rem,var(--safe-bottom))] border-t border-neutral-100">
           <p className="text-[11px] leading-relaxed text-neutral-400">
-            V.A.P Servicios Sanitarios<br />v1.0.0
+            V.A.P Servicios Sanitarios<br />
+            <span className="font-mono">v{VERSION_APP}</span>
           </p>
         </div>
       </aside>
