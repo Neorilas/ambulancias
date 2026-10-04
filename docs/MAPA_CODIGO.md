@@ -424,6 +424,15 @@ pequeñas (~100 KB al mes); el tope de subida es el de siempre, 10 MB
   equivocada. Subir (`create_factura`) y borrar (`delete_factura`) quedan en
   `audit_logs`; descargar no.
 - Sin edición: si un dato está mal, se borra y se vuelve a subir.
+- **`query()` (`config/database.js`) escribía en el log TODOS los parámetros de
+  una consulta que falla**, y una factura duplicada pasa por ahí antes de que el
+  controlador la convierta en 409: el PDF salía byte a byte como JSON (decenas
+  de MB por línea). Ahora `paramsParaLog` cambia un Buffer por `[Buffer N B]` y
+  recorta los textos de más de 500 caracteres. Vale para cualquier otro BLOB
+  que se guarde en el futuro.
+- Tope del PDF: `PDF_MAX_BYTES` = el de las fotos, pero nunca más de 15 MB
+  (MEDIUMBLOB son 16). Un multipart roto devuelve un mensaje de PDF, no de foto
+  (`multipartRoto = 'pdf'`).
 
 ## 3. Frontend
 

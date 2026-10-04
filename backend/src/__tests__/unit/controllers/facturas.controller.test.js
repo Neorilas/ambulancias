@@ -35,7 +35,7 @@ describe('facturas.controller', () => {
 
   describe('importeValido', () => {
     it.each([
-      ['65,23', 65.23], ['65.23', 65.23], ['1.234,56', 1234.56], ['70', 70], [' 12,5 € ', 12.5],
+      ['65,23', 65.23], ['65.23', 65.23], ['1.234,56', 1234.56], ['1.234', 1234], ['70', 70], [' 12,5 € ', 12.5],
     ])('%s → %s', (entrada, esperado) => {
       expect(ctrl.importeValido(entrada)).toBe(esperado);
     });

@@ -45,14 +45,15 @@ function fechaValida(v) {
 }
 
 /**
- * Importe en euros: acepta «65,23», «65.23» y «1.234,56». undefined si no
+ * Importe en euros: acepta «65,23», «65.23», «1.234» y «1.234,56». undefined si no
  * viene (es opcional); NaN si viene y no se entiende.
  */
 function importeValido(v) {
   const t = texto(v);
   if (t === null) return undefined;
   let s = t.replace(/\s|€/g, '');
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  // «1.234,56» y «1.234»: el punto es de miles (lo mismo acepta la pantalla)
+  if (s.includes(',') || /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
   if (!/^\d{1,8}(\.\d{1,2})?$/.test(s)) return NaN;
   return Number(s);
 }

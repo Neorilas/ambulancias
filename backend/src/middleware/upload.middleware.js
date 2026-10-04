@@ -65,9 +65,13 @@ function subirImagen(campo) {
  * propio mensaje. (Un MulterError con texto propio no sirve: el segundo
  * argumento es el campo, no el mensaje.)
  */
+// Tope propio: MEDIUMBLOB admite 16 MB. Si MAX_FILE_SIZE_MB se sube por encima
+// de 15 para las fotos, un PDF así reventaría el INSERT con un 500.
+const PDF_MAX_BYTES = Math.min(UPLOAD.MAX_SIZE_BYTES, 15 * 1024 * 1024);
+
 const multerPdf = multer({
   storage,
-  limits: { fileSize: UPLOAD.MAX_SIZE_BYTES, files: 1 },
+  limits: { fileSize: PDF_MAX_BYTES, files: 1 },
 });
 
 function subirPdf(campo) {
@@ -75,7 +79,7 @@ function subirPdf(campo) {
   return (req, res, next) => single(req, res, (err) => {
     if (err && !(err instanceof multer.MulterError)) {
       err.status = 400;
-      err.multipartRoto = true;
+      err.multipartRoto = 'pdf';
     }
     next(err);
   });
@@ -178,4 +182,4 @@ function deleteFile(relativePath) {
   }
 }
 
-module.exports = { multerUpload, subirImagen, subirPdf, processAndSave, processAndSaveMultiple, deleteFile };
+module.exports = { multerUpload, subirImagen, subirPdf, PDF_MAX_BYTES, processAndSave, processAndSaveMultiple, deleteFile };
