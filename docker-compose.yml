@@ -120,6 +120,8 @@ services:
       # Exige la firma DKIM/DMARC del remitente que comprobó el servidor de
       # correo (Authentication-Results): el From se falsifica. 0 = no mirarla.
       FACTURAS_EXIGIR_FIRMA:    ${FACTURAS_EXIGIR_FIRMA:-1}
+      # Apagado: Google no adjunta el PDF al correo. 1 = revisar el buzón
+      FACTURAS_BUZON_ACTIVO:    ${FACTURAS_BUZON_ACTIVO:-0}
       # Al leer un PDF subido a mano, la propia empresa no es el proveedor
       FACTURAS_EMPRESA_PROPIA:  ${FACTURAS_EMPRESA_PROPIA:-vapss}
       FACTURAS_BUZON_DIAS:      ${FACTURAS_BUZON_DIAS:-45}

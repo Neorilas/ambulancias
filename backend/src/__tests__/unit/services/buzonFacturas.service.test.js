@@ -37,6 +37,7 @@ const ENV = {
   FACTURAS_IMAP_USUARIO: 'facturas@vapss.net',
   FACTURAS_IMAP_CONTRASENA: 'secreta',
   FACTURAS_REMITENTES: 'google.com',
+  FACTURAS_BUZON_ACTIVO: '1',
 };
 
 /** Un async iterable con los mensajes que da fetch(). */
@@ -157,6 +158,17 @@ describe('buzonFacturas.service', () => {
   });
 
   describe('revisarBuzon', () => {
+    it('apagado (FACTURAS_BUZON_ACTIVO distinto de 1) no se conecta aunque haya credenciales', async () => {
+      for (const v of ['0', '', undefined]) {
+        if (v === undefined) delete process.env.FACTURAS_BUZON_ACTIVO; else process.env.FACTURAS_BUZON_ACTIVO = v;
+        expect(buzon.configurado()).toBe(false);
+        expect(buzon.estado().configurado).toBe(false);
+      }
+      const r = await buzon.revisarBuzon();
+      expect(r).toMatchObject({ ok: false, error: 'Buzón sin configurar' });
+      expect(mockCliente.connect).not.toHaveBeenCalled();
+    });
+
     it('sin usuario o contraseña no se conecta', async () => {
       process.env.FACTURAS_IMAP_CONTRASENA = '';
       expect(buzon.configurado()).toBe(false);

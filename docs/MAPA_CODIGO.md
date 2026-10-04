@@ -134,7 +134,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `services/limpiezaErrores.service.js` | Purga de `error_logs`: los de la app (`cliente`) a 30 días, los del servidor a 180, por tandas de 5000. **Siempre encendida** (son logs, no datos del servicio; no depende del backup como la retención). `server.js` la lanza al arrancar y cada 6 h. Nunca lanza |
 | `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
 | `services/lectorFacturas.service.js` | Lee el texto de un PDF de factura (`unpdf`, pdf.js sin dependencias nativas) y saca proveedor, número, fecha e importe para el paso 1 de la subida (§2.8). Heurístico: lo dudoso, null. **Nunca lanza** |
-| `services/buzonFacturas.service.js` | Lee el buzón de facturas@ por IMAP y guarda los PDF de los remitentes permitidos (§2.8). Apagado sin `FACTURAS_IMAP_USUARIO/CONTRASENA`. **Nunca lanza** |
+| `services/buzonFacturas.service.js` | Lee el buzón de facturas@ por IMAP y guarda los PDF de los remitentes permitidos (§2.8). **Apagado desde 2026-10-04** (Google no adjunta el PDF): solo con `FACTURAS_BUZON_ACTIVO=1` y `FACTURAS_IMAP_USUARIO/CONTRASENA`. **Nunca lanza** |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
 | `utils/flota.utils.js` | El cruce GPS ↔ nuestros vehículos y el estado de cada uno (§2.6) |
 | `scripts/` | `create-admin`, `create-user`, `reset-password`, `setup-db`, `seed-local`, `sonda-cartrack` (§2.6) |
@@ -423,15 +423,19 @@ Facturación → Configuración → Usuarios del perfil de pagos, que el backend
 para coger los PDF adjuntos. **Comprobado por el usuario el 2026-10-04: Google
 NO adjunta el PDF**, solo avisa de que está para descargar en Google Ads. Así
 que el buzón no va a traer las de Google; la vía real es la **subida a mano en
-dos pasos** (abajo). El buzón queda para proveedores que sí adjunten el PDF
-(habría que añadirlos a `FACTURAS_REMITENTES`). Lo que se preparó para él: la columna `origen`
+dos pasos** (abajo). **Por eso el buzón está APAGADO** (pedido por el
+usuario): solo se revisa con `FACTURAS_BUZON_ACTIVO=1`, que por defecto es 0
+en `docker-compose.yml`. Las credenciales siguen en el `.env` de PRO; apagado,
+`configurado()` da false, no hay cron y la pantalla no pinta el recuadro del
+buzón. Se encendería para un proveedor que sí adjunte el PDF (añadiéndolo a
+`FACTURAS_REMITENTES`). Lo que se preparó para él: la columna `origen`
 (`manual` | `correo`, la pantalla marca las segundas con «llegó por correo») y
 el `UNIQUE (proveedor, numero)`, para que la misma factura no entre dos veces,
 ni a mano ni por correo.
 
 **Buzón de facturas (2026-10-04): `services/buzonFacturas.service.js`.** El
 backend lee `facturas@vapss.net` (Hostalia) por IMAP y guarda solos los PDF
-adjuntos con `origen = 'correo'`. Se enciende poniendo en el `.env` del
+adjuntos con `origen = 'correo'`. Se enciende (hoy apagado, ver arriba) con `FACTURAS_BUZON_ACTIVO=1` y poniendo en el `.env` del
 servidor (`/root/ambulancia/.env` en PRO) `FACTURAS_IMAP_USUARIO` y
 `FACTURAS_IMAP_CONTRASENA`; el resto tiene valor por defecto en
 `docker-compose.yml` (`.env.example` las documenta). `server.js` hace la
