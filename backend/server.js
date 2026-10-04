@@ -258,7 +258,9 @@ async function startServer() {
     setInterval(pasadaBuzon, cadaMin * 60 * 1000);
     logger.info(`Buzón de facturas: ${buzonFacturas.config().usuario}, revisión cada ${cadaMin} min`);
   } else {
-    logger.info('Buzón de facturas: apagado (FACTURAS_IMAP_USUARIO / FACTURAS_IMAP_CONTRASENA sin definir)');
+    logger.info(process.env.FACTURAS_BUZON_ACTIVO === '1'
+      ? 'Buzón de facturas: apagado (FACTURAS_IMAP_USUARIO / FACTURAS_IMAP_CONTRASENA sin definir)'
+      : 'Buzón de facturas: apagado (FACTURAS_BUZON_ACTIVO no es 1)');
   }
 
   // Retención: borra las asignaciones cerradas hace más de N meses con sus
