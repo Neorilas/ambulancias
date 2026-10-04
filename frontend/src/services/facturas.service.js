@@ -4,7 +4,7 @@ import { SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 /**
  * services/facturas.service.js
  * Facturas de proveedores. Solo admin y superadmin: cualquier otro se lleva
- * un 403 del backend (routes/facturas.routes.js).
+ * el 404 del backend (routes/facturas.routes.js).
  */
 
 /** Con responseType 'blob' el JSON de error llega también como Blob. */
@@ -20,6 +20,24 @@ export const facturasService = {
   /** Todas, la más reciente primero, sin el PDF. */
   list() {
     return api.get('/facturas').then(r => r.data.data);
+  },
+
+  /**
+   * Paso 1 de la subida: el backend lee el PDF y devuelve lo que ha sacado,
+   * sin guardar nada. { con_texto, datos: { proveedor, numero, fecha_emision, importe }, duplicada }
+   */
+  async leer(fichero) {
+    const fd = new FormData();
+    fd.append('fichero', fichero);
+    try {
+      const r = await api.post('/facturas/leer', fd, {
+        headers: { 'Content-Type': undefined },
+        timeout: SUBIDA_FOTO_TIMEOUT_MS,
+      });
+      return r.data.data;
+    } catch (err) {
+      throw await mensajeDeError(err, 'No se pudo leer la factura');
+    }
   },
 
   /** `datos`: { proveedor, numero, fecha_emision ('YYYY-MM-DD'), importe?, notas?, fichero (File) } */

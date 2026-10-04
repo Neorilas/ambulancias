@@ -244,8 +244,9 @@ async function startServer() {
   setInterval(purgarErroresAntiguos, 6 * 60 * 60 * 1000);
 
   // Buzón de facturas (facturas@vapss.net): guarda solos los PDF que mandan
-  // los proveedores. Apagado si faltan FACTURAS_IMAP_USUARIO/CONTRASENA en el
-  // .env. Primera pasada a los 2 min (que el arranque y las migraciones vayan
+  // los proveedores. Apagado salvo FACTURAS_BUZON_ACTIVO=1 y con
+  // FACTURAS_IMAP_USUARIO/CONTRASENA en el .env (Google no adjunta el PDF:
+  // desde 2026-10-04 está apagado). Primera pasada a los 2 min (que el arranque y las migraciones vayan
   // antes) y luego cada FACTURAS_BUZON_MINUTOS. La función no lanza nunca.
   const buzonFacturas = require('./src/services/buzonFacturas.service');
   if (buzonFacturas.configurado()) {

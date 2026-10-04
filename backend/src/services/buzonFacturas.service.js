@@ -47,7 +47,12 @@ function config() {
   };
 }
 
-const configurado = () => { const c = config(); return Boolean(c.usuario && c.contrasena); };
+// Apagado salvo FACTURAS_BUZON_ACTIVO=1 (decisión del usuario, 2026-10-04):
+// Google no adjunta el PDF al correo, solo avisa de que está en Google Ads, así
+// que el buzón no traía nada. Las credenciales se quedan en el .env por si
+// algún día un proveedor sí adjunta el PDF.
+const activo = () => process.env.FACTURAS_BUZON_ACTIVO === '1';
+const configurado = () => { const c = config(); return activo() && Boolean(c.usuario && c.contrasena); };
 
 // ── Lo que se deduce de cada correo ──────────────────────────────────────────
 

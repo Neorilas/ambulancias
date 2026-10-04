@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../../services/facturas.service.js', () => ({
-  facturasService: { list: vi.fn(), subir: vi.fn(), descargar: vi.fn(), eliminar: vi.fn(), estadoBuzon: vi.fn(), revisarBuzon: vi.fn() },
+  facturasService: { list: vi.fn(), leer: vi.fn(), subir: vi.fn(), descargar: vi.fn(), eliminar: vi.fn(), estadoBuzon: vi.fn(), revisarBuzon: vi.fn() },
 }));
 
 import { facturasService }      from '../../../services/facturas.service.js';
@@ -116,82 +116,158 @@ describe('Facturas', () => {
     expect(screen.getByText('5705694492')).toBeInTheDocument();
   });
 
-  describe('subir', () => {
+  describe('subir (paso 1: el PDF se lee; paso 2: se revisa y completa)', () => {
+    const LEIDA = { proveedor: 'Google Ads', numero: '5730000000', fecha_emision: '2026-09-15', importe: 70 };
+
     async function abrir() {
       montar();
       await screen.findByText('5705694492');
       fireEvent.click(screen.getByText('Subir factura'));
     }
 
-    it('no envía sin los obligatorios y lo dice campo a campo', async () => {
-      await abrir();
-      fireEvent.change(screen.getByLabelText(/Proveedor/, { selector: 'input' }), { target: { value: ' ' } });
-      fireEvent.change(screen.getByLabelText(/Importe/), { target: { value: 'mucho' } });
-      fireEvent.click(screen.getByText('Guardar factura'));
+    /** Elige el PDF y pasa al paso 2 con lo que devuelva el lector. */
+    async function leer(lectura, fichero = pdf()) {
+      if (lectura instanceof Error) facturasService.leer.mockRejectedValue(lectura);
+      else facturasService.leer.mockResolvedValue(lectura);
+      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [fichero] } });
+      fireEvent.click(screen.getByText('Siguiente'));
+      await screen.findByText('Revisar los datos · 2 de 2');
+      return fichero;
+    }
 
-      expect(await screen.findByText('Indica el proveedor')).toBeInTheDocument();
-      expect(screen.getByText('Indica el número de factura')).toBeInTheDocument();
-      expect(screen.getByText('Indica la fecha de emisión')).toBeInTheDocument();
-      expect(screen.getByText('Importe no válido (ej. 65,23)')).toBeInTheDocument();
-      expect(screen.getByText('Elige el PDF de la factura')).toBeInTheDocument();
-      expect(facturasService.subir).not.toHaveBeenCalled();
-    });
-
-    it('rechaza lo que no es PDF, lo que pesa demasiado y una fecha futura', async () => {
+    it('paso 1: sin PDF no se puede seguir; lo que no es PDF o pesa demasiado no se manda a leer', async () => {
       await abrir();
+      expect(screen.getByText('Subir factura · 1 de 2')).toBeInTheDocument();
+      expect(screen.getByText('Siguiente')).toBeDisabled();
+
       const fichero = screen.getByLabelText(/PDF de la factura/);
       fireEvent.change(fichero, { target: { files: [pdf('foto.jpg', 'image/jpeg')] } });
-      fireEvent.change(screen.getByLabelText(/Fecha de emisión/), { target: { value: '2999-01-01' } });
-      fireEvent.click(screen.getByText('Guardar factura'));
+      fireEvent.click(screen.getByText('Siguiente'));
       expect(await screen.findByText('Tiene que ser un PDF')).toBeInTheDocument();
-      expect(screen.getByText('No puede ser una fecha futura')).toBeInTheDocument();
 
       fireEvent.change(fichero, { target: { files: [pdf('grande.pdf', 'application/pdf', 11 * 1024 * 1024)] } });
-      fireEvent.click(screen.getByText('Guardar factura'));
+      fireEvent.click(screen.getByText('Siguiente'));
       expect(await screen.findByText('El PDF no puede pasar de 10 MB')).toBeInTheDocument();
-      expect(facturasService.subir).not.toHaveBeenCalled();
+      expect(facturasService.leer).not.toHaveBeenCalled();
     });
 
-    it('envía, añade la nueva a la lista en su sitio y cierra', async () => {
-      const nueva = { id: 9, proveedor: 'Google Ads', numero: '5730000000', fecha_emision: '2026-10-31',
-        importe: 70, notas: null, nombre_fichero: 'f.pdf', tamano: 10, origen: 'manual' };
+    it('paso 1: si el backend dice que no es un PDF de verdad, se queda en el paso 1', async () => {
+      facturasService.leer.mockRejectedValue(Object.assign(new Error('El fichero no es un PDF'), { status: 400 }));
+      await abrir();
+      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [pdf()] } });
+      fireEvent.click(screen.getByText('Siguiente'));
+      expect(await screen.findByText('El fichero no es un PDF')).toBeInTheDocument();
+      expect(screen.getByText('Subir factura · 1 de 2')).toBeInTheDocument();
+    });
+
+    it('todo leído: el formulario sale relleno y se guarda con el mismo PDF', async () => {
+      const nueva = { id: 9, ...LEIDA, notas: null, nombre_fichero: 'f.pdf', tamano: 10, origen: 'manual' };
       facturasService.subir.mockResolvedValue(nueva);
       await abrir();
+      const fichero = await leer({ con_texto: true, datos: LEIDA, duplicada: false });
 
-      const fichero = pdf();
-      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [fichero] } });
-      expect(screen.getByText(/f\.pdf · 1 KB/)).toBeInTheDocument();
-      fireEvent.change(screen.getByLabelText(/Nº de factura/), { target: { value: ' 5730000000 ' } });
-      fireEvent.change(screen.getByLabelText(/Fecha de emisión/), { target: { value: '2026-09-15' } });
-      fireEvent.change(screen.getByLabelText(/Importe/), { target: { value: '70,00' } });
+      expect(facturasService.leer).toHaveBeenCalledWith(fichero);
+      expect(screen.getByText(/Se han leído todos los datos/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('5730000000');
+      expect(screen.getByLabelText(/Importe/)).toHaveValue('70,00');
+      expect(screen.getAllByText('Leído del PDF, compruébalo')).toHaveLength(4);
+
       fireEvent.click(screen.getByText('Guardar factura'));
-
       await waitFor(() => expect(facturasService.subir).toHaveBeenCalledWith({
-        proveedor: 'Google Ads', numero: '5730000000', fecha_emision: '2026-09-15',
-        importe: '70,00', notas: '', fichero,
+        proveedor: 'Google Ads', numero: '5730000000', fecha_emision: '2026-09-15', importe: '70,00', notas: '', fichero,
       }));
       expect(await screen.findByText('5730000000')).toBeInTheDocument();
       expect(screen.queryByText('Guardar factura')).not.toBeInTheDocument();
-      const filas = screen.getAllByRole('row');
-      expect(within(filas[1]).getByText('5730000000')).toBeInTheDocument();
+      // En su sitio por fecha: la del 15-09 va detrás de la del 30-09
+      expect(within(screen.getAllByRole('row')[2]).getByText('5730000000')).toBeInTheDocument();
     });
 
-    it('si el backend la rechaza (duplicada), lo dice y deja el formulario abierto', async () => {
+    it('lo que falta se marca y hay que rellenarlo a mano antes de guardar', async () => {
+      facturasService.subir.mockResolvedValue(null);
+      await abrir();
+      await leer({ con_texto: true, datos: { proveedor: 'Taller Peñalara', numero: null, fecha_emision: null, importe: 12.5 } });
+
+      expect(screen.getByText(/marcado en ámbar/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Importe/)).toHaveValue('12,50');
+      expect(screen.getAllByText('No está en el PDF, rellénalo a mano')).toHaveLength(2);
+      expect(screen.getByLabelText(/Nº de factura/).className).toContain('border-warn-500');
+
+      fireEvent.click(screen.getByText('Guardar factura'));
+      expect(await screen.findByText('Indica el número de factura')).toBeInTheDocument();
+      expect(screen.getByText('Indica la fecha de emisión')).toBeInTheDocument();
+      expect(facturasService.subir).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByLabelText(/Nº de factura/), { target: { value: ' T-2 ' } });
+      fireEvent.change(screen.getByLabelText(/Fecha de emisión/), { target: { value: '2999-01-01' } });
+      fireEvent.click(screen.getByText('Guardar factura'));
+      expect(await screen.findByText('No puede ser una fecha futura')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/Fecha de emisión/), { target: { value: '2026-10-01' } });
+      fireEvent.click(screen.getByText('Guardar factura'));
+      await waitFor(() => expect(facturasService.subir).toHaveBeenCalledWith(expect.objectContaining({
+        proveedor: 'Taller Peñalara', numero: 'T-2', fecha_emision: '2026-10-01', importe: '12,50',
+      })));
+    });
+
+    it('un PDF escaneado o un fallo al leer pasan igual al paso 2, vacío y con aviso', async () => {
+      await abrir();
+      await leer({ con_texto: false, datos: { proveedor: null, numero: null, fecha_emision: null, importe: null } });
+      expect(screen.getByText(/parece escaneado/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Proveedor/, { selector: 'input' })).toHaveValue('');
+
+      fireEvent.click(screen.getByText('Atrás'));
+      await leer(new Error('No se pudo leer la factura'));
+      expect(screen.getByText(/No se ha podido leer la factura \(No se pudo leer la factura\)/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('');
+    });
+
+    it('avisa antes de guardar si esa factura ya está; si el backend la rechaza, lo dice y sigue abierto', async () => {
       facturasService.subir.mockRejectedValue(new Error('Ya hay una factura 5705694492 de Google Ads'));
       await abrir();
-      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [pdf()] } });
-      fireEvent.change(screen.getByLabelText(/Nº de factura/), { target: { value: '5705694492' } });
-      fireEvent.change(screen.getByLabelText(/Fecha de emisión/), { target: { value: '2026-09-30' } });
-      fireEvent.click(screen.getByText('Guardar factura'));
+      await leer({ con_texto: true, datos: { ...LEIDA, numero: '5705694492' }, duplicada: true });
+      expect(screen.getByText(/Ya hay una factura 5705694492 de Google Ads \(30\/09\/2026\)/)).toBeInTheDocument();
 
+      fireEvent.click(screen.getByText('Guardar factura'));
       expect(await screen.findByText('Ya hay una factura 5705694492 de Google Ads')).toBeInTheDocument();
       expect(screen.getByText('Guardar factura')).toBeInTheDocument();
     });
 
-    it('Cancelar cierra sin enviar', async () => {
+    it('Atrás y Siguiente con el mismo PDF no relee ni pisa lo corregido; otro PDF sí se lee', async () => {
+      await abrir();
+      await leer({ con_texto: true, datos: LEIDA, duplicada: false });
+      fireEvent.change(screen.getByLabelText(/Nº de factura/), { target: { value: 'CORREGIDO-1' } });
+      fireEvent.click(screen.getByText('Atrás'));
+      fireEvent.click(screen.getByText('Siguiente'));
+      await screen.findByText('Revisar los datos · 2 de 2');
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('CORREGIDO-1');
+      expect(facturasService.leer).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByText('Atrás'));
+      await leer({ con_texto: true, datos: LEIDA, duplicada: false }, pdf('otra.pdf'));
+      expect(facturasService.leer).toHaveBeenCalledTimes(2);
+      expect(screen.getByLabelText(/Nº de factura/)).toHaveValue('5730000000');
+    });
+
+    it('un rechazo del backend que no es de red (413, 404) se queda en el paso 1', async () => {
+      facturasService.leer.mockRejectedValue(Object.assign(new Error('El PDF no puede pasar de 10 MB'), { status: 413 }));
+      await abrir();
+      fireEvent.change(screen.getByLabelText(/PDF de la factura/), { target: { files: [pdf()] } });
+      fireEvent.click(screen.getByText('Siguiente'));
+      expect(await screen.findByText('El PDF no puede pasar de 10 MB')).toBeInTheDocument();
+      expect(screen.getByText('Subir factura · 1 de 2')).toBeInTheDocument();
+    });
+
+    it('avisa de la repetida aunque el número venga en otras mayúsculas', async () => {
+      await abrir();
+      await leer({ con_texto: true, datos: { ...LEIDA, proveedor: 'Taller Peñalara', numero: 't-1' } });
+      expect(screen.getByText(/Ya hay una factura T-1 de Taller Peñalara/)).toBeInTheDocument();
+    });
+
+    it('Cancelar cierra sin leer ni enviar', async () => {
       await abrir();
       fireEvent.click(screen.getByText('Cancelar'));
-      expect(screen.queryByText('Guardar factura')).not.toBeInTheDocument();
+      expect(screen.queryByText('Siguiente')).not.toBeInTheDocument();
+      expect(facturasService.leer).not.toHaveBeenCalled();
     });
   });
 

@@ -31,6 +31,8 @@ router.get('/', ctrl.listFacturas);
 // /:id para que «buzon» no se lea como un id.
 router.get('/buzon', ctrl.getBuzon);
 router.post('/buzon/revisar', ctrl.revisarBuzon);
+// Paso 1 de la subida: lee el PDF y devuelve los datos, sin guardar (lectorFacturas.service.js)
+router.post('/leer', uploadLimiter, subirPdf('fichero'), reabrirContexto, ctrl.leerFactura);
 router.post('/', uploadLimiter, subirPdf('fichero'), reabrirContexto, ctrl.createFactura);
 router.get('/:id/descarga', ctrl.downloadFactura);
 router.delete('/:id', ctrl.deleteFactura);

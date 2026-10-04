@@ -125,6 +125,7 @@ const ACCESO = {
   'GET /informes/mensual':             ['denegada'],
   'GET /facturas/':                    ['oculta'],
   'POST /facturas/':                   ['oculta'],
+  'POST /facturas/leer':               ['oculta'],
   'GET /facturas/:id/descarga':        ['oculta'],
   'DELETE /facturas/:id':              ['oculta'],
   'GET /facturas/buzon':               ['oculta'],
