@@ -1603,6 +1603,13 @@ es cambiar el nombre de la cabecera cuando deje de haber avisos; cualquier
 origen externo nuevo (una API, un CDN, otras teselas) hay que añadirlo ahí
 antes, o la CSP obligatoria lo bloqueará. Los marcadores `__API_ORIGIN__` y
 `__API_URL__` los rellena el plugin `htaccess-con-base` de `vite.config.js`.
+**La app no se indexa en Google** (desde 2026-10-05; Search Console la veía
+como página normal de vapss.net): cabecera `X-Robots-Tag: noindex, nofollow`
+en ese `.htaccess`, que cubre también manifest, iconos y assets, y
+`<meta name="robots">` en `index.html` por si el hosting pierde
+`mod_headers`. **Trampa: no bloquear `/app/` en el robots.txt del
+WordPress** (lo edita Yoast): si Google no puede rastrearla, no ve el
+`noindex` y puede seguir listando la URL sin contenido.
 **El despliegue a PRE está detrás de la variable de repositorio `PRE_ACTIVO`**:
 si no vale `true`, el job `destino` marca `activo=false` y los jobs de deploy se
 saltan con un aviso en el resumen del run, en vez de morir en rojo por el
