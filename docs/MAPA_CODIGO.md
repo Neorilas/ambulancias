@@ -126,7 +126,7 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
 | `utils/contextoPeticion.utils.js` | `AsyncLocalStorage` de la petición. Hoy solo lleva `impersonadoPor`, que lee `logAudit` (§6.3) |
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
-| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) |
+| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) · `motivo.utils.js` (`errorMotivo`, regla del motivo de fin anticipado, espejo de `frontend/src/utils/motivo.js`; §6.1) |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
@@ -1206,6 +1206,19 @@ pantalla reacciona: `AsignacionDetalle` enseña el textarea (`forzarMotivo`) y
 de modo que `step` pasa a apuntar a él (las fotos ya subidas no se repiten).
 En la ficha se lee «Motivo de fin anticipado»; las asignaciones anteriores
 conservan el que se escribió al cerrar.
+**Qué vale como motivo (2026-10-05):** `errorMotivo` (backend
+`utils/motivo.utils.js`, espejo `frontend/src/utils/motivo.js`) pide al menos
+5 caracteres **ya recortado** (solo espacios no cuenta) y rechaza un mismo
+carácter repetido, mirado sin espacios y sin mayúsculas («aaaaa», «a a a a a»,
+«AaAaA», «.....»). Se aplica en los cuatro sitios que piden motivo:
+`registrarFinServicio` y `finalizarAsignacion` (400 con `errors: [{ field:
+'motivo_fin' }]`, así que la pantalla reacciona igual que a un motivo que
+falta), y `finalizeVehiculo`/`finalizeTrabajo` en trabajos (§6.2). En las
+cuatro pantallas el botón no se habilita hasta que vale y, si hay texto que no
+vale, se dice por qué debajo del campo. El caso vacío conserva su mensaje
+propio en el backend («Hay que explicar el motivo…»). No mira el contenido más
+allá de eso: «asdfg» pasa; la regla es para que no se pueda despachar con una
+tecla, no un filtro de calidad.
 
 **Fotos de inicio subidas tarde (2026-09-25).** Olvidar las fotos de inicio
 no deja el servicio atascado: se pueden subir hasta que se finaliza
@@ -1383,7 +1396,8 @@ pulsación, como «Inicio de la asignación» en asignaciones: vale también si 
 ya lo pasó a `activo`. Quien no gestiona solo puede adelantarse 24 h. Cerrarlo
 exige las fotos de inicio y de fin **de ese vehículo**, km finales que no bajen
 ni de los de inicio ni del cuentakilómetros actual (mismo criterio que
-asignaciones, §6.1) y motivo si es antes de `fecha_fin`. Igual que en
+asignaciones, §6.1) y motivo si es antes de `fecha_fin` (con la misma regla
+`errorMotivo` de §6.1: 5 caracteres, no una letra repetida). Igual que en
 asignaciones, cerrar **no** exige haberlo activado antes. Un vehículo cerrado
 ya no admite fotos, aunque el trabajo siga abierto por otro.
 
@@ -1552,6 +1566,7 @@ solo actúa en el navegador no es un control de acceso.
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
+| Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` y las pantallas `AsignacionDetalle`, `FinalizacionAsignacion`, `trabajos/Finalizacion`, `TrabajoDetail`. Si solo cambia uno, la pantalla deja pulsar y la API da 400 (o al revés) (§6.1) |
 | Cuánto antes se puede pulsar «Inicio de la asignación» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |

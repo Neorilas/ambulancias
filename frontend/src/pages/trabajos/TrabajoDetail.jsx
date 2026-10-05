@@ -13,6 +13,7 @@ import { getImageUrl } from '../../utils/imageUtils.js';
 import Finalizacion from './Finalizacion.jsx';
 import InicioTrabajo from './InicioTrabajo.jsx';
 import TrabajoForm from './TrabajoForm.jsx';
+import { errorMotivo } from '../../utils/motivo.js';
 import { IMAGEN_TIPO_LABELS } from '../../utils/constants.js';
 
 const TIPO_LABELS = IMAGEN_TIPO_LABELS;
@@ -223,7 +224,10 @@ function CicloSinVehiculos({ trabajo, onHecho }) {
               onChange={e => setMotivo(e.target.value)}
               placeholder="Motivo de la finalización anticipada (obligatorio)" />
           )}
-          <button disabled={ocupado || (anticipado && !motivo.trim())} className="btn-primary text-sm"
+          {anticipado && motivo.trim() && errorMotivo(motivo) && (
+            <p className="text-xs text-bad-500">{errorMotivo(motivo)}</p>
+          )}
+          <button disabled={ocupado || (anticipado && !!errorMotivo(motivo))} className="btn-primary text-sm"
             onClick={() => correr(
               () => trabajosService.finalize(trabajo.id,
                 { motivo_finalizacion_anticipada: anticipado ? motivo : undefined }),

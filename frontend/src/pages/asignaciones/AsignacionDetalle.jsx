@@ -15,6 +15,7 @@ import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
+import { errorMotivo } from '../../utils/motivo.js';
 
 const TIPO_INC_OPTS = [
   ['dano_exterior', 'Daño exterior'],
@@ -565,11 +566,14 @@ export default function AsignacionDetalle({ id, onClose }) {
                       placeholder="Explica por qué terminas antes de lo previsto"
                       value={motivoFin} onChange={e => setMotivoFin(e.target.value)}
                     />
+                    {motivoFin.trim() && errorMotivo(motivoFin) && (
+                      <p className="text-xs text-bad-500 mt-1">{errorMotivo(motivoFin)}</p>
+                    )}
                   </div>
                 )}
                 <button
                   onClick={handleFinServicio}
-                  disabled={registrandoFinServicio || (finAnticipado && !motivoFin.trim())}
+                  disabled={registrandoFinServicio || (finAnticipado && !!errorMotivo(motivoFin))}
                   className="btn-primary w-full"
                 >
                   {registrandoFinServicio ? 'Registrando…' : 'Fin evento/servicio'}

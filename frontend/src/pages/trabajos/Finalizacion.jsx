@@ -5,6 +5,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { parseKm } from '../../utils/kmUtils.js';
+import { errorMotivo } from '../../utils/motivo.js';
 
 /**
  * Cierre de UN vehículo del trabajo (v25: cada responsable cierra el suyo; el
@@ -429,12 +430,15 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
               onChange={e => setMotivo(e.target.value)}
               placeholder="Describe el motivo por el que se finaliza antes de lo previsto..."
             />
+            {motivo.trim() && errorMotivo(motivo) && (
+              <p className="text-xs text-bad-500 mt-1">{errorMotivo(motivo)}</p>
+            )}
           </div>
           <div className="flex gap-3">
             <button onClick={() => setStep('fotos')} className="btn-secondary flex-1">‹ Volver</button>
             <button
               onClick={() => setStep('confirm')}
-              disabled={!motivo.trim()}
+              disabled={!!errorMotivo(motivo)}
               className="btn-primary flex-1"
             >
               Continuar

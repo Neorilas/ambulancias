@@ -4,6 +4,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
+import { errorMotivo } from '../../utils/motivo.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
   IMAGEN_TIPOS_FIN,
@@ -326,10 +327,13 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             placeholder="Explica el motivo por el que finalizas antes de lo previsto"
             value={motivo} onChange={e => setMotivo(e.target.value)}
           />
+          {motivo.trim() && errorMotivo(motivo) && (
+            <p className="text-xs text-bad-500 mt-1">{errorMotivo(motivo)}</p>
+          )}
         </div>
         <div className="flex gap-3">
           <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
-          <button onClick={() => setStep(step + 1)} disabled={!motivo.trim()} className="btn-primary flex-1">Siguiente →</button>
+          <button onClick={() => setStep(step + 1)} disabled={!!errorMotivo(motivo)} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
     );

@@ -258,7 +258,14 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
 
     const boton = await screen.findByRole('button', { name: 'Fin evento/servicio' });
     expect(boton).toBeDisabled();
-    fireEvent.change(screen.getByPlaceholderText(/terminas antes de lo previsto/), { target: { value: '  Traslado cancelado ' } });
+    const campo = screen.getByPlaceholderText(/terminas antes de lo previsto/);
+    fireEvent.change(campo, { target: { value: 'aaaaa' } });
+    expect(boton).toBeDisabled();
+    expect(screen.getByText(/mismo carácter repetido/)).toBeInTheDocument();
+    fireEvent.change(campo, { target: { value: '  ok  ' } });
+    expect(boton).toBeDisabled();
+    expect(screen.getByText(/al menos 5 caracteres/)).toBeInTheDocument();
+    fireEvent.change(campo, { target: { value: '  Traslado cancelado ' } });
     expect(boton).toBeEnabled();
     fireEvent.click(boton);
     await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5, 'Traslado cancelado'));
