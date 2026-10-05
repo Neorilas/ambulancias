@@ -28,10 +28,10 @@ describe('errorMotivo', () => {
   });
 
   it('rechaza un mismo carácter repetido, con espacios o mayúsculas de por medio', () => {
-    expect(errorMotivo('aaaaa')).toMatch(/repetido/);
-    expect(errorMotivo('aaaaaaaaaa')).toMatch(/repetido/);
-    expect(errorMotivo('a a a a a')).toMatch(/repetido/);
-    expect(errorMotivo('AaAaA')).toMatch(/repetido/);
-    expect(errorMotivo('.....')).toMatch(/repetido/);
+    expect(errorMotivo('aaaaa')).toMatch(/motivo válido/);
+    expect(errorMotivo('aaaaaaaaaa')).toMatch(/motivo válido/);
+    expect(errorMotivo('a a a a a')).toMatch(/motivo válido/);
+    expect(errorMotivo('AaAaA')).toMatch(/motivo válido/);
+    expect(errorMotivo('.....')).toMatch(/motivo válido/);
   });
 });

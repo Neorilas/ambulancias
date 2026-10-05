@@ -741,7 +741,7 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200, motivo_finalizacion_anticipada: 'aaaaa' }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/repetido/);
+      expect(res._json.message).toMatch(/motivo válido/);
     });
 
     it.each([

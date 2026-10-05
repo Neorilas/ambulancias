@@ -259,12 +259,18 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     const boton = await screen.findByRole('button', { name: 'Fin evento/servicio' });
     expect(boton).toBeDisabled();
     const campo = screen.getByPlaceholderText(/terminas antes de lo previsto/);
-    fireEvent.change(campo, { target: { value: 'aaaaa' } });
-    expect(boton).toBeDisabled();
-    expect(screen.getByText(/mismo carácter repetido/)).toBeInTheDocument();
+    // Mientras se escribe no se avisa de nada; solo al intentar enviarlo.
     fireEvent.change(campo, { target: { value: '  ok  ' } });
-    expect(boton).toBeDisabled();
+    expect(boton).toBeEnabled();
+    expect(screen.queryByText(/al menos 5 caracteres/)).not.toBeInTheDocument();
+    fireEvent.click(boton);
     expect(screen.getByText(/al menos 5 caracteres/)).toBeInTheDocument();
+    // Una letra repetida no se explica: mensaje genérico, sin pista de la regla.
+    fireEvent.change(campo, { target: { value: 'aaaaa' } });
+    expect(screen.queryByText(/al menos 5 caracteres/)).not.toBeInTheDocument();
+    fireEvent.click(boton);
+    expect(screen.getByText('Escribe un motivo válido')).toBeInTheDocument();
+    expect(asignacionesService.registrarFinServicio).not.toHaveBeenCalled();
     fireEvent.change(campo, { target: { value: '  Traslado cancelado ' } });
     expect(boton).toBeEnabled();
     fireEvent.click(boton);

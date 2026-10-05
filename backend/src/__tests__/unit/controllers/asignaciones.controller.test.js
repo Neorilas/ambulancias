@@ -1305,7 +1305,7 @@ describe('asignaciones.controller', () => {
         params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material', motivo_fin: 'xxxxx' }, user: TEC,
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toMatch(/repetido/);
+      expect(res._json.message).toMatch(/motivo válido/);
       expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
     });
 

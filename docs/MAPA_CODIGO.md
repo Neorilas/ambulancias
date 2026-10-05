@@ -1213,9 +1213,14 @@ carácter repetido, mirado sin espacios y sin mayúsculas («aaaaa», «a a a a 
 «AaAaA», «.....»). Se aplica en los cuatro sitios que piden motivo:
 `registrarFinServicio` y `finalizarAsignacion` (400 con `errors: [{ field:
 'motivo_fin' }]`, así que la pantalla reacciona igual que a un motivo que
-falta), y `finalizeVehiculo`/`finalizeTrabajo` en trabajos (§6.2). En las
-cuatro pantallas el botón no se habilita hasta que vale y, si hay texto que no
-vale, se dice por qué debajo del campo. El caso vacío conserva su mensaje
+falta), y `finalizeVehiculo`/`finalizeTrabajo` en trabajos (§6.2).
+**No se dan pistas de la regla (decisión del usuario, 2026-10-05):** en las
+cuatro pantallas el botón se habilita en cuanto hay texto, nada se avisa
+mientras se escribe, y solo al pulsar se enseña el error debajo del campo
+(`avisoMotivo`/`avisoMotivoFin`, que se borra al volver a escribir). El mínimo
+de 5 se dice abiertamente; la letra repetida da un genérico «Escribe un motivo
+válido» **a propósito**, también en el 400 del backend — no cambiarlo por un
+mensaje que explique por qué. El caso vacío conserva su mensaje
 propio en el backend («Hay que explicar el motivo…»). No mira el contenido más
 allá de eso: «asdfg» pasa; la regla es para que no se pueda despachar con una
 tecla, no un filtro de calidad.
@@ -1566,7 +1571,7 @@ solo actúa en el navegador no es un control de acceso.
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
-| Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` y las pantallas `AsignacionDetalle`, `FinalizacionAsignacion`, `trabajos/Finalizacion`, `TrabajoDetail`. Si solo cambia uno, la pantalla deja pulsar y la API da 400 (o al revés) (§6.1) |
+| Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` y las pantallas `AsignacionDetalle`, `FinalizacionAsignacion`, `trabajos/Finalizacion`, `TrabajoDetail`. Si solo cambia uno, la pantalla deja pasar y la API da 400 (o al revés). Los mensajes no explican la regla de la letra repetida, a propósito (§6.1) |
 | Cuánto antes se puede pulsar «Inicio de la asignación» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |

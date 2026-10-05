@@ -196,6 +196,7 @@ function VehiculoTrabajo({ v, ocupado, onActivar, onInicio, onFin }) {
 function CicloSinVehiculos({ trabajo, onHecho }) {
   const { notify } = useNotification();
   const [motivo, setMotivo]   = useState('');
+  const [avisoMotivo, setAvisoMotivo] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const anticipado = new Date() < new Date(trabajo.fecha_fin);
 
@@ -221,14 +222,12 @@ function CicloSinVehiculos({ trabajo, onHecho }) {
         <>
           {anticipado && (
             <textarea className="input min-h-20 resize-none" value={motivo}
-              onChange={e => setMotivo(e.target.value)}
+              onChange={e => { setMotivo(e.target.value); setAvisoMotivo(null); }}
               placeholder="Motivo de la finalización anticipada (obligatorio)" />
           )}
-          {anticipado && motivo.trim() && errorMotivo(motivo) && (
-            <p className="text-xs text-bad-500">{errorMotivo(motivo)}</p>
-          )}
-          <button disabled={ocupado || (anticipado && !!errorMotivo(motivo))} className="btn-primary text-sm"
-            onClick={() => correr(
+          {anticipado && avisoMotivo && <p className="text-xs text-bad-500">{avisoMotivo}</p>}
+          <button disabled={ocupado || (anticipado && !motivo.trim())} className="btn-primary text-sm"
+            onClick={() => (anticipado && errorMotivo(motivo)) ? setAvisoMotivo(errorMotivo(motivo)) : correr(
               () => trabajosService.finalize(trabajo.id,
                 { motivo_finalizacion_anticipada: anticipado ? motivo : undefined }),
               'Trabajo finalizado')}>

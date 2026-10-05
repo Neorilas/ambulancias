@@ -15,8 +15,8 @@ describe('errorMotivo', () => {
   });
 
   it('rechaza un mismo carácter repetido', () => {
-    expect(errorMotivo('aaaaa')).toMatch(/repetido/);
-    expect(errorMotivo('a a a a a')).toMatch(/repetido/);
-    expect(errorMotivo('AaAaA')).toMatch(/repetido/);
+    expect(errorMotivo('aaaaa')).toMatch(/motivo válido/);
+    expect(errorMotivo('a a a a a')).toMatch(/motivo válido/);
+    expect(errorMotivo('AaAaA')).toMatch(/motivo válido/);
   });
 });

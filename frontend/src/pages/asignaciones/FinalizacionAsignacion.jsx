@@ -44,6 +44,8 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [fotos,  setFotos]  = useState({});   // { tipoKey: File } (fin)
   const [kmFin,  setKmFin]  = useState('');
   const [motivo, setMotivo] = useState('');
+  // Aviso del motivo: solo tras intentar seguir, nunca mientras se escribe.
+  const [avisoMotivo, setAvisoMotivo] = useState(null);
   const [material, setMaterial] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
@@ -325,15 +327,16 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
           <textarea
             className="input resize-none" rows={5}
             placeholder="Explica el motivo por el que finalizas antes de lo previsto"
-            value={motivo} onChange={e => setMotivo(e.target.value)}
+            value={motivo} onChange={e => { setMotivo(e.target.value); setAvisoMotivo(null); }}
           />
-          {motivo.trim() && errorMotivo(motivo) && (
-            <p className="text-xs text-bad-500 mt-1">{errorMotivo(motivo)}</p>
-          )}
+          {avisoMotivo && <p className="text-xs text-bad-500 mt-1">{avisoMotivo}</p>}
         </div>
         <div className="flex gap-3">
           <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
-          <button onClick={() => setStep(step + 1)} disabled={!!errorMotivo(motivo)} className="btn-primary flex-1">Siguiente →</button>
+          <button
+            onClick={() => { const fallo = errorMotivo(motivo); if (fallo) setAvisoMotivo(fallo); else setStep(step + 1); }}
+            disabled={!motivo.trim()} className="btn-primary flex-1"
+          >Siguiente →</button>
         </div>
       </div>
     );
