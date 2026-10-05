@@ -15,6 +15,7 @@ import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
+import { errorMotivo } from '../../utils/motivo.js';
 
 const TIPO_INC_OPTS = [
   ['dano_exterior', 'Daño exterior'],
@@ -205,6 +206,8 @@ export default function AsignacionDetalle({ id, onClose }) {
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
   const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
   const [motivoFin, setMotivoFin] = useState('');
+  // Aviso del motivo: solo tras intentar enviarlo, nunca mientras se escribe.
+  const [avisoMotivoFin, setAvisoMotivoFin] = useState(null);
   // El servidor exigió el motivo aunque el reloj del móvil decía que ya era la
   // hora prevista: se enseña el campo igual.
   const [forzarMotivo, setForzarMotivo] = useState(false);
@@ -282,6 +285,8 @@ export default function AsignacionDetalle({ id, onClose }) {
   // Si se pulsa antes de fecha_fin hay que escribir el motivo: se pide aquí y
   // no al finalizar la asignación (el servidor vuelve a comprobarlo con su reloj).
   const handleFinServicio = async () => {
+    const fallo = finAnticipado && errorMotivo(motivoFin);
+    if (fallo) { setAvisoMotivoFin(fallo); return; }
     setRegistrandoFinServicio(true);
     try {
       setAsig(await asignacionesService.registrarFinServicio(id, finAnticipado ? motivoFin.trim() : null));
@@ -563,8 +568,9 @@ export default function AsignacionDetalle({ id, onClose }) {
                     <textarea
                       className="input resize-none" rows={3}
                       placeholder="Explica por qué terminas antes de lo previsto"
-                      value={motivoFin} onChange={e => setMotivoFin(e.target.value)}
+                      value={motivoFin} onChange={e => { setMotivoFin(e.target.value); setAvisoMotivoFin(null); }}
                     />
+                    {avisoMotivoFin && <p className="text-xs text-bad-500 mt-1">{avisoMotivoFin}</p>}
                   </div>
                 )}
                 <button

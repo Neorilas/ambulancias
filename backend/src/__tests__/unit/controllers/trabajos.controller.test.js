@@ -736,6 +736,14 @@ describe('trabajos.controller', () => {
       expect(res._json.message).toContain('motivo');
     });
 
+    it('400 si es anticipado y el motivo es una letra repetida', async () => {
+      bd([filaVehiculo({ fecha_fin: MANANA() }), esResponsable()]);
+      const res = mockRes();
+      await finalizeVehiculo(reqVeh(resp1, { kilometros_fin: 1200, motivo_finalizacion_anticipada: 'aaaaa' }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/motivo válido/);
+    });
+
     it.each([
       ['sin km', {}, 'kilómetros finales'],
       ['km por debajo del inicio', { kilometros_fin: 900 }, 'de inicio'],
@@ -845,6 +853,13 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
+
+      bd([trabajo({ estado: 'activo', fecha_fin: MANANA() })]);
+      const resCorto = mockRes();
+      await finalizeTrabajo(mockReq({ params: { id: '1' }, body: { motivo_finalizacion_anticipada: ' No ' }, user: admin }),
+        resCorto, mockNext());
+      expect(resCorto.status).toHaveBeenCalledWith(400);
+      expect(resCorto._json.message).toMatch(/al menos 5/);
 
       bd([trabajo({ estado: 'activo', fecha_fin: MANANA() }), ...trabajoDosVehiculos({ vehiculos: [], responsables: [] })]);
       const res2 = mockRes();

@@ -5,6 +5,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import { parseKm } from '../../utils/kmUtils.js';
+import { errorMotivo } from '../../utils/motivo.js';
 
 /**
  * Cierre de UN vehículo del trabajo (v25: cada responsable cierra el suyo; el
@@ -48,6 +49,8 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
   });
 
   const [motivo,         setMotivo]        = useState('');
+  // Aviso del motivo: solo tras intentar seguir, nunca mientras se escribe.
+  const [avisoMotivo,    setAvisoMotivo]   = useState(null);
   const [uploading,      setUploading]     = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   // Fotos que ya llegaron al servidor, por vehículo y tipo. Un trabajo con tres
@@ -426,14 +429,15 @@ export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
             <textarea
               className="input min-h-28 resize-none"
               value={motivo}
-              onChange={e => setMotivo(e.target.value)}
+              onChange={e => { setMotivo(e.target.value); setAvisoMotivo(null); }}
               placeholder="Describe el motivo por el que se finaliza antes de lo previsto..."
             />
+            {avisoMotivo && <p className="text-xs text-bad-500 mt-1">{avisoMotivo}</p>}
           </div>
           <div className="flex gap-3">
             <button onClick={() => setStep('fotos')} className="btn-secondary flex-1">‹ Volver</button>
             <button
-              onClick={() => setStep('confirm')}
+              onClick={() => { const fallo = errorMotivo(motivo); if (fallo) setAvisoMotivo(fallo); else setStep('confirm'); }}
               disabled={!motivo.trim()}
               className="btn-primary flex-1"
             >

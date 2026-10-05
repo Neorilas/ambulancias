@@ -21,6 +21,7 @@ const { hasPermission }               = require('../middleware/roles.middleware'
 const { logAudit }                    = require('./admin.controller');
 const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana, instanteUtc } =
   require('../utils/fecha.utils');
+const { errorMotivo }                 = require('../utils/motivo.utils');
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -794,6 +795,9 @@ async function finalizeVehiculo(req, res, next) {
     if (isAnticipado && !motivo_finalizacion_anticipada?.trim()) {
       return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
     }
+    if (isAnticipado && errorMotivo(motivo_finalizacion_anticipada)) {
+      return error(res, errorMotivo(motivo_finalizacion_anticipada), 400);
+    }
 
     if (kmFin === undefined || kmFin === null || kmFin === '') {
       return error(res, 'Faltan los kilómetros finales del vehículo', 400);
@@ -934,6 +938,9 @@ async function finalizeTrabajo(req, res, next) {
     const isAnticipado = ahora() < new Date(trabajo.fecha_fin);
     if (isAnticipado && !motivo_finalizacion_anticipada?.trim()) {
       return error(res, 'Es obligatorio indicar el motivo de finalización anticipada', 400);
+    }
+    if (isAnticipado && errorMotivo(motivo_finalizacion_anticipada)) {
+      return error(res, errorMotivo(motivo_finalizacion_anticipada), 400);
     }
     const nuevoEstado = isAnticipado
       ? TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO

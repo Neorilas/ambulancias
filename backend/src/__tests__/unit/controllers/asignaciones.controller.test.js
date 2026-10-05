@@ -1106,6 +1106,18 @@ describe('asignaciones.controller', () => {
       expect(huboUpdate()).toBe(false);
     });
 
+    it('antes de fecha_fin: 400 con un motivo corto o de una letra repetida, y no toca la fila', async () => {
+      for (const motivo_fin of ['Ok  ', 'aaaaa', 'a a a a a']) {
+        query.mockReset();
+        mockConLlegada({ fecha_fin: new Date(Date.now() + 3600000) });
+        const res = mockRes();
+        await registrarFinServicio(mockReq({ params: { id: '1' }, body: { motivo_fin }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
+        expect(huboUpdate()).toBe(false);
+      }
+    });
+
     it('antes de fecha_fin con motivo: lo guarda y lo audita', async () => {
       mockConLlegada({ fecha_fin: new Date(Date.now() + 3600000) });
       query.mockResolvedValueOnce([{ affectedRows: 1 }]);
@@ -1284,6 +1296,17 @@ describe('asignaciones.controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(updCierre()[0]).toContain('COALESCE(?, motivo_fin)');
       expect(updCierre()[1][1]).toBe('Avería');
+    });
+
+    it('antes de fecha_fin: 400 con un motivo de una letra repetida', async () => {
+      mockCierreOk();
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material', motivo_fin: 'xxxxx' }, user: TEC,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/motivo válido/);
+      expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
     });
 
     it('fin del evento sellado tras fecha_fin y fecha_fin ampliada luego: lo pide', async () => {

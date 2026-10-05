@@ -16,6 +16,7 @@ const logger                     = require('../utils/logger.utils');
 const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
 const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
+const { errorMotivo }            = require('../utils/motivo.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 const vigilancia                 = require('../services/vigilancia.service');
 
@@ -964,6 +965,8 @@ async function registrarFinServicio(req, res, next) {
       return error(res, 'Hay que explicar el motivo: el evento/servicio termina antes de la hora prevista', 400,
         [{ field: 'motivo_fin', msg: 'obligatorio' }]);
     }
+    const falloMotivo = esAnticipado && errorMotivo(motivo);
+    if (falloMotivo) return error(res, falloMotivo, 400, [{ field: 'motivo_fin', msg: falloMotivo }]);
 
     const [result] = await query(
       `UPDATE asignaciones_libres SET fin_servicio_at = ?, motivo_fin = COALESCE(?, motivo_fin)
@@ -1026,6 +1029,8 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, 'Hay que explicar el motivo: se finaliza antes de la hora prevista', 400,
         [{ field: 'motivo_fin', msg: 'obligatorio' }]);
     }
+    const falloMotivo = pideMotivo && errorMotivo(motivo);
+    if (falloMotivo) return error(res, falloMotivo, 400, [{ field: 'motivo_fin', msg: falloMotivo }]);
 
     // El material gastado se exige SIEMPRE, y no se acepta en blanco. Un campo
     // vacío no distingue «no gastó nada» de «no lo rellenó», y ese es
