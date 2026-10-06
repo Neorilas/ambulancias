@@ -311,16 +311,16 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
           </div>
         ) : (
           <>
-            {/* Video — siempre montado. object-contain y no cover: el visor
-                enseña el fotograma entero, que es lo que se guarda. Con cover
-                la pantalla alargada del móvil recortaba los lados y parecía
-                que la cámara tenía zoom (§3.5 del mapa) */}
+            {/* Video — siempre montado. Nunca recorta los lados: cover siempre
+                hacía que en vertical pareciera que la cámara tenía zoom. Solo
+                llena la pantalla cuando eso recorta arriba y abajo (en
+                horizontal); si no, contain (§3.5 del mapa) */}
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-contain"
+              className={`w-full h-full ${areaVideo?.cubre ? 'object-cover' : 'object-contain'}`}
             />
 
             {/* Silueta guía de encuadre */}
