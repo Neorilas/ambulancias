@@ -103,7 +103,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const previewRef = useRef(preview);
   previewRef.current = preview;
 
-  const { videoRef, canvasRef, cameraReady, error, isLandscape, toggleCamera, captureBlob } =
+  const { videoRef, canvasRef, cameraReady, error, isLandscape, areaVideo, toggleCamera, captureBlob } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
   // El detector de encuadre tarda en cargar la primera vez: se empieza a
@@ -311,13 +311,16 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
           </div>
         ) : (
           <>
-            {/* Video — siempre montado */}
+            {/* Video — siempre montado. object-contain y no cover: el visor
+                enseña el fotograma entero, que es lo que se guarda. Con cover
+                la pantalla alargada del móvil recortaba los lados y parecía
+                que la cámara tenía zoom (§3.5 del mapa) */}
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
 
             {/* Silueta guía de encuadre */}
@@ -326,6 +329,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                 tipoKey={currentTipo.key}
                 wantLandscape={currentTipo.landscape}
                 isLandscape={isLandscape}
+                area={areaVideo}
                 instruccion={currentTipo.instruccion}
               />
             )}

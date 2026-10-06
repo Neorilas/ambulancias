@@ -851,6 +851,32 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 
 **Los porqués y las trampas:**
 
+- **El visor «con zoom» (2026-10-06).** Los técnicos tenían que alejarse 3-4 m
+  más de lo normal para encuadrar la ambulancia. Dos recortes que se sumaban:
+  (1) `useCameraStream` pedía 1920×1080 (16:9) y el sensor del móvil es 4:3:
+  en vertical eso tira un 25 % del ancho; (2) el `<video>` iba con
+  `object-cover` a pantalla completa, y en una pantalla de 19,5:9 eso recorta
+  otro ~18 % por los lados. En vertical (frontal, trasera, niveles), en un
+  móvil típico, el visor enseñaba ~60 % del ancho que da la app de cámara:
+  como un zoom de 1,6× (las cifras exactas dependen del modelo). La
+  foto guardada era el fotograma entero, más ancha que lo que se veía al
+  encuadrar. Ahora se pide 4:3 (`aspectRatio` incluido: sin él, 1920×1080
+  «encaja mejor» que un 1440×1080 de sensor completo) y el visor va con
+  `object-contain` (franjas negras arriba y abajo, pero lo que se ve es lo que
+  se guarda). **No volver a `object-cover`** «para que quede bonito».
+  **La silueta se mide sobre la imagen, no sobre el visor**: `useCameraStream`
+  devuelve `areaVideo` (el rectángulo de la imagen dentro del `<video>`, con
+  `videoWidth/videoHeight` + `ResizeObserver` + el evento `resize`) y
+  `PhotoSilhouette` dimensiona la silueta dentro de esa caja. Medida sobre la
+  pantalla, la de los laterales (88 % del ancho) salía 1,4× más ancha que la
+  foto en horizontal y la ambulancia encuadrada con ella quedaba cortada. El
+  texto de instrucción sigue anclado al visor. El formato que da de verdad cada
+  móvil (3:4 en vertical, 4:3 en horizontal) **no está comprobado en
+  dispositivo**: si alguno sigue dando 16:9, el visor se ve igual de bien
+  porque la caja se adapta, pero se pierde campo. Las
+  fotos pesan algo más (los laterales salen 1280×960 en vez de 1280×720 tras
+  `compressImage`); los umbrales de encuadre son fracciones de la foto y no
+  dependen del formato.
 - **La nitidez no es el laplaciano de siempre.** Se probó y daba «borrosa» a
   toda foto nocturna del cuentakilómetros (casi todo negro) y no veía las
   movidas. Ahora se mide la *anchura de los bordes* (salto máximo / contraste

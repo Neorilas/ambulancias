@@ -62,8 +62,16 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     setError(null);
     setCameraReady(false);
     try {
+      // 4:3, el formato nativo del sensor (el de la app de cámara del móvil).
+      // Pedir 16:9 (1920×1080) recorta el sensor: en vertical se pierde una
+      // cuarta parte del ancho y los técnicos tenían que alejarse metros para
+      // encuadrar la ambulancia. El aspectRatio desempata: sin él, 1920×1080
+      // está «más cerca» de lo pedido que un 1440×1080 de sensor completo.
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: {
+          facingMode: facing,
+          width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 },
+        },
         audio: false,
       });
       streamRef.current = stream;
@@ -111,10 +119,38 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     );
   }), [cameraReady]);
 
+  // ── Rectángulo que ocupa la imagen dentro del <video> ─────────
+  // Con object-contain el fotograma no llena el elemento (franjas negras).
+  // La silueta se mide sobre este rectángulo: medida sobre la pantalla, la de
+  // los laterales salía más ancha que la foto y la ambulancia quedaba cortada.
+  const [areaVideo, setAreaVideo] = useState(null);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const medir = () => {
+      const { clientWidth: cw, clientHeight: ch, videoWidth: vw, videoHeight: vh } = v;
+      if (!cw || !ch || !vw || !vh) return setAreaVideo(null);
+      const escala = Math.min(cw / vw, ch / vh);
+      const width = Math.round(vw * escala);
+      const height = Math.round(vh * escala);
+      setAreaVideo(a => (a?.width === width && a?.height === height ? a : { width, height }));
+    };
+    medir();
+    v.addEventListener('loadedmetadata', medir);
+    v.addEventListener('resize', medir);   // el fotograma cambia de forma al girar en iOS
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medir) : null;
+    ro?.observe(v);
+    return () => {
+      v.removeEventListener('loadedmetadata', medir);
+      v.removeEventListener('resize', medir);
+      ro?.disconnect();
+    };
+  }, [cameraReady]);
+
   const toggleCamera = useCallback(
     () => setFacingMode(f => f === 'environment' ? 'user' : 'environment'),
     []
   );
 
-  return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, toggleCamera, captureBlob };
+  return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, areaVideo, toggleCamera, captureBlob };
 }
