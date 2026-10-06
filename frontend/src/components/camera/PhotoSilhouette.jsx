@@ -88,9 +88,9 @@ const SILUETA_RATIO = {
  *   tipoKey       — clave del tipo de foto (ej: 'frontal', 'lateral_izquierdo')
  *   wantLandscape — si el tipo requiere orientación horizontal
  *   isLandscape   — si el dispositivo está actualmente en horizontal
- *   area          — { width, height } en px de la imagen dentro del <video>
- *                   (object-contain deja franjas). La silueta se mide sobre
- *                   esto; sin él, sobre todo el visor
+ *   area          — { width, height } en px de la parte visible de la imagen
+ *                   dentro del <video> (en vertical deja franjas). La silueta
+ *                   se mide sobre esto; sin él, sobre todo el visor
  *   instruccion   — texto de ayuda a mostrar bajo la silueta
  */
 export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, area, instruccion }) {

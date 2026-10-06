@@ -861,19 +861,22 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
   como un zoom de 1,6× (las cifras exactas dependen del modelo). La
   foto guardada era el fotograma entero, más ancha que lo que se veía al
   encuadrar. Ahora se pide 4:3 (`aspectRatio` incluido: sin él, 1920×1080
-  «encaja mejor» que un 1440×1080 de sensor completo) y el visor va con
-  `object-contain` (franjas negras arriba y abajo, pero lo que se ve es lo que
-  se guarda). **No volver a `object-cover`** «para que quede bonito».
-  **La silueta se mide sobre la imagen, no sobre el visor**: `useCameraStream`
-  devuelve `areaVideo` (el rectángulo de la imagen dentro del `<video>`, con
-  `videoWidth/videoHeight` + `ResizeObserver` + el evento `resize`) y
-  `PhotoSilhouette` dimensiona la silueta dentro de esa caja. Medida sobre la
+  «encaja mejor» que un 1440×1080 de sensor completo).
+  **Regla del visor: nunca recorta los lados.** `useCameraStream` decide el
+  ajuste por geometría (`areaVideo.cubre`): si la pantalla es más apaisada que
+  la imagen (móvil en horizontal) va con `object-cover` y solo pierde algo de
+  arriba y abajo, que la foto sí lleva; si no (vertical), `object-contain`
+  con franjas arriba y abajo. Primero se puso `contain` siempre, y en
+  horizontal salían franjas negras a los lados que el usuario vio raras
+  (2026-10-06); `cover` siempre es lo que causaba el «zoom» en vertical.
+  **La silueta se mide sobre la parte visible de la imagen, no sobre el
+  visor**: `areaVideo` trae su `width/height` (de `videoWidth/videoHeight` +
+  `ResizeObserver` + el evento `resize`) y `PhotoSilhouette` dimensiona la
+  silueta dentro de esa caja. Con franjas a los lados, medida sobre la
   pantalla, la de los laterales (88 % del ancho) salía 1,4× más ancha que la
-  foto en horizontal y la ambulancia encuadrada con ella quedaba cortada. El
-  texto de instrucción sigue anclado al visor. El formato que da de verdad cada
-  móvil (3:4 en vertical, 4:3 en horizontal) **no está comprobado en
-  dispositivo**: si alguno sigue dando 16:9, el visor se ve igual de bien
-  porque la caja se adapta, pero se pierde campo. Las
+  foto. El texto de instrucción sigue anclado al visor. **Comprobado en un
+  Android real (2026-10-06): da 4:3.** iPhone sin comprobar; si algún móvil
+  sigue dando 16:9, el visor se adapta igual pero se pierde campo. Las
   fotos pesan algo más (los laterales salen 1280×960 en vez de 1280×720 tras
   `compressImage`); los umbrales de encuadre son fracciones de la foto y no
   dependen del formato.

@@ -119,10 +119,15 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     );
   }), [cameraReady]);
 
-  // ── Rectángulo que ocupa la imagen dentro del <video> ─────────
-  // Con object-contain el fotograma no llena el elemento (franjas negras).
-  // La silueta se mide sobre este rectángulo: medida sobre la pantalla, la de
-  // los laterales salía más ancha que la foto y la ambulancia quedaba cortada.
+  // ── Cómo se ajusta la imagen al visor y qué parte se ve ───────
+  // Regla: el visor nunca recorta los lados (el ancho es lo que hace falta
+  // para que quepa la ambulancia). Si la pantalla es más apaisada que la
+  // imagen (móvil en horizontal), se llena (`cubre`) y solo se pierde algo de
+  // arriba y abajo, que la foto guardada sí lleva. Si no (vertical), se
+  // enseña entera (contain) con franjas arriba y abajo.
+  // `areaVideo` es la parte visible de la imagen, y la silueta se mide sobre
+  // ella: medida sobre la pantalla, con franjas a los lados, la de los
+  // laterales salía más ancha que la foto.
   const [areaVideo, setAreaVideo] = useState(null);
   useEffect(() => {
     const v = videoRef.current;
@@ -130,10 +135,12 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     const medir = () => {
       const { clientWidth: cw, clientHeight: ch, videoWidth: vw, videoHeight: vh } = v;
       if (!cw || !ch || !vw || !vh) return setAreaVideo(null);
-      const escala = Math.min(cw / vw, ch / vh);
-      const width = Math.round(vw * escala);
-      const height = Math.round(vh * escala);
-      setAreaVideo(a => (a?.width === width && a?.height === height ? a : { width, height }));
+      const cubre = cw / ch >= vw / vh;
+      const escala = cubre ? cw / vw : Math.min(cw / vw, ch / vh);
+      const width = Math.min(Math.round(vw * escala), cw);
+      const height = Math.min(Math.round(vh * escala), ch);
+      setAreaVideo(a => (a?.width === width && a?.height === height && a?.cubre === cubre
+        ? a : { width, height, cubre }));
     };
     medir();
     v.addEventListener('loadedmetadata', medir);
