@@ -62,8 +62,16 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     setError(null);
     setCameraReady(false);
     try {
+      // 4:3, el formato nativo del sensor (el de la app de cámara del móvil).
+      // Pedir 16:9 (1920×1080) recorta el sensor: en vertical se pierde una
+      // cuarta parte del ancho y los técnicos tenían que alejarse metros para
+      // encuadrar la ambulancia. El aspectRatio desempata: sin él, 1920×1080
+      // está «más cerca» de lo pedido que un 1440×1080 de sensor completo.
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: {
+          facingMode: facing,
+          width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 },
+        },
         audio: false,
       });
       streamRef.current = stream;
