@@ -103,7 +103,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const previewRef = useRef(preview);
   previewRef.current = preview;
 
-  const { videoRef, canvasRef, cameraReady, error, isLandscape, toggleCamera, captureBlob } =
+  const { videoRef, canvasRef, cameraReady, error, isLandscape, areaVideo, toggleCamera, captureBlob } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
   // El detector de encuadre tarda en cargar la primera vez: se empieza a
@@ -329,6 +329,7 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                 tipoKey={currentTipo.key}
                 wantLandscape={currentTipo.landscape}
                 isLandscape={isLandscape}
+                area={areaVideo}
                 instruccion={currentTipo.instruccion}
               />
             )}

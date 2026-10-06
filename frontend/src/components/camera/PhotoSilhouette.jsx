@@ -88,9 +88,12 @@ const SILUETA_RATIO = {
  *   tipoKey       — clave del tipo de foto (ej: 'frontal', 'lateral_izquierdo')
  *   wantLandscape — si el tipo requiere orientación horizontal
  *   isLandscape   — si el dispositivo está actualmente en horizontal
+ *   area          — { width, height } en px de la imagen dentro del <video>
+ *                   (object-contain deja franjas). La silueta se mide sobre
+ *                   esto; sin él, sobre todo el visor
  *   instruccion   — texto de ayuda a mostrar bajo la silueta
  */
-export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, instruccion }) {
+export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, area, instruccion }) {
   const svg = SILUETAS[tipoKey];
   if (!svg && !instruccion) return null;
 
@@ -103,8 +106,13 @@ export default function PhotoSilhouette({ tipoKey, wantLandscape, isLandscape, i
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
       {svg && (
-        <div className="drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]" style={style}>
-          {svg}
+        <div
+          className="flex items-center justify-center"
+          style={area ? { width: area.width, height: area.height } : { width: '100%', height: '100%' }}
+        >
+          <div className="drop-shadow-[0_0_8px_rgba(0,0,0,0.9)]" style={style}>
+            {svg}
+          </div>
         </div>
       )}
       {instruccion && (
