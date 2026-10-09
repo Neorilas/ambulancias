@@ -15,6 +15,9 @@
  *   - asignaciones con borrado lógico cuyo `deleted_at` es anterior al corte.
  * Qué NO:
  *   - una programada o activa, sea de cuando sea;
+ *   - una cerrada de un trabajo que su coordinador aún no ha cerrado (v33):
+ *     sin sus ambulancias el trabajo se quedaría pendiente de cierre para
+ *     siempre, y ya no se podría cerrar. Espera a que se cierre;
  *   - usuarios, vehículos e incidencias. Las incidencias son del vehículo (una
  *     abierta no puede desaparecer): la FK es SET NULL y solo pierden el enlace.
  *
@@ -24,6 +27,11 @@
  * Antes de borrar nada se archiva en `informe_mensual` el informe de cada mes
  * que se va a tocar (services/informes.service.js): después, el cálculo en vivo
  * de ese mes ya no saldría. Si no se puede archivar, esta pasada no purga.
+ *
+ * El trabajo (v33) se va con su última ambulancia: si ya está cerrado (o
+ * borrado) y no le queda ninguna, ni del modelo v25. Sus FK lo permiten:
+ * asignaciones_libres es RESTRICT (y ya no queda ninguna), el resto CASCADE o
+ * SET NULL.
  *
  * Trampa: borrar la fila de la asignación NO borra sus fotos. La FK de
  * `vehicle_images.asignacion_id` es SET NULL, así que quedarían huérfanas en
@@ -45,9 +53,14 @@ const MAX_POR_PASADA = 1000;
 
 // Qué se purga (dos parámetros: el corte, dos veces). Lo usan la búsqueda de
 // candidatas y el archivado de informes, que tienen que ver las mismas filas.
+// La de un trabajo solo con el trabajo ya cerrado; una borrada, siempre (su
+// trabajo se borró con ella, o la quitó gestión).
 const CONDICION_PURGA = `(deleted_at IS NULL
                  AND estado IN ('finalizada', 'cancelada')
-                 AND COALESCE(finalizado_at, updated_at) < ?)
+                 AND COALESCE(finalizado_at, updated_at) < ?
+                 AND (trabajo_id IS NULL OR trabajo_id IN (
+                       SELECT tc.id FROM trabajos tc
+                        WHERE tc.estado IN ('finalizado', 'finalizado_anticipado'))))
              OR (deleted_at IS NOT NULL AND deleted_at < ?)`;
 
 /** Instante de corte: `meses` meses antes de `instante`, en UTC. */
@@ -59,8 +72,9 @@ function corteRetencion(meses, instante = ahora()) {
 
 /**
  * Borra una asignación y todo lo suyo en una transacción. Devuelve las URLs de
- * sus fotos (o null si la fila ya no estaba), para borrar los ficheros
- * DESPUÉS del commit: si la transacción fallara, las filas seguirían apuntando a ficheros que ya no existen.
+ * sus fotos y si se llevó su trabajo (o null si la fila ya no estaba), para
+ * borrar los ficheros DESPUÉS del commit: si la transacción fallara, las filas
+ * seguirían apuntando a ficheros que ya no existen.
  */
 async function purgarUna(asig) {
   return transaction(async (conn) => {
@@ -77,8 +91,22 @@ async function purgarUna(asig) {
         [asig.vehicle_id]
       );
     }
-    // null = no había nada que borrar (otra pasada se adelantó): no cuenta.
-    return res.affectedRows > 0 ? fotos.map(f => f.image_url) : null;
+    if (!(res.affectedRows > 0)) return null;   // otra pasada se adelantó: no cuenta
+
+    // Su trabajo, con la última: solo cerrado o borrado y sin ninguna más
+    let trabajoPurgado = false;
+    if (asig.trabajo_id) {
+      const [resT] = await conn.execute(
+        `DELETE FROM trabajos
+          WHERE id = ?
+            AND (estado IN ('finalizado', 'finalizado_anticipado') OR deleted_at IS NOT NULL)
+            AND NOT EXISTS (SELECT 1 FROM asignaciones_libres WHERE trabajo_id = ?)
+            AND NOT EXISTS (SELECT 1 FROM trabajo_vehiculos  WHERE trabajo_id = ?)`,
+        [asig.trabajo_id, asig.trabajo_id, asig.trabajo_id]
+      );
+      trabajoPurgado = (resT?.affectedRows || 0) > 0;
+    }
+    return { urls: fotos.map(f => f.image_url), trabajoPurgado };
   });
 }
 
@@ -91,7 +119,7 @@ async function purgarUna(asig) {
  * @param {Date}   [opts.instante] - "ahora"; los tests lo fijan
  */
 async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES, instante } = {}) {
-  const resultado = { activa: meses > 0, asignaciones: 0, fotos: 0, fallidas: 0, ids: [] };
+  const resultado = { activa: meses > 0, asignaciones: 0, fotos: 0, fallidas: 0, ids: [], trabajos: [] };
   if (!resultado.activa) return resultado;
 
   const corte = corteRetencion(meses, instante || ahora());
@@ -121,7 +149,7 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
   try {
     while (resultado.asignaciones + resultado.fallidas < MAX_POR_PASADA) {
       const [candidatas] = await query(
-        `SELECT id, vehicle_id, (deleted_at IS NULL) AS contaba
+        `SELECT id, vehicle_id, trabajo_id, (deleted_at IS NULL) AS contaba
            FROM asignaciones_libres
           WHERE ${CONDICION_PURGA}
           ORDER BY id
@@ -133,9 +161,11 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
 
       for (const asig of candidatas) {
         try {
-          const urls = await purgarUna({ ...asig, contaba: Boolean(asig.contaba) });
-          if (urls === null) continue;
+          const purgada = await purgarUna({ ...asig, contaba: Boolean(asig.contaba) });
+          if (purgada === null) continue;
+          const { urls, trabajoPurgado } = purgada;
           for (const url of urls) deleteFile(url);
+          if (trabajoPurgado) resultado.trabajos.push(asig.trabajo_id);
           resultado.asignaciones++;
           resultado.fotos += urls.length;
           resultado.ids.push(asig.id);
@@ -174,6 +204,8 @@ async function purgarAsignacionesAntiguas({ meses = RETENCION_ASIGNACIONES_MESES
         asignaciones: resultado.asignaciones,
         fotos: resultado.fotos,
         ids: resultado.ids.slice(0, 500),
+        // Los trabajos que se fueron con su última ambulancia (v33)
+        ...(resultado.trabajos.length ? { trabajos: resultado.trabajos.slice(0, 500) } : {}),
       },
       impersonadoPor: null,
       });

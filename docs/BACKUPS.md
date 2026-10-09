@@ -356,6 +356,12 @@ ejemplo):
 - **El cierre de una cancelada es su `updated_at`**, porque `finalizado_at`
   solo lo pone la finalización. Una cerrada ya no se puede editar, así que no se
   mueve; si una migración masiva lo tocara, la purga solo se retrasaría.
+- **Las asignaciones de un trabajo (v33) esperan a que el coordinador lo
+  cierre**: mientras siga abierto (por ejemplo, pendiente de cierre durante
+  meses) no se purgan, porque sin sus ambulancias el trabajo no se podría
+  cerrar nunca. Cuando se purga la última de un trabajo cerrado (o borrado),
+  `purgarUna` borra también el trabajo, en la misma transacción; la auditoría
+  `purga_retencion` lo apunta en `details.trabajos`.
 - **La variable tiene que estar en el `environment` de `docker-compose.yml`**,
   y ya lo está, con valor por defecto 0. Si se quita de ahí, el `.env` deja de
   llegar al contenedor y la retención se apaga sin avisar.
