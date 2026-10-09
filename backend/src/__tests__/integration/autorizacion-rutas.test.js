@@ -65,6 +65,7 @@ const ACCESO = {
 
   // ── Por objeto, en el controlador o en ownership ────────────
   'GET /trabajos/:id':                                ['controlador', 'trabajos.controller (vistaParaUsuario)'],
+  'POST /trabajos/:id/cerrar':                        ['controlador', 'trabajos.controller.cerrarTrabajo (su coordinador o MANAGE_TRABAJOS)'],
   'POST /trabajos/:id/vehiculos/:vehicleId/activar':  ['controlador', 'trabajos.controller (responsable del vehículo)'],
   'POST /trabajos/:id/vehiculos/:vehicleId/finalize': ['controlador', 'trabajos.controller (responsable del vehículo)'],
   'POST /trabajos/:id/evidencias':                    ['controlador', 'ownership.requireTrabajoEvidenciaAccess'],

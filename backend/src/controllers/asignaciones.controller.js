@@ -1578,5 +1578,7 @@ module.exports = {
   usuariosNoValidos,
   insertarAsignacion,
   fueraDelTrabajo,
+  buscarSolapes,
+  buscarVehiculoOcupado,
   getAsignacionCompleta,
 };

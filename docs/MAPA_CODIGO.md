@@ -80,7 +80,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` (`?search`, `?role=<rol>` o `sin-rol`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` (`?trabajo_id=N` o `sin`, v33) · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
-| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
+| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` (una tarjeta por trabajo con `mi_asignacion`, v33) · GET `/calendario` · GET `/` · CRUD `/:id` (el POST lleva `coordinador_user_id` y `asignaciones[]`, v33) · POST `/:id/cerrar` (v33: su coordinador o gestión, D3) · del modelo v25, vivas hasta la fase 6: POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos ni asignaciones**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
@@ -102,10 +102,13 @@ formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
 usa también el alta de un trabajo);
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
-`generateIdentificador`, `getTrabajoCompleto` (sin recortar),
-`vistaParaUsuario` (el recorte por persona, §6.2), `leerVehiculos`,
-`guardarResponsables`, `estadoTrabajoDesde` + `sincronizarEstadoTrabajo`,
-`FILTRO_PROPIOS` (el «es mío» de los listados).
+`generateIdentificador`, `getTrabajoCompleto` (sin recortar; trae
+`asignaciones` con `leerAsignacionesDelTrabajo` y `coordinador`),
+`vistaParaUsuario` (el recorte por persona, §6.2) + `ambulanciaAjena` (su lista
+blanca), `leerAmbulancias` (las del alta, D6), `cerrarTrabajo`, `leerVehiculos`
+y `guardarResponsables` (v25), `FILTRO_PROPIOS` + `propios(uid)` (el «es mío»
+de los listados, cuatro parámetros). El estado derivado vive en
+`services/estadoTrabajo.service.js`.
 
 ### 2.3 Middleware (`backend/src/middleware/`)
 
@@ -1449,7 +1452,64 @@ hace el backend:
 - El cron ya no pasa a `activo` por su `fecha_inicio` un trabajo que tenga
   asignaciones: arranca cuando arranca su primera ambulancia.
 
-### 6.2 Quién hace qué en un trabajo (v25)
+### 6.2 Quién hace qué en un trabajo
+
+**Desde v33 (el trabajo padre)** sus ambulancias son asignaciones (§6.1 «La
+asignación dentro de su trabajo») y cada una tiene sus responsables y su
+equipo. Lo que hay más abajo, «Modelo v25», queda para los trabajos creados
+antes, que conviven hasta la fase 6 del plan.
+
+| Acción | Responsable de una ambulancia | Equipo de una ambulancia | Coordinador | Gestión |
+|---|---|---|---|---|
+| Ver la ficha (título, descripción, ubicación, fechas, coordinador) | sí | sí | sí | sí (`view_all_trabajos` o `manage_trabajos`) |
+| Su ambulancia entera (estado, horas, km, progreso de fotos) | sí | sí | — | — |
+| Las demás ambulancias | **solo cuál es y quién va** | **solo cuál es y quién va** | todo (D2) | todo |
+| Operar una ambulancia (activar, fotos, llegada, finalizar) | la suya | no | no, salvo que además sea su responsable o gestión | todas |
+| Cerrar el trabajo (`POST /:id/cerrar`) | no | no | **sí**, con todas finalizadas (D3) | sí |
+| Crear / editar / borrar el trabajo, añadir ambulancias | no | no | no | sí (admin o gestor) |
+
+- **El recorte es `vistaParaUsuario`**, como antes: cada ambulancia sale con
+  `mi_rol` (`responsable` | `equipo` | null) y `detalle`, el trabajo con
+  `mi_rol` (`gestion` | `coordinador` | `responsable` | `equipo`) y
+  `puede_cerrar`. De una ambulancia ajena solo sale lo que lista
+  `ambulanciaAjena` (vehículo y personas): **lista blanca**, para que un campo
+  nuevo de la asignación no se filtre a nadie por olvido. Las canceladas no se
+  enseñan a quien no es gestión ni coordinador, y haber ido en una cancelada
+  no da acceso.
+- **Quién lo ve** (`FILTRO_PROPIOS`, también el 403): el coordinador, quien va
+  en una asignación viva suya, y los dos casos del v25. Cuatro parámetros,
+  todos el id del usuario (`propios(uid)`).
+- **Alta (D6):** `POST /trabajos` exige `coordinador_user_id` (D1: cualquier
+  usuario activo, no hace falta que vaya) y `asignaciones[]` con al menos una
+  ambulancia, y lo crea todo en **una transacción** (`leerAmbulancias` +
+  `asignaciones.insertarAsignacion`). Las fechas de cada ambulancia son por
+  defecto las del trabajo. Devuelve `avisos_alta` por ambulancia (solapes,
+  ambulancia ocupada, fuera del trabajo) y manda el «nuevo servicio» a cada
+  uno. **El formulario anterior (`vehiculos`/`usuarios`) da 400** con «recárgala
+  para actualizarla»: ese modelo ya no se crea. Las siguientes ambulancias se
+  añaden con `POST /asignaciones` y `trabajo_id`.
+- **Editar:** el coordinador se cambia, no se quita. Con asignaciones,
+  `vehiculos` y `usuarios` dan 400: las ambulancias y quién va se cambian en
+  cada una.
+- **Borrar:** solo si ninguna ambulancia ha empezado ni terminado (sus fotos y
+  horas son la evidencia del servicio); sus asignaciones se borran con él, en
+  la misma transacción, para no dejar tarjetas colgando.
+- **Cerrar (D3):** `cerrarTrabajo` mira las asignaciones, no el estado
+  guardado: ninguna `programada` ni `activa`. Sella `cerrado_at` y
+  `cerrado_por`, y el `WHERE` repite «no cerrado» para que dos pulsaciones
+  cruzadas auditen una vez (`close_trabajo`, con `por_gestion`). Un trabajo sin
+  asignaciones (v25) da 400: se cierra por sus vehículos.
+- **Mis trabajos (D7, D11):** `misTrab` saca los trabajos `programado`,
+  `activo` o `pendiente_cierre` que coordino o en los que voy, con
+  `mi_asignacion` (si voy en dos, la que llevo como responsable) y
+  `soy_coordinador`. Filtra por el estado **del trabajo**, no de la asignación:
+  con su ambulancia finalizada la tarjeta sigue hasta que el coordinador
+  cierra.
+- `/:id/activar` y `/:id/finalize` (trabajo sin vehículos) cuentan también las
+  asignaciones: con alguna, 400, o gestión podría cerrar a mano un trabajo
+  nuevo saltándose a sus ambulancias.
+
+**Modelo v25 (trabajos anteriores a v33)**
 
 | Acción | Responsable de un vehículo | Equipo (`trabajo_usuarios`) | Gestión |
 |---|---|---|---|
@@ -1623,9 +1683,11 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
-| Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por vehículo, no por campo del trabajo) |
+| Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
+| Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |
+| Cerrar un trabajo (quién, cuándo) | `trabajos.controller.cerrarTrabajo` (+ `puede_cerrar` en `vistaParaUsuario`, que tiene que decir lo mismo) → `POST /trabajos/:id/cerrar` (clasificada `controlador` en `autorizacion-rutas.test.js`) → aviso previo `avisarTrabajoPendienteCierre` → acción `close_trabajo` en `ACTION_LABEL` de `AdminPanel` (§6.2) |
 | Responsables de un vehículo en un trabajo | v25 → `trabajos.controller` (`leerVehiculos`, `guardarResponsables`, `vistaParaUsuario`, `cargarVehiculoDelTrabajo`, `FILTRO_PROPIOS`) + `ownership.middleware` + `vehicles.controller` (`canOperacionalAccess`, listado de operacionales) → `TrabajoForm` (`ListaMiembros`) + `utils/trabajos.js`. Reglas en §6.2 |
-| El ciclo de vida por vehículo de un trabajo | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, `estadoTrabajoDesde`, `sincronizarEstadoTrabajo`, candado de `uploadEvidencia`) + cron de `server.js` → `TrabajoDetail` (`VehiculoTrabajo`), `InicioTrabajo`, `Finalizacion`, `MisTrabajos` (`mis_vehiculos_pendientes`), `Dashboard` |
+| El ciclo de vida por vehículo de un trabajo (v25, se retira en la fase 6) | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, candado de `uploadEvidencia`) + `estadoTrabajo.service` (`estadoTrabajoDesde`) + cron de `server.js` → `TrabajoDetail` (`VehiculoTrabajo`), `InicioTrabajo`, `Finalizacion`, `Dashboard`. Los trabajos nuevos no lo usan: su ciclo es el de cada asignación |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | El aviso de incidencias del listado de vehículos | `vehicles.controller.listVehicles` (`veIncidencias`, `INCIDENCIAS_ABIERTAS`, `LEFT JOIN` agregado) → `VehicleList` (`IncidenciasAbiertas`, columna + filtro «Solo con incidencias») → enlace a `/vehiculos/:id?tab=incidencias` (`tabInicial` en `VehicleHistory`). Abierta = `estado <> 'resuelto'`; rojo si alguna es grave, ámbar si no. **Trampas:** (1) la gravedad máxima se saca con `MAX(gravedad + 0)` y `ELT`: `MAX()` sobre un ENUM compara el TEXTO en MySQL y daba `moderado` por encima de `grave`. (2) Solo se calcula para admin/gestor/superadmin (`veIncidencias`), **no** con `veFlota`: un técnico responsable lista su vehículo, y la ficha le niega las incidencias (`requireAdminOrGestor`). El filtro va en el `WHERE`, así que el total y la paginación ya salen filtrados |
 | El aviso de asignación del listado de vehículos | `vehicles.controller.listVehicles` (`conAsignacion` = `veFlota`, `LEFT JOIN` agregado sobre `asignaciones_libres` `programada`/`activa`) → `asignacion_estado` (`activa` gana a `programada`) + `asignacion_proxima_inicio` (la programada más próxima) → `VehicleList` (`AsignacionFlag`: verde «En servicio», azul «Programada · dd/MM HH:mm»; libre no se pinta). Es una columna, no un filtro: el `COUNT` no la lleva. Gateado con `veFlota` y no con `veIncidencias` porque es el mismo dato que el resumen de asignaciones de la ficha (`getVehicle`), que usa ese criterio |
