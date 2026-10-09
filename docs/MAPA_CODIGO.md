@@ -79,7 +79,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` (`?search`, `?role=<rol>` o `sin-rol`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` (`?trabajo_id=N` o `sin`, v33) · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` · GET `/calendario` · GET `/` · CRUD `/:id` · POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
@@ -95,7 +95,11 @@ Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `rolEnAsignacion` (la regla de acceso de §6.1), `leerMiembros` (lee el body en
 formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
 `crearIncidenciaDesdeAsignacion`, `ORDEN_LISTADO` (el `ORDER BY` del listado,
-§8);
+§8), y las del trabajo padre (v33, §6.1 «La asignación dentro de su trabajo»):
+`trabajoAparte` (las columnas `trabajo_*` del JOIN → objeto `trabajo`),
+`esCoordinador`, `cargarTrabajo`, `vehiculoYaEnTrabajo` (D5),
+`esUltimaDelTrabajo` (D6), `fueraDelTrabajo` (D4) e `insertarAsignacion` (la
+usa también el alta de un trabajo);
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 `generateIdentificador`, `getTrabajoCompleto` (sin recortar),
@@ -128,7 +132,8 @@ trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
 | `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) · `motivo.utils.js` (`errorMotivo`, regla del motivo de fin anticipado, espejo de `frontend/src/utils/motivo.js`; §6.1) |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
-| `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo |
+| `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo. Con trabajo (v33) el texto lo nombra («en «Maratón»») y la url es la del trabajo (`urlAsignacion`/`urlParaMiembros`). Incluye `avisarTrabajoPendienteCierre` (al coordinador) |
+| `services/estadoTrabajo.service.js` | El estado DERIVADO de un trabajo (v33): `sincronizarEstadoTrabajo` (lee sus asignaciones; si no tiene, `trabajo_vehiculos` del modelo v25), `estadoTrabajoDesdeAsignaciones`, `estadoTrabajoDesde` (el antiguo) y `avisarSiPendienteCierre`. Un único sitio porque lo cambian asignaciones, trabajos y el cron (§6.1) |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
 | `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/limpiezaErrores.service.js` | Purga de `error_logs`: los de la app (`cliente`) a 30 días, los del servidor a 180, por tandas de 5000. **Siempre encendida** (son logs, no datos del servicio; no depende del backup como la retención). `server.js` la lanza al arrancar y cada 6 h. Nunca lanza |
@@ -149,7 +154,8 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) |
+| Asignación de un trabajo (v33) | Todos sus avisos **abren el trabajo** con esa ambulancia señalada, `/trabajos/<trabajo_id>?asignacion=<id>`, tanto los de gestión como los del técnico (D10), y el texto lo nombra. Las asignaciones sin trabajo conservan `/asignaciones?id=` y `/mis-asignaciones`. Trampa: hasta que se enciendan `menu_trabajos`/`menu_mis_trabajos` (fase 7) ese enlace rebota a quien no es superadmin; solo hay asignaciones con trabajo si alguien las crea desde la pantalla oculta |
 | Aviso de «nuevo servicio» | Va al TÉCNICO, no a gestión (desde 2026-09-25; el de cambio de vehículo también). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
 | Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de la asignación»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
 | Alarma sonora en la app | `components/common/AlarmaSinIniciar.jsx`, montado en `Layout`, solo con `MANAGE_TRABAJOS`. Existe porque el push suena UNA vez y con el tono del sistema, que no se puede elegir: con la app abierta (móvil en primer plano u ordenador de la oficina) esto hace sonar un **«ding-dong» suave con Web Audio: 3 campanadas en 6 s y silencio** (más una vibración corta en Android); el diálogo se queda en pantalla, callado, hasta «Enterado», y solo vuelve a sonar si aparece una alarma nueva. Antes era una sirena en bucle hasta «Enterado»; se cambió porque una ventana olvidada en segundo plano sonaba sin fin sin que nadie viera el botón. «Enterado» se propaga a las otras ventanas del mismo dispositivo (evento `storage`) y cierra la notificación del sistema de esas asignaciones. Pregunta a `GET /asignaciones/alarmas` cada 30 s, al volver a la pestaña y cuando el SW le reenvía un push (`postMessage` `AVISO_PUSH`). Usa **la misma marca** `aviso_sin_iniciar_at` que el push: suena lo que ya se avisó, y se apaga sola al pulsar el técnico «Inicio de la asignación». «Enterado» es **por dispositivo** (localStorage, `utils/alarmaSinIniciar.js`), con clave `id@aviso_sin_iniciar_at` para que una asignación aplazada que vuelve a vencer suene de nuevo. Trampa: **autoplay** — el navegador no deja sonar nada sin un toque previo en la página; el contexto de audio se desbloquea con el primer `pointerdown`/`keydown` y, si la alarma salta antes, se pinta «Activar sonido». Con la app en segundo plano en el móvil no suena: ahí solo queda el push |
@@ -978,7 +984,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -987,6 +993,8 @@ Relaciones clave:
 ```
 users ─N:M─ roles (user_roles) ─N:M─ permissions (role_permissions)
 vehicles 1─N asignaciones_libres (user_id = responsable PRINCIPAL, created_by = admin)
+trabajos 1─N asignaciones_libres (trabajo_id, v33; NULL = asignación del modelo antiguo)
+trabajos N─1 users (coordinador_user_id, v33: quien lo cierra)
 asignaciones_libres N:M users (asignacion_usuarios: rol responsable|personal, orden)
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
@@ -1000,7 +1008,9 @@ trabajos N:M users (trabajo_usuarios = el EQUIPO: ve la ficha, no la evidencia)
 Estados: asignación `programada → activa → finalizada | cancelada`; trabajo
 y cada `trabajo_vehiculos` `programado → activo → finalizado |
 finalizado_anticipado` (el del trabajo se DERIVA de los de sus vehículos,
-§6.2); incidencia
+§6.2); con asignaciones (v33) el trabajo va `programado → activo →
+pendiente_cierre → finalizado`, y el último paso solo lo da el coordinador
+(§6.1); incidencia
 `pendiente → en_revision → resuelto`. Borrado lógico con `deleted_at`.
 `vehicles.alias` es el titular visible; `matricula` es única.
 
@@ -1048,7 +1058,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v32_facturas**. (En alguna BD local puede
+Última migración: **v33_trabajo_padre**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1398,6 +1408,47 @@ y la ventana se abre sesenta veces por hora. Aquí no hay reintento: se ha
 aceptado el riesgo en vez de meter un `SELECT ... FOR UPDATE` dentro de la
 transacción. Si se quiere cerrar del todo, es ahí donde iría.
 
+**La asignación dentro de su trabajo (v33, 2026-10-09).** Decisión de producto
+del 2026-09-27: el trabajo es el padre; una asignación es UNA ambulancia
+dentro de un trabajo, con sus responsables y su equipo (el «personal» de
+siempre: en BD sigue `personal`, en pantalla «Equipo»). Plan completo y
+decisiones D1–D11 en `docs/PLAN_TRABAJO_PADRE.md` (solo en local). Lo que ya
+hace el backend:
+- `trabajo_id` es **opcional hasta la fase 6** del plan: el frontend se sube a
+  mano y el publicado sigue creando asignaciones sueltas. Las asignaciones que
+  ya existían se quedan sin trabajo y funcionan como siempre.
+- `getAsignacionCompleta` trae `trabajo` (título, descripción, ubicación,
+  fechas, estado y coordinador) con un `LEFT JOIN`, **sin consulta extra**: los
+  tests de este controlador encolan las respuestas por orden y una consulta
+  más las desplaza todas. El listado trae `trabajo_nombre` y filtra con
+  `?trabajo_id=N` (o `sin`).
+- **Coordinador (D2):** ve cualquier asignación de su trabajo (`esCoordinador`
+  en `getAsignacion`), pero no la opera por serlo: activar, fotos, llegada y
+  cierre siguen pidiendo responsable o `manage_trabajos`.
+- **D5, la misma ambulancia no va dos veces en un trabajo:** `vehiculoYaEnTrabajo`
+  al crear, al cambiar de ambulancia y al mover de trabajo. Cuentan las vivas
+  (ni canceladas ni borradas). Va en el controlador y no como UNIQUE porque el
+  borrado es lógico y una cancelada tiene que poder convivir con la nueva.
+- **D6, un trabajo nunca se queda sin ambulancias:** cancelar o borrar la
+  última viva da 400 (`esUltimaDelTrabajo`); sacarla de su trabajo, también.
+- **D4, fechas fuera de las del trabajo:** se guarda y la respuesta lleva
+  `fuera_del_trabajo: true` para que el formulario avise, como los solapes.
+- **Mover a otro trabajo** (o meter en uno una antigua): solo `programada` y
+  sin fotos ni incidencias, el mismo candado que el cambio de vehículo y por
+  lo mismo; el `WHERE` del `UPDATE` lo repite (carrera → 409). Dejarla sin
+  trabajo (`trabajo_id: null`) da 400.
+- **Estado del padre:** todo lo que cambia el estado de una asignación con
+  trabajo llama a `estadoTrabajo.sincronizarEstadoTrabajo` **dentro de la
+  misma transacción**: crear, activar, finalizar, cancelar o mover por `PUT`,
+  borrar y el cron. Todas finalizadas (las canceladas no cuentan) →
+  `pendiente_cierre`, nunca `finalizado`: el trabajo lo cierra el coordinador
+  (D3). El `UPDATE` del padre lleva `estado <> ?` para saber si ESTA llamada
+  lo cambió (mysql2 cuenta filas encontradas, no cambiadas): así dos cierres
+  cruzados no avisan dos veces al coordinador, y no hace falta marca en BD
+  porque el cron nunca deja un trabajo pendiente de cierre (solo activa).
+- El cron ya no pasa a `activo` por su `fecha_inicio` un trabajo que tenga
+  asignaciones: arranca cuando arranca su primera ambulancia.
+
 ### 6.2 Quién hace qué en un trabajo (v25)
 
 | Acción | Responsable de un vehículo | Equipo (`trabajo_usuarios`) | Gestión |
@@ -1598,13 +1649,14 @@ solo actúa en el navegador no es un control de acceso.
 | El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. §2.7 |
 | Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `globIgnores` en `vite.config.js` (las tres cosas: está oculta, no solo prohibida) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → lo que se lee del PDF en el paso 1: `services/lectorFacturas.service.js` (`datosDelTexto`, `ALIAS`; usa `importeValido`/`fechaValida` del controlador) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar |
-| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una. En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
+| Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una, y si tienen trabajo se sincroniza el padre (con su propio `catch`: un fallo ahí no deja sin activar al resto). Los trabajos solo arrancan por reloj si no tienen asignaciones (modelo v25). En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |
 | Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` y las pantallas `AsignacionDetalle`, `FinalizacionAsignacion`, `trabajos/Finalizacion`, `TrabajoDetail`. Si solo cambia uno, la pantalla deja pasar y la API da 400 (o al revés). Los mensajes no explican la regla de la letra repetida, a propósito (§6.1) |
 | Cuánto antes se puede pulsar «Inicio de la asignación» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
-| Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `/mis-asignaciones`, nunca `/asignaciones` |
+| Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `urlParaMiembros` (la del trabajo, o `/mis-asignaciones` sin él), nunca `/asignaciones`. Una consulta nueva que alimente un aviso necesita `trabajo_id` y `trabajo_nombre` (como el cron y `vigilancia`), o el aviso pierde el enlace al trabajo |
+| El estado de un trabajo (qué lo mueve) | `services/estadoTrabajo.service.js` → quien lo llama: `asignaciones.controller` (create, activar, finalizar, `PUT` con estado o trabajo, delete), `trabajos.controller` (ciclo antiguo y alta) y el cron de `server.js`. Un camino nuevo que cambie el estado de una asignación con trabajo **tiene que** sincronizar dentro de su transacción y, si puede dejarlo pendiente de cierre, llamar después a `avisarSiPendienteCierre` (§6.1) |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | Cuándo se puede cambiar el vehículo de una asignación | `updateAsignacion`: candado previo **y** el `WHERE` del `UPDATE` (carrera → 409) → `motivoVehiculoBloqueado` en `AsignacionForm` → `avisarCambioVehiculo`. Las tres a la vez, o el formulario y el backend dicen cosas distintas (§6.1) |
 | Qué cuenta como «ambulancia ocupada» | `buscarVehiculoOcupado` en `asignaciones.controller` (asignaciones abiertas + `trabajo_vehiculos` sin cerrar) → `textoVehiculoOcupado` en `miembrosAsignacion.js`. Un estado nuevo de asignación o de vehículo de trabajo hay que añadirlo al `IN (...)` |

@@ -799,7 +799,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v32_facturas']);
+    expect(aplicadas[0]).toBe('v32_facturas');
     const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS facturas'));
     expect(tabla).toMatch(/contenido\s+MEDIUMBLOB\s+NOT NULL/);
     expect(tabla).toContain('UNIQUE KEY uq_factura_proveedor_numero (proveedor, numero)');
@@ -808,5 +808,44 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const flag = ejecutadas.find(q => q.includes("'menu_facturas'"));
     expect(flag).toContain('INSERT IGNORE INTO app_features');
     expect(flag).toMatch(/'menu', 1, 96/);
+  });
+
+  it('v33 cuelga las asignaciones del trabajo, le da coordinador y cierre, y el estado pendiente_cierre', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v32_facturas') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v33_trabajo_padre']);
+
+    // NULL-able: las asignaciones de antes se quedan sin trabajo. Y sin
+    // CASCADE: borrar un trabajo no puede llevarse sus asignaciones.
+    const trabajoId = ejecutadas.find(q => q.includes('ADD COLUMN trabajo_id'));
+    expect(trabajoId).toContain('ALTER TABLE asignaciones_libres');
+    expect(trabajoId).toContain('INT UNSIGNED NULL DEFAULT NULL');
+    expect(trabajoId).toContain('REFERENCES trabajos(id) ON DELETE RESTRICT');
+    expect(trabajoId).not.toContain('CASCADE');
+
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN coordinador_user_id'))).toContain('REFERENCES users(id)');
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN cerrado_at'))).toContain('DATETIME NULL DEFAULT NULL');
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN cerrado_por'))).toContain('ON DELETE SET NULL');
+
+    const estado = ejecutadas.find(q => q.includes('ALTER TABLE trabajos MODIFY COLUMN estado'));
+    expect(estado).toContain("'pendiente_cierre'");
+    // Los estados de siempre siguen: los trabajos antiguos los usan
+    for (const e of ['programado', 'activo', 'finalizado', 'finalizado_anticipado']) {
+      expect(estado).toContain(`'${e}'`);
+    }
+  });
+
+  it('v33 no repite columnas que ya existen', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v32_facturas'),
+      columnas: ['asignaciones_libres.trabajo_id', 'trabajos.coordinador_user_id',
+                 'trabajos.cerrado_at', 'trabajos.cerrado_por'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
   });
 });

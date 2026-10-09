@@ -23,12 +23,13 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarLlegadaEvento:        jest.fn(),
   avisarFinEvento:            jest.fn(),
   avisarAsignacionFinalizada: jest.fn(),
+  avisarTrabajoPendienteCierre: jest.fn(),
 }));
 
 const {
   listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
   deleteAsignacion, activarAsignacion, registrarLlegada, registrarFinServicio, finalizarAsignacion, uploadEvidencia,
-  crearIncidenciaDesdeAsignacion, rolEnAsignacion, leerMiembros,
+  crearIncidenciaDesdeAsignacion, rolEnAsignacion, esCoordinador, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
 const { logAudit } = require('../../../controllers/admin.controller');
@@ -2260,3 +2261,311 @@ describe('asignaciones.controller', () => {
 function allTiposRow() {
   return [{ tipo_imagen: 'frontal' }];
 }
+
+// ── El trabajo como padre (v33) ───────────────────────────
+// Mock por SQL y no por orden de llamada: cada caso de aquí añade consultas
+// (cargar el trabajo, D5, D6, sincronizar el padre) que a los demás les dan
+// igual, y con la cola de mockResolvedValueOnce cualquiera de ellas
+// desplazaría todas las siguientes.
+describe('asignación dentro de un trabajo (v33)', () => {
+  const ADMIN = { id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] };
+  const COORD = { id: 5, username: 'coord', roles: [], permissions: [] };
+  const AJENO = { id: 99, username: 'nadie', roles: ['tecnico'], permissions: [] };
+  const T0    = Date.now();
+
+  /** Fila de getAsignacionCompleta con las columnas trabajo_* del LEFT JOIN. */
+  function fila(over = {}) {
+    return {
+      id: 10, trabajo_id: 40, vehicle_id: 7, user_id: 2, estado: 'programada',
+      fecha_inicio: new Date(T0), fecha_fin: new Date(T0 + 86400000), km_inicio: null,
+      matricula: '7777AAA', vehiculo_alias: 'UVI-1', responsable_username: 'tec',
+      trabajo_identificador: 'TRB-2026-0001', trabajo_nombre: 'Maratón',
+      trabajo_descripcion: 'Cobertura', trabajo_ubicacion: 'Retiro', trabajo_estado: 'activo',
+      trabajo_fecha_inicio: new Date(T0 - 3600000), trabajo_fecha_fin: new Date(T0 + 2 * 86400000),
+      trabajo_coordinador_id: 5, trabajo_coordinador_nombre: 'Carla', trabajo_coordinador_apellidos: 'Ruiz',
+      ...over,
+    };
+  }
+
+  const TRABAJO_40 = { id: 40, nombre: 'Maratón', estado: 'activo',
+    fecha_inicio: new Date('2026-11-01T07:00:00Z'), fecha_fin: new Date('2026-11-01T22:00:00Z'),
+    identificador: 'TRB-2026-0001', coordinador_user_id: 5 };
+
+  /**
+   * `reglas`: [fragmento, resultado | fn(params, sql)], gana la primera que
+   * encaje. Las de getAsignacionCompleta y las de por defecto van detrás para
+   * que un caso las pueda pisar. Lo que no encaja devuelve vacío.
+   */
+  function bd(reglas = [], { asig = fila(), evidencias = [], estadosTrabajo = ['programada'] } = {}) {
+    const porDefecto = [
+      ['trabajo_coordinador_apellidos', [[asig]]],
+      ['SELECT au.user_id, au.rol, au.orden', [[{ user_id: asig.user_id, rol: 'responsable', orden: 0, nombre: 'Tec', username: 'tec' }]]],
+      ['created_at AS uploaded_at', [evidencias]],
+      ['SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id', [evidencias]],
+      ['SELECT estado FROM asignaciones_libres WHERE trabajo_id', [estadosTrabajo.map(estado => ({ estado }))]],
+      ['SELECT id, identificador, nombre, coordinador_user_id FROM trabajos', [[TRABAJO_40]]],
+      ['FROM trabajos WHERE id = ?', (params) => [[{ ...TRABAJO_40, id: params[0] }]]],
+      ['SELECT id FROM vehicles WHERE id = ?', (params) => [[{ id: Number(params[0]) }]]],
+      ['SELECT id FROM users', (params) => [params.map(id => ({ id }))]],
+      ['SELECT COUNT(*) AS otras', [[{ otras: 1 }]]],
+      ['INSERT INTO asignaciones_libres', [{ insertId: 10 }]],
+    ];
+    query.mockImplementation(async (sql, params = []) => {
+      for (const [frag, res] of [...reglas, ...porDefecto]) {
+        if (sql.includes(frag)) return typeof res === 'function' ? res(params, sql) : res;
+      }
+      if (/^\s*(UPDATE|INSERT|DELETE)/.test(sql)) return [{ affectedRows: 1 }];
+      return [[]];
+    });
+  }
+  const llamadas = (frag) => query.mock.calls.filter(([sql]) => sql.includes(frag));
+  const vaciarAvisos = () => new Promise(r => setImmediate(r));
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    query.mockReset();
+    transaction.mockReset();
+    transaction.mockImplementation(async (cb) => cb({
+      execute: (sql, params) => query(sql, params),
+      query:   (sql, params) => query(sql, params),
+    }));
+  });
+
+  describe('ver', () => {
+    it('la ficha trae el trabajo como objeto, sin las columnas sueltas del JOIN', async () => {
+      bd();
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+
+      const asig = res._json.data;
+      expect(asig.trabajo).toEqual(expect.objectContaining({
+        id: 40, nombre: 'Maratón', descripcion: 'Cobertura', ubicacion: 'Retiro',
+        coordinador: { id: 5, nombre: 'Carla', apellidos: 'Ruiz' },
+      }));
+      expect(asig).not.toHaveProperty('trabajo_nombre');
+      expect(asig.trabajo_id).toBe(40);
+    });
+
+    it('una asignación del modelo antiguo sale con trabajo null', async () => {
+      bd([], { asig: fila({ trabajo_id: null, trabajo_nombre: null, trabajo_coordinador_id: null }) });
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+      expect(res._json.data.trabajo).toBeNull();
+    });
+
+    it('el coordinador del trabajo la ve aunque no vaya en ella (D2); un ajeno no', async () => {
+      bd();
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: COORD }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+
+      const res2 = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: AJENO }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(403);
+    });
+
+    it('ser coordinador no deja operarla: activar sigue pidiendo ser responsable', async () => {
+      bd();
+      const res = mockRes();
+      await activarAsignacion(mockReq({ params: { id: '10' }, user: COORD }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(esCoordinador({ trabajo: { coordinador: { id: 5 } } }, 5)).toBe(true);
+      expect(esCoordinador({ trabajo: null }, 5)).toBe(false);
+    });
+
+    it('el listado filtra por trabajo, o por las que no tienen', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+      await listAsignaciones(mockReq({ query: { trabajo_id: '40' }, user: ADMIN }), mockRes(), mockNext());
+      const [sqlCount, paramsCount] = llamadas('COUNT(*) AS total')[0];
+      expect(sqlCount).toContain('al.trabajo_id = ?');
+      expect(paramsCount).toContain(40);
+
+      query.mockClear();
+      await listAsignaciones(mockReq({ query: { trabajo_id: 'sin' }, user: ADMIN }), mockRes(), mockNext());
+      expect(llamadas('COUNT(*) AS total')[0][0]).toContain('al.trabajo_id IS NULL');
+    });
+  });
+
+  describe('crear dentro de un trabajo', () => {
+    const CUERPO = { trabajo_id: 40, vehicle_id: 7, responsables: [2],
+                     fecha_inicio: '2026-11-01 08:00:00', fecha_fin: '2026-11-01 20:00:00' };
+    const crear = async (body = CUERPO) => {
+      const res = mockRes();
+      await createAsignacion(mockReq({ body, user: ADMIN }), res, mockNext());
+      return res;
+    };
+
+    it('guarda el trabajo_id y sincroniza el estado del trabajo en la misma transacción', async () => {
+      bd();
+      const res = await crear();
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const [, params] = llamadas('INSERT INTO asignaciones_libres')[0];
+      expect(params[params.length - 1]).toBe(40);
+      expect(llamadas('UPDATE trabajos SET estado')).toHaveLength(1);
+      expect(res._json.data.fuera_del_trabajo).toBe(false);
+    });
+
+    it('fechas fuera de las del trabajo: se guarda igual, con aviso (D4)', async () => {
+      bd();
+      const res = await crear({ ...CUERPO, fecha_fin: '2026-11-02 01:00:00' });
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res._json.data.fuera_del_trabajo).toBe(true);
+    });
+
+    it('la misma ambulancia no va dos veces en el trabajo (D5)', async () => {
+      bd([['WHERE trabajo_id = ? AND vehicle_id = ?', [[{ id: 3 }]]]]);
+      const res = await crear();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('trabajo inexistente → 404; cerrado → 400; en ninguno se inserta', async () => {
+      bd([['FROM trabajos WHERE id = ?', [[]]]]);
+      expect((await crear()).status).toHaveBeenCalledWith(404);
+
+      bd([['FROM trabajos WHERE id = ?', [[{ ...TRABAJO_40, estado: 'finalizado' }]]]]);
+      expect((await crear()).status).toHaveBeenCalledWith(400);
+      expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('sin trabajo_id (frontend anterior) no mira trabajos ni sincroniza nada', async () => {
+      bd();
+      const { trabajo_id, ...suelta } = CUERPO;
+      const res = await crear(suelta);
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(llamadas('FROM trabajos WHERE id = ?')).toHaveLength(0);
+      expect(llamadas('UPDATE trabajos')).toHaveLength(0);
+    });
+  });
+
+  describe('editar, cancelar y borrar', () => {
+    const editar = async (body, asig = fila()) => {
+      bd([], { asig });
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body, user: ADMIN }), res, mockNext());
+      return res;
+    };
+
+    it('la última ambulancia viva no se cancela (D6)', async () => {
+      bd([['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { estado: 'cancelada' }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas('UPDATE asignaciones_libres SET')).toHaveLength(0);
+    });
+
+    it('cancelar la última que faltaba deja el trabajo pendiente de cierre y avisa al coordinador', async () => {
+      bd([], { estadosTrabajo: ['finalizada', 'cancelada'] });
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { estado: 'cancelada' }, user: ADMIN }), res, mockNext());
+      await vaciarAvisos();
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')[0][1][0]).toBe('pendiente_cierre');
+      expect(avisos.avisarTrabajoPendienteCierre).toHaveBeenCalledWith(expect.objectContaining({ id: 40 }));
+    });
+
+    it('editar notas no toca el estado del trabajo', async () => {
+      const res = await editar({ notas: 'Llevar camilla' });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos')).toHaveLength(0);
+    });
+
+    it('pasar a otro trabajo: se guarda y se sincronizan los dos', async () => {
+      const res = await editar({ trabajo_id: 41 });
+      expect(res.status).toHaveBeenCalledWith(200);
+      const [sql, params] = llamadas('UPDATE asignaciones_libres SET')[0];
+      expect(sql).toContain('trabajo_id   = COALESCE(?, trabajo_id)');
+      expect(params).toContain(41);
+      // El WHERE repite el candado de la evidencia, como con el vehículo
+      expect(params[params.length - 1]).toBe(1);
+      expect(llamadas('UPDATE trabajos SET estado').map(([, p]) => p[1]).sort()).toEqual([40, 41]);
+    });
+
+    it('a otro trabajo, solo sin empezar y sin evidencia', async () => {
+      expect((await editar({ trabajo_id: 41 }, fila({ estado: 'activa' }))).status).toHaveBeenCalledWith(400);
+
+      bd([], { evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio' }] });
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { trabajo_id: 41 }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('no se puede dejar sin trabajo ni sacar la única de su trabajo', async () => {
+      expect((await editar({ trabajo_id: null })).status).toHaveBeenCalledWith(400);
+
+      bd([['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { trabajo_id: 41 }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('cambiar a una ambulancia que ya va en el trabajo → 400 (D5)', async () => {
+      bd([['WHERE trabajo_id = ? AND vehicle_id = ?', [[{ id: 3 }]]]]);
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { vehicle_id: 8 }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      const [, params] = llamadas('WHERE trabajo_id = ? AND vehicle_id = ?')[0];
+      expect(params).toEqual([40, 8, 10]);
+    });
+
+    it('borrar: la última no (D6); otra sí, y el trabajo se resincroniza', async () => {
+      const filaBorrar = [['SELECT id, estado, trabajo_id FROM asignaciones_libres', [[{ id: 10, estado: 'programada', trabajo_id: 40 }]]]];
+      bd([...filaBorrar, ['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
+      const res = mockRes();
+      await deleteAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+
+      bd(filaBorrar);
+      const res2 = mockRes();
+      await deleteAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')).toHaveLength(1);
+    });
+  });
+
+  describe('ciclo de vida', () => {
+    it('activar la primera ambulancia pone el trabajo en marcha', async () => {
+      bd([], { estadosTrabajo: ['activa', 'programada'] });
+      const res = mockRes();
+      await activarAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')[0][1][0]).toBe('activo');
+    });
+
+    it('finalizar la última: el trabajo queda pendiente de cierre y se avisa al coordinador (D3)', async () => {
+      bd([], {
+        asig: fila({ estado: 'activa', motivo_fin: 'Acabó antes la carrera' }),
+        evidencias: progresoCompletoRows(),
+        estadosTrabajo: ['finalizada', 'finalizada'],
+      });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '10' }, body: { material_usado: 'Sin gasto de material' }, user: ADMIN,
+      }), res, mockNext());
+      await vaciarAvisos();
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')[0][1][0]).toBe('pendiente_cierre');
+      expect(avisos.avisarTrabajoPendienteCierre).toHaveBeenCalledTimes(1);
+    });
+
+    it('finalizar sin ser la última: el trabajo sigue activo y no se avisa', async () => {
+      bd([], {
+        asig: fila({ estado: 'activa', motivo_fin: 'Acabó antes la carrera' }),
+        evidencias: progresoCompletoRows(),
+        estadosTrabajo: ['finalizada', 'activa'],
+      });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '10' }, body: { material_usado: 'Sin gasto de material' }, user: ADMIN,
+      }), res, mockNext());
+      await vaciarAvisos();
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(avisos.avisarTrabajoPendienteCierre).not.toHaveBeenCalled();
+    });
+  });
+});
