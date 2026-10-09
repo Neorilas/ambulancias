@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn() },
@@ -12,6 +13,11 @@ vi.mock('../../../services/users.service.js', () => ({
 }));
 vi.mock('../../../services/auth.service.js', () => ({
   authService: { login: vi.fn(), logout: vi.fn(), me: vi.fn() },
+}));
+// Los flags se fijan por test: el enlace al trabajo depende de su pantalla.
+const flags = vi.hoisted(() => ({ activos: [] }));
+vi.mock('../../../context/FeaturesContext.jsx', () => ({
+  useFeatures: () => ({ features: flags.activos, isFeatureEnabled: (k) => flags.activos.includes(k) }),
 }));
 
 import { asignacionesService }  from '../../../services/asignaciones.service.js';
@@ -359,5 +365,90 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
 
     await screen.findByText('Fin previsto');
     expect(screen.queryByTestId('aviso-fotos-inicio-tarde')).not.toBeInTheDocument();
+  });
+});
+
+// ── v33: la asignación dentro de su trabajo ──────────────────
+describe('AsignacionDetalle — su trabajo', () => {
+  const TRABAJO = {
+    id: 40, nombre: 'Maratón', descripcion: 'Cobertura de la carrera', ubicacion: 'Retiro',
+    coordinador: { id: 9, nombre: 'Carla', apellidos: 'Ruiz' },
+  };
+  const conTrabajo = (extra = {}) => ({
+    ...BASE, estado: 'activa', finalizado_at: null, trabajo_id: 40, trabajo: TRABAJO,
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    personal: [{ id: 3, nombre: 'Eva', apellidos: 'Gil', username: 'egil' }],
+    ...extra,
+  });
+  const comoUsuario = (u) => localStorage.setItem(PREFIJO + 'user', JSON.stringify(u));
+  const montarEnRouter = (props = {}) => render(
+    <MemoryRouter>
+      <NotificationProvider>
+        <AuthProvider>
+          <AsignacionDetalle id={5} onClose={() => {}} {...props} />
+        </AuthProvider>
+      </NotificationProvider>
+    </MemoryRouter>
+  );
+
+  beforeEach(() => {
+    flags.activos = ['menu_mis_trabajos'];
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+  });
+
+  it('enseña el trabajo (título, ubicación, descripción, coordinador) y enlaza a él', async () => {
+    comoUsuario({ id: 3, username: 'egil', roles: ['enfermero'], permissions: [] });
+    asignacionesService.get.mockResolvedValue(conTrabajo());
+    montarEnRouter();
+
+    const bloque = await screen.findByTestId('trabajo-de-asignacion');
+    expect(bloque).toHaveTextContent('Maratón');
+    expect(bloque).toHaveTextContent('Retiro');
+    expect(bloque).toHaveTextContent('Cobertura de la carrera');
+    expect(bloque).toHaveTextContent('Coordina Carla Ruiz');
+    expect(screen.getByRole('link', { name: /Ver trabajo/ })).toHaveAttribute('href', '/trabajos/40?asignacion=5');
+  });
+
+  it('el equipo se llama «Equipo», no «Personal» (D8)', async () => {
+    comoUsuario({ id: 3, username: 'egil', roles: ['enfermero'], permissions: [] });
+    asignacionesService.get.mockResolvedValue(conTrabajo());
+    montarEnRouter();
+
+    expect(await screen.findByText('Equipo')).toBeInTheDocument();
+    expect(screen.getByText(/Vas en el/)).toHaveTextContent('Vas en el equipo de esta ambulancia');
+    expect(screen.queryByText('Personal')).not.toBeInTheDocument();
+  });
+
+  it('sin la pantalla de trabajos, o abierto desde el propio trabajo, no enlaza', async () => {
+    comoUsuario({ id: 3, username: 'egil', roles: ['enfermero'], permissions: [] });
+    asignacionesService.get.mockResolvedValue(conTrabajo());
+    flags.activos = [];
+    const { unmount } = montarEnRouter();
+    await screen.findByTestId('trabajo-de-asignacion');
+    expect(screen.queryByRole('link', { name: /Ver trabajo/ })).not.toBeInTheDocument();
+    unmount();
+
+    flags.activos = ['menu_mis_trabajos'];
+    montarEnRouter({ desdeTrabajo: true });
+    await screen.findByTestId('trabajo-de-asignacion');
+    expect(screen.queryByRole('link', { name: /Ver trabajo/ })).not.toBeInTheDocument();
+  });
+
+  it('al coordinador le explica que la ve pero no la opera (D2)', async () => {
+    comoUsuario({ id: 9, username: 'carla', roles: [], permissions: [] });
+    asignacionesService.get.mockResolvedValue(conTrabajo());
+    montarEnRouter();
+
+    expect(await screen.findByText(/Coordinas este trabajo/)).toBeInTheDocument();
+  });
+
+  it('una asignación sin trabajo no pinta el bloque', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue({ ...BASE, trabajo: null });
+    montarEnRouter();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByTestId('trabajo-de-asignacion')).not.toBeInTheDocument();
   });
 });

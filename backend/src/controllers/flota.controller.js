@@ -38,6 +38,7 @@ async function vehiculosConAsignacion() {
             al.fecha_inicio AS asignacion_inicio,
             al.fecha_fin    AS asignacion_fin,
             al.inicio_real_at,
+            al.trabajo_id, t.nombre AS trabajo_nombre,
             -- Todos los responsables (v23), con el principal de respaldo
             COALESCE((SELECT GROUP_CONCAT(CONCAT(mru.nombre,' ',mru.apellidos) ORDER BY mr.orden SEPARATOR ', ')
                  FROM asignacion_usuarios mr JOIN users mru ON mr.user_id = mru.id
@@ -49,6 +50,7 @@ async function vehiculosConAsignacion() {
              AND al.estado     = 'activa'
              AND al.deleted_at IS NULL
        LEFT JOIN users u ON u.id = al.user_id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE v.deleted_at IS NULL
       ORDER BY ${ORDEN_POR_NOMBRE}, al.fecha_inicio DESC`
   );
@@ -63,6 +65,9 @@ async function vehiculosConAsignacion() {
       kilometros_actuales: r.kilometros_actuales,
       asignacion: r.asignacion_id ? {
         id: r.asignacion_id,
+        // Con trabajo (v33), el enlace del mapa lleva al trabajo
+        trabajo_id: r.trabajo_id ?? null,
+        trabajo_nombre: r.trabajo_nombre ?? null,
         responsable: r.responsable_nombre,
         fecha_inicio: r.asignacion_inicio,
         fecha_fin: r.asignacion_fin,

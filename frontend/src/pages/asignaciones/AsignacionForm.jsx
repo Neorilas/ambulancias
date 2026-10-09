@@ -26,9 +26,16 @@ function motivoVehiculoBloqueado(asig) {
 }
 
 // ── Formulario principal ──────────────────────────────────────────────────────
-export default function AsignacionForm({ asignacion, onSaved, onClose }) {
+// `trabajo` (v33): se está añadiendo una ambulancia a ese trabajo desde su
+// ficha. Las fechas salen por defecto las del trabajo y no se ofrecen las
+// ambulancias que ya van en él (D5; el backend lo vuelve a comprobar).
+export default function AsignacionForm({ asignacion, trabajo = null, onSaved, onClose }) {
   const isEdit = !!asignacion;
   const { notify } = useNotification();
+  // El trabajo de la asignación que se edita, o al que se añade
+  const trabajoNombre = trabajo?.nombre || asignacion?.trabajo?.nombre || asignacion?.trabajo_nombre || null;
+  const yaEnTrabajo = new Set((trabajo?.asignaciones || [])
+    .filter(a => a.estado !== 'cancelada').map(a => a.vehicle_id));
 
   const [vehicles, setVehicles] = useState([]);
   const [users,    setUsers]    = useState([]);
@@ -43,8 +50,8 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
   const [form, setForm] = useState({
     vehicle_id:   asignacion?.vehicle_id   || '',
     ...miembrosIniciales(asignacion),
-    fecha_inicio: asignacion ? toInputDatetime(asignacion.fecha_inicio) : '',
-    fecha_fin:    asignacion ? toInputDatetime(asignacion.fecha_fin)    : '',
+    fecha_inicio: asignacion ? toInputDatetime(asignacion.fecha_inicio) : toInputDatetime(trabajo?.fecha_inicio),
+    fecha_fin:    asignacion ? toInputDatetime(asignacion.fecha_fin)    : toInputDatetime(trabajo?.fecha_fin),
     km_inicio:    asignacion?.km_inicio    ?? '',
     notas:        asignacion?.notas        || '',
   });
@@ -121,6 +128,8 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
         fecha_fin:    toUtcIso(form.fecha_fin),
         km_inicio:    form.km_inicio !== '' ? parseInt(form.km_inicio) : null,
         notas:        form.notas || null,
+        // Solo al añadirla a un trabajo; al editar, el trabajo no se toca
+        ...(!isEdit && trabajo ? { trabajo_id: trabajo.id } : {}),
       };
       const guardada = isEdit
         ? await asignacionesService.update(asignacion.id, payload)
@@ -132,6 +141,10 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
       // La ambulancia, igual: ya está en otra asignación o trabajo esas fechas.
       const avisoVeh = textoVehiculoOcupado(guardada?.vehiculo_ocupado);
       if (avisoVeh) notify.warning(avisoVeh, 10000);
+      // D4: las horas de la ambulancia pueden salirse de las del trabajo
+      if (guardada?.fuera_del_trabajo) {
+        notify.warning('Aviso: las horas de esta ambulancia se salen de las del trabajo', 10000);
+      }
       onSaved();
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al guardar la asignación');
@@ -144,21 +157,27 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
     <Modal
       isOpen
       onClose={onClose}
-      title={isEdit ? 'Editar asignación' : 'Nueva asignación de vehículo'}
+      title={isEdit ? 'Editar asignación'
+        : trabajo ? `Añadir ambulancia a «${trabajo.nombre}»` : 'Nueva asignación de vehículo'}
       size="md"
       footer={
         <>
           <button onClick={onClose} className="btn-secondary" disabled={saving}>Cancelar</button>
           <button onClick={handleSubmit} className="btn-primary" disabled={saving}>
-            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear asignación'}
+            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : trabajo ? 'Añadir ambulancia' : 'Crear asignación'}
           </button>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {isEdit && trabajoNombre && (
+          <p className="text-sm text-neutral-600">
+            Trabajo: <span className="font-medium text-neutral-900">{trabajoNombre}</span>
+          </p>
+        )}
         {isEdit && asignacion.estado === 'activa' && (
           <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
-            Servicio en curso. Puedes cambiar responsables, personal y notas;
+            Servicio en curso. Puedes cambiar responsables, equipo y notas;
             las fotos ya subidas se quedan en la asignación y el nuevo
             responsable sigue desde donde está. El vehículo solo mientras no
             haya fotos ni incidencias; al cambiarlo se avisa al equipo.
@@ -174,7 +193,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             disabled={isEdit && !!vehiculoBloqueado}
           >
             <option value="">— Seleccionar vehículo —</option>
-            {vehicles.map(v => (
+            {vehicles.filter(v => !yaEnTrabajo.has(v.id)).map(v => (
               <option key={v.id} value={v.id}>
                 {v.alias} · {v.matricula}
               </option>
@@ -201,12 +220,14 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
           {errors.responsables && <p className="field-error">{errors.responsables}</p>}
         </div>
 
-        {/* Personal (0..N) — va con el vehículo y ve la asignación, pero no
-            la inicia ni la finaliza. PROVISIONAL hasta Trabajos. */}
+        {/* Equipo (0..N) — va con la ambulancia y la ve, pero no la inicia
+            ni la finaliza. En BD sigue llamándose `personal` (D8 del plan del
+            trabajo padre): renombrar el ENUM obligaría a aceptar los dos
+            valores mientras haya frontends viejos. */}
         <div>
-          <label className="label">Personal (opcional)</label>
+          <label className="label">Equipo (opcional)</label>
           <p className="text-xs text-neutral-500 mb-2">
-            Ve la asignación, pero no puede iniciarla ni finalizarla.
+            Va con la ambulancia y ve {trabajoNombre ? 'el trabajo' : 'la asignación'}, pero no puede iniciarla ni finalizarla.
           </p>
           <ListaMiembros
             users={users}
@@ -214,7 +235,7 @@ export default function AsignacionForm({ asignacion, onSaved, onClose }) {
             ocupados={[...form.responsables, ...form.personal]}
             onChange={setMiembros('personal')}
             minimo={0}
-            textoAnadir="Añadir personal"
+            textoAnadir="Añadir al equipo"
           />
         </div>
 

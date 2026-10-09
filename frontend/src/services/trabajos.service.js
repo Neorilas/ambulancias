@@ -1,6 +1,13 @@
 import api from './api.js';
-import { conReintentos, SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 
+/**
+ * Trabajos (v33, el trabajo padre): sus ambulancias son asignaciones y se
+ * operan con `asignaciones.service` (activar, fotos, llegada, finalizar). Aquí
+ * solo queda lo del trabajo: datos, coordinador, quién ve qué y el cierre.
+ *
+ * Las rutas del ciclo por vehículo del modelo v25 siguen vivas en el backend
+ * hasta la fase 6 del plan, pero ninguna pantalla las usa ya.
+ */
 export const trabajosService = {
   list(params = {}) {
     return api.get('/trabajos', { params }).then(r => r.data);
@@ -14,6 +21,7 @@ export const trabajosService = {
   get(id) {
     return api.get(`/trabajos/${id}`).then(r => r.data.data);
   },
+  /** El trabajo con su coordinador y al menos una ambulancia (`asignaciones`). */
   create(data) {
     return api.post('/trabajos', data).then(r => r.data.data);
   },
@@ -23,27 +31,8 @@ export const trabajosService = {
   delete(id) {
     return api.delete(`/trabajos/${id}`).then(r => r.data);
   },
-  // Ciclo de vida por vehículo: cada responsable activa y cierra el suyo
-  activarVehiculo(id, vehicleId) {
-    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/activar`).then(r => r.data.data);
-  },
-  finalizeVehiculo(id, vehicleId, data) {
-    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/finalize`, data).then(r => r.data);
-  },
-  // Solo trabajos SIN vehículos (los lleva gestión a mano)
-  activar(id) {
-    return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
-  },
-  finalize(id, data) {
-    return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data);
-  },
-  uploadEvidencia(id, formData) {
-    // Eliminar el Content-Type por defecto (application/json) para que el
-    // browser lo genere automáticamente con el boundary de multipart/form-data
-    // Timeout largo y reintentos ante fallos de red: ver utils/subidaFotos.js
-    return conReintentos(() => api.post(`/trabajos/${id}/evidencias`, formData, {
-      headers: { 'Content-Type': undefined },
-      timeout: SUBIDA_FOTO_TIMEOUT_MS,
-    })).then(r => r.data.data);
+  /** Lo cierra su coordinador (o gestión) con todas sus ambulancias finalizadas. */
+  cerrar(id) {
+    return api.post(`/trabajos/${id}/cerrar`).then(r => r.data.data);
   },
 };

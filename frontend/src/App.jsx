@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider }         from './context/AuthContext.jsx';
 import { NotificationProvider } from './context/NotificationContext.jsx';
-import { FeaturesProvider }     from './context/FeaturesContext.jsx';
+import { FeaturesProvider, useFeatures } from './context/FeaturesContext.jsx';
 import ProtectedRoute           from './components/common/ProtectedRoute.jsx';
 import Layout                   from './components/Layout/Layout.jsx';
 import Login                    from './pages/Login.jsx';
@@ -29,6 +29,18 @@ import { PageLoading }          from './components/common/LoadingSpinner.jsx';
 // solo puede ser administración. El resto ni la tiene en el móvil.
 const Facturas = lazy(() => import('./pages/facturas/Facturas.jsx'));
 
+/**
+ * La portada: «Mis trabajos» en cuanto Trabajos esté encendido para todos
+ * (D7 del plan del trabajo padre, fase 7); hasta entonces, «Mis asignaciones».
+ * Se mira la lista REAL de flags y no isFeatureEnabled, que al superadmin le
+ * dice que sí a todo y le cambiaría la portada antes que a nadie.
+ */
+function PortadaInicio() {
+  const { features, loading } = useFeatures();
+  if (loading) return <PageLoading />;
+  return <Navigate to={features.includes('menu_mis_trabajos') ? '/mis-trabajos' : '/mis-asignaciones'} replace />;
+}
+
 export default function App() {
   return (
     <NotificationProvider>
@@ -48,7 +60,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/mis-asignaciones" replace />} />
+              <Route index element={<PortadaInicio />} />
               <Route
                 path="/dashboard"
                 element={
@@ -174,9 +186,9 @@ export default function App() {
               />
 
               {/* Facturas de proveedores. Solo admin y superadmin, y OCULTA para
-                  el resto: a quien no lo es, ProtectedRoute lo manda a
-                  /mis-asignaciones, igual que el `*` de abajo con una ruta que
-                  no existe; el backend le contesta 404 (ocultarSalvoRoles) y
+                  el resto: a quien no lo es, ProtectedRoute lo manda a la
+                  portada, igual que el `*` de abajo con una ruta que no
+                  existe; el backend le contesta 404 (ocultarSalvoRoles) y
                   ni le enseña el flag. */}
               <Route
                 path="/facturas"
@@ -223,7 +235,7 @@ export default function App() {
             </Route>
 
             {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/mis-asignaciones" replace />} />
+            <Route path="*" element={<PortadaInicio />} />
           </Routes>
         </BrowserRouter>
         </FeaturesProvider>

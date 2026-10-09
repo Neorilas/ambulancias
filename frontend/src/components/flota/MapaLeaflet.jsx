@@ -64,7 +64,7 @@ function iconoDe(entrada) {
  * saltaría el router (recarga entera y sin el `basename` de /app/). El botón
  * llama a `alAbrir`, que navega con el router.
  */
-function popupDe(entrada, alAbrir) {
+function popupDe(entrada, alAbrir, trabajosVisibles) {
   const nodo = document.createElement('div');
   nodo.className = 'text-[13px] leading-snug';
 
@@ -86,8 +86,9 @@ function popupDe(entrada, alAbrir) {
     const boton = document.createElement('button');
     boton.type = 'button';
     boton.className = 'font-medium text-primary-600 hover:underline';
-    boton.textContent = `${tituloAsignacion(entrada.asignacion)} →`;
-    boton.addEventListener('click', () => alAbrir.current?.(entrada.asignacion.id));
+    boton.textContent = `${tituloAsignacion(entrada.asignacion, trabajosVisibles)} →`;
+    // La asignación entera, no su id: con trabajo, el destino es el trabajo
+    boton.addEventListener('click', () => alAbrir.current?.(entrada.asignacion));
     asig.appendChild(boton);
     if (entrada.asignacion.responsable) {
       const quien = document.createElement('div');
@@ -100,7 +101,9 @@ function popupDe(entrada, alAbrir) {
   return nodo;
 }
 
-export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar, onAbrirAsignacion }) {
+// `trabajosVisibles`: si la pantalla de trabajos está abierta, el globo de
+// una asignación con trabajo lo nombra y lleva a él (enlaceAsignacion.js).
+export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar, onAbrirAsignacion, trabajosVisibles = false }) {
   const contenedor  = useRef(null);
   const mapa        = useRef(null);
   const marcadores  = useRef(new Map());
@@ -163,11 +166,11 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       if (marcador) {
         marcador.setLatLng([lat, lng]);
         marcador.setIcon(iconoDe(entrada));
-        marcador.setPopupContent(popupDe(entrada, alAbrirAsignacion));
+        marcador.setPopupContent(popupDe(entrada, alAbrirAsignacion, trabajosVisibles));
       } else {
         marcador = L.marker([lat, lng], { icon: iconoDe(entrada), title: entrada.alias || entrada.matricula || '' })
           .addTo(mapa.current)
-          .bindPopup(popupDe(entrada, alAbrirAsignacion));
+          .bindPopup(popupDe(entrada, alAbrirAsignacion, trabajosVisibles));
         marcador.on('click', () => alSeleccionar.current?.(entrada.clave));
         marcadores.current.set(entrada.clave, marcador);
       }
@@ -190,7 +193,7 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       mapa.current.fitBounds(limites, { padding: [40, 40], maxZoom: 14, animate: false });
       yaEncuadrado.current = true;
     }
-  }, [entradas]);
+  }, [entradas, trabajosVisibles]);
 
   // ── Centrar en la que se elija desde la lista ──────────────────────────
   useEffect(() => {

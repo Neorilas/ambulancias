@@ -95,7 +95,9 @@ function WeekStrip({ trabajos }) {
 // Tarjeta de trabajo activo (vista técnico)
 function ActiveJobCard({ trabajo }) {
   const navigate     = useNavigate();
-  const pendientes   = Number(trabajo.mis_vehiculos_pendientes) || 0;
+  // «Tu ambulancia» (v33): si la lleva y no la ha cerrado, hay algo que hacer
+  const mia          = trabajo.mi_asignacion;
+  const pendiente    = mia?.mi_rol === 'responsable' && mia.estado !== 'finalizada';
 
   const horas = diferenciaHoras(trabajo.fecha_fin);
   const enTiempo = horas > 0;
@@ -131,12 +133,12 @@ function ActiveJobCard({ trabajo }) {
         >
           Ver detalles
         </button>
-        {pendientes > 0 && (
+        {pendiente && (
           <button
-            onClick={() => navigate(`/trabajos/${trabajo.id}`)}
+            onClick={() => navigate(`/trabajos/${trabajo.id}?asignacion=${mia.id}`)}
             className="btn-primary text-xs flex-1"
           >
-            {pendientes === 1 ? 'Documentar mi vehículo' : `Documentar mis ${pendientes} vehículos`}
+            Mi ambulancia
           </button>
         )}
       </div>
