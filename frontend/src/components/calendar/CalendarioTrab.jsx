@@ -59,117 +59,126 @@ export default function CalendarioTrab({ onSelectTrabajo }) {
   // Trabajos del día seleccionado
   const selectedDayTrabajos = selectedDay ? trabajosForDay(selectedDay) : [];
 
+  // En el PC la cuadrícula no puede ocupar todo el ancho: las celdas son
+  // `aspect-square` y a ~1200 px de ancho el mes salía de casi 1000 px de alto.
+  // Se queda del ancho de un móvil y los trabajos del día van a su derecha.
   return (
-    <div className="space-y-4">
-      {/* Navegación de mes */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-          className="btn-ghost btn-icon"
-        >
-          ‹
-        </button>
-        <h2 className="font-semibold text-neutral-900 capitalize">
-          {format(currentMonth, 'MMMM yyyy', { locale: es })}
-        </h2>
-        <button
-          onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-          className="btn-ghost btn-icon"
-        >
-          ›
-        </button>
+    <div className="lg:grid lg:grid-cols-[28rem_minmax(0,1fr)] lg:gap-8 lg:items-start">
+      <div className="space-y-4 w-full max-w-md">
+        {/* Navegación de mes */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+            className="btn-ghost btn-icon"
+          >
+            ‹
+          </button>
+          <h2 className="font-semibold text-neutral-900 capitalize">
+            {format(currentMonth, 'MMMM yyyy', { locale: es })}
+          </h2>
+          <button
+            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+            className="btn-ghost btn-icon"
+          >
+            ›
+          </button>
+        </div>
+
+        {loading ? <PageLoading /> : (
+          <>
+            {/* Cabecera días semana */}
+            <div className="grid grid-cols-7 text-center text-xs font-medium text-neutral-500 pb-1">
+              {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
+                <div key={d}>{d}</div>
+              ))}
+            </div>
+
+            {/* Cuadrícula de días */}
+            <div className="grid grid-cols-7 gap-1">
+              {/* Días vacíos del inicio */}
+              {emptyDays.map((_, i) => <div key={`empty-${i}`} />)}
+
+              {/* Días del mes */}
+              {days.map(day => {
+                const dayTrabajos = trabajosForDay(day);
+                const isToday     = isSameDay(day, new Date());
+                const isSelected  = selectedDay && isSameDay(day, selectedDay);
+                const hasTrab     = dayTrabajos.length > 0;
+
+                return (
+                  <button
+                    key={day.toISOString()}
+                    onClick={() => setSelectedDay(isSelected ? null : day)}
+                    className={`relative aspect-square flex flex-col items-center justify-center
+                                rounded-lg text-sm transition-colors p-1
+                                ${isSelected  ? 'bg-primary-100 ring-2 ring-primary-500' :
+                                  isToday     ? 'bg-primary-600 text-white font-bold' :
+                                                'hover:bg-neutral-100'}`}
+                  >
+                    <span>{format(day, 'd')}</span>
+                    {/* Puntos de color para trabajos */}
+                    {hasTrab && (
+                      <div className="flex gap-0.5 mt-0.5 flex-wrap justify-center max-w-full">
+                        {dayTrabajos.slice(0, 3).map(t => (
+                          <span
+                            key={t.id}
+                            className={`w-1.5 h-1.5 rounded-full ${DOT_COLORS[t.estado] || 'bg-gray-400'}`}
+                          />
+                        ))}
+                        {dayTrabajos.length > 3 && (
+                          <span className="text-[9px] text-neutral-400">+{dayTrabajos.length - 3}</span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Leyenda */}
+            <div className="flex flex-wrap gap-3 text-xs text-neutral-600">
+              {Object.entries(DOT_COLORS).map(([estado, color]) => (
+                <div key={estado} className="flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
+                  <span className="capitalize">{estado.replace('_', ' ')}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {loading ? <PageLoading /> : (
-        <>
-          {/* Cabecera días semana */}
-          <div className="grid grid-cols-7 text-center text-xs font-medium text-neutral-500 pb-1">
-            {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
-              <div key={d}>{d}</div>
-            ))}
-          </div>
-
-          {/* Cuadrícula de días */}
-          <div className="grid grid-cols-7 gap-1">
-            {/* Días vacíos del inicio */}
-            {emptyDays.map((_, i) => <div key={`empty-${i}`} />)}
-
-            {/* Días del mes */}
-            {days.map(day => {
-              const dayTrabajos = trabajosForDay(day);
-              const isToday     = isSameDay(day, new Date());
-              const isSelected  = selectedDay && isSameDay(day, selectedDay);
-              const hasTrab     = dayTrabajos.length > 0;
-
-              return (
-                <button
-                  key={day.toISOString()}
-                  onClick={() => setSelectedDay(isSelected ? null : day)}
-                  className={`relative aspect-square flex flex-col items-center justify-center
-                              rounded-lg text-sm transition-colors p-1
-                              ${isSelected  ? 'bg-primary-100 ring-2 ring-primary-500' :
-                                isToday     ? 'bg-primary-600 text-white font-bold' :
-                                              'hover:bg-neutral-100'}`}
-                >
-                  <span>{format(day, 'd')}</span>
-                  {/* Puntos de color para trabajos */}
-                  {hasTrab && (
-                    <div className="flex gap-0.5 mt-0.5 flex-wrap justify-center max-w-full">
-                      {dayTrabajos.slice(0, 3).map(t => (
-                        <span
-                          key={t.id}
-                          className={`w-1.5 h-1.5 rounded-full ${DOT_COLORS[t.estado] || 'bg-gray-400'}`}
-                        />
-                      ))}
-                      {dayTrabajos.length > 3 && (
-                        <span className="text-[9px] text-neutral-400">+{dayTrabajos.length - 3}</span>
-                      )}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Panel de trabajos del día seleccionado */}
-          {selectedDay && (
-            <div className="mt-4 space-y-2">
-              <h3 className="font-medium text-neutral-700 text-sm">
-                {format(selectedDay, "EEEE, d 'de' MMMM", { locale: es })}
-              </h3>
-              {selectedDayTrabajos.length === 0 ? (
-                <p className="text-sm text-neutral-400">Sin trabajos este día</p>
-              ) : (
-                selectedDayTrabajos.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => onSelectTrabajo?.(t)}
-                    className="w-full card text-left hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{t.nombre}</p>
-                        <p className="text-xs text-neutral-500 mt-0.5">{t.identificador}</p>
-                      </div>
-                      <EstadoBadge estado={t.estado} />
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+      {/* Panel de trabajos del día seleccionado */}
+      {!loading && (selectedDay ? (
+        <div className="mt-4 lg:mt-0 space-y-2">
+          <h3 className="font-medium text-neutral-700 text-sm">
+            {format(selectedDay, "EEEE, d 'de' MMMM", { locale: es })}
+          </h3>
+          {selectedDayTrabajos.length === 0 ? (
+            <p className="text-sm text-neutral-400">Sin trabajos este día</p>
+          ) : (
+            selectedDayTrabajos.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onSelectTrabajo?.(t)}
+                className="w-full card text-left hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{t.nombre}</p>
+                    <p className="text-xs text-neutral-500 mt-0.5">{t.identificador}</p>
+                  </div>
+                  <EstadoBadge estado={t.estado} />
+                </div>
+              </button>
+            ))
           )}
-
-          {/* Leyenda */}
-          <div className="flex flex-wrap gap-3 text-xs text-neutral-600 mt-2">
-            {Object.entries(DOT_COLORS).map(([estado, color]) => (
-              <div key={estado} className="flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
-                <span className="capitalize">{estado.replace('_', ' ')}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+        </div>
+      ) : (
+        <p className="hidden lg:block text-sm text-neutral-400">
+          Elige un día para ver sus trabajos.
+        </p>
+      ))}
     </div>
   );
 }
