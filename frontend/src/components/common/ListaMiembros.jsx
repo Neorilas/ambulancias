@@ -6,9 +6,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usuariosDisponibles, puedeAnadir } from '../../utils/miembrosAsignacion.js';
 
 // ── Combobox buscador de usuario ─────────────────────────────────────────────
-// `destacados` (ids): salen primero y marcados. Al poner responsable o equipo
-// a una ambulancia de un trabajo, son la gente del equipo del trabajo; se
-// puede elegir a cualquier otro igual (2026-10-10).
+// `destacados` (Set de ids): al poner responsable o equipo a una ambulancia de
+// un trabajo, la gente ya asociada al trabajo (`asociadosDeTrabajo` /
+// `asociadosDeFormulario` en utils/trabajos.js). El desplegable sale entonces
+// en dos bloques con título: primero «Asociados al trabajo» y debajo «No
+// pertenecen al trabajo», que se pueden elegir igual (pedido 2026-10-10).
+const TOPE_RESTO = 50;
+
 export function UserCombobox({ users, value, onChange, error, destacados = null }) {
   const [query,    setQuery]    = useState('');
   const [open,     setOpen]     = useState(false);
@@ -48,9 +52,10 @@ export function UserCombobox({ users, value, onChange, error, destacados = null 
         return haystack.includes(query.toLowerCase());
       });
   const esDestacado = u => !!destacados && destacados.has(u.id);
-  const filtered = destacados
-    ? [...buscados.filter(esDestacado), ...buscados.filter(u => !esDestacado(u))]
-    : buscados;
+  const delTrabajo = destacados ? buscados.filter(esDestacado) : [];
+  const resto      = destacados ? buscados.filter(u => !esDestacado(u)) : buscados;
+  // El tope es para el resto de la plantilla; la gente del trabajo sale entera
+  const restoVisible = resto.slice(0, TOPE_RESTO);
 
   const handleSelect = (u) => {
     setSelected(u);
@@ -104,31 +109,51 @@ export function UserCombobox({ users, value, onChange, error, destacados = null 
 
       {open && (
         <ul className="absolute z-50 mt-1 w-full bg-superficie border border-neutral-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {delTrabajo.length + resto.length === 0 ? (
             <li className="px-3 py-2 text-sm text-neutral-400 text-center">Sin resultados</li>
           ) : (
-            filtered.slice(0, 50).map(u => (
-              <li
-                key={u.id}
-                className={`px-3 py-2 cursor-pointer text-sm flex items-center justify-between hover:bg-primary-50
-                  ${selected?.id === u.id ? 'bg-primary-50 font-medium text-primary-700' : 'text-neutral-700'}`}
-                onMouseDown={() => handleSelect(u)}
-              >
-                <span>{u.nombre} {u.apellidos}</span>
-                <span className="text-xs text-neutral-400 ml-2">
-                  {esDestacado(u) ? 'equipo del trabajo · ' : ''}@{u.username}
-                </span>
-              </li>
-            ))
+            <>
+              {delTrabajo.length > 0 && <Grupo titulo="Asociados al trabajo" />}
+              {delTrabajo.map(u => (
+                <Opcion key={u.id} u={u} elegido={selected?.id === u.id} onElegir={handleSelect} />
+              ))}
+              {destacados && resto.length > 0 && <Grupo titulo="No pertenecen al trabajo" />}
+              {restoVisible.map(u => (
+                <Opcion key={u.id} u={u} elegido={selected?.id === u.id} onElegir={handleSelect} />
+              ))}
+            </>
           )}
-          {filtered.length > 50 && (
+          {resto.length > TOPE_RESTO && (
             <li className="px-3 py-1.5 text-xs text-neutral-400 text-center border-t border-neutral-100">
-              Mostrando 50 de {filtered.length} — refina la búsqueda
+              Mostrando {TOPE_RESTO} de {resto.length} — refina la búsqueda
             </li>
           )}
         </ul>
       )}
     </div>
+  );
+}
+
+// Título de un bloque del desplegable: no se puede elegir
+function Grupo({ titulo }) {
+  return (
+    <li role="presentation"
+      className="micro px-3 pt-2.5 pb-1 bg-neutral-50 border-b border-neutral-100 sticky top-0 cursor-default">
+      {titulo}
+    </li>
+  );
+}
+
+function Opcion({ u, elegido, onElegir }) {
+  return (
+    <li
+      className={`px-3 py-2 cursor-pointer text-sm flex items-center justify-between hover:bg-primary-50
+        ${elegido ? 'bg-primary-50 font-medium text-primary-700' : 'text-neutral-700'}`}
+      onMouseDown={() => onElegir(u)}
+    >
+      <span>{u.nombre} {u.apellidos}</span>
+      <span className="text-xs text-neutral-400 ml-2">@{u.username}</span>
+    </li>
   );
 }
 

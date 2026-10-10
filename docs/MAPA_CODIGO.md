@@ -682,7 +682,7 @@ asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
 | `TrabajoList/Detail/Form`, `MisTrabajos`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos` (`cerrar` → `POST /trabajos/:id/cerrar`). Las ambulancias se operan con `asignaciones.service`: `TrabajoDetail` abre `AsignacionDetalle` y añade con `AsignacionForm` (`trabajo_id`). **`InicioTrabajo` y `Finalizacion` (de trabajos) se retiraron en la fase 4**, y con ellos los métodos del ciclo v25 del servicio: su backend sigue vivo hasta la fase 6, sin pantalla |
-| `TrabajoForm` | `trabajos.service`, `vehicles.service`, `users.service` | Datos + coordinador (`UserCombobox`) + equipo del trabajo (`usuarios`, `ListaMiembros`). En el alta, además, las ambulancias que se sepan, **o ninguna** (vehículo, responsables y equipo —con el equipo del trabajo primero, `destacados`—, horas propias opcionales). Editar: datos, coordinador y equipo del trabajo. `payloadTrabajo(form, { alta })` no manda nunca `vehiculos` (400 en el backend). Tras crear, `TrabajoList` lleva a la ficha nueva y se enseñan los `avisos_alta` |
+| `TrabajoForm` | `trabajos.service`, `vehicles.service`, `users.service` | Datos + coordinador (`UserCombobox`) + equipo del trabajo (`usuarios`, `ListaMiembros`). En el alta, además, las ambulancias que se sepan, **o ninguna** (vehículo, responsables y equipo —con la gente ya asociada al trabajo arriba y el resto debajo, `destacados`—, horas propias opcionales). Editar: datos, coordinador y equipo del trabajo. `payloadTrabajo(form, { alta })` no manda nunca `vehiculos` (400 en el backend). Tras crear, `TrabajoList` lleva a la ficha nueva y se enseñan los `avisos_alta` |
 
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
 reintenta. Todos los servicios cuelgan de ella.
@@ -774,7 +774,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `utils/alarmaSinIniciar.js` | Qué alarmas de «sin iniciar» suenan en este dispositivo: lo atendido con «Enterado» (localStorage, se poda solo) y las etiquetas. El sonido está en el componente `AlarmaSinIniciar` (§2.5) |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `ambulanciaVacia`, `validarTrabajo` y `payloadTrabajo`, los dos con `{ alta }`: las ambulancias solo van en el alta) y «Tu ambulancia» (`misAmbulancias`, `siguientePaso` = texto del botón, `textoEstadoAmbulancia`, que tolera que falte `progreso_fotos` porque «Mis trabajos» no lo trae). Solo traduce `mi_rol`/`detalle`/`puede_cerrar`, que calcula el backend |
-| `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en `TrabajoForm`. `destacados` (Set de ids): salen primero y marcados «equipo del trabajo» al elegir quién va en una ambulancia de un trabajo; los demás se pueden elegir igual |
+| `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en `TrabajoForm`. `destacados` (Set de ids): al elegir quién va en una ambulancia de un trabajo, el desplegable sale en dos bloques con título, **«Asociados al trabajo»** arriba y **«No pertenecen al trabajo»** debajo (pedido 2026-10-10); los títulos no se eligen (`role="presentation"`), un bloque vacío al buscar no sale, y el tope de 50 es solo para el resto. Quién es «asociado» lo dicen `asociadosDeTrabajo` (ficha) y `asociadosDeFormulario` (alta) de `utils/trabajos.js`: equipo del trabajo, coordinador y quien va en alguna de sus ambulancias no canceladas |
 | `utils/miembrosAsignacion.js` | Responsables/equipo (`personal` en BD) en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
@@ -1504,8 +1504,9 @@ antes, que conviven hasta la fase 6 del plan.
   (`trabajo_usuarios`, campo `usuarios` de la API), vaya o no en una
   ambulancia. Ve la ficha y, de las ambulancias, lo mismo que de las ajenas
   (`mi_rol` del trabajo = `equipo`). El responsable de una ambulancia puede ser
-  de ese equipo o no: no se exige ni se añade solo; en pantalla, la gente del
-  equipo sale primero al elegir (`destacados`). Al entrar en él, aviso «nuevo
+  de ese equipo o no: no se exige ni se añade solo; en pantalla, al elegir,
+  arriba salen los asociados al trabajo (equipo, coordinador y quien va en sus
+  ambulancias) y debajo, aparte, los que no (`destacados` de `ListaMiembros`). Al entrar en él, aviso «nuevo
   trabajo».
 - **Quién lo ve** (`FILTRO_PROPIOS`, también el 403): el coordinador, quien va
   en una asignación viva suya, quien está en su equipo y el responsable v25.

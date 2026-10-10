@@ -6,9 +6,9 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import {
-  formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
+  formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
 } from '../../utils/trabajos.js';
-import { textoSolapes, textoVehiculoOcupado, idsElegidos } from '../../utils/miembrosAsignacion.js';
+import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
 
 /**
  * Alta y edición de un trabajo (v33, el trabajo padre).
@@ -56,8 +56,9 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   };
 
   const setEquipo = (lista) => setForm(f => ({ ...f, usuarios: lista }));
-  // Al elegir quién va en cada ambulancia, la gente del equipo sale primero
-  const delEquipo = new Set(idsElegidos(form.usuarios));
+  // Al elegir quién va en cada ambulancia, arriba la gente ya asociada al
+  // trabajo (equipo, coordinador, quien va en otra ambulancia) y debajo el resto
+  const delEquipo = asociadosDeFormulario(form);
 
   const anadirAmbulancia = () =>
     setForm(f => ({ ...f, asignaciones: [...f.asignaciones, ambulanciaVacia()] }));

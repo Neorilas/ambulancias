@@ -6,6 +6,7 @@ import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
+import { asociadosDeTrabajo } from '../../utils/trabajos.js';
 import {
   idsElegidos, miembrosIniciales, textoSolapes, textoVehiculoOcupado,
 } from '../../utils/miembrosAsignacion.js';
@@ -36,9 +37,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   const trabajoNombre = trabajo?.nombre || asignacion?.trabajo?.nombre || asignacion?.trabajo_nombre || null;
   const yaEnTrabajo = new Set((trabajo?.asignaciones || [])
     .filter(a => a.estado !== 'cancelada').map(a => a.vehicle_id));
-  // El equipo del trabajo sale primero al elegir responsables y equipo de la
-  // ambulancia; se puede elegir a cualquiera igual (2026-10-10).
-  const delEquipo = trabajo ? new Set((trabajo.usuarios || []).map(u => u.user_id)) : null;
+  // Al elegir responsables y equipo de la ambulancia, arriba la gente ya
+  // asociada al trabajo y debajo la que no; se puede elegir a cualquiera.
+  const delEquipo = trabajo ? asociadosDeTrabajo(trabajo) : null;
 
   const [vehicles, setVehicles] = useState([]);
   const [users,    setUsers]    = useState([]);

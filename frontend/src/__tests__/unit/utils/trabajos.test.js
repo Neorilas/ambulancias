@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   estaCerrado, formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
+  asociadosDeTrabajo, asociadosDeFormulario,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -158,5 +159,26 @@ describe('utils/trabajos', () => {
     expect(nombresDe([{ nombre: 'Ana', apellidos: 'Ruiz' }, { username: 'luis' }])).toBe('Ana Ruiz, luis');
     expect(nombresResponsables({ responsables: [{ nombre: 'Ana' }] })).toBe('Ana');
     expect(nombresResponsables(null)).toBe('');
+  });
+
+  // Quién sale arriba, en «Asociados al trabajo», al elegir quién va en una ambulancia
+  describe('asociados al trabajo', () => {
+    it('de un trabajo: su equipo, su coordinador y quien va en sus ambulancias (no las canceladas)', () => {
+      const t = {
+        usuarios: [{ user_id: 30 }], coordinador_user_id: 50,
+        asignaciones: [
+          { estado: 'activa', responsables: [{ id: 20 }], personal: [{ id: 31 }] },
+          { estado: 'cancelada', responsables: [{ id: 99 }], personal: [] },
+        ],
+      };
+      expect([...asociadosDeTrabajo(t)].sort()).toEqual([20, 30, 31, 50]);
+      expect(asociadosDeTrabajo(null).size).toBe(0);
+    });
+
+    it('del formulario de alta: lo que ya se ha rellenado, sin filas vacías', () => {
+      const f = { ...formValido(), usuarios: ['30', ''], coordinador_user_id: 50,
+        asignaciones: [{ ...ambulanciaVacia(), responsables: [20, ''], personal: ['31'] }] };
+      expect([...asociadosDeFormulario(f)].sort()).toEqual([20, 30, 31, 50]);
+    });
   });
 });

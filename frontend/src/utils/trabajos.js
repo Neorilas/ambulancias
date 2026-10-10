@@ -153,6 +153,37 @@ export function textoEstadoAmbulancia(a) {
   }
 }
 
+/**
+ * La gente ya asociada a un trabajo: su equipo, su coordinador y quien va en
+ * alguna de sus ambulancias (las canceladas no cuentan). Es lo que sale
+ * arriba, en «Asociados al trabajo», al elegir quién va en una ambulancia.
+ */
+function juntarAsociados(equipo, coordinador, ambulancias) {
+  return new Set(idsElegidos([
+    ...(equipo || []),
+    coordinador,
+    ...(ambulancias || []).flatMap(a => [...(a.responsables || []), ...(a.personal || [])]),
+  ]));
+}
+
+/** Desde un trabajo cargado (ficha), al añadirle una ambulancia. */
+export function asociadosDeTrabajo(trabajo) {
+  if (!trabajo) return new Set();
+  const ids = lista => (lista || []).map(m => m.id);
+  return juntarAsociados(
+    (trabajo.usuarios || []).map(u => u.user_id),
+    trabajo.coordinador_user_id,
+    (trabajo.asignaciones || [])
+      .filter(a => a.estado !== 'cancelada')
+      .map(a => ({ responsables: ids(a.responsables), personal: ids(a.personal) })),
+  );
+}
+
+/** Desde el formulario de alta: lo que ya se ha rellenado en él. */
+export function asociadosDeFormulario(form) {
+  return juntarAsociados(form?.usuarios, form?.coordinador_user_id, form?.asignaciones);
+}
+
 /** Nombres de una lista de personas: «Ana Ruiz, Luis Gil». */
 export function nombresDe(lista) {
   return (lista || []).map(nombreMiembro).filter(Boolean).join(', ');
