@@ -1457,7 +1457,17 @@ hace el backend:
   (D3). Sin ninguna viva, `programado`. Para saber que un trabajo es del
   modelo nuevo basta con que haya tenido UNA asignación, aunque esté borrada
   (la consulta las trae todas con `borrada`); uno que no ha tenido ninguna
-  (recién creado sin ambulancias, o v25) no se toca desde aquí. El `UPDATE` del padre lleva `estado <> ?` para saber si ESTA llamada
+  (recién creado sin ambulancias, o v25) no se toca desde aquí.
+  **Lo primero que hace es `SELECT … FROM trabajos … FOR UPDATE`**: sin ese
+  bloqueo, dos cierres cruzados de las dos últimas ambulancias veían cada uno
+  a la otra aún `activa` (REPEATABLE READ) y el trabajo se quedaba en `activo`
+  sin avisar al coordinador (reproducido contra MySQL en la revisión del
+  2026-10-10). Por eso se llama **dentro de una transacción**, también en el
+  cron, y el bloqueo tiene que ser la primera lectura de esa transacción: hoy
+  los llamadores solo escriben antes.
+- **No se cuelga una ambulancia de un trabajo v25** (con `trabajo_vehiculos`):
+  su estado pasaría a calcularse por la asignación y no se podría cerrar por
+  ninguna vía. `cargarTrabajo` trae `v25` y crear o mover a él da 400. El `UPDATE` del padre lleva `estado <> ?` para saber si ESTA llamada
   lo cambió (mysql2 cuenta filas encontradas, no cambiadas): así dos cierres
   cruzados no avisan dos veces al coordinador, y no hace falta marca en BD
   porque el cron nunca deja un trabajo pendiente de cierre (solo activa).
@@ -1522,9 +1532,17 @@ antes, que conviven hasta la fase 6 del plan.
   guardado (`motivoNoSeCierra`, la misma regla que `puede_cerrar`): ninguna
   `programada` ni `activa`; **sin ninguna viva, solo si ya ha empezado** (antes
   no se cierra como hecho: si no se va a hacer, se elimina). Sella `cerrado_at`
-  y `cerrado_por`, y el `WHERE` repite «no cerrado» para que dos pulsaciones
-  cruzadas auditen una vez (`close_trabajo`, con `por_gestion`). Un trabajo con
-  vehículos v25 da 400: se cierra por ellos.
+  y `cerrado_por`, y el `WHERE` repite la regla: «no cerrado», para que dos
+  pulsaciones cruzadas auditen una vez (`close_trabajo`, con `por_gestion`), y
+  «ninguna ambulancia abierta», por si entra una entre la comprobación y el
+  `UPDATE` (entonces 409, no «cerrado»). Un trabajo v25 da 400 y se cierra como
+  siempre: con vehículos, por ellos; sin vehículos ni coordinador, con
+  `/finalize`, que pide el motivo de fin anticipado.
+- **Tras el commit del alta nada devuelve 500**: avisos y relecturas van en un
+  `try/catch` que solo registra, porque un 500 con el trabajo ya creado haría
+  que se reintentara y se duplicara. El formulario viejo (manda `vehiculos` y
+  no coordinador) recibe el «recárgala» del controlador: el validador del
+  coordinador lleva `.if(body('vehiculos').not().exists())`.
 - **Mis trabajos (D7, D11):** `misTrab` saca los trabajos `programado`,
   `activo` o `pendiente_cierre` que coordino, en cuyo equipo estoy o en los
   que voy, con `mi_asignacion` (si voy en dos, la que llevo como responsable),

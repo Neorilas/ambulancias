@@ -91,7 +91,10 @@ router.post('/',
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
     // D1: cualquier usuario activo; no hace falta que vaya en una ambulancia
-    body('coordinador_user_id').notEmpty().withMessage('Falta el coordinador del trabajo').isInt({ min: 1 }),
+    // Sin `vehiculos`: el formulario viejo lo manda y no trae coordinador; así
+    // le llega el «recárgala» del controlador y no un «falta el coordinador»
+    body('coordinador_user_id').if(body('vehiculos').not().exists())
+      .notEmpty().withMessage('Falta el coordinador del trabajo').isInt({ min: 1 }),
     ...validarCamposTrabajo,
     ...validarAmbulanciasAlta,
   ],

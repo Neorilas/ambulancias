@@ -2304,7 +2304,7 @@ describe('asignación dentro de un trabajo (v33)', () => {
       ['SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id', [evidencias]],
       ['AS borrada FROM asignaciones_libres WHERE trabajo_id', [estadosTrabajo.map(estado => ({ estado, borrada: 0 }))]],
       ['SELECT id, identificador, nombre, coordinador_user_id FROM trabajos', [[TRABAJO_40]]],
-      ['FROM trabajos WHERE id = ?', (params) => [[{ ...TRABAJO_40, id: params[0] }]]],
+      ['AS v25', (params) => [[{ ...TRABAJO_40, id: params[0] }]]],
       ['SELECT id FROM vehicles WHERE id = ?', (params) => [[{ id: Number(params[0]) }]]],
       ['SELECT id FROM users', (params) => [params.map(id => ({ id }))]],
       ['INSERT INTO asignaciones_libres', [{ insertId: 10 }]],
@@ -2420,11 +2420,19 @@ describe('asignación dentro de un trabajo (v33)', () => {
     });
 
     it('trabajo inexistente → 404; cerrado → 400; en ninguno se inserta', async () => {
-      bd([['FROM trabajos WHERE id = ?', [[]]]]);
+      bd([['AS v25', [[]]]]);
       expect((await crear()).status).toHaveBeenCalledWith(404);
 
-      bd([['FROM trabajos WHERE id = ?', [[{ ...TRABAJO_40, estado: 'finalizado' }]]]]);
+      bd([['AS v25', [[{ ...TRABAJO_40, estado: 'finalizado' }]]]]);
       expect((await crear()).status).toHaveBeenCalledWith(400);
+      expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('no se cuelga una ambulancia de un trabajo del modelo anterior (v25)', async () => {
+      bd([['AS v25', [[{ ...TRABAJO_40, v25: 1 }]]]]);
+      const res = await crear();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('modelo anterior');
       expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
     });
 
@@ -2433,7 +2441,7 @@ describe('asignación dentro de un trabajo (v33)', () => {
       const { trabajo_id, ...suelta } = CUERPO;
       const res = await crear(suelta);
       expect(res.status).toHaveBeenCalledWith(201);
-      expect(llamadas('FROM trabajos WHERE id = ?')).toHaveLength(0);
+      expect(llamadas('AS v25')).toHaveLength(0);
       expect(llamadas('UPDATE trabajos')).toHaveLength(0);
     });
   });
@@ -2480,6 +2488,8 @@ describe('asignación dentro de un trabajo (v33)', () => {
       // El WHERE repite el candado de la evidencia, como con el vehículo
       expect(params[params.length - 1]).toBe(1);
       expect(llamadas('UPDATE trabajos SET estado').map(([, p]) => p[1]).sort()).toEqual([40, 41]);
+      // Cada sincronización bloquea antes la fila de su trabajo
+      expect(llamadas('FOR UPDATE').map(([, p]) => p[0]).sort()).toEqual([40, 41]);
     });
 
     it('a otro trabajo, solo sin empezar y sin evidencia', async () => {

@@ -67,6 +67,12 @@ describe('estadoTrabajo.service', () => {
   });
 
   describe('sincronizarEstadoTrabajo', () => {
+    it('lo primero es bloquear la fila del trabajo: dos cierres cruzados se sincronizan en fila', async () => {
+      const conn = conexion({ asignaciones: ['finalizada'] });
+      await sincronizarEstadoTrabajo(conn, 40);
+      expect(conn.ejecutadas[0]).toEqual({ sql: 'SELECT id FROM trabajos WHERE id = ? FOR UPDATE', params: [40] });
+    });
+
     it('con asignaciones manda el modelo nuevo y no mira trabajo_vehiculos', async () => {
       const conn = conexion({ asignaciones: ['finalizada', 'finalizada'], vehiculos: ['programado'] });
       const r = await sincronizarEstadoTrabajo(conn, 40);

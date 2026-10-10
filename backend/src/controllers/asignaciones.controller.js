@@ -276,17 +276,23 @@ function esCoordinador(asig, userId) {
 
 /**
  * El trabajo al que se quiere colgar una ambulancia. `abierto` es falso si ya
- * lo cerró el coordinador: entonces no admite ambulancias nuevas.
+ * lo cerró el coordinador: entonces no admite ambulancias nuevas. `v25` dice
+ * si lleva vehículos del modelo anterior (trabajo_vehiculos): con una
+ * asignación dentro, su estado pasaría a calcularse por ella y ya no se podría
+ * cerrar por ninguna vía.
  */
 async function cargarTrabajo(trabajoId) {
   const [rows] = await query(
-    `SELECT id, nombre, estado, fecha_inicio, fecha_fin
-     FROM trabajos WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT t.id, t.nombre, t.estado, t.fecha_inicio, t.fecha_fin,
+            EXISTS (SELECT 1 FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS v25
+     FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
     [trabajoId]
   );
   if (!rows.length) return null;
-  return { ...rows[0], abierto: !estadoTrabajo.CERRADOS.includes(rows[0].estado) };
+  return { ...rows[0], v25: !!Number(rows[0].v25), abierto: !estadoTrabajo.CERRADOS.includes(rows[0].estado) };
 }
+
+const MSG_TRABAJO_V25 = 'Es un trabajo del modelo anterior: no admite ambulancias nuevas';
 
 /**
  * D5: la misma ambulancia no va dos veces en un trabajo. Cuentan las
@@ -655,6 +661,7 @@ async function createAsignacion(req, res, next) {
       trabajo = await cargarTrabajo(trabajoId);
       if (!trabajo) return notFound(res, 'Trabajo');
       if (!trabajo.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
+      if (trabajo.v25) return error(res, MSG_TRABAJO_V25, 400);
       if (await vehiculoYaEnTrabajo(trabajoId, vehicle_id)) {
         return error(res, 'Esa ambulancia ya va en este trabajo', 400);
       }
@@ -814,6 +821,7 @@ async function updateAsignacion(req, res, next) {
       trabajoDestino = await cargarTrabajo(Number(trabajoPedido));
       if (!trabajoDestino) return notFound(res, 'Trabajo');
       if (!trabajoDestino.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
+      if (trabajoDestino.v25) return error(res, MSG_TRABAJO_V25, 400);
     }
     // D5, en el trabajo en el que queda: con otra ambulancia o en otro trabajo
     if ((cambiaVehiculo || cambiaTrabajo) && trabajoDestino &&

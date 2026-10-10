@@ -142,7 +142,7 @@ async function startServer() {
   }
 
   // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
-  const { query: dbQuery } = require('./src/config/database');
+  const { query: dbQuery, transaction: dbTransaction } = require('./src/config/database');
   const { ahora } = require('./src/utils/fecha.utils');
   const avisosAsignacion = require('./src/services/avisosAsignacion.service');
   const estadoTrabajo = require('./src/services/estadoTrabajo.service');
@@ -218,7 +218,9 @@ async function startServer() {
         // sin aviso al resto de asignaciones del mismo tick.
         if (asignacion.trabajo_id) {
           try {
-            await estadoTrabajo.sincronizarEstadoTrabajo({ execute: dbQuery }, asignacion.trabajo_id);
+            // En su propia transacción: sincronizarEstadoTrabajo bloquea la fila
+            // del trabajo para no cruzarse con un cierre que llegue a la vez
+            await dbTransaction(conn => estadoTrabajo.sincronizarEstadoTrabajo(conn, asignacion.trabajo_id));
           } catch (err) {
             logger.error(`Cron: no se pudo sincronizar el trabajo ${asignacion.trabajo_id}: ${err.message}`);
           }

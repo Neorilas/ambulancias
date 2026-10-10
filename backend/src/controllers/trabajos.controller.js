@@ -33,6 +33,7 @@ const { errorMotivo }                 = require('../utils/motivo.utils');
 const estadoTrabajo                   = require('../services/estadoTrabajo.service');
 const avisos                          = require('../services/avisosAsignacion.service');
 const asignaciones                    = require('./asignaciones.controller');
+const logger                          = require('../utils/logger.utils');
 
 const { CERRADOS } = estadoTrabajo;
 const { sincronizarEstadoTrabajo } = estadoTrabajo;
@@ -329,14 +330,16 @@ async function getTrabajoCompleto(id) {
  *  - Sin ninguna viva (2026-10-10: un trabajo puede no tener ambulancias, o
  *    quedarse sin ellas), solo una vez empezado: antes, lo que toca si no se
  *    va a hacer es eliminarlo, no cerrarlo como hecho.
- *  - Un trabajo v25 (con vehículos en trabajo_vehiculos) se cierra por ellos.
+ *  - Un trabajo v25 se cierra por su ciclo de siempre: con vehículos, por
+ *    ellos; sin vehículos ni coordinador, con /finalize, que pide el motivo de
+ *    fin anticipado (por aquí se lo saltaría).
  *
  * @param {{estado, fecha_inicio, v25: boolean}} t
  * @param {string[]} estados  los de sus asignaciones no borradas
  */
 function motivoNoSeCierra(t, estados) {
   if (CERRADOS.includes(t.estado)) return 'El trabajo ya está cerrado';
-  if (t.v25) return 'Este trabajo es del modelo anterior: se cierra al cerrar sus vehículos';
+  if (t.v25) return 'Este trabajo es del modelo anterior: se cierra como hasta ahora, no con «Cerrar trabajo»';
   const abiertas = estados.filter(e => e === 'programada' || e === 'activa').length;
   if (abiertas) {
     return `No se puede cerrar: ${abiertas === 1 ? 'queda 1 ambulancia' : `quedan ${abiertas} ambulancias`} sin finalizar`;
@@ -420,7 +423,7 @@ function vistaParaUsuario(t, user) {
     // D3: lo cierra el coordinador o gestión, con la misma regla que
     // cerrarTrabajo (motivoNoSeCierra), que es quien manda.
     puede_cerrar: (coordina || gestiona(user)) && !motivoNoSeCierra(
-      { ...t, v25: (t.vehiculos || []).length > 0 },
+      { ...t, v25: (t.vehiculos || []).length > 0 || (!t.coordinador_user_id && !(t.asignaciones || []).length) },
       (t.asignaciones || []).map(a => a.estado)),
   };
 }
@@ -700,10 +703,14 @@ async function createTrabajo(req, res, next) {
       return { trabajoId: nuevoId, asignacionIds: ids };
     });
 
+    // A partir de aquí el trabajo YA está creado: un fallo no puede convertirse
+    // en un 500, o quien da de alta lo reintentaría y lo duplicaría.
+    let t = null;
+    const avisosAlta = [];
+    try {
     // Por ambulancia, lo mismo que devuelve el alta de una asignación suelta:
     // solapes de personas, ambulancia ocupada y fechas fuera del trabajo. Son
     // avisos para quien asigna, no bloqueos. Y el «nuevo servicio» a cada uno.
-    const avisosAlta = [];
     for (const [i, asignacionId] of asignacionIds.entries()) {
       const amb   = ambulancias[i];
       const gente = [...amb.responsables, ...amb.personal];
@@ -719,22 +726,26 @@ async function createTrabajo(req, res, next) {
       });
     }
 
-    const t = await getTrabajoCompleto(trabajoId);
+    t = await getTrabajoCompleto(trabajoId);
     // Al equipo del trabajo, «nuevo trabajo»; quien va en una ambulancia ya
     // ha recibido el «nuevo servicio» de arriba.
     const enAmbulancias = new Set(ambulancias.flatMap(a => [...a.responsables, ...a.personal]));
     avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id)), { asignadoPor: req.user.id });
+    } catch (err) {
+      logger.error(`Trabajo ${trabajoId} creado, pero falló lo de después (avisos/lectura): ${err.message}`);
+    }
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
       action:   'create_trabajo',
       entityType: 'trabajo', entityId: trabajoId,
-      details:  { identificador: t.identificador, nombre: t.nombre, tipo: t.tipo,
+      details:  { identificador: t?.identificador, nombre, tipo,
                   coordinador_user_id: coordinadorId, ambulancias: ambulancias.length,
                   equipo: equipo.length },
       ip: req.ip,
     });
-    return created(res, { ...vistaParaUsuario(t, req.user), avisos_alta: avisosAlta }, 'Trabajo creado');
+    return created(res, t ? { ...vistaParaUsuario(t, req.user), avisos_alta: avisosAlta } : { id: trabajoId },
+      'Trabajo creado');
   } catch (err) {
     next(err);
   }
@@ -1229,7 +1240,8 @@ async function cerrarTrabajo(req, res, next) {
     const id = parseInt(req.params.id);
     const [rows] = await query(
       `SELECT t.id, t.identificador, t.nombre, t.estado, t.fecha_inicio, t.coordinador_user_id,
-              (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos_v25
+              (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos_v25,
+              (SELECT COUNT(*) FROM asignaciones_libres a WHERE a.trabajo_id = t.id) AS num_asignaciones
        FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
       [id]
     );
@@ -1245,17 +1257,32 @@ async function cerrarTrabajo(req, res, next) {
     const [asigs] = await query(
       'SELECT estado FROM asignaciones_libres WHERE trabajo_id = ? AND deleted_at IS NULL', [id]
     );
-    const motivo = motivoNoSeCierra(
-      { ...trabajo, v25: Number(trabajo.num_vehiculos_v25) > 0 }, asigs.map(a => a.estado));
+    // v25: con vehículos, o sin coordinador y sin haber tenido nunca una
+    // asignación (el «trabajo sin vehículos», que se cierra con /finalize)
+    const v25 = Number(trabajo.num_vehiculos_v25) > 0
+             || (!trabajo.coordinador_user_id && !Number(trabajo.num_asignaciones));
+    const motivo = motivoNoSeCierra({ ...trabajo, v25 }, asigs.map(a => a.estado));
     if (motivo) return error(res, motivo, 400);
 
-    // El WHERE repite «no cerrado»: si dos personas pulsan a la vez, solo una
-    // lo cierra y solo ella deja rastro en la auditoría.
+    // El WHERE repite la regla: «no cerrado», para que si dos personas pulsan
+    // a la vez solo una lo cierre y deje rastro en la auditoría; y «ninguna
+    // ambulancia abierta», por si entra una entre la comprobación y aquí.
     const [upd] = await query(
       `UPDATE trabajos SET estado = ?, cerrado_at = ?, cerrado_por = ?
-       WHERE id = ? AND estado NOT IN ('finalizado', 'finalizado_anticipado')`,
-      [TRABAJO_ESTADOS.FINALIZADO, ahora(), req.user.id, id]
+       WHERE id = ? AND estado NOT IN ('finalizado', 'finalizado_anticipado')
+         AND NOT EXISTS (SELECT 1 FROM asignaciones_libres a
+                          WHERE a.trabajo_id = ? AND a.deleted_at IS NULL
+                            AND a.estado IN ('programada', 'activa'))`,
+      [TRABAJO_ESTADOS.FINALIZADO, ahora(), req.user.id, id, id]
     );
+    if (!upd?.affectedRows) {
+      // Lo cerró otro a la vez (bien, ya está cerrado) o acaba de entrar una
+      // ambulancia (no se ha cerrado: decirlo, no contestar «cerrado»)
+      const [ahoraEs] = await query('SELECT estado FROM trabajos WHERE id = ?', [id]);
+      if (!CERRADOS.includes(ahoraEs[0]?.estado)) {
+        return error(res, 'No se ha cerrado: acaba de entrar una ambulancia en el trabajo', 409);
+      }
+    }
     if (upd?.affectedRows) {
       logAudit({
         userId:   req.user.id,

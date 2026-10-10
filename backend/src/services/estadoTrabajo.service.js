@@ -68,8 +68,15 @@ function estadoTrabajoDesdeAsignaciones(estados) {
  * Recalcula `trabajos.estado`. Se guarda en vez de calcularse al leer para que
  * el listado y el calendario sigan filtrando por una columna.
  *
- * `conn` es cualquier cosa con `execute(sql, params)`: la conexión de una
- * transacción, o `{ execute: query }` fuera de ella (el cron).
+ * `conn` es la conexión de una TRANSACCIÓN: lo primero es bloquear la fila del
+ * trabajo (`FOR UPDATE`), para que dos cambios cruzados en ambulancias del
+ * mismo trabajo se sincronicen uno detrás de otro. Sin eso, con dos cierres a
+ * la vez cada uno veía al otro aún `activa` (REPEATABLE READ), los dos
+ * calculaban `activo` y el trabajo se quedaba sin pasar a pendiente de cierre
+ * ni avisar (reproducido contra MySQL en la revisión del 2026-10-10). Trampa:
+ * el bloqueo tiene que ser la PRIMERA lectura de la transacción; una lectura
+ * sin bloqueo antes fijaría la foto de la que lee el SELECT de abajo. Hoy los
+ * llamadores solo escriben antes de llamar.
  *
  * Un trabajo ya cerrado no se toca (`estado NOT IN` cerrados): el cierre es
  * un acto del coordinador y nada derivado lo deshace. Y el `estado <> ?` hace
@@ -81,6 +88,7 @@ function estadoTrabajoDesdeAsignaciones(estados) {
  * @returns {Promise<{estado: string|null, cambia: boolean}>}
  */
 async function sincronizarEstadoTrabajo(conn, trabajoId) {
+  await conn.execute('SELECT id FROM trabajos WHERE id = ? FOR UPDATE', [trabajoId]);
   // Todas, también las borradas: basta con que haya tenido UNA para saber que
   // es del modelo nuevo, aunque ya no le quede ninguna viva. Un trabajo que
   // nunca ha tenido ninguna (recién creado sin ambulancias, o uno v25) no se

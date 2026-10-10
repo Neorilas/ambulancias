@@ -946,7 +946,7 @@ describe('trabajos.controller', () => {
   describe('cerrarTrabajo', () => {
     const fila = (extra = {}) => ['AS num_vehiculos_v25',
       [[{ id: 1, identificador: 'TRB-2026-0002', nombre: 'Maratón', estado: 'pendiente_cierre',
-          fecha_inicio: AYER(), coordinador_user_id: 50, num_vehiculos_v25: 0, ...extra }]]];
+          fecha_inicio: AYER(), coordinador_user_id: 50, num_vehiculos_v25: 0, num_asignaciones: 2, ...extra }]]];
     const estados = (...lista) => ['SELECT estado FROM asignaciones_libres', [lista.map(estado => ({ estado }))]];
     const cerrado = ['SET estado = ?, cerrado_at', [{ affectedRows: 1 }]];
     const cerrar = async (user) => {
@@ -964,7 +964,9 @@ describe('trabajos.controller', () => {
       expect(sql).toContain("estado NOT IN ('finalizado', 'finalizado_anticipado')");
       expect(params[0]).toBe('finalizado');
       expect(params[1]).toBeInstanceOf(Date);
-      expect(params.slice(2)).toEqual([50, 1]);
+      expect(params.slice(2)).toEqual([50, 1, 1]);
+      // El WHERE repite «ninguna ambulancia abierta»
+      expect(sql).toContain("a.estado IN ('programada', 'activa')");
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
         action: 'close_trabajo', details: expect.objectContaining({ por_gestion: false }),
       }));
@@ -1013,9 +1015,25 @@ describe('trabajos.controller', () => {
     });
 
     it('si dos lo cierran a la vez, solo uno deja rastro', async () => {
-      bd([fila(), estados('finalizada'), ['SET estado = ?, cerrado_at', [{ affectedRows: 0 }]], ...trabajoConAsignaciones()]);
+      bd([fila(), estados('finalizada'), ['SET estado = ?, cerrado_at', [{ affectedRows: 0 }]],
+          ['SELECT estado FROM trabajos WHERE id = ?', [[{ estado: 'finalizado' }]]], ...trabajoConAsignaciones()]);
       expect((await cerrar(coord)).status).toHaveBeenCalledWith(200);
       expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('si entra una ambulancia entre la comprobación y el cierre, no lo cierra y lo dice (409)', async () => {
+      bd([fila(), estados('finalizada'), ['SET estado = ?, cerrado_at', [{ affectedRows: 0 }]],
+          ['SELECT estado FROM trabajos WHERE id = ?', [[{ estado: 'activo' }]]]]);
+      const res = await cerrar(coord);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('un trabajo v25 sin vehículos ni coordinador no se cierra por aquí (se saltaría el motivo)', async () => {
+      bd([fila({ estado: 'activo', coordinador_user_id: null, num_asignaciones: 0 }), estados()]);
+      const res = await cerrar(admin);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('modelo anterior');
     });
   });
 
