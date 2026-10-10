@@ -72,6 +72,16 @@ router.get('/calendario',
   ctrl.listTrabajosCalendario
 );
 
+// GET /trabajos/mi-calendario  (lo suyo, también para gestión)
+router.get('/mi-calendario',
+  [
+    qv('year').optional().isInt({ min: 2020, max: 2100 }),
+    qv('month').optional().isInt({ min: 1, max: 12 }),
+  ],
+  handleValidation,
+  ctrl.miCalendario
+);
+
 // GET /trabajos
 router.get('/', ctrl.listTrabajos);
 

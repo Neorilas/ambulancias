@@ -61,6 +61,7 @@ const ACCESO = {
   'GET /trabajos/':              ['propia'],
   'GET /trabajos/mis-trabajos':  ['propia'],
   'GET /trabajos/calendario':    ['propia'],
+  'GET /trabajos/mi-calendario': ['propia'],
   'GET /asignaciones/':          ['propia'],
 
   // ── Por objeto, en el controlador o en ownership ────────────

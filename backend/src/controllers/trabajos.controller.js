@@ -573,23 +573,27 @@ async function listTrabajos(req, res, next) {
   }
 }
 
+/**
+ * El mes pedido (`year`, `month`; por defecto el actual en España) como
+ * instantes [desde, hasta). Son medianoches ESPAÑOLAS convertidas al UTC que
+ * se guarda en fecha_inicio/fecha_fin; si no, el día 1 empezaría a las 02:00.
+ */
+function limitesDelMes({ year, month }) {
+  const hoy = anioMesEnEspana();
+  const y = parseInt(year)  || hoy.anio;
+  const m = parseInt(month) || hoy.mes;
+  const desde = instanteEnEspana(y, m, 1);
+  // Primer día del mes siguiente
+  const hasta = m === 12 ? instanteEnEspana(y + 1, 1, 1) : instanteEnEspana(y, m + 1, 1);
+  return { desde, hasta };
+}
+
 // ============================================================
 // GET /trabajos/calendario  (para vista agenda)
 // ============================================================
 async function listTrabajosCalendario(req, res, next) {
   try {
-    const { year, month } = req.query;
-    const hoy = anioMesEnEspana();
-    const y = parseInt(year)  || hoy.anio;
-    const m = parseInt(month) || hoy.mes;
-
-    // Los límites del mes son medianoches ESPAÑOLAS convertidas al UTC que se
-    // guarda en fecha_inicio/fecha_fin; si no, el día 1 empezaría a las 02:00.
-    const desde = instanteEnEspana(y, m, 1);
-    // Primer día del mes siguiente
-    const mSig = m === 12 ? 1 : m + 1;
-    const ySig = m === 12 ? y + 1 : y;
-    const hasta = instanteEnEspana(ySig, mSig, 1);
+    const { desde, hasta } = limitesDelMes(req.query);
 
     let sql    = `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
                          t.fecha_inicio, t.fecha_fin
@@ -607,6 +611,76 @@ async function listTrabajosCalendario(req, res, next) {
 
     const [rows] = await query(sql, params);
     return success(res, rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
+// GET /trabajos/mi-calendario  («Mis trabajos» en forma de calendario)
+// Lo SUYO del mes, también para gestión (el de todos es /calendario), y
+// también lo ya cerrado: el calendario sirve para mirar atrás, no solo lo
+// pendiente como «Mis trabajos». Una entrada por ambulancia en la que va, con
+// las fechas de ESA ambulancia, que pueden no ser las del trabajo; y una por
+// trabajo en el que está sin ir en ninguna (lo coordina, está en su equipo o
+// lleva un vehículo del modelo v25), con las del trabajo. Las asignaciones
+// sueltas (sin trabajo) no entran: son el modelo antiguo y siguen en «Mis
+// asignaciones».
+// ============================================================
+async function miCalendario(req, res, next) {
+  try {
+    const { desde, hasta } = limitesDelMes(req.query);
+    const uid = req.user.id;
+
+    // `fecha_fin > desde`, no `>=`: lo que acaba justo a la medianoche del día
+    // 1 es del mes anterior (la pantalla lo pinta igual, `diasDeEntrada`)
+    const [ambulancias] = await query(
+      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.estado AS trabajo_estado,
+              a.id AS asignacion_id, a.estado AS asignacion_estado, a.fecha_inicio, a.fecha_fin,
+              COALESCE(v.alias, v.matricula) AS vehiculo, au.rol
+       FROM asignaciones_libres a
+       JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?
+       JOIN trabajos t ON t.id = a.trabajo_id AND t.deleted_at IS NULL
+       JOIN vehicles v ON v.id = a.vehicle_id
+       WHERE a.deleted_at IS NULL AND a.estado <> 'cancelada'
+         AND a.fecha_inicio < ? AND a.fecha_fin > ?`,
+      [uid, hasta, desde]
+    );
+
+    // El NOT EXISTS es la misma condición que la consulta de arriba sin las
+    // fechas: si su ambulancia cae en otro mes, este mes no trabaja en él
+    // aunque el trabajo sí lo pise.
+    const [sinAmbulancia] = await query(
+      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.estado AS trabajo_estado,
+              t.fecha_inicio, t.fecha_fin,
+              t.coordinador_user_id = ? AS soy_coordinador,
+              EXISTS (SELECT 1 FROM trabajo_usuarios te
+                       WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo
+       FROM trabajos t
+       WHERE t.deleted_at IS NULL
+         AND t.fecha_inicio < ? AND t.fecha_fin > ?
+         AND ${FILTRO_PROPIOS}
+         AND NOT EXISTS (SELECT 1 FROM asignaciones_libres am
+                           JOIN asignacion_usuarios aum ON aum.asignacion_id = am.id
+                          WHERE am.trabajo_id = t.id AND am.deleted_at IS NULL
+                            AND am.estado <> 'cancelada' AND aum.user_id = ?)`,
+      [uid, uid, hasta, desde, ...propios(uid), uid]
+    );
+
+    const entradas = [
+      ...ambulancias.map(({ rol, ...a }) => ({
+        ...a,
+        mi_papel: rol === 'responsable' ? 'responsable' : 'equipo',
+      })),
+      ...sinAmbulancia.map(({ soy_coordinador, en_equipo, ...t }) => ({
+        ...t,
+        asignacion_id: null, asignacion_estado: null, vehiculo: null,
+        mi_papel: soy_coordinador ? 'coordinador' : en_equipo ? 'equipo_trabajo' : 'v25',
+      })),
+    ].sort((x, y) => new Date(x.fecha_inicio) - new Date(y.fecha_inicio)
+                  || x.trabajo_id - y.trabajo_id);
+
+    return success(res, entradas);
   } catch (err) {
     next(err);
   }
@@ -781,10 +855,14 @@ async function createTrabajo(req, res, next) {
     }
 
     t = await getTrabajoCompleto(trabajoId);
+    // Al coordinador, el suyo (puede ser cualquier usuario activo, también un
+    // técnico, y si no se le avisa no se entera hasta el «listo para cerrar»).
+    avisos.avisarCoordinadorTrabajo(t, coordinadorId, { asignadoPor: req.user.id });
     // Al equipo del trabajo, «nuevo trabajo»; quien va en una ambulancia ya
-    // ha recibido el «nuevo servicio» de arriba.
+    // ha recibido el «nuevo servicio» de arriba, y el coordinador, el suyo.
     const enAmbulancias = new Set(ambulancias.flatMap(a => [...a.responsables, ...a.personal]));
-    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id)), { asignadoPor: req.user.id });
+    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id) && id !== coordinadorId),
+      { asignadoPor: req.user.id });
     } catch (err) {
       logger.error(`Trabajo ${trabajoId} creado, pero falló lo de después (avisos/lectura): ${err.message}`);
     }
@@ -948,11 +1026,17 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    // Coordinador nuevo: se le avisa a él, no al que deja de serlo
+    const cambiaCoordinador = coordinador !== undefined && coordinador !== Number(actual.coordinador_user_id);
+    if (cambiaCoordinador) avisos.avisarCoordinadorTrabajo(t, coordinador, { asignadoPor: req.user.id });
     // «Nuevo trabajo» solo a quien ENTRA en el equipo; quien ya iba no tiene
-    // nada nuevo que saber. Solo en el modelo nuevo: el v25 nunca avisó.
+    // nada nuevo que saber, y el coordinador nuevo ya tiene el suyo. Solo en
+    // el modelo nuevo: el v25 nunca avisó.
     if (equipo !== undefined && (modeloNuevo || coordinador !== undefined)) {
       const yaIban = new Set(miembros.map(m => m.user_id));
-      avisos.avisarEquipoTrabajo(t, equipo.filter(id => !yaIban.has(id)), { asignadoPor: req.user.id });
+      avisos.avisarEquipoTrabajo(t,
+        equipo.filter(id => !yaIban.has(id) && !(cambiaCoordinador && id === coordinador)),
+        { asignadoPor: req.user.id });
     }
     logAudit({
       userId:   req.user.id,
@@ -1550,7 +1634,7 @@ async function misTrab(req, res, next) {
 }
 
 module.exports = {
-  listTrabajos, listTrabajosCalendario, getTrabajo,
+  listTrabajos, listTrabajosCalendario, miCalendario, getTrabajo,
   createTrabajo, updateTrabajo, deleteTrabajo, cerrarTrabajo,
   activarVehiculo, finalizeVehiculo,
   activarTrabajo, finalizeTrabajo,

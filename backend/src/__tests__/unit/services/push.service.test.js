@@ -196,7 +196,7 @@ describe('push.service', () => {
       expect(opciones).toMatchObject({
         urgency: 'high',
         TTL:     3600,
-        topic:   'asig-1-activada',
+        topic:   push.normalizarTopic('asig-1-activada'),
         timeout: 10000,
       });
     });
@@ -234,6 +234,20 @@ describe('push.service', () => {
       const borrado = query.mock.calls.find(c => /DELETE FROM push_subscriptions/.test(c[0]));
       expect(borrado).toBeDefined();
       expect(borrado[1]).toEqual([1]);
+    });
+
+    it('un fallo deja en el log el motivo que da el servicio de push', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[SUSCRIPCION(1)]]);
+      const err = errorPush(400);
+      err.body = '{"reason":"BadWebPushTopic"}';
+      webpush.sendNotification.mockRejectedValueOnce(err);
+
+      await push.notificarAdmins({ titulo: 'x', cuerpo: 'y' });
+
+      // Tras resetModules, el logger que usa el módulo es el de este registro
+      const logger = require('../../../utils/logger.utils');
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('{"reason":"BadWebPushTopic"}'));
     });
 
     it('un fallo pasajero (500) cuenta como fallido pero NO borra la suscripción', async () => {
@@ -528,21 +542,23 @@ describe('push.service', () => {
 
   // ── Topic ────────────────────────────────────────────────
   describe('normalizarTopic', () => {
-    it('deja pasar los tags que ya son válidos', () => {
+    // Apple decodifica el topic como base64url: con un largo que deja 1 de
+    // resto entre 4 contestaba 400 («asig-100-activada», 17 caracteres)
+    it.each([
+      'asig-100-activada', 'asig-145-fotos-inicio', 'asig-144-asignada',
+      'trab-5-equipo', 'asig-1-activada', 'test-1000', 'asig:1 activada', 'a'.repeat(80),
+    ])('«%s» da un topic de 32 caracteres hexadecimales, base64 decodificable', (tag) => {
       const push = cargarPush();
-      expect(push.normalizarTopic('asig-12-fotos-inicio')).toBe('asig-12-fotos-inicio');
-      expect(push.normalizarTopic('test-67')).toBe('test-67');
+      const topic = push.normalizarTopic(tag);
+      expect(topic).toMatch(/^[0-9a-f]{32}$/);
+      expect(Buffer.from(topic, 'base64url').toString('base64url')).toBe(topic);
     });
 
-    it('sustituye lo que no es base64url en vez de dejar que web-push lance', () => {
+    it('el mismo tag da siempre el mismo topic, y dos tags distintos no', () => {
       const push = cargarPush();
-      expect(push.normalizarTopic('asig:1 activada')).toBe('asig-1-activada');
-    });
-
-    it('recorta a los 32 caracteres que admite el RFC', () => {
-      const push = cargarPush();
-      const largo = push.normalizarTopic('a'.repeat(80));
-      expect(largo).toHaveLength(32);
+      expect(push.normalizarTopic('asig-12-activada')).toBe(push.normalizarTopic('asig-12-activada'));
+      expect(push.normalizarTopic('asig-12-activada')).not.toBe(push.normalizarTopic('asig-12-fotos-inicio'));
+      expect(push.normalizarTopic('asig-12-activada')).not.toBe(push.normalizarTopic('asig-13-activada'));
     });
 
     it('sin tag no hay topic', () => {

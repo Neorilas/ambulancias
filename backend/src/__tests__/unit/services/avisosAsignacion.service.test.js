@@ -356,4 +356,38 @@ describe('avisosAsignacion.service', () => {
       await expect(avisos.avisarEquipoTrabajo({ id: 40, nombre: 'M' }, [5])).resolves.toBeDefined();
     });
   });
+
+  // 2026-10-11: el coordinador no se enteraba hasta el «listo para cerrar»
+  describe('avisarCoordinadorTrabajo', () => {
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1 });
+    });
+
+    it('al coordinador, con su propio tag, abriendo la ficha del trabajo', async () => {
+      await avisos.avisarCoordinadorTrabajo(
+        { id: 40, nombre: 'Maratón', fecha_inicio: '2026-11-01 07:00:00' }, '50', { asignadoPor: 9 });
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([50], expect.objectContaining({
+        url: '/trabajos/40', tag: 'trab-40-coordinador',
+      }));
+      const [, aviso] = push.notificarUsuarios.mock.calls[0];
+      expect(aviso.titulo).toBe('Maratón · eres el coordinador');
+      expect(aviso.cuerpo).toContain('08:00');
+    });
+
+    it.each([
+      ['quien lo pone se nombra a sí mismo', 9],
+      ['sin coordinador', null],
+      ['id inválido', 'abc'],
+    ])('no avisa: %s', async (_caso, coordinador) => {
+      await avisos.avisarCoordinadorTrabajo({ id: 40, nombre: 'M' }, coordinador, { asignadoPor: 9 });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+    });
+
+    it('un fallo de push no se propaga, ni uno al componer el texto', async () => {
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarCoordinadorTrabajo({ id: 40, nombre: 'M' }, 5)).resolves.toBeDefined();
+      await expect(avisos.avisarCoordinadorTrabajo(null, 5)).resolves.toBeNull();
+    });
+  });
 });
