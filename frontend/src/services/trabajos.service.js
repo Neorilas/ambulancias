@@ -19,6 +19,10 @@ export const trabajosService = {
   misTrab(params = {}) {
     return api.get('/trabajos/mis-trabajos', { params }).then(r => r.data);
   },
+  /** Lo suyo del mes (`year`, `month`), también lo cerrado: utils/calendario.js */
+  miCalendario(params = {}) {
+    return api.get('/trabajos/mi-calendario', { params }).then(r => r.data.data);
+  },
   get(id) {
     return api.get(`/trabajos/${id}`).then(r => r.data.data);
   },

@@ -16,6 +16,7 @@
 
 'use strict';
 
+const crypto  = require('crypto');
 const webpush = require('web-push');
 
 const { query }              = require('../config/database');
@@ -201,15 +202,19 @@ function endpointValido(endpoint) {
  * encolarse detrás. Así el admin que enciende el móvil no se come tres avisos
  * seguidos de la misma asignación.
  *
- * El RFC lo limita a 32 caracteres base64url y un topic inválido hace que
- * `sendNotification` lance, así que el tag se sanea en vez de pasarse tal cual:
- * cada carácter que no encaje se sustituye por un guión y se recorta a 32. No
- * se descarta nada, solo se transforma; sin tag no hay topic y punto.
+ * El RFC lo limita a 32 caracteres del alfabeto base64url, y Apple
+ * (web.push.apple.com) además lo DECODIFICA: un largo que deja 1 de resto al
+ * dividir entre 4 no es base64 válido y contesta 400. Hasta 2026-10-11 el
+ * topic era el tag saneado, y con la asignación 100 «asig-100-activada» pasó a
+ * 17 caracteres: desde el 5 de octubre ningún iPhone recibía «iniciada»,
+ * «fotos de inicio» ni «nuevo servicio», y Android sí. Por eso ahora es un
+ * resumen del tag, siempre de 32 caracteres (24 bytes): mismo tag, mismo
+ * topic, sea cual sea su largo o sus caracteres. Sin tag no hay topic.
  */
 function normalizarTopic(tag) {
   if (!tag) return undefined;
-  const limpio = String(tag).replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 32);
-  return limpio || undefined;
+  return crypto.createHash('sha256').update(String(tag)).digest()
+    .subarray(0, 24).toString('base64url');
 }
 
 /**
@@ -258,9 +263,12 @@ async function enviarA(suscripciones, payload) {
         }
       } else {
         fallidos++;
+        // El porqué lo da el cuerpo de la respuesta (Apple: {"reason":"…"});
+        // el mensaje de web-push es siempre «Received unexpected response code»
+        const motivo = err?.body ? ` — ${String(err.body).replace(/\s+/g, ' ').slice(0, 200)}` : '';
         logger.warn(
           `Push: envío fallido a suscripción ${s.id} (usuario ${s.user_id}): ` +
-          `${status || 'sin estado'} ${err?.message || err}`
+          `${status || 'sin estado'} ${err?.message || err}${motivo}`
         );
       }
     }

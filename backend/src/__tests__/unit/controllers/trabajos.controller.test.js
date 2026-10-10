@@ -19,7 +19,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 }));
 
 const {
-  listTrabajos, listTrabajosCalendario, getTrabajo, createTrabajo,
+  listTrabajos, listTrabajosCalendario, miCalendario, getTrabajo, createTrabajo,
   updateTrabajo, deleteTrabajo, cerrarTrabajo, activarVehiculo, finalizeVehiculo,
   activarTrabajo, finalizeTrabajo, uploadEvidencia, misTrab,
   estadoTrabajoDesde, vistaParaUsuario, leerVehiculos, leerAmbulancias,
@@ -535,6 +535,60 @@ describe('trabajos.controller', () => {
       const [hasta, desde] = query.mock.calls[0][1];
       expect(desde.toISOString()).toBe('2026-06-30T22:00:00.000Z');
       expect(hasta.toISOString()).toBe('2026-07-31T22:00:00.000Z');
+    });
+  });
+
+  describe('miCalendario', () => {
+    const AMBULANCIAS = 'JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?';
+    const SIN_AMBULANCIA = 'AS soy_coordinador';
+
+    it('sus ambulancias con SUS fechas y los trabajos en los que está sin ambulancia, por orden', async () => {
+      bd([[AMBULANCIAS, [[
+            { trabajo_id: 1, nombre: 'Maratón', asignacion_id: 201, rol: 'responsable', vehiculo: 'UVI-1',
+              fecha_inicio: new Date('2026-10-14T08:00:00Z'), fecha_fin: new Date('2026-10-14T14:00:00Z') },
+            { trabajo_id: 2, nombre: 'Concierto', asignacion_id: 202, rol: 'personal', vehiculo: 'SVB-2',
+              fecha_inicio: new Date('2026-10-03T18:00:00Z'), fecha_fin: new Date('2026-10-03T23:00:00Z') },
+          ]]],
+          [SIN_AMBULANCIA, [[
+            { trabajo_id: 3, nombre: 'Feria', soy_coordinador: 1, en_equipo: 0,
+              fecha_inicio: new Date('2026-10-10T08:00:00Z'), fecha_fin: new Date('2026-10-12T20:00:00Z') },
+            { trabajo_id: 4, nombre: 'Romería', soy_coordinador: 0, en_equipo: 1,
+              fecha_inicio: new Date('2026-10-20T08:00:00Z'), fecha_fin: new Date('2026-10-20T20:00:00Z') },
+            { trabajo_id: 5, nombre: 'Antiguo', soy_coordinador: 0, en_equipo: 0,
+              fecha_inicio: new Date('2026-10-25T08:00:00Z'), fecha_fin: new Date('2026-10-25T20:00:00Z') },
+          ]]]]);
+      const res = mockRes();
+      await miCalendario(mockReq({ query: { year: '2026', month: '10' }, user: resp1 }), res, mockNext());
+
+      const entradas = res._json.data;
+      expect(entradas.map(e => [e.trabajo_id, e.mi_papel])).toEqual([
+        [2, 'equipo'], [3, 'coordinador'], [1, 'responsable'], [4, 'equipo_trabajo'], [5, 'v25'],
+      ]);
+      expect(entradas[0]).toMatchObject({ asignacion_id: 202, vehiculo: 'SVB-2' });
+      expect(entradas[0]).not.toHaveProperty('rol');
+      expect(entradas[1]).toMatchObject({ asignacion_id: null, asignacion_estado: null, vehiculo: null });
+      expect(entradas[1]).not.toHaveProperty('soy_coordinador');
+    });
+
+    it('siempre lo suyo, también a quien ve todo, y lo ya cerrado también', async () => {
+      bd([]);
+      await miCalendario(mockReq({ query: { year: '2026', month: '10' }, user: admin }), mockRes(), mockNext());
+      const [[sqlAmb, paramsAmb], [sqlSin, paramsSin]] = query.mock.calls;
+      expect(paramsAmb[0]).toBe(1);
+      expect(sqlSin).toContain('trabajo_vehiculo_responsables');
+      expect(paramsSin).toEqual([1, 1, expect.any(Date), expect.any(Date), 1, 1, 1, 1, 1]);
+      expect(sqlAmb + sqlSin).not.toContain("t.estado IN");
+      // Una ambulancia cancelada ya no lleva a nadie
+      expect(sqlAmb).toContain("a.estado <> 'cancelada'");
+    });
+
+    it('acota el mes por la medianoche española y deja fuera lo que acaba justo al empezar', async () => {
+      bd([]);
+      await miCalendario(mockReq({ query: { year: '2026', month: '12' }, user: resp1 }), mockRes(), mockNext());
+      const [sql, [, hasta, desde]] = query.mock.calls[0];
+      expect(desde.toISOString()).toBe('2026-11-30T23:00:00.000Z');
+      expect(hasta.toISOString()).toBe('2026-12-31T23:00:00.000Z');
+      expect(sql).toContain('a.fecha_fin > ?');
     });
   });
 
@@ -1435,6 +1489,7 @@ describe('trabajos.controller', () => {
       ['finalizeTrabajo',        () => finalizeTrabajo(mockReq({ params: { id: '1' }, body: {}, user: admin }), mockRes(), next)],
       ['uploadEvidencia',        () => uploadEvidencia(mockReq({ params: { id: '1' }, body: { vehicle_id: '7', tipo_imagen: 'frontal', momento: 'fin' }, user: admin }), mockRes(), next)],
       ['misTrab',                () => misTrab(mockReq({ query: {}, user: admin }), mockRes(), next)],
+      ['miCalendario',           () => miCalendario(mockReq({ query: {}, user: resp1 }), mockRes(), next)],
     ];
 
     let next;

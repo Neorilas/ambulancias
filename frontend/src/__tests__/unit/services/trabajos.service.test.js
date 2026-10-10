@@ -24,6 +24,13 @@ describe('trabajos.service', () => {
     expect(api.get).toHaveBeenCalledWith('/trabajos/calendario', { params: { year: 2026, month: 4 } });
   });
 
+  it('miCalendario', async () => {
+    api.get.mockResolvedValueOnce(mockData([{ trabajo_id: 1 }]));
+    const r = await trabajosService.miCalendario({ year: 2026, month: 10 });
+    expect(api.get).toHaveBeenCalledWith('/trabajos/mi-calendario', { params: { year: 2026, month: 10 } });
+    expect(r).toEqual([{ trabajo_id: 1 }]);
+  });
+
   it('misTrab', async () => {
     api.get.mockResolvedValueOnce({ data: { data: [] } });
     await trabajosService.misTrab();
