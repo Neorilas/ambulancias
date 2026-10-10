@@ -547,10 +547,10 @@ describe('push.service', () => {
     it.each([
       'asig-100-activada', 'asig-145-fotos-inicio', 'asig-144-asignada',
       'trab-5-equipo', 'asig-1-activada', 'test-1000', 'asig:1 activada', 'a'.repeat(80),
-    ])('«%s» da un topic de 32 caracteres base64url que se puede decodificar', (tag) => {
+    ])('«%s» da un topic de 32 caracteres hexadecimales, base64 decodificable', (tag) => {
       const push = cargarPush();
       const topic = push.normalizarTopic(tag);
-      expect(topic).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(topic).toMatch(/^[0-9a-f]{32}$/);
       expect(Buffer.from(topic, 'base64url').toString('base64url')).toBe(topic);
     });
 

@@ -208,13 +208,15 @@ function endpointValido(endpoint) {
  * topic era el tag saneado, y con la asignación 100 «asig-100-activada» pasó a
  * 17 caracteres: desde el 5 de octubre ningún iPhone recibía «iniciada»,
  * «fotos de inicio» ni «nuevo servicio», y Android sí. Por eso ahora es un
- * resumen del tag, siempre de 32 caracteres (24 bytes): mismo tag, mismo
- * topic, sea cual sea su largo o sus caracteres. Sin tag no hay topic.
+ * resumen del tag, siempre de 32 caracteres: mismo tag, mismo topic, sea cual
+ * sea su largo o sus caracteres. En hexadecimal y no en base64url: los 32
+ * siguen siendo base64 decodificable (lo que mira Apple), y sin `_` ni `-`
+ * ningún otro servicio de push con un filtro más estricto que el RFC puede
+ * rechazarlo. Sin tag no hay topic.
  */
 function normalizarTopic(tag) {
   if (!tag) return undefined;
-  return crypto.createHash('sha256').update(String(tag)).digest()
-    .subarray(0, 24).toString('base64url');
+  return crypto.createHash('sha256').update(String(tag)).digest('hex').slice(0, 32);
 }
 
 /**
