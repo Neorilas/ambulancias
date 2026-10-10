@@ -164,9 +164,11 @@ export default function TrabajoList() {
                           </div>
                           {/* Las fechas destacan (2026-10-10): el listado va
                               ordenado por ellas y es lo primero que se busca.
+                              Jerarquía título > fecha > resto: a 15 px y en
+                              negrita la mono pesaba tanto como el título.
                               Cada fecha entera en su línea: en el móvil no
                               cabe el par y se partía la de fin por la hora */}
-                          <p className="text-[15px] font-semibold text-neutral-900 mt-1 data" data-testid="fechas-trabajo">
+                          <p className="text-[13px] font-medium text-neutral-800 mt-1 data" data-testid="fechas-trabajo">
                             <span className="whitespace-nowrap">{formatDateTime(t.fecha_inicio)} →</span>{' '}
                             <span className="whitespace-nowrap">{formatDateTime(t.fecha_fin)}</span>
                           </p>
