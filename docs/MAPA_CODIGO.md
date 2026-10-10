@@ -1588,7 +1588,10 @@ de inicio pendientes, `CicloSinVehiculos` para gestión y la galería. **Sin
 «Editar», a propósito:** el `TrabajoForm` de ahora es del modelo nuevo, exige
 coordinador, y guardarlo sobre un v25 le pondría uno: un v25 sin vehículos
 dejaría de poder activarse y cerrarse a mano (`motivoNoManual`). Para
-terminarlo no hace falta, porque gestión opera cualquier vehículo. En «Mis
+terminarlo no hace falta, porque gestión opera cualquier vehículo. **Tras
+cada acción recarga con la pantalla de carga** (`onRecargar` pone `loading`):
+sin ella, tras cerrar un vehículo seguía un momento «Cerrar vehículo» activo y
+otra pulsación daba 400. En «Mis
 trabajos» el responsable ve `mis_vehiculos_v25` («Tu vehículo: X · pendiente
 de cerrar»), los suyos aún sin cerrar. Mientras los flags estén apagados, como
 hasta ahora, solo los alcanza quien se salta los flags (superadmin).

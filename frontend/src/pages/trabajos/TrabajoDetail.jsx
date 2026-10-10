@@ -161,7 +161,12 @@ export default function TrabajoDetail() {
 
   if (loading) return <PageLoading />;
   if (!trabajo) return null;
-  if (trabajo.v25) return <TrabajoV25 trabajo={trabajo} onRecargar={load} />;
+  // Recarga con la pantalla de carga, como antes de la fase 4: sin ella, tras
+  // cerrar un vehículo seguía un momento con «Cerrar vehículo» activo y otra
+  // pulsación daba 400 (revisión del 2026-10-10)
+  if (trabajo.v25) {
+    return <TrabajoV25 trabajo={trabajo} onRecargar={() => { setLoading(true); return load(); }} />;
+  }
 
   const cerrado      = estaCerrado(trabajo.estado);
   const gestion      = canManageTrabajos();

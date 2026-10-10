@@ -98,6 +98,16 @@ describe('MisTrabajos', () => {
     expect(feria).toHaveTextContent('Tu vehículo: UVI-9 · pendiente de cerrar');
   });
 
+  it('trabajo del modelo anterior con dos vehículos suyos: en plural', async () => {
+    trabajosService.misTrab.mockResolvedValue({ data: [
+      { id: 6, nombre: 'Feria antigua', estado: 'activo', fecha_inicio: iso(-3600e3), fecha_fin: iso(3600e3),
+        soy_coordinador: false, en_equipo: false, mi_asignacion: null, mis_vehiculos_v25: 'UVI-9, SVB-3' },
+    ] });
+    montar();
+    const [feria] = await screen.findAllByTestId('tarjeta-trabajo');
+    expect(feria).toHaveTextContent('Tus vehículos: UVI-9, SVB-3 · pendiente de cerrar');
+  });
+
   it('en el equipo del trabajo sin ambulancia: lo dice', async () => {
     trabajosService.misTrab.mockResolvedValue({ data: [
       { id: 4, nombre: 'Feria', estado: 'programado', fecha_inicio: iso(3600e3), fecha_fin: iso(7200e3),
