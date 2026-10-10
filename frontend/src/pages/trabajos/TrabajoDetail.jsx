@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -123,6 +123,7 @@ export default function TrabajoDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const location = useLocation();
   const { canManageTrabajos } = useAuth();
   const { notify } = useNotification();
 
@@ -133,6 +134,17 @@ export default function TrabajoDetail() {
   const [detalleId,      setDetalleId]      = useState(null);
   const [confirmCerrar,  setConfirmCerrar]  = useState(false);
   const [cerrando,       setCerrando]       = useState(false);
+  const [otroTrabajo,    setOtroTrabajo]    = useState(false);
+
+  // Se llega aquí recién creado desde el alta (`TrabajoList` o el «Añadir
+  // otro trabajo» de esta misma ficha): el aviso deja encadenar otra alta sin
+  // volver al listado. Va en el estado de la navegación y no en la URL para
+  // que un enlace compartido no lo arrastre.
+  const recienCreado = !!location.state?.recienCreado;
+  const irANuevo = (nuevo) => {
+    setOtroTrabajo(false);
+    if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`, { state: { recienCreado: true } });
+  };
 
   // `?asignacion=N`: los avisos, la alarma, la ficha del vehículo y el mapa
   // traen aquí con esa ambulancia señalada (D10). Se resalta y se lleva a la
@@ -209,6 +221,16 @@ export default function TrabajoDetail() {
           <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
         )}
       </div>
+
+      {recienCreado && gestion && (
+        <div className="card bg-ok-50 border-ok-200 flex flex-col sm:flex-row sm:items-center gap-3"
+          data-testid="trabajo-creado">
+          <p className="flex-1 text-sm text-ok-600">
+            Trabajo creado. Las ambulancias que falten se añaden abajo, cuando se sepan.
+          </p>
+          <button onClick={() => setOtroTrabajo(true)} className="btn-primary">Añadir otro trabajo</button>
+        </div>
+      )}
 
       {/* Pendiente de cierre (D3): lo cierra el coordinador */}
       {trabajo.estado === 'pendiente_cierre' && (
@@ -327,6 +349,10 @@ export default function TrabajoDetail() {
           onSaved={() => { setShowEdit(false); load(); }}
           onClose={() => setShowEdit(false)}
         />
+      )}
+
+      {otroTrabajo && (
+        <TrabajoForm onSaved={irANuevo} onClose={() => setOtroTrabajo(false)} />
       )}
 
       {nuevaAmbulancia && (
