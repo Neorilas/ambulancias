@@ -75,8 +75,13 @@ describe('VehicleList · lo que se estaba mirando sobrevive a ir a una ficha', (
     await screen.findByRole('table');
     await user.click(screen.getByRole('button', { name: /Siguiente/ }));
     expect(screen.getByTestId('donde')).toHaveTextContent('/vehiculos?page=3');
-    await user.type(screen.getByRole('searchbox'), 'a');
-    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/vehiculos\?q=a$/);
+    await user.type(screen.getByRole('searchbox'), 'ab');
+    // El campo tiene lo tecleado al momento (no espera a la URL, que el router
+    // aplica en una transición) y la búsqueda llega a la URL ya reposada
+    expect(screen.getByRole('searchbox')).toHaveValue('ab');
+    await waitFor(() => expect(screen.getByTestId('donde')).toHaveTextContent(/^\/vehiculos\?q=ab$/));
+    expect(vehiclesService.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, search: 'ab' }));
+    expect(vehiclesService.list).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'a' }));
   });
 });
 

@@ -9,7 +9,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import CalendarioTrab from '../../components/calendar/CalendarioTrab.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { esDiaValido } from '../../utils/calendario.js';
-import { useEstadoEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
+import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import TrabajoForm from './TrabajoForm.jsx';
 
 const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -29,6 +29,8 @@ export default function TrabajoList() {
   });
   const page    = paginaDeUrl(url.page);
   const filters = { search: url.search, estado: url.estado, tipo: url.tipo };
+  // El buscador escribe en local y llega a la URL ya reposado (hook)
+  const [texto, setTexto] = useBuscadorEnUrl(url.search, (v) => cambiarUrl({ search: v, page: 1 }));
 
   const [trabajos,   setTrabajos]   = useState([]);
   const [pagination, setPagination] = useState(null);
@@ -129,8 +131,8 @@ export default function TrabajoList() {
               type="search"
               className="input flex-1 min-w-40"
               placeholder="Buscar..."
-              value={filters.search}
-              onChange={e => setFilter('search', e.target.value)}
+              value={texto}
+              onChange={e => setTexto(e.target.value)}
             />
             <select className="input w-auto" value={filters.estado} onChange={e => setFilter('estado', e.target.value)}>
               <option value="">Todos los estados</option>

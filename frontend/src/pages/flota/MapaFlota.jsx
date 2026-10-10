@@ -8,7 +8,7 @@ import { rutaAsignacion, tituloAsignacion } from '../../utils/enlaceAsignacion.j
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import MapaLeaflet from '../../components/flota/MapaLeaflet.jsx';
 import { formatHora } from '../../utils/dateUtils.js';
-import { useEstadoEnUrl } from '../../hooks/useNavegacion.js';
+import { useEstadoEnUrl, useBuscadorEnUrl } from '../../hooks/useNavegacion.js';
 import {
   FILTROS,
   contarPorFiltro,
@@ -196,9 +196,9 @@ export default function MapaFlota() {
   // va a la del vehículo, y al volver tiene que seguir elegida y filtrada.
   const [url, cambiarUrl] = useEstadoEnUrl({ filtro: 'todos', q: '', vehiculo: '' });
   const filtro      = url.filtro;
-  const busqueda    = url.q;
   const setFiltro   = (f) => cambiarUrl({ filtro: f });
-  const setBusqueda = (q) => cambiarUrl({ q });
+  // Se filtra con el texto local, al momento; a la URL llega ya reposado
+  const [busqueda, setBusqueda] = useBuscadorEnUrl(url.q, (q) => cambiarUrl({ q }));
   const [seleccionada, setSeleccionada] = useState(null);
 
   // `?vehiculo=<id>`: se llega desde la ficha de una ambulancia para verla a
@@ -285,6 +285,10 @@ export default function MapaFlota() {
   // de la ficha del vehículo, el efecto de arriba la vuelve a elegir. Una
   // entrada de Cartrack sin vehículo nuestro no tiene ficha ni se apunta.
   const elegir = (clave) => {
+    // Una elección a mano sustituye a la que traía la URL al llegar: sin
+    // esto, el efecto de arriba la tomaba por la «pedida» y dejaba pendiente
+    // el salto a la ficha para la siguiente
+    pedidoAplicado.current = true;
     setSeleccionada(clave);
     cambiarUrl({ vehiculo: flota.find(f => f.clave === clave)?.vehiculoId || '' });
   };

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useDebounce } from './useDebounce.js';
 
 /**
  * Navegación con continuidad: «atrás» vuelve a donde se estaba, como se
@@ -78,7 +79,7 @@ export function useEstadoEnUrl(porDefecto) {
 export function usePanelEnUrl(clave, { alCerrar, soloDesdeLaApp = false } = {}) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const { state } = useLocation();
+  const { state, key } = useLocation();
   const loPusoLaApp = state?.panel === clave;
   const valor = params.get(clave);
   const abierto = valor && (!soloDesdeLaApp || loPusoLaApp) ? valor : null;
@@ -87,6 +88,16 @@ export function usePanelEnUrl(clave, { alCerrar, soloDesdeLaApp = false } = {}) 
   // con el panel ya cerrado por «atrás»): mira la URL de ahora, no la de entonces
   const actual = useRef(null);
   actual.current = { params, loPusoLaApp };
+  // `navigate(-1)` no se aplica hasta el siguiente render: un segundo `cerrar`
+  // antes de eso retrocedería otra vez y sacaría de la pantalla. Y desmontado
+  // el dueño (un «atrás» le ganó), un `cerrar` tardío ya no es suyo
+  const cerrando = useRef(false);
+  useEffect(() => { cerrando.current = false; }, [key]);
+  const montado = useRef(false);
+  useEffect(() => {
+    montado.current = true;
+    return () => { montado.current = false; };
+  }, []);
 
   const abrir = (v) => {
     const siguiente = new URLSearchParams(params);
@@ -94,9 +105,10 @@ export function usePanelEnUrl(clave, { alCerrar, soloDesdeLaApp = false } = {}) 
     setParams(siguiente, { state: { panel: clave } });
   };
   const cerrar = () => {
+    if (!montado.current || cerrando.current) return;
     const { params: ahora, loPusoLaApp: puesta } = actual.current;
     if (!ahora.has(clave)) return;
-    if (puesta) { navigate(-1); return; }
+    if (puesta) { cerrando.current = true; navigate(-1); return; }
     const siguiente = new URLSearchParams(ahora);
     siguiente.delete(clave);
     setParams(siguiente, { replace: true });
@@ -113,5 +125,50 @@ export function usePanelEnUrl(clave, { alCerrar, soloDesdeLaApp = false } = {}) 
   return [abierto, abrir, cerrar];
 }
 
+/**
+ * El texto de un buscador cuyo valor vive en la URL. El campo NO se ata a la
+ * URL directamente: el router aplica cada cambio de ubicación en una
+ * transición, el `value` llega un render tarde y React devuelve el campo al
+ * texto viejo entre medias — salta el cursor, se pierden teclas en un móvil
+ * lento y el autocompletado del teclado se lía. Se escribe en un estado
+ * local y llega a la URL ya reposado (`escribir`, que es donde se vuelve a la
+ * página 1). Si la URL cambia por fuera (atrás, adelante, un enlace), el
+ * campo la sigue.
+ *
+ * @returns {[string, (texto: string) => void]} [texto, setTexto]
+ */
+export function useBuscadorEnUrl(valorUrl, escribir, ms = 400) {
+  const [texto, setTexto] = useState(valorUrl);
+  // Lo último que la URL tiene, o va a tener por lo que escribimos, y lo
+  // escrito que aún no ha llegado: en un móvil lento puede salir una segunda
+  // escritura antes de que se aplique la primera, y la llegada de esa primera
+  // no es un cambio «de fuera» (devolvería el campo al texto anterior)
+  const enUrl = useRef(valorUrl);
+  const escritos = useRef([]);
+  useEffect(() => {
+    const i = escritos.current.indexOf(valorUrl);
+    if (i !== -1) { escritos.current = escritos.current.slice(i + 1); return; }
+    if (valorUrl === enUrl.current) return;
+    enUrl.current = valorUrl;
+    escritos.current = [];
+    setTexto(valorUrl);
+  }, [valorUrl]);
+
+  const escribirRef = useRef(escribir);
+  escribirRef.current = escribir;
+  const reposado = useDebounce(texto, ms);
+  useEffect(() => {
+    if (reposado === enUrl.current) return;
+    enUrl.current = reposado;
+    escritos.current.push(reposado);
+    escribirRef.current(reposado);
+  }, [reposado]);
+
+  return [texto, setTexto];
+}
+
 /** Número de página de la URL (≥ 1; lo que no lo sea, la 1). */
-export const paginaDeUrl = (valor) => Math.max(1, Math.floor(Number(valor)) || 1);
+export const paginaDeUrl = (valor) => {
+  const n = Math.floor(Number(valor));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+};

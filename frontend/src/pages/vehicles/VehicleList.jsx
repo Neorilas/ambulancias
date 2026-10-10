@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useDebounce } from '../../hooks/useDebounce.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -9,7 +8,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate, formatDateTimeShort } from '../../utils/dateUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import VehicleForm from './VehicleForm.jsx';
-import { useEstadoEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
+import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 
 /**
  * Fecha de próxima revisión con su estado.
@@ -208,27 +207,31 @@ export default function VehicleList() {
   const search          = url.q;
   const soloIncidencias = url.incidencias === 'abiertas';
   const setPage         = (fn) => cambiarUrl({ page: fn(page) });
+  // El campo escribe en local y la búsqueda llega a la URL ya reposada (sin
+  // eso, una petición por tecla), y en esa misma escritura vuelve a la
+  // página 1: si no, se pide una página que el nuevo filtro ya no tiene y la
+  // lista sale vacía. No con un efecto sobre la búsqueda: también saltaría al
+  // volver y perdería la página
+  const [texto, setTexto] = useBuscadorEnUrl(search, (q) => cambiarUrl({ q, page: 1 }));
   const [loading,    setLoading]    = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [editVeh,    setEditVeh]    = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
 
-  // Buscar sobre el texto ya reposado: si no, cada tecla era una petición.
-  const busqueda = useDebounce(search, 400);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const resp = await vehiclesService.list({
-        page, search: busqueda || undefined, limit: 25,
+        page, search: search || undefined, limit: 25,
         incidencias: soloIncidencias ? 'abiertas' : undefined,
       });
       setVehicles(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar vehículos'); }
     finally { setLoading(false); }
-  }, [page, busqueda, soloIncidencias]);
+  }, [page, search, soloIncidencias]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -275,11 +278,8 @@ export default function VehicleList() {
           type="search"
           className="input flex-1"
           placeholder="Buscar por nombre o matrícula…"
-          value={search}
-          // A la página 1 en el mismo cambio, o se pide una página que el nuevo
-          // filtro ya no tiene y la lista sale vacía. No con un efecto sobre la
-          // búsqueda: también saltaría al volver y perdería la página
-          onChange={e => cambiarUrl({ q: e.target.value, page: 1 })}
+          value={texto}
+          onChange={e => setTexto(e.target.value)}
         />
         {verIncidencias && (
           <button

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
@@ -130,6 +130,15 @@ describe('MapaFlota · lo elegido sobrevive a ir a la ficha del vehículo', () =
     expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
     // El filtro sigue puesto: la 1 está apagada y no sale
     expect(screen.queryByText('Ambulancia 1')).not.toBeInTheDocument();
+  });
+
+  it('buscar filtra al momento y la búsqueda queda en la URL', async () => {
+    const user = userEvent.setup();
+    await montar('/flota');
+    await user.type(screen.getByRole('searchbox'), '2222');
+    expect(screen.getByRole('searchbox')).toHaveValue('2222');
+    expect(screen.queryByText('Ambulancia 1')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('/flota?q=2222'));
   });
 
   it('cerrar la ficha la quita de la URL', async () => {
