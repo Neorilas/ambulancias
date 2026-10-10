@@ -3,6 +3,7 @@ import {
   estaCerrado, formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
   asociadosDeTrabajo, asociadosDeFormulario,
+  accionesVehiculo, vehiculosConAcciones,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -180,5 +181,46 @@ describe('utils/trabajos', () => {
         asignaciones: [{ ...ambulanciaVacia(), responsables: [20, ''], personal: ['31'] }] };
       expect([...asociadosDeFormulario(f)].sort()).toEqual([20, 30, 31, 50]);
     });
+  });
+
+  // Modelo v25: convive hasta la fase 6 para terminar los trabajos antiguos
+  describe('accionesVehiculo (v25)', () => {
+    const inicio = (completo) => ({ progreso_fotos: { inicio: { completo } } });
+
+    it('sin detalle (equipo) no hay nada que hacer', () => {
+      expect(accionesVehiculo({ detalle: false, estado: 'activo' }))
+        .toEqual({ activar: false, fotosInicio: false, finalizar: false });
+      expect(accionesVehiculo(undefined).activar).toBe(false);
+    });
+
+    it('cerrado, tampoco', () => {
+      expect(accionesVehiculo({ detalle: true, estado: 'finalizado', ...inicio(true) }).finalizar).toBe(false);
+    });
+
+    it('sin iniciar: activar y fotos de inicio', () => {
+      expect(accionesVehiculo({ detalle: true, estado: 'programado', ...inicio(false) }))
+        .toEqual({ activar: true, fotosInicio: true, finalizar: false });
+    });
+
+    it('activado por el cron sin pulsar: sigue ofreciendo el inicio de servicio', () => {
+      expect(accionesVehiculo({ detalle: true, estado: 'activo', inicio_real_at: null, ...inicio(true) }))
+        .toEqual({ activar: true, fotosInicio: false, finalizar: true });
+    });
+
+    it('iniciado y con fotos de inicio: solo cerrar', () => {
+      expect(accionesVehiculo({ detalle: true, estado: 'activo', inicio_real_at: '2026-10-15', ...inicio(true) }))
+        .toEqual({ activar: false, fotosInicio: false, finalizar: true });
+    });
+  });
+
+  it('vehiculosConAcciones (v25) deja fuera los que no son de quien mira', () => {
+    const t = { vehiculos: [
+      { vehicle_id: 7, detalle: true, estado: 'activo', inicio_real_at: 'x',
+        progreso_fotos: { inicio: { completo: true } } },
+      { vehicle_id: 8, detalle: false, estado: 'activo' },
+      { vehicle_id: 9, detalle: true, estado: 'finalizado' },
+    ] };
+    expect(vehiculosConAcciones(t).map(v => v.vehicle_id)).toEqual([7]);
+    expect(vehiculosConAcciones(null)).toEqual([]);
   });
 });

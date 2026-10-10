@@ -1,12 +1,13 @@
 import api from './api.js';
+import { conReintentos, SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 
 /**
  * Trabajos (v33, el trabajo padre): sus ambulancias son asignaciones y se
  * operan con `asignaciones.service` (activar, fotos, llegada, finalizar). Aquí
- * solo queda lo del trabajo: datos, coordinador, quién ve qué y el cierre.
+ * queda lo del trabajo: datos, coordinador, quién ve qué y el cierre.
  *
- * Las rutas del ciclo por vehículo del modelo v25 siguen vivas en el backend
- * hasta la fase 6 del plan, pero ninguna pantalla las usa ya.
+ * Y, hasta la fase 6 del plan, el ciclo por vehículo del modelo v25, para que
+ * los trabajos antiguos a medias se puedan terminar (`TrabajoV25`).
  */
 export const trabajosService = {
   list(params = {}) {
@@ -34,5 +35,30 @@ export const trabajosService = {
   /** Lo cierra su coordinador (o gestión) con todas sus ambulancias finalizadas. */
   cerrar(id) {
     return api.post(`/trabajos/${id}/cerrar`).then(r => r.data.data);
+  },
+
+  // ── Modelo v25 (convive hasta la fase 6) ──────────────────────
+  // Ciclo de vida por vehículo: cada responsable activa y cierra el suyo
+  activarVehiculo(id, vehicleId) {
+    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/activar`).then(r => r.data.data);
+  },
+  finalizeVehiculo(id, vehicleId, data) {
+    return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/finalize`, data).then(r => r.data);
+  },
+  // Solo trabajos v25 SIN vehículos (los lleva gestión a mano)
+  activar(id) {
+    return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
+  },
+  finalize(id, data) {
+    return api.post(`/trabajos/${id}/finalize`, data).then(r => r.data);
+  },
+  uploadEvidencia(id, formData) {
+    // Eliminar el Content-Type por defecto (application/json) para que el
+    // browser lo genere automáticamente con el boundary de multipart/form-data
+    // Timeout largo y reintentos ante fallos de red: ver utils/subidaFotos.js
+    return conReintentos(() => api.post(`/trabajos/${id}/evidencias`, formData, {
+      headers: { 'Content-Type': undefined },
+      timeout: SUBIDA_FOTO_TIMEOUT_MS,
+    })).then(r => r.data.data);
   },
 };

@@ -12,6 +12,7 @@ import {
   estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe,
 } from '../../utils/trabajos.js';
 import TrabajoForm from './TrabajoForm.jsx';
+import TrabajoV25 from './TrabajoV25.jsx';
 import AsignacionForm from '../asignaciones/AsignacionForm.jsx';
 import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
 
@@ -27,6 +28,10 @@ import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
  * Aquí no se opera ninguna ambulancia: «Tu ambulancia» y cada tarjeta abren el
  * detalle de la asignación de siempre, que es donde están el inicio, las
  * fotos, la llegada y el cierre (D7).
+ *
+ * Un trabajo del modelo v25 (`v25: true` en la API) se pinta con `TrabajoV25`,
+ * que sí opera sus vehículos: los dos modelos conviven hasta la fase 6 para
+ * que los trabajos antiguos a medias se puedan terminar.
  */
 
 const nombreVehiculo = (a) => a.vehiculo_alias || a.matricula;
@@ -156,12 +161,12 @@ export default function TrabajoDetail() {
 
   if (loading) return <PageLoading />;
   if (!trabajo) return null;
+  if (trabajo.v25) return <TrabajoV25 trabajo={trabajo} onRecargar={load} />;
 
   const cerrado      = estaCerrado(trabajo.estado);
   const gestion      = canManageTrabajos();
   const ambulancias  = trabajo.asignaciones || [];
   const mias         = misAmbulancias(trabajo);
-  const vehiculosV25 = trabajo.vehiculos || [];
   const coordinador  = nombresDe(trabajo.coordinador ? [trabajo.coordinador] : []);
   const equipo       = trabajo.usuarios || [];
   // En el equipo del trabajo pero en ninguna ambulancia (todavía, o nunca)
@@ -279,7 +284,7 @@ export default function TrabajoDetail() {
       </div>
 
       {/* Equipo del trabajo: la gente asignada, vaya o no en una ambulancia */}
-      {(equipo.length > 0 || (gestion && !cerrado)) && !vehiculosV25.length && (
+      {(equipo.length > 0 || (gestion && !cerrado)) && (
         <div className="card space-y-2">
           <h2 className="font-semibold text-neutral-900">Equipo del trabajo</h2>
           {equipo.length ? (
@@ -290,48 +295,26 @@ export default function TrabajoDetail() {
         </div>
       )}
 
-      {/* Ambulancias (un trabajo v25 lleva las suyas aparte, más abajo) */}
-      {(ambulancias.length > 0 || !vehiculosV25.length) && (
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold text-neutral-900">Ambulancias</h2>
-            {gestion && !cerrado && !vehiculosV25.length && (
-              <button onClick={() => setNuevaAmbulancia(true)} className="btn-secondary text-xs px-2 py-1">
-                + Añadir ambulancia
-              </button>
-            )}
-          </div>
-          {ambulancias.length === 0 && (
-            <p className="text-sm text-neutral-500">
-              Aún no lleva ninguna ambulancia{gestion && !cerrado ? ': añádelas cuando se sepan, con su responsable' : ''}.
-            </p>
-          )}
-          {ambulancias.map(a => (
-            <Ambulancia key={a.id} a={a} resaltada={a.id === resaltada} refResaltada={refResaltada}
-              onAbrir={() => setDetalleId(a.id)} />
-          ))}
-        </div>
-      )}
-
-      {/* Trabajo del modelo anterior (v25): solo lectura. Su ciclo por
-          vehículo sigue en el backend hasta la fase 6, sin pantalla. */}
-      {vehiculosV25.length > 0 && (
-        <div className="card space-y-2">
-          <h2 className="font-semibold text-neutral-900">Vehículos</h2>
-          <p className="text-xs text-neutral-500">Trabajo creado con el modelo anterior: solo consulta.</p>
-          {vehiculosV25.map(v => (
-            <div key={v.vehicle_id} className="p-3 bg-neutral-50 rounded-lg text-sm">
-              <p className="font-medium">{nombreVehiculo(v)} <span className="data text-xs text-neutral-500">{v.matricula}</span></p>
-              <p className="text-xs text-neutral-600">
-                {ESTADO_LABELS[v.estado] || v.estado} · Responsable: {nombresDe(v.responsables) || '—'}
-              </p>
-            </div>
-          ))}
-          {trabajo.usuarios?.length > 0 && (
-            <p className="text-xs text-neutral-600">Equipo: {nombresDe(trabajo.usuarios)}</p>
+      {/* Ambulancias */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-semibold text-neutral-900">Ambulancias</h2>
+          {gestion && !cerrado && (
+            <button onClick={() => setNuevaAmbulancia(true)} className="btn-secondary text-xs px-2 py-1">
+              + Añadir ambulancia
+            </button>
           )}
         </div>
-      )}
+        {ambulancias.length === 0 && (
+          <p className="text-sm text-neutral-500">
+            Aún no lleva ninguna ambulancia{gestion && !cerrado ? ': añádelas cuando se sepan, con su responsable' : ''}.
+          </p>
+        )}
+        {ambulancias.map(a => (
+          <Ambulancia key={a.id} a={a} resaltada={a.id === resaltada} refResaltada={refResaltada}
+            onAbrir={() => setDetalleId(a.id)} />
+        ))}
+      </div>
 
       {showEdit && (
         <TrabajoForm

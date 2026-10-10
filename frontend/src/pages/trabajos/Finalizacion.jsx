@@ -1,0 +1,513 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { trabajosService } from '../../services/trabajos.service.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
+import { useNotification } from '../../context/NotificationContext.jsx';
+import CameraCapture from '../../components/camera/CameraCapture.jsx';
+import { IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
+import { parseKm } from '../../utils/kmUtils.js';
+import { errorMotivo } from '../../utils/motivo.js';
+
+/**
+ * MODELO v25 (trabajos con `trabajo_vehiculos`). Convive con el trabajo padre
+ * hasta la fase 6 del plan, para que los trabajos antiguos a medias se puedan
+ * terminar; lo abre `TrabajoV25`. Se borró en la fase 4 y se recuperó tal cual
+ * de master el 2026-10-10. Los trabajos nuevos cierran cada ambulancia como
+ * asignación (`FinalizacionAsignacion`).
+ *
+ * Cierre de UN vehículo del trabajo (v25: cada responsable cierra el suyo; el
+ * trabajo se da por finalizado cuando cierra el último).
+ * Paso 1: Fotos + km
+ * Paso 2: Motivo (solo si anticipado)
+ * Paso 3: Confirmar y enviar
+ *
+ * Props: trabajo (completo), vehicleId, onDone(), onCancel()
+ */
+export default function Finalizacion({ trabajo, vehicleId, onDone, onCancel }) {
+  const { notify } = useNotification();
+
+  // Solo el vehículo pedido, y solo si quien mira tiene su detalle (gestión o
+  // responsable de ese vehículo; lo decide el backend)
+  const vehiculos = (trabajo?.vehiculos || [])
+    .filter(v => v.detalle && v.vehicle_id === vehicleId);
+  const isAnticipado = new Date() < new Date(trabajo?.fecha_fin);
+
+  // El cuentakilómetros no retrocede: ni por debajo del inicio ni del actual
+  // del vehículo (el backend lo rechaza igual; esto avisa antes)
+  const kmMinimo = (v) => Math.max(v.kilometros_inicio || 0, v.vehiculo_km_actual || 0);
+
+  const [step,           setStep]          = useState('fotos');
+  const [currentVehIdx,  setCurrentVehIdx] = useState(0);
+  const [showCamera,     setShowCamera]    = useState(false);
+  const [cameraIndex,    setCameraIndex]   = useState(0);
+
+  // Mapa: vehicle_id → { [tipo_imagen]: File }
+  const [evidencias, setEvidencias] = useState(() => {
+    const map = {};
+    vehiculos.forEach(v => { map[v.vehicle_id] = {}; });
+    return map;
+  });
+
+  // Mapa: vehicle_id → string
+  const [kmFinales, setKmFinales] = useState(() => {
+    const map = {};
+    vehiculos.forEach(v => { map[v.vehicle_id] = ''; });
+    return map;
+  });
+
+  const [motivo,         setMotivo]        = useState('');
+  // Aviso del motivo: solo tras intentar seguir, nunca mientras se escribe.
+  const [avisoMotivo,    setAvisoMotivo]   = useState(null);
+  const [uploading,      setUploading]     = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
+  // Fotos que ya llegaron al servidor, por vehículo y tipo. Un trabajo con tres
+  // ambulancias son ~15 subidas; sin esto, un fallo en la última repetía las
+  // catorce anteriores y agotaba el cupo de peticiones en el reintento.
+  const subidas = useRef({});
+
+  const currentVeh = vehiculos[currentVehIdx];
+
+  const openCamera = (vi, index = 0) => {
+    setCurrentVehIdx(vi);
+    setCameraIndex(index);
+    setShowCamera(true);
+  };
+
+  // Mapa estable de ObjectURLs para previews — se revocan al cambiar o desmontar
+  const previews = useMemo(() => {
+    const map = {};
+    for (const [vehId, tipos] of Object.entries(evidencias)) {
+      map[vehId] = {};
+      for (const [tipo, file] of Object.entries(tipos)) {
+        if (file) map[vehId][tipo] = URL.createObjectURL(file);
+      }
+    }
+    return map;
+  }, [evidencias]);
+
+  useEffect(() => {
+    return () => {
+      for (const tipos of Object.values(previews)) {
+        for (const url of Object.values(tipos)) URL.revokeObjectURL(url);
+      }
+    };
+  }, [previews]);
+
+  /* ── Cámara guiada ─────────────────────────────────────── */
+  const handleCameraComplete = (captures) => {
+    setShowCamera(false);
+    setEvidencias(prev => {
+      const next = { ...prev };
+      if (!next[currentVeh.vehicle_id]) next[currentVeh.vehicle_id] = {};
+      captures.forEach(c => {
+        next[currentVeh.vehicle_id][c.tipo] = c.file;
+      });
+      return next;
+    });
+  };
+
+  /* ── Subir evidencias + finalizar ─────────────────────── */
+  const handleFinalizar = async () => {
+    setUploading(true);
+    // Para el mensaje de error: cuántas fotos hay y cuántas están ya arriba.
+    const conFoto = vehiculos.flatMap(v => IMAGEN_TIPOS_FIN
+      .filter(t => evidencias[v.vehicle_id]?.[t.key])
+      .map(t => [v.vehicle_id, t.key]));
+    let enServidor = conFoto.filter(([vid, key]) =>
+      subidas.current[vid]?.[key] === evidencias[vid][key]).length;
+    try {
+      // 1. Subir fotos
+      for (const veh of vehiculos) {
+        for (const tipo of IMAGEN_TIPOS_FIN) {
+          const file = evidencias[veh.vehicle_id]?.[tipo.key];
+          if (!file) continue;
+          // Ya subida en un intento anterior: no repetirla. Se compara el File
+          // y no un booleano para que una foto rehecha sí vuelva a enviarse.
+          if (subidas.current[veh.vehicle_id]?.[tipo.key] === file) continue;
+
+          const fd = new FormData();
+          fd.append('image',       file);
+          fd.append('vehicle_id',  veh.vehicle_id);
+          fd.append('tipo_imagen', tipo.key);
+          fd.append('momento',     'fin');
+
+          try {
+            await trabajosService.uploadEvidencia(trabajo.id, fd);
+            enServidor++;
+            subidas.current[veh.vehicle_id] = {
+              ...(subidas.current[veh.vehicle_id] || {}), [tipo.key]: file,
+            };
+            setUploadProgress(p => ({
+              ...p,
+              [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'ok' },
+            }));
+          } catch (uploadErr) {
+            setUploadProgress(p => ({
+              ...p,
+              [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'error' },
+            }));
+            // Un fallo de red sube tal cual: el catch de fuera lo explica.
+            if (esFalloDeRed(uploadErr)) throw uploadErr;
+            const msg = uploadErr?.response?.data?.message || uploadErr?.message || '';
+            throw new Error(`Error subiendo ${tipo.label} (${veh.matricula})${msg ? ': ' + msg : ''}`);
+          }
+        }
+      }
+
+      // 2. Cerrar el vehículo
+      const veh = vehiculos[0];
+      const result = await trabajosService.finalizeVehiculo(trabajo.id, veh.vehicle_id, {
+        kilometros_fin: parseKm(kmFinales[veh.vehicle_id]),
+        motivo_finalizacion_anticipada: isAnticipado ? motivo : undefined,
+      });
+
+      notify.success(result.message || 'Vehículo cerrado correctamente');
+      onDone?.();
+    } catch (err) {
+      // Priorizar mensaje del backend sobre mensaje genérico de Axios
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Cerrar vehículo' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'Error al finalizar');
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  /* ── Validaciones ─────────────────────────────────────── */
+  const fotosPorVeh = (vid) =>
+    IMAGEN_TIPOS_FIN.filter(t => evidencias[vid]?.[t.key]).length;
+
+  const kmValido = (v) => {
+    const km = parseKm(kmFinales[v.vehicle_id]);
+    return km !== null && km >= kmMinimo(v);
+  };
+  const canProceedFromFotos = vehiculos.length > 0 && vehiculos.every(v =>
+    IMAGEN_TIPOS_FIN.every(t => evidencias[v.vehicle_id]?.[t.key]) && kmValido(v)
+  );
+
+  /* ── CameraCapture ────────────────────────────────────── */
+  if (showCamera && currentVeh) {
+    return (
+      <CameraCapture
+        tipos={IMAGEN_TIPOS_FIN}
+        onComplete={handleCameraComplete}
+        onCancel={() => setShowCamera(false)}
+        initialIndex={cameraIndex}
+      />
+    );
+  }
+
+  /* ── Sin vehículos ────────────────────────────────────── */
+  if (vehiculos.length === 0) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+        </div>
+        <div className="card bg-bad-50 border border-bad-200 space-y-2">
+          <p className="text-bad-600 font-medium">No puedes cerrar este vehículo</p>
+          <p className="text-bad-600 text-sm">
+            Solo lo cierra uno de sus responsables. Contacta con el administrador.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
+    );
+  }
+
+  /* ── Bloqueo: falta inicio de algún vehículo ──────────── */
+  const vehiculosSinInicio = vehiculos.filter(v => !v.progreso_fotos?.inicio?.completo);
+  if (vehiculosSinInicio.length > 0) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+        </div>
+        <div className="card bg-warn-50 border border-warn-200 space-y-2">
+          <p className="text-warn-700 font-medium">Faltan las fotos de inicio</p>
+          <p className="text-warn-600 text-sm">
+            Antes de finalizar tienes que subir las fotos de inicio de:
+          </p>
+          <ul className="text-warn-600 text-sm list-disc pl-5">
+            {vehiculosSinInicio.map(v => (
+              <li key={v.vehicle_id}>
+                <strong>{v.vehiculo_alias || v.matricula}</strong> ({v.matricula})
+                {' — '}
+                {v.progreso_fotos?.inicio?.completado || 0}/{v.progreso_fotos?.inicio?.total || IMAGEN_TIPOS_FIN.length} subidas
+              </li>
+            ))}
+          </ul>
+          <p className="text-warn-600 text-xs">
+            Vuelve al detalle del trabajo y pulsa <strong>"Fotos de inicio"</strong> para completarlas.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
+    );
+  }
+
+  /* ── Indicador de pasos ───────────────────────────────── */
+  const steps = ['Fotos y km', isAnticipado ? 'Motivo' : null, 'Confirmar'].filter(Boolean);
+  const stepKeys = ['fotos', isAnticipado ? 'motivo' : null, 'confirm'].filter(Boolean);
+  const currentStepIdx = stepKeys.indexOf(step);
+
+  return (
+    <div className="space-y-6 animate-fade-in pb-10">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+        <div>
+          <h2 className="text-lg font-bold text-neutral-900">Cerrar vehículo</h2>
+          <p className="text-sm text-neutral-500">{trabajo?.nombre}</p>
+          {isAnticipado && (
+            <span className="badge-yellow text-xs mt-1">Finalización anticipada</span>
+          )}
+        </div>
+      </div>
+
+      {/* Pasos */}
+      <div className="flex items-center gap-2">
+        {steps.map((s, i, arr) => {
+          const isActive = stepKeys[i] === step;
+          const isDone   = i < currentStepIdx;
+          return (
+            <React.Fragment key={s}>
+              <div className={`flex items-center gap-1.5 text-xs font-medium
+                ${isActive ? 'text-primary-700' : isDone ? 'text-ok-600' : 'text-neutral-400'}`}>
+                <span className={`data w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-semibold
+                  ${isActive ? 'bg-primary-600 text-white' : isDone ? 'bg-ok-600 text-white' : 'bg-neutral-200 text-neutral-500'}`}>
+                  {i + 1}
+                </span>
+                <span className="hidden sm:inline">{s}</span>
+              </div>
+              {i < arr.length - 1 && <div className="flex-1 h-px bg-neutral-200" />}
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      {/* ── Paso 1: Fotos + km ───────────────────────────── */}
+      {step === 'fotos' && (
+        <div className="space-y-4">
+          {vehiculos.map((veh, vi) => {
+            const done = fotosPorVeh(veh.vehicle_id);
+            const total = IMAGEN_TIPOS_FIN.length;
+            return (
+              <div key={veh.vehicle_id} className="card space-y-4">
+                {/* Cabecera vehículo */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold">{veh.vehiculo_alias || veh.matricula}</h3>
+                    <p className="text-xs text-neutral-500">{veh.matricula}</p>
+                  </div>
+                  <button
+                    onClick={() => openCamera(vi, 0)}
+                    className="btn-secondary text-sm"
+                  >
+                    Cámara guiada
+                  </button>
+                </div>
+
+                <p className="text-xs text-neutral-500">
+                  Toca cada foto para hacerla con la <strong>cámara</strong>,
+                  o usa <strong>Cámara guiada</strong> para el recorrido completo.
+                </p>
+
+                {/* Grid de fotos */}
+                <div className="grid grid-cols-3 gap-2">
+                  {IMAGEN_TIPOS_FIN.map((tipo, ti) => {
+                    const file    = evidencias[veh.vehicle_id]?.[tipo.key];
+                    const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
+                    const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
+
+                    return (
+                      <div key={tipo.key}>
+                        <button
+                          type="button"
+                          onClick={() => openCamera(vi, ti)}
+                          className="w-full text-left"
+                        >
+                          <div className={`aspect-square rounded-lg border overflow-hidden relative
+                            ${file ? 'border-ok-200' : 'border-dashed border-neutral-300 hover:border-primary-600'}`}>
+                            {preview ? (
+                              <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1 p-1">
+                                <span className="data text-[11px] font-semibold text-neutral-400">{ti + 1}</span>
+                                <span className="text-neutral-400 text-[10px] text-center leading-tight">
+                                  {tipo.label.split(' ')[0]}
+                                </span>
+                              </div>
+                            )}
+                            {prog === 'ok' && (
+                              <div className="absolute inset-x-0 bottom-0 bg-ok-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                                Subida
+                              </div>
+                            )}
+                            {prog === 'error' && (
+                              <div className="absolute inset-x-0 bottom-0 bg-bad-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                                Error
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-center text-[10px] mt-1 leading-tight">
+                            <span className={file ? 'text-neutral-700 font-medium' : 'text-neutral-500'}>{tipo.label}</span>
+                          </p>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Progreso fotos */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary-500 rounded-full transition-all"
+                      style={{ width: `${(done / total) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-neutral-500 shrink-0">{done}/{total} fotos</span>
+                </div>
+
+                {/* Kilómetros finales — en el mismo paso */}
+                <div className="border-t border-neutral-100 pt-3">
+                  <label className="label text-sm">
+                    Kilómetros finales <span className="text-bad-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-3 mt-1">
+                    {veh.kilometros_inicio != null && (
+                      <span className="text-xs text-neutral-500 shrink-0">
+                        Inicio: {veh.kilometros_inicio.toLocaleString()} km
+                      </span>
+                    )}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="input flex-1"
+                      value={kmFinales[veh.vehicle_id]}
+                      onChange={e => setKmFinales(k => ({ ...k, [veh.vehicle_id]: e.target.value }))}
+                      placeholder="Introduce los km actuales"
+                    />
+                  </div>
+                  {kmFinales[veh.vehicle_id] !== '' && !kmValido(veh) && (
+                    <p className="field-error mt-1">
+                      Tienen que ser al menos {kmMinimo(veh).toLocaleString()} km
+                      {veh.vehiculo_km_actual > (veh.kilometros_inicio || 0)
+                        ? ' (lo que marca ya el vehículo). Si el dato es correcto, que lo corrija un administrador desde la ficha del vehículo.'
+                        : '.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            onClick={() => setStep(isAnticipado ? 'motivo' : 'confirm')}
+            disabled={!canProceedFromFotos}
+            className="btn-primary btn-full"
+          >
+            Continuar →
+          </button>
+          {!canProceedFromFotos && (
+            <p className="text-xs text-center text-bad-500">
+              Completa las {IMAGEN_TIPOS_FIN.length} fotos y los kilómetros de cada vehículo
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Paso 2: Motivo (solo si anticipado) ─────────── */}
+      {step === 'motivo' && (
+        <div className="space-y-4">
+          <div className="p-3 bg-warn-50 border border-warn-200 rounded-lg">
+            <p className="text-warn-700 text-sm">
+              Estás cerrando el vehículo antes de la fecha prevista del trabajo.
+              Por favor, indica el motivo.
+            </p>
+          </div>
+          <div>
+            <label className="label">Motivo de finalización anticipada <span className="text-bad-500">*</span></label>
+            <textarea
+              className="input min-h-28 resize-none"
+              value={motivo}
+              onChange={e => { setMotivo(e.target.value); setAvisoMotivo(null); }}
+              placeholder="Describe el motivo por el que se finaliza antes de lo previsto..."
+            />
+            {avisoMotivo && <p className="text-xs text-bad-500 mt-1">{avisoMotivo}</p>}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setStep('fotos')} className="btn-secondary flex-1">‹ Volver</button>
+            <button
+              onClick={() => { const fallo = errorMotivo(motivo); if (fallo) setAvisoMotivo(fallo); else setStep('confirm'); }}
+              disabled={!motivo.trim()}
+              className="btn-primary flex-1"
+            >
+              Continuar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Paso 3: Confirmación ─────────────────────────── */}
+      {step === 'confirm' && (
+        <div className="space-y-4">
+          <div className="card space-y-3">
+            <h3 className="font-semibold">Resumen de finalización</h3>
+            <div className="divide-y divide-neutral-100">
+              {vehiculos.map(veh => (
+                <div key={veh.vehicle_id} className="py-3">
+                  <p className="font-medium text-sm">{veh.vehiculo_alias || veh.matricula}</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    {veh.kilometros_inicio != null && `${veh.kilometros_inicio.toLocaleString()} → `}
+                    <strong>{(parseKm(kmFinales[veh.vehicle_id]) ?? 0).toLocaleString()} km</strong>
+                  </p>
+                  <div className="flex gap-1 mt-1.5 flex-wrap">
+                    {IMAGEN_TIPOS_FIN.map(t => (
+                      <span key={t.key} className={`badge text-[10px] ${
+                        evidencias[veh.vehicle_id]?.[t.key] ? 'badge-green' : 'badge-red'
+                      }`}>
+                        {t.label.split(' ')[0]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {isAnticipado && motivo && (
+              <div className="bg-warn-50 rounded-lg p-3">
+                <p className="text-xs font-medium text-warn-700">Motivo:</p>
+                <p className="text-sm text-warn-600 mt-1">{motivo}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep(isAnticipado ? 'motivo' : 'fotos')}
+              className="btn-secondary flex-1"
+              disabled={uploading}
+            >
+              ‹ Volver
+            </button>
+            <button
+              onClick={handleFinalizar}
+              className="btn-primary flex-1"
+              disabled={uploading}
+            >
+              {uploading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 spinner" /> Finalizando...
+                </span>
+              ) : 'Cerrar vehículo'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

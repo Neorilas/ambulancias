@@ -51,6 +51,14 @@ function TarjetaTrabajo({ t, onVer }) {
             </p>
           )}
         </div>
+      ) : t.mis_vehiculos_v25 ? (
+        // Trabajo del modelo anterior (convive hasta la fase 6): sus
+        // vehículos se inician y se cierran dentro, en la ficha
+        <p className="text-sm">
+          <span className="text-neutral-500">Tu vehículo: </span>
+          <strong className="text-neutral-900">{t.mis_vehiculos_v25}</strong>
+          <span className="text-neutral-600"> · pendiente de cerrar</span>
+        </p>
       ) : t.soy_coordinador ? (
         <p className="text-sm text-neutral-600">
           Coordinas este trabajo{t.estado === 'pendiente_cierre' ? ': todas han terminado, falta que lo cierres' : ''}.

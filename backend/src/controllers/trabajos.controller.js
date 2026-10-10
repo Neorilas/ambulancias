@@ -13,8 +13,10 @@
  * Conviven los trabajos del modelo v25, con sus vehículos en
  * `trabajo_vehiculos` y su ciclo propio (activarVehiculo, finalizeVehiculo,
  * uploadEvidencia, y activar/finalize de trabajos sin vehículos). Esas rutas
- * siguen vivas hasta la fase 6 del plan del trabajo padre. Reglas en §6.1 y
- * §6.2 del mapa.
+ * siguen vivas hasta la fase 6 del plan del trabajo padre, y la pantalla
+ * `TrabajoV25` las usa para que los trabajos antiguos a medias se puedan
+ * terminar (`esV25` decide de qué modelo es cada uno). Reglas en §6.1 y §6.2
+ * del mapa.
  */
 
 'use strict';
@@ -53,6 +55,19 @@ const gestiona = (user) => hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS);
  */
 const veTodo = (user) =>
   gestiona(user) || hasPermission(user, PERMISSIONS.VIEW_ALL_TRABAJOS);
+
+/**
+ * ¿Es un trabajo del modelo v25? Con vehículos en `trabajo_vehiculos`, o sin
+ * coordinador y sin haber tenido nunca una asignación (el «trabajo sin
+ * vehículos», que gestión activa y cierra a mano). Una sola regla para
+ * `cerrarTrabajo`, `puede_cerrar` y la pantalla (campo `v25` de la ficha, que
+ * decide si se pinta la operación v25 o la del trabajo padre).
+ * `num_asignaciones` cuenta también las borradas: haber tenido una ya lo hace
+ * del modelo nuevo.
+ */
+function esV25({ num_vehiculos_v25, coordinador_user_id, num_asignaciones }) {
+  return Number(num_vehiculos_v25) > 0 || (!coordinador_user_id && !Number(num_asignaciones));
+}
 
 /**
  * «Es mío»: lo coordino, o voy en alguna de sus ambulancias (responsable o
@@ -248,7 +263,8 @@ async function leerAsignacionesDelTrabajo(id) {
 async function getTrabajoCompleto(id) {
   const [trows] = await query(
     `SELECT t.*, u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos,
-            co.nombre AS coordinador_nombre, co.apellidos AS coordinador_apellidos
+            co.nombre AS coordinador_nombre, co.apellidos AS coordinador_apellidos,
+            (SELECT COUNT(*) FROM asignaciones_libres na WHERE na.trabajo_id = t.id) AS num_asignaciones
      FROM trabajos t
      JOIN users u ON t.created_by = u.id
      LEFT JOIN users co ON co.id = t.coordinador_user_id
@@ -257,7 +273,7 @@ async function getTrabajoCompleto(id) {
   );
   if (!trows.length) return null;
 
-  const { coordinador_nombre, coordinador_apellidos, ...t } = trows[0];
+  const { coordinador_nombre, coordinador_apellidos, num_asignaciones, ...t } = trows[0];
   t.coordinador = t.coordinador_user_id
     ? { id: t.coordinador_user_id, nombre: coordinador_nombre, apellidos: coordinador_apellidos }
     : null;
@@ -310,6 +326,13 @@ async function getTrabajoCompleto(id) {
 
   return {
     ...t,
+    // Sin la cuenta (filas de test antiguas), las vivas: solo difiere si las
+    // que tuvo están todas borradas
+    v25: esV25({
+      num_vehiculos_v25: vehicles.length,
+      coordinador_user_id: t.coordinador_user_id,
+      num_asignaciones: num_asignaciones ?? t.asignaciones.length,
+    }),
     vehiculos: vehicles.map(v => ({
       ...v,
       responsables: responsables
@@ -412,8 +435,14 @@ function vistaParaUsuario(t, user) {
   if (!todo && !coordina && !enEquipo && !soyResponsable && !rolNuevo) return null;
 
   const conDetalle = new Set(vehiculos.filter(v => v.detalle).map(v => v.vehicle_id));
+  const v25 = t.v25 ?? esV25({
+    num_vehiculos_v25: (t.vehiculos || []).length,
+    coordinador_user_id: t.coordinador_user_id,
+    num_asignaciones: (t.asignaciones || []).length,
+  });
   return {
     ...t,
+    v25,
     vehiculos,
     asignaciones: asignacionesVista,
     evidencias: t.evidencias.filter(e => conDetalle.has(e.vehicle_id)),
@@ -423,8 +452,7 @@ function vistaParaUsuario(t, user) {
     // D3: lo cierra el coordinador o gestión, con la misma regla que
     // cerrarTrabajo (motivoNoSeCierra), que es quien manda.
     puede_cerrar: (coordina || gestiona(user)) && !motivoNoSeCierra(
-      { ...t, v25: (t.vehiculos || []).length > 0 || (!t.coordinador_user_id && !(t.asignaciones || []).length) },
-      (t.asignaciones || []).map(a => a.estado)),
+      { ...t, v25 }, (t.asignaciones || []).map(a => a.estado)),
   };
 }
 
@@ -1259,9 +1287,7 @@ async function cerrarTrabajo(req, res, next) {
     );
     // v25: con vehículos, o sin coordinador y sin haber tenido nunca una
     // asignación (el «trabajo sin vehículos», que se cierra con /finalize)
-    const v25 = Number(trabajo.num_vehiculos_v25) > 0
-             || (!trabajo.coordinador_user_id && !Number(trabajo.num_asignaciones));
-    const motivo = motivoNoSeCierra({ ...trabajo, v25 }, asigs.map(a => a.estado));
+    const motivo = motivoNoSeCierra({ ...trabajo, v25: esV25(trabajo) }, asigs.map(a => a.estado));
     if (motivo) return error(res, motivo, 400);
 
     // El WHERE repite la regla: «no cerrado», para que si dos personas pulsan
@@ -1438,12 +1464,22 @@ async function misTrab(req, res, next) {
                        WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo,
               (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR ', ')
                  FROM asignaciones_libres a JOIN vehicles v ON v.id = a.vehicle_id
-                WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada') AS vehiculos_resumen
+                WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada') AS vehiculos_resumen,
+              -- Modelo v25 (convive hasta la fase 6): los vehículos que lleva y
+              -- aún no ha cerrado. Sin esto su tarjeta no dice que tiene algo
+              -- que hacer, y el trabajo no se cierra hasta que los cierre.
+              (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY tv.id SEPARATOR ', ')
+                 FROM trabajo_vehiculos tv
+                 JOIN trabajo_vehiculo_responsables tvr
+                   ON tvr.trabajo_vehiculo_id = tv.id AND tvr.user_id = ?
+                 JOIN vehicles v ON v.id = tv.vehicle_id
+                WHERE tv.trabajo_id = t.id
+                  AND tv.estado NOT IN ('finalizado', 'finalizado_anticipado')) AS mis_vehiculos_v25
        FROM trabajos t
        ${where}
        ORDER BY FIELD(t.estado, 'activo', 'pendiente_cierre', 'programado'), t.fecha_inicio ASC, t.id
        LIMIT ? OFFSET ?`,
-      [uid, uid, ...propios(uid), limit, offset]
+      [uid, uid, uid, ...propios(uid), limit, offset]
     );
 
     // «Tu ambulancia»: la asignación en la que va este usuario en cada

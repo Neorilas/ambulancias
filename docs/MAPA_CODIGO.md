@@ -646,7 +646,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
 | `/mis-trabajos` | `MisTrabajos.jsx`: la portada del técnico (v33, D7). Tarjetas por trabajo (hoy arriba, próximos debajo) con «Tu ambulancia» y su estado, «Coordinas este trabajo» o «Estás en el equipo de este trabajo» (`en_equipo`); **un único botón, «Ver trabajo»**: la tarjeta no ejecuta nada | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
 | `/trabajos` | `trabajos/TrabajoList.jsx` | admin, gestor, super | `menu_trabajos` (off) |
-| `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` (v33): ficha, aviso de pendiente de cierre con «Cerrar trabajo» (`puede_cerrar`), bloque «Tu ambulancia» con el siguiente paso (`siguientePaso`) y una tarjeta por ambulancia; ambos abren `AsignacionDetalle` (con `desdeTrabajo`), que es donde se opera. `?asignacion=<id>` **resalta** esa ambulancia y la lleva a la vista, no la abre (D10: que se vea en qué trabajo está). Gestión: «Editar» y «+ Añadir ambulancia» (`AsignacionForm` con `trabajo`). Tarjeta «Equipo del trabajo»; sin ambulancias, «Aún no lleva ninguna ambulancia», y quien está en el equipo sin ambulancia lo ve explicado (`solo-equipo`). Si `puede_cerrar` fuera de pendiente de cierre (trabajo empezado sin ambulancias en marcha), tarjeta con «Cerrar trabajo». Un trabajo v25 sale en solo lectura | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
+| `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` (v33): ficha, aviso de pendiente de cierre con «Cerrar trabajo» (`puede_cerrar`), bloque «Tu ambulancia» con el siguiente paso (`siguientePaso`) y una tarjeta por ambulancia; ambos abren `AsignacionDetalle` (con `desdeTrabajo`), que es donde se opera. `?asignacion=<id>` **resalta** esa ambulancia y la lleva a la vista, no la abre (D10: que se vea en qué trabajo está). Gestión: «Editar» y «+ Añadir ambulancia» (`AsignacionForm` con `trabajo`). Tarjeta «Equipo del trabajo»; sin ambulancias, «Aún no lleva ninguna ambulancia», y quien está en el equipo sin ambulancia lo ve explicado (`solo-equipo`). Si `puede_cerrar` fuera de pendiente de cierre (trabajo empezado sin ambulancias en marcha), tarjeta con «Cerrar trabajo». **Un trabajo v25 (`v25: true` en la API) se pinta entero con `trabajos/TrabajoV25.jsx`**, que sí opera sus vehículos (§6.2 «Modelo v25») | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
 
 Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 `requiredFeature`, que acepta una lista: vale con uno encendido). **Espera a
@@ -681,7 +681,7 @@ asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
-| `TrabajoList/Detail/Form`, `MisTrabajos`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos` (`cerrar` → `POST /trabajos/:id/cerrar`). Las ambulancias se operan con `asignaciones.service`: `TrabajoDetail` abre `AsignacionDetalle` y añade con `AsignacionForm` (`trabajo_id`). **`InicioTrabajo` y `Finalizacion` (de trabajos) se retiraron en la fase 4**, y con ellos los métodos del ciclo v25 del servicio: su backend sigue vivo hasta la fase 6, sin pantalla |
+| `TrabajoList/Detail/Form`, `MisTrabajos`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos` (`cerrar` → `POST /trabajos/:id/cerrar`). Las ambulancias se operan con `asignaciones.service`: `TrabajoDetail` abre `AsignacionDetalle` y añade con `AsignacionForm` (`trabajo_id`). **Modelo v25, hasta la fase 6:** `TrabajoV25` → `InicioTrabajo` y `Finalizacion` (de trabajos) con los métodos `activarVehiculo`, `finalizeVehiculo`, `activar`, `finalize` y `uploadEvidencia` del servicio (+ `accionesVehiculo`, `vehiculosConAcciones` de `utils/trabajos.js`). Se retiraron en la fase 4 y se recuperaron de master el 2026-10-10 |
 | `TrabajoForm` | `trabajos.service`, `vehicles.service`, `users.service` | Datos + coordinador (`UserCombobox`) + equipo del trabajo (`usuarios`, `ListaMiembros`). En el alta, además, las ambulancias que se sepan, **o ninguna** (vehículo, responsables y equipo —con la gente ya asociada al trabajo arriba y el resto debajo, `destacados`—, horas propias opcionales). Editar: datos, coordinador y equipo del trabajo. `payloadTrabajo(form, { alta })` no manda nunca `vehiculos` (400 en el backend). Tras crear, `TrabajoList` lleva a la ficha nueva y se enseñan los `avisos_alta` |
 
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
@@ -1484,7 +1484,9 @@ hace el backend:
 **Desde v33 (el trabajo padre)** sus ambulancias son asignaciones (§6.1 «La
 asignación dentro de su trabajo») y cada una tiene sus responsables y su
 equipo. Lo que hay más abajo, «Modelo v25», queda para los trabajos creados
-antes, que conviven hasta la fase 6 del plan.
+antes, que conviven hasta la fase 6 del plan **y se pueden terminar**
+(decisión del usuario, 2026-10-10: un trabajo antiguo a medias no puede
+quedarse en solo lectura).
 
 | Acción | Responsable de una ambulancia | Equipo de una ambulancia | Coordinador | Gestión |
 |---|---|---|---|---|
@@ -1566,13 +1568,30 @@ antes, que conviven hasta la fase 6 del plan.
 | Ver km, progreso y fotos de un vehículo | **solo del suyo** | no | todos |
 | Activar / fotos / cerrar un vehículo | **solo el suyo** | no | cualquiera |
 | Activar / cerrar un trabajo SIN vehículos | no | no | sí (`manage_trabajos`) |
-| Crear / editar / borrar | no | no | sí (admin o gestor) |
+| Crear | no | no | **ya no** (el alta solo crea del modelo nuevo) |
+| Editar | no | no | **no desde la pantalla** (ver abajo) |
+| Borrar | no | no | sí (admin o gestor) |
 
 El recorte lo hace el backend en `vistaParaUsuario`: cada vehículo sale con
 `soy_responsable` y `detalle`, y el trabajo con `mi_rol`. El frontend
 (`utils/trabajos.js`) solo lo convierte en botones. Un responsable **no tiene
 por qué** estar también en el equipo: los listados (`FILTRO_PROPIOS`) y el 403
 miran las dos cosas.
+
+**Conviven, operables, hasta la fase 6 (2026-10-10).** La ficha lleva
+`v25: true` (`esV25`: con vehículos en `trabajo_vehiculos`, o sin coordinador y
+sin haber tenido nunca una asignación, contando las borradas) y
+`TrabajoDetail` entonces pinta `TrabajoV25`: la página de antes de la fase 4
+recuperada de master, con `VehiculoTrabajo` (inicio de servicio, fotos de
+inicio, cerrar vehículo → `InicioTrabajo` / `Finalizacion`), el aviso de fotos
+de inicio pendientes, `CicloSinVehiculos` para gestión y la galería. **Sin
+«Editar», a propósito:** el `TrabajoForm` de ahora es del modelo nuevo, exige
+coordinador, y guardarlo sobre un v25 le pondría uno: un v25 sin vehículos
+dejaría de poder activarse y cerrarse a mano (`motivoNoManual`). Para
+terminarlo no hace falta, porque gestión opera cualquier vehículo. En «Mis
+trabajos» el responsable ve `mis_vehiculos_v25` («Tu vehículo: X · pendiente
+de cerrar»), los suyos aún sin cerrar. Mientras los flags estén apagados, como
+hasta ahora, solo los alcanza quien se salta los flags (superadmin).
 
 **Ciclo de vida por vehículo.** Antes `finalizeTrabajo` comprobaba las fotos
 solo de los vehículos de quien llamaba, pero cerraba el trabajo ENTERO: con
@@ -1748,7 +1767,7 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |
 | Cerrar un trabajo (quién, cuándo) | `trabajos.controller.cerrarTrabajo` (+ `puede_cerrar` en `vistaParaUsuario`, que tiene que decir lo mismo) → `POST /trabajos/:id/cerrar` (clasificada `controlador` en `autorizacion-rutas.test.js`) → aviso previo `avisarTrabajoPendienteCierre` → acción `close_trabajo` en `ACTION_LABEL` de `AdminPanel` (§6.2) |
 | Responsables de un vehículo en un trabajo | v25 → `trabajos.controller` (`leerVehiculos`, `guardarResponsables`, `vistaParaUsuario`, `cargarVehiculoDelTrabajo`, `FILTRO_PROPIOS`) + `ownership.middleware` + `vehicles.controller` (`canOperacionalAccess`, listado de operacionales) → `TrabajoForm` (`ListaMiembros`) + `utils/trabajos.js`. Reglas en §6.2 |
-| El ciclo de vida por vehículo de un trabajo (v25, se retira en la fase 6) | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, candado de `uploadEvidencia`) + `estadoTrabajo.service` (`estadoTrabajoDesde`) + cron de `server.js` → `TrabajoDetail` (`VehiculoTrabajo`), `InicioTrabajo`, `Finalizacion`, `Dashboard`. Los trabajos nuevos no lo usan: su ciclo es el de cada asignación |
+| El ciclo de vida por vehículo de un trabajo (v25, se retira en la fase 6) | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, candado de `uploadEvidencia`, `activarTrabajo`/`finalizeTrabajo` sin vehículos, `esV25`) + `estadoTrabajo.service` (`estadoTrabajoDesde`) + cron de `server.js` → `TrabajoV25` (`VehiculoTrabajo`, `CicloSinVehiculos`), `InicioTrabajo`, `Finalizacion`, `mis_vehiculos_v25` de `misTrab` → `MisTrabajos`. Los trabajos nuevos no lo usan: su ciclo es el de cada asignación. **Qué es v25 lo decide `esV25`** (lo usan `cerrarTrabajo`, `puede_cerrar` y el campo `v25` de la ficha): tocar la regla en un sitio y no en otro deja botones que dan 400 |
 | Incidencias / comentarios | `vehicles.controller` (`createIncidencia`, `addIncidenciaComentario`, `updateIncidencia`) + `asignaciones.controller.crearIncidenciaDesdeAsignacion` → `ComentariosIncidencia`, `VehicleHistory`, `AsignacionDetalle` |
 | El aviso de incidencias del listado de vehículos | `vehicles.controller.listVehicles` (`veIncidencias`, `INCIDENCIAS_ABIERTAS`, `LEFT JOIN` agregado) → `VehicleList` (`IncidenciasAbiertas`, columna + filtro «Solo con incidencias») → enlace a `/vehiculos/:id?tab=incidencias` (`tabInicial` en `VehicleHistory`). Abierta = `estado <> 'resuelto'`; rojo si alguna es grave, ámbar si no. **Trampas:** (1) la gravedad máxima se saca con `MAX(gravedad + 0)` y `ELT`: `MAX()` sobre un ENUM compara el TEXTO en MySQL y daba `moderado` por encima de `grave`. (2) Solo se calcula para admin/gestor/superadmin (`veIncidencias`), **no** con `veFlota`: un técnico responsable lista su vehículo, y la ficha le niega las incidencias (`requireAdminOrGestor`). El filtro va en el `WHERE`, así que el total y la paginación ya salen filtrados |
 | El aviso de asignación del listado de vehículos | `vehicles.controller.listVehicles` (`conAsignacion` = `veFlota`, `LEFT JOIN` agregado sobre `asignaciones_libres` `programada`/`activa`) → `asignacion_estado` (`activa` gana a `programada`) + `asignacion_proxima_inicio` (la programada más próxima) → `VehicleList` (`AsignacionFlag`: verde «En servicio», azul «Programada · dd/MM HH:mm»; libre no se pinta). Es una columna, no un filtro: el `COUNT` no la lleva. Gateado con `veFlota` y no con `veIncidencias` porque es el mismo dato que el resumen de asignaciones de la ficha (`getVehicle`), que usa ese criterio |

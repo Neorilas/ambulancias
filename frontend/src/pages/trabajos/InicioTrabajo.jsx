@@ -1,0 +1,309 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { trabajosService } from '../../services/trabajos.service.js';
+import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
+import { useNotification } from '../../context/NotificationContext.jsx';
+import CameraCapture from '../../components/camera/CameraCapture.jsx';
+import { IMAGEN_TIPOS_INICIO } from '../../utils/constants.js';
+
+/**
+ * MODELO v25 (trabajos con `trabajo_vehiculos`). Convive con el trabajo padre
+ * hasta la fase 6 del plan, para que los trabajos antiguos a medias se puedan
+ * terminar; lo abre `TrabajoV25`. Se borró en la fase 4 y se recuperó tal cual
+ * de master el 2026-10-10. Los trabajos nuevos no pasan por aquí: sus
+ * ambulancias son asignaciones (`InicioAsignacion`).
+ *
+ * Flujo de INICIO de un vehículo del trabajo — fotos al recibirlo.
+ * · Fotos obligatorias de inicio (contorno + aceite + líquidos + cuadro).
+ * · NO pide km ni motivo.
+ * · Solo sobre vehículos con `detalle` (gestión o responsable de ese vehículo;
+ *   lo decide el backend). Cada responsable documenta el SUYO.
+ *
+ * Props:
+ *   trabajo                            — trabajo completo (con vehiculos[])
+ *   vehicleIdFilter (opcional)         — sólo procesar este vehicle_id
+ *   onDone()
+ *   onCancel()
+ */
+export default function InicioTrabajo({ trabajo, vehicleIdFilter, onDone, onCancel }) {
+  const { notify } = useNotification();
+
+  let vehiculos = (trabajo?.vehiculos || []).filter(v => v.detalle);
+
+  if (vehicleIdFilter) {
+    vehiculos = vehiculos.filter(v => v.vehicle_id === vehicleIdFilter);
+  }
+
+  // Solo procesar vehículos que NO tengan aún inicio completo
+  vehiculos = vehiculos.filter(v => !v.progreso_fotos?.inicio?.completo);
+
+  const [currentVehIdx, setCurrentVehIdx] = useState(0);
+  const [showCamera,    setShowCamera]    = useState(false);
+  const [cameraIndex,   setCameraIndex]   = useState(0);
+  const [uploading,     setUploading]     = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
+  // Fotos que ya llegaron al servidor, por vehículo y tipo. Un trabajo con tres
+  // ambulancias son ~15 subidas; sin esto, un fallo en la última repetía las
+  // catorce anteriores y agotaba el cupo de peticiones en el reintento.
+  const subidas = useRef({});
+
+  // Mapa: vehicle_id → { [tipo]: File }
+  const [evidencias, setEvidencias] = useState(() => {
+    const map = {};
+    vehiculos.forEach(v => { map[v.vehicle_id] = {}; });
+    return map;
+  });
+
+  const currentVeh = vehiculos[currentVehIdx];
+
+  const openCamera = (vi, index = 0) => {
+    setCurrentVehIdx(vi);
+    setCameraIndex(index);
+    setShowCamera(true);
+  };
+
+  // Previews con cleanup
+  const previews = useMemo(() => {
+    const map = {};
+    for (const [vehId, tipos] of Object.entries(evidencias)) {
+      map[vehId] = {};
+      for (const [tipo, file] of Object.entries(tipos)) {
+        if (file) map[vehId][tipo] = URL.createObjectURL(file);
+      }
+    }
+    return map;
+  }, [evidencias]);
+
+  useEffect(() => {
+    return () => {
+      for (const tipos of Object.values(previews)) {
+        for (const url of Object.values(tipos)) URL.revokeObjectURL(url);
+      }
+    };
+  }, [previews]);
+
+  const handleCameraComplete = (captures) => {
+    setShowCamera(false);
+    setEvidencias(prev => {
+      const next = { ...prev };
+      if (!next[currentVeh.vehicle_id]) next[currentVeh.vehicle_id] = {};
+      captures.forEach(c => {
+        next[currentVeh.vehicle_id][c.tipo] = c.file;
+      });
+      return next;
+    });
+  };
+
+  const fotosPorVeh = (vid) =>
+    IMAGEN_TIPOS_INICIO.filter(t => evidencias[vid]?.[t.key]).length;
+
+  const canSubmit = vehiculos.length > 0 && vehiculos.every(v =>
+    IMAGEN_TIPOS_INICIO.every(t => evidencias[v.vehicle_id]?.[t.key])
+  );
+
+  const handleSubmit = async () => {
+    setUploading(true);
+    // Para el mensaje de error: cuántas fotos hay y cuántas están ya arriba.
+    const conFoto = vehiculos.flatMap(v => IMAGEN_TIPOS_INICIO
+      .filter(t => evidencias[v.vehicle_id]?.[t.key])
+      .map(t => [v.vehicle_id, t.key]));
+    let enServidor = conFoto.filter(([vid, key]) =>
+      subidas.current[vid]?.[key] === evidencias[vid][key]).length;
+    try {
+      for (const veh of vehiculos) {
+        for (const tipo of IMAGEN_TIPOS_INICIO) {
+          const file = evidencias[veh.vehicle_id]?.[tipo.key];
+          if (!file) continue;
+          // Ya subida en un intento anterior: no repetirla. Se compara el File
+          // y no un booleano para que una foto rehecha sí vuelva a enviarse.
+          if (subidas.current[veh.vehicle_id]?.[tipo.key] === file) continue;
+
+          const fd = new FormData();
+          fd.append('image',       file);
+          fd.append('vehicle_id',  veh.vehicle_id);
+          fd.append('tipo_imagen', tipo.key);
+          fd.append('momento',     'inicio');
+
+          try {
+            await trabajosService.uploadEvidencia(trabajo.id, fd);
+            enServidor++;
+            subidas.current[veh.vehicle_id] = {
+              ...(subidas.current[veh.vehicle_id] || {}), [tipo.key]: file,
+            };
+            setUploadProgress(p => ({
+              ...p,
+              [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'ok' },
+            }));
+          } catch (uploadErr) {
+            setUploadProgress(p => ({
+              ...p,
+              [veh.vehicle_id]: { ...(p[veh.vehicle_id] || {}), [tipo.key]: 'error' },
+            }));
+            // Un fallo de red sube tal cual: el catch de fuera lo explica.
+            if (esFalloDeRed(uploadErr)) throw uploadErr;
+            const msg = uploadErr?.response?.data?.message || uploadErr?.message || '';
+            throw new Error(`Error subiendo ${tipo.label} (${veh.matricula})${msg ? ': ' + msg : ''}`);
+          }
+        }
+      }
+      notify.success('Fotos de inicio guardadas correctamente');
+      onDone?.();
+    } catch (err) {
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ subidas: enServidor, total: conFoto.length, boton: 'Guardar fotos de inicio' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'Error al subir fotos de inicio');
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (showCamera && currentVeh) {
+    return (
+      <CameraCapture
+        tipos={IMAGEN_TIPOS_INICIO}
+        onComplete={handleCameraComplete}
+        onCancel={() => setShowCamera(false)}
+        initialIndex={cameraIndex}
+      />
+    );
+  }
+
+  if (vehiculos.length === 0) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+          <h2 className="text-lg font-bold text-neutral-900">Fotos de inicio</h2>
+        </div>
+        <div className="card bg-ok-50 border border-ok-200">
+          <p className="text-ok-600 font-medium">Inicio ya registrado</p>
+          <p className="text-ok-600 text-sm mt-1">
+            Todas las fotos de inicio están subidas para tus vehículos en este trabajo.
+          </p>
+        </div>
+        <button onClick={onCancel} className="btn-secondary w-full">Volver</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fade-in pb-10">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onCancel} className="btn-ghost btn-icon">‹</button>
+        <div>
+          <h2 className="text-lg font-bold text-neutral-900">Fotos de inicio</h2>
+          <p className="text-sm text-neutral-500">{trabajo?.nombre}</p>
+        </div>
+      </div>
+
+      <div className="card bg-primary-50 border border-primary-200">
+        <p className="text-primary-800 font-medium text-sm">Antes de empezar</p>
+        <p className="text-primary-700 text-xs mt-1">
+          Sube las {IMAGEN_TIPOS_INICIO.length} fotos obligatorias de cada vehículo:
+          4 del contorno del vehículo, nivel de aceite y resto de líquidos.
+          Sin esto no podrás cerrar el vehículo.
+        </p>
+      </div>
+
+      {vehiculos.map((veh, vi) => {
+        const done  = fotosPorVeh(veh.vehicle_id);
+        const total = IMAGEN_TIPOS_INICIO.length;
+        return (
+          <div key={veh.vehicle_id} className="card space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold">{veh.vehiculo_alias || veh.matricula}</h3>
+                <p className="text-xs text-neutral-500">{veh.matricula}</p>
+              </div>
+              <button
+                onClick={() => openCamera(vi, 0)}
+                className="btn-secondary text-sm"
+              >
+                Cámara guiada
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-500">
+              Toca cada foto para hacerla con la <strong>cámara</strong>,
+              o usa <strong>Cámara guiada</strong> para el recorrido completo.
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {IMAGEN_TIPOS_INICIO.map((tipo, ti) => {
+                const file    = evidencias[veh.vehicle_id]?.[tipo.key];
+                const preview = previews[veh.vehicle_id]?.[tipo.key] || null;
+                const prog    = uploadProgress[veh.vehicle_id]?.[tipo.key];
+
+                return (
+                  <div key={tipo.key}>
+                    <button
+                      type="button"
+                      onClick={() => openCamera(vi, ti)}
+                      className="w-full text-left"
+                    >
+                      <div className={`aspect-square rounded-lg border overflow-hidden relative
+                        ${file ? 'border-ok-200' : 'border-dashed border-neutral-300 hover:border-primary-600'}`}>
+                        {preview ? (
+                          <img src={preview} alt={tipo.label} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-neutral-50 flex flex-col items-center justify-center gap-1 p-1">
+                            <span className="data text-[11px] font-semibold text-neutral-400">{ti + 1}</span>
+                            <span className="text-neutral-400 text-[10px] text-center leading-tight">
+                              {tipo.label.split(' ')[0]}
+                            </span>
+                          </div>
+                        )}
+                        {prog === 'ok' && (
+                          <div className="absolute inset-x-0 bottom-0 bg-ok-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                            Subida
+                          </div>
+                        )}
+                        {prog === 'error' && (
+                          <div className="absolute inset-x-0 bottom-0 bg-bad-600 text-white text-[10px] font-semibold uppercase tracking-wide text-center py-0.5">
+                            Error
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-center text-[10px] mt-1 leading-tight">
+                        <span className={file ? 'text-neutral-700 font-medium' : 'text-neutral-500'}>{tipo.label}</span>
+                      </p>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary-500 rounded-full transition-all"
+                  style={{ width: `${(done / total) * 100}%` }}
+                />
+              </div>
+              <span className="text-xs text-neutral-500 shrink-0">{done}/{total} fotos</span>
+            </div>
+          </div>
+        );
+      })}
+
+      <button
+        onClick={handleSubmit}
+        disabled={!canSubmit || uploading}
+        className="btn-primary btn-full"
+      >
+        {uploading ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="w-4 h-4 spinner" /> Subiendo fotos...
+          </span>
+        ) : 'Guardar fotos de inicio'}
+      </button>
+      {!canSubmit && (
+        <p className="text-xs text-center text-bad-500">
+          Completa las {IMAGEN_TIPOS_INICIO.length} fotos de cada vehículo
+        </p>
+      )}
+    </div>
+  );
+}

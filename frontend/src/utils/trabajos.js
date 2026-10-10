@@ -193,3 +193,33 @@ export function nombresDe(lista) {
 export function nombresResponsables(v) {
   return nombresDe(v?.responsables);
 }
+
+// ── Modelo v25 (convive hasta la fase 6; lo usa TrabajoV25) ─────────────────
+
+/**
+ * Qué toca hacer con UN vehículo de un trabajo v25, desde el punto de vista
+ * de quien mira. Solo hay acciones en los vehículos con `detalle` (gestión o
+ * responsable de ese vehículo): el equipo no activa ni cierra nada.
+ *
+ * @returns {{activar: boolean, fotosInicio: boolean, finalizar: boolean}}
+ */
+export function accionesVehiculo(v) {
+  const nada = { activar: false, fotosInicio: false, finalizar: false };
+  if (!v?.detalle || estaCerrado(v.estado)) return nada;
+  const inicioCompleto = !!v.progreso_fotos?.inicio?.completo;
+  return {
+    // Activar = «inicio de servicio»: vale también si el cron ya lo pasó a
+    // activo y nadie ha pulsado todavía (inicio_real_at sin sellar).
+    activar:     !v.inicio_real_at,
+    fotosInicio: !inicioCompleto,
+    finalizar:   inicioCompleto,
+  };
+}
+
+/** Vehículos v25 en los que quien mira tiene algo pendiente. */
+export function vehiculosConAcciones(trabajo) {
+  return (trabajo?.vehiculos || []).filter(v => {
+    const a = accionesVehiculo(v);
+    return a.activar || a.fotosInicio || a.finalizar;
+  });
+}

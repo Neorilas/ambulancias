@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { trabajosService } from '../../../services/trabajos.service';
 import api from '../../../services/api';
+import { SUBIDA_FOTO_TIMEOUT_MS } from '../../../utils/subidaFotos';
 
 vi.mock('../../../services/api', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -58,5 +59,44 @@ describe('trabajos.service', () => {
     const r = await trabajosService.cerrar(1);
     expect(api.post).toHaveBeenCalledWith('/trabajos/1/cerrar');
     expect(r).toEqual({ id: 1, estado: 'finalizado' });
+  });
+
+  // Modelo v25: convive hasta la fase 6 para terminar los trabajos antiguos
+  describe('ciclo v25', () => {
+    it('activar (sin vehículos)', async () => {
+      api.post.mockResolvedValueOnce(mockData({ id: 1 }));
+      await trabajosService.activar(1);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/activar');
+    });
+
+    it('finalize (sin vehículos)', async () => {
+      api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
+      await trabajosService.finalize(1, { motivo_finalizacion_anticipada: 'Se suspende' });
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/finalize', { motivo_finalizacion_anticipada: 'Se suspende' });
+    });
+
+    it('activarVehiculo', async () => {
+      api.post.mockResolvedValueOnce(mockData({ id: 1 }));
+      const r = await trabajosService.activarVehiculo(1, 7);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/activar');
+      expect(r).toEqual({ id: 1 });
+    });
+
+    it('finalizeVehiculo', async () => {
+      api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
+      const r = await trabajosService.finalizeVehiculo(1, 7, { kilometros_fin: 1200 });
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/finalize', { kilometros_fin: 1200 });
+      expect(r).toEqual({ message: 'ok' });
+    });
+
+    it('uploadEvidencia, con el timeout largo de las fotos', async () => {
+      api.post.mockResolvedValueOnce(mockData({}));
+      const fd = new FormData();
+      await trabajosService.uploadEvidencia(1, fd);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/evidencias', fd, {
+        headers: { 'Content-Type': undefined }, timeout: SUBIDA_FOTO_TIMEOUT_MS,
+      });
+      expect(SUBIDA_FOTO_TIMEOUT_MS).toBeGreaterThan(30000);
+    });
   });
 });

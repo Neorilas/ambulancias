@@ -356,6 +356,40 @@ describe('trabajos.controller', () => {
       expect(res2.status).toHaveBeenCalledWith(403);
     });
 
+    // `v25` decide qué pinta la ficha: la operación del modelo anterior
+    // (TrabajoV25) o la del trabajo padre. Misma regla que cerrarTrabajo.
+    describe('v25: de qué modelo es el trabajo', () => {
+      const v25De = async (reglas) => {
+        bd(reglas);
+        const res = mockRes();
+        await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        return res._json.data.v25;
+      };
+
+      it('con vehículos en trabajo_vehiculos, sí', async () => {
+        expect(await v25De(trabajoDosVehiculos({ trabajo: { num_asignaciones: 0 } }))).toBe(true);
+      });
+
+      it('sin vehículos, sin coordinador y sin haber tenido asignaciones (el «sin vehículos»), sí', async () => {
+        expect(await v25De(trabajoDosVehiculos({ vehiculos: [], trabajo: { num_asignaciones: 0 } }))).toBe(true);
+      });
+
+      it('con coordinador, no, aunque aún no lleve ambulancias', async () => {
+        expect(await v25De(trabajoConAsignaciones({ asignaciones: [], trabajo: { num_asignaciones: 0 } }))).toBe(false);
+      });
+
+      it('sin coordinador pero con asignaciones que tuvo (aunque estén borradas), no', async () => {
+        expect(await v25De(trabajoDosVehiculos({ vehiculos: [], trabajo: { num_asignaciones: 1 } }))).toBe(false);
+      });
+
+      it('la cuenta de asignaciones no sale en la respuesta', async () => {
+        bd(trabajoDosVehiculos({ trabajo: { num_asignaciones: 0 } }));
+        const res = mockRes();
+        await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        expect(res._json.data).not.toHaveProperty('num_asignaciones');
+      });
+    });
+
     it('403 a quien no va en el trabajo', async () => {
       bd(trabajoDosVehiculos());
       const res = mockRes();
@@ -507,7 +541,9 @@ describe('trabajos.controller', () => {
 
       const [sql, params] = query.mock.calls[1];
       expect(sql).toContain("t.estado IN ('programado', 'activo', 'pendiente_cierre')");
-      expect(params).toEqual([20, 20, 20, 20, 20, 20, 20, 0]);
+      expect(params).toEqual([20, 20, 20, 20, 20, 20, 20, 20, 0]);
+      // Modelo v25: los vehículos que lleva y no ha cerrado
+      expect(sql).toContain('AS mis_vehiculos_v25');
       const [, paramsMias] = query.mock.calls[2];
       expect(paramsMias).toEqual([20, 1, 2]);
     });

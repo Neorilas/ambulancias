@@ -4,7 +4,19 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 vi.mock('../../../services/trabajos.service.js', () => ({
-  trabajosService: { get: vi.fn(), cerrar: vi.fn() },
+  trabajosService: {
+    get: vi.fn(), cerrar: vi.fn(),
+    // Modelo v25 (TrabajoV25)
+    activarVehiculo: vi.fn(), activar: vi.fn(), finalize: vi.fn(),
+  },
+}));
+// Las fotos y el cierre de un vehículo v25 son las pantallas de antes de la
+// fase 4, recuperadas tal cual: aquí solo importa que se abren.
+vi.mock('../../../pages/trabajos/InicioTrabajo.jsx', () => ({
+  default: ({ vehicleIdFilter }) => <p>fotos de inicio del vehículo {vehicleIdFilter}</p>,
+}));
+vi.mock('../../../pages/trabajos/Finalizacion.jsx', () => ({
+  default: ({ vehicleId }) => <p>cierre del vehículo {vehicleId}</p>,
 }));
 vi.mock('../../../services/auth.service.js', () => ({
   authService: { login: vi.fn(), logout: vi.fn(), me: vi.fn() },
@@ -194,6 +206,79 @@ describe('TrabajoDetail', () => {
       montar();
       expect(await screen.findByText(/no lleva ninguna ambulancia en marcha/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Cerrar trabajo' })).toBeInTheDocument();
+    });
+  });
+
+  // 2026-10-10: los trabajos del modelo anterior a medias se tienen que poder
+  // terminar. Conviven con el trabajo padre hasta la fase 6 (TrabajoV25).
+  describe('trabajo del modelo anterior (v25)', () => {
+    const fotos = (completo) => ({
+      inicio: { completado: completo ? 7 : 2, total: 7, completo },
+      fin:    { completado: 0, total: 5, completo: false },
+    });
+    const VEH_MIO = {
+      vehicle_id: 7, vehiculo_alias: 'UVI-1', matricula: '7777AAA', estado: 'programado',
+      inicio_real_at: null, kilometros_inicio: 1000, soy_responsable: true, detalle: true,
+      progreso_fotos: fotos(false), responsables: [{ id: 20, nombre: 'Ana', apellidos: 'Ruiz' }],
+    };
+    const VEH_AJENO = {
+      vehicle_id: 8, vehiculo_alias: 'SVB-2', matricula: '8888BBB', estado: 'activo',
+      soy_responsable: false, detalle: false, responsables: [{ id: 21, nombre: 'Luis', apellidos: 'Gil' }],
+    };
+    const V25 = {
+      id: 1, identificador: 'TRB-2026-0001', nombre: 'Feria antigua', estado: 'activo', tipo: 'cobertura_evento',
+      fecha_inicio: iso(-3600e3), fecha_fin: iso(3600e3), coordinador_user_id: null, coordinador: null,
+      v25: true, mi_rol: 'responsable', puede_cerrar: false,
+      vehiculos: [VEH_MIO, VEH_AJENO], asignaciones: [], usuarios: [], evidencias: [],
+    };
+
+    it('el responsable inicia su vehículo desde la ficha', async () => {
+      const user = userEvent.setup();
+      trabajosService.get.mockResolvedValue(V25);
+      trabajosService.activarVehiculo.mockResolvedValue({});
+      montar();
+      expect(await screen.findByText(/Trabajo del modelo anterior/)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Inicio de servicio' }));
+      expect(trabajosService.activarVehiculo).toHaveBeenCalledWith(1, 7);
+      // Recarga para ver el vehículo ya iniciado
+      expect(trabajosService.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('sube las fotos de inicio y, con ellas, cierra el vehículo', async () => {
+      const user = userEvent.setup();
+      trabajosService.get.mockResolvedValue(V25);
+      const { unmount } = montar();
+      await user.click(await screen.findByRole('button', { name: 'Fotos de inicio' }));
+      expect(screen.getByText('fotos de inicio del vehículo 7')).toBeInTheDocument();
+      unmount();
+
+      trabajosService.get.mockResolvedValue({ ...V25, vehiculos: [
+        { ...VEH_MIO, estado: 'activo', inicio_real_at: iso(-1800e3), progreso_fotos: fotos(true) }, VEH_AJENO,
+      ] });
+      montar();
+      await user.click(await screen.findByRole('button', { name: 'Cerrar vehículo' }));
+      expect(screen.getByText('cierre del vehículo 7')).toBeInTheDocument();
+    });
+
+    it('el vehículo de otro no se opera, y no aparece nada del trabajo nuevo', async () => {
+      trabajosService.get.mockResolvedValue(V25);
+      montar();
+      const [, ajeno] = await screen.findAllByTestId('vehiculo-v25');
+      expect(within(ajeno).queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.queryByText('Ambulancias')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('tu-ambulancia')).not.toBeInTheDocument();
+    });
+
+    it('sin vehículos: gestión lo activa a mano, y no se le ofrece «Editar» (convertiría el trabajo)', async () => {
+      const user = userEvent.setup();
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue({ ...V25, estado: 'programado', vehiculos: [], mi_rol: 'gestion' });
+      trabajosService.activar.mockResolvedValue({});
+      montar();
+      await user.click(await screen.findByRole('button', { name: 'Activar trabajo' }));
+      expect(trabajosService.activar).toHaveBeenCalledWith(1);
+      expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ Añadir ambulancia' })).not.toBeInTheDocument();
     });
   });
 });
