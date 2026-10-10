@@ -139,11 +139,13 @@ export default function TrabajoDetail() {
   // Se llega aquí recién creado desde el alta (`TrabajoList` o el «Añadir
   // otro trabajo» de esta misma ficha): el aviso deja encadenar otra alta sin
   // volver al listado. Va en el estado de la navegación y no en la URL para
-  // que un enlace compartido no lo arrastre.
+  // que un enlace compartido no lo arrastre. El nuevo SUSTITUYE a esta ficha
+  // en el historial: con varias altas seguidas, «‹» vuelve al listado y no
+  // recorre una a una las fichas recién creadas.
   const recienCreado = !!location.state?.recienCreado;
   const irANuevo = (nuevo) => {
     setOtroTrabajo(false);
-    if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`, { state: { recienCreado: true } });
+    if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`, { replace: true, state: { recienCreado: true } });
   };
 
   // `?asignacion=N`: los avisos, la alarma, la ficha del vehículo y el mapa
