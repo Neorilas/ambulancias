@@ -12,6 +12,7 @@ import useAhora from '../../hooks/useAhora.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
 import { resumenNombres } from '../../utils/miembrosAsignacion.js';
+import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 
 export default function MisAsignaciones() {
   const { notify } = useNotification();
@@ -22,7 +23,11 @@ export default function MisAsignaciones() {
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [loading,      setLoading]      = useState(true);
-  const [detalleId,    setDetalleId]    = useState(null); // asignación abierta en el panel de detalle
+  // Asignación abierta en el panel de detalle: `?ver=<id>`, puesto con push
+  // para que el «atrás» del móvil cierre el panel y no saque de la pantalla.
+  // Al cerrarlo, se cierre como se cierre, recargar: si se finalizó, desaparece
+  const [verUrl, abrirDetalle, cerrarDetalle] = usePanelEnUrl('ver', { alCerrar: () => load() });
+  const detalleId = Number(verUrl) || null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,12 +56,6 @@ export default function MisAsignaciones() {
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al activar');
     }
-  };
-
-  // Al cerrar el detalle, recargar: si se finalizó, desaparece de la lista
-  const handleCloseDetalle = () => {
-    setDetalleId(null);
-    load();
   };
 
   return (
@@ -175,7 +174,7 @@ export default function MisAsignaciones() {
                       )
                     )}
                     <button
-                      onClick={() => setDetalleId(a.id)}
+                      onClick={() => abrirDetalle(a.id)}
                       className="btn-primary flex-1 sm:flex-none"
                     >
                       {esPersonal ? 'Ver' : isActiva ? 'Abrir jornada' : 'Abrir'}
@@ -190,7 +189,7 @@ export default function MisAsignaciones() {
 
       {/* Panel de detalle: gestiona fotos de inicio + finalización */}
       {detalleId && (
-        <AsignacionDetalle id={detalleId} onClose={handleCloseDetalle} />
+        <AsignacionDetalle id={detalleId} onClose={cerrarDetalle} />
       )}
     </div>
   );

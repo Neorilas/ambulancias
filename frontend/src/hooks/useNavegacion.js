@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 /**
@@ -60,6 +60,57 @@ export function useEstadoEnUrl(porDefecto) {
     setParams(siguiente, { replace: true });
   };
   return [valores, cambiar];
+}
+
+/**
+ * Un panel que se abre ENCIMA de la pantalla (el detalle de una asignación,
+ * sus pasos de inicio y fin) y que el «atrás» del móvil tiene que cerrar, en
+ * vez de sacar de la pantalla entera. Abierto = `?<clave>=<valor>` en la URL,
+ * puesto con push y marcado en el estado de la navegación: «atrás» lo quita
+ * y el panel se cierra solo. `cerrar` (su botón) deshace esa entrada si la
+ * puso la app; si llegó de fuera (un enlace con el parámetro), lo quita con
+ * `replace`. `alCerrar` corre se cierre como se cierre (para recargar lo de
+ * debajo). Con `soloDesdeLaApp`, un parámetro que no puso la app se ignora:
+ * un paso de un flujo no se abre desde un enlace.
+ *
+ * @returns {[string|null, (valor) => void, () => void]} [abierto, abrir, cerrar]
+ */
+export function usePanelEnUrl(clave, { alCerrar, soloDesdeLaApp = false } = {}) {
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { state } = useLocation();
+  const loPusoLaApp = state?.panel === clave;
+  const valor = params.get(clave);
+  const abierto = valor && (!soloDesdeLaApp || loPusoLaApp) ? valor : null;
+
+  // `cerrar` puede llegar desde un render viejo (al acabar una subida larga,
+  // con el panel ya cerrado por «atrás»): mira la URL de ahora, no la de entonces
+  const actual = useRef(null);
+  actual.current = { params, loPusoLaApp };
+
+  const abrir = (v) => {
+    const siguiente = new URLSearchParams(params);
+    siguiente.set(clave, String(v));
+    setParams(siguiente, { state: { panel: clave } });
+  };
+  const cerrar = () => {
+    const { params: ahora, loPusoLaApp: puesta } = actual.current;
+    if (!ahora.has(clave)) return;
+    if (puesta) { navigate(-1); return; }
+    const siguiente = new URLSearchParams(ahora);
+    siguiente.delete(clave);
+    setParams(siguiente, { replace: true });
+  };
+
+  const alCerrarRef = useRef(alCerrar);
+  alCerrarRef.current = alCerrar;
+  const antes = useRef(abierto);
+  useEffect(() => {
+    if (antes.current && !abierto) alCerrarRef.current?.();
+    antes.current = abierto;
+  }, [abierto]);
+
+  return [abierto, abrir, cerrar];
 }
 
 /** Número de página de la URL (≥ 1; lo que no lo sea, la 1). */

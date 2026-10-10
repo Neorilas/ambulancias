@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn() },
@@ -13,6 +13,13 @@ vi.mock('../../../services/users.service.js', () => ({
 }));
 vi.mock('../../../services/auth.service.js', () => ({
   authService: { login: vi.fn(), logout: vi.fn(), me: vi.fn() },
+}));
+// Las revisiones de inicio y fin tienen sus propios tests: aquí solo importa
+// cuándo se abren y que el «atrás» vuelva de ellas al detalle.
+vi.mock('../../../pages/asignaciones/FinalizacionAsignacion.jsx', () => ({
+  default: ({ onCancel }) => (
+    <><p>revisión de fin</p><button onClick={onCancel}>cancelar la revisión</button></>
+  ),
 }));
 // Los flags se fijan por test: el enlace al trabajo depende de su pantalla.
 const flags = vi.hoisted(() => ({ activos: [] }));
@@ -38,13 +45,17 @@ const BASE = {
   progreso: { inicio: { completado: 7, total: 7 }, fin: { completado: 7, total: 7 } },
 };
 
+// En la app el detalle va siempre bajo el router: los pasos de inicio y fin
+// se abren con `?paso=` en la URL (usePanelEnUrl)
 function montar() {
   return render(
-    <NotificationProvider>
-      <AuthProvider>
-        <AsignacionDetalle id={5} onClose={() => {}} />
-      </AuthProvider>
-    </NotificationProvider>
+    <MemoryRouter>
+      <NotificationProvider>
+        <AuthProvider>
+          <AsignacionDetalle id={5} onClose={() => {}} />
+        </AuthProvider>
+      </NotificationProvider>
+    </MemoryRouter>
   );
 }
 
@@ -168,6 +179,56 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     await waitFor(() => expect(asignacionesService.registrarLlegada).toHaveBeenCalledWith(5));
     expect(await screen.findByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Inicio evento/servicio' })).not.toBeInTheDocument();
+  });
+
+  // §8 del mapa, «La navegación hacia atrás»: la revisión de fin se abre a
+  // pantalla completa con `?paso=fin`, y el «atrás» del móvil vuelve al detalle
+  it('el «atrás» del móvil desde la revisión de fin vuelve al detalle', async () => {
+    function Atras() {
+      const { search } = useLocation();
+      const navigate = useNavigate();
+      return <><p data-testid="url">{search}</p><button onClick={() => navigate(-1)}>atrás del móvil</button></>;
+    }
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    render(
+      <MemoryRouter initialEntries={['/trabajos/1?ver=5']}>
+        <NotificationProvider>
+          <AuthProvider>
+            <AsignacionDetalle id={5} onClose={() => {}} desdeTrabajo />
+            <Atras />
+          </AuthProvider>
+        </NotificationProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalizar asignación' }));
+    expect(screen.getByText('revisión de fin')).toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent('?ver=5&paso=fin');
+
+    fireEvent.click(screen.getByRole('button', { name: 'atrás del móvil' }));
+    await waitFor(() => expect(screen.queryByText('revisión de fin')).not.toBeInTheDocument());
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\?ver=5$/);
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
+  });
+
+  it('cancelar la revisión vuelve al detalle sin dejar un «atrás» de más', async () => {
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    render(
+      <MemoryRouter initialEntries={['/trabajos/1?ver=5&paso=fin']}>
+        <NotificationProvider>
+          <AuthProvider>
+            <AsignacionDetalle id={5} onClose={() => {}} desdeTrabajo />
+          </AuthProvider>
+        </NotificationProvider>
+      </MemoryRouter>
+    );
+    // Un `?paso=` que no puso la app (un enlace) no salta a mitad del flujo
+    const finalizar = await screen.findByRole('button', { name: 'Finalizar asignación' });
+    expect(screen.queryByText('revisión de fin')).not.toBeInTheDocument();
+    fireEvent.click(finalizar);
+    expect(screen.getByText('revisión de fin')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'cancelar la revisión' }));
+    await waitFor(() => expect(screen.queryByText('revisión de fin')).not.toBeInTheDocument());
   });
 
   it('sin las fotos de inicio no ofrece la llegada', async () => {

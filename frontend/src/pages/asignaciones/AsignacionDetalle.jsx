@@ -18,6 +18,7 @@ import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
 import { errorMotivo } from '../../utils/motivo.js';
+import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 
 const TIPO_INC_OPTS = [
   ['dano_exterior', 'Daño exterior'],
@@ -208,8 +209,13 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   const [asig,    setAsig]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
-  const [showInicio, setShowInicio] = useState(false);
-  const [showFin,    setShowFin]    = useState(false);
+  // La revisión de inicio y la de fin se abren a pantalla completa encima de
+  // este panel, con `?paso=inicio|fin` puesto con push: el «atrás» del móvil
+  // vuelve a este detalle, no fuera del trabajo. Solo si lo abrió la app: un
+  // enlace con `?paso=` no salta a mitad de un flujo
+  const [paso, abrirPaso, cerrarPaso] = usePanelEnUrl('paso', { soloDesdeLaApp: true });
+  const showInicio = paso === 'inicio';
+  const showFin    = paso === 'fin';
   const [showEditar, setShowEditar] = useState(false);
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
   const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
@@ -561,7 +567,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                     </p>
                   </div>
                   <button
-                    onClick={() => setShowInicio(true)}
+                    onClick={() => abrirPaso('inicio')}
                     className="btn-primary text-xs whitespace-nowrap"
                   >
                     Subir ahora
@@ -629,7 +635,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
             {/* Botones de acción */}
             {puedeFin && (
               <div className="flex gap-2">
-                <button onClick={() => setShowFin(true)} className="btn-primary flex-1">
+                <button onClick={() => abrirPaso('fin')} className="btn-primary flex-1">
                   Finalizar asignación
                 </button>
               </div>
@@ -880,8 +886,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               <div className="fixed inset-0 z-[70] bg-superficie overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <InicioAsignacion
                   asignacion={asig}
-                  onDone={() => { setShowInicio(false); load(); }}
-                  onCancel={() => setShowInicio(false)}
+                  onDone={() => { cerrarPaso(); load(); }}
+                  onCancel={cerrarPaso}
                 />
               </div>
             )}
@@ -889,8 +895,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               <div className="fixed inset-0 z-[70] bg-superficie overflow-y-auto pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] pt-[calc(1.25rem+var(--safe-top))] pb-[calc(1.25rem+var(--safe-bottom))]">
                 <FinalizacionAsignacion
                   asignacion={asig}
-                  onDone={() => { setShowFin(false); load(); }}
-                  onCancel={() => setShowFin(false)}
+                  onDone={() => { cerrarPaso(); load(); }}
+                  onCancel={cerrarPaso}
                 />
               </div>
             )}

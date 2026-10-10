@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import {
-  hayAtrasEnLaApp, useVolver, useEstadoEnUrl, paginaDeUrl,
+  hayAtrasEnLaApp, useVolver, useEstadoEnUrl, usePanelEnUrl, paginaDeUrl,
 } from '../../../hooks/useNavegacion.js';
 
 function Url() {
@@ -91,6 +91,69 @@ describe('useEstadoEnUrl', () => {
     expect(screen.getByTestId('url')).toHaveTextContent('/l?id=9&estado=activa');
     await userEvent.click(screen.getByRole('button', { name: 'todas' }));
     expect(screen.getByTestId('url')).toHaveTextContent(/^\/l\?id=9$/);
+  });
+});
+
+describe('usePanelEnUrl', () => {
+  function Pantalla({ alCerrar, soloDesdeLaApp }) {
+    const [abierto, abrir, cerrar] = usePanelEnUrl('ver', { alCerrar, soloDesdeLaApp });
+    const navigate = useNavigate();
+    return (
+      <>
+        <p>{abierto ? `panel ${abierto}` : 'sin panel'}</p>
+        <button onClick={() => abrir(7)}>abrir</button>
+        <button onClick={cerrar}>cerrar</button>
+        <button onClick={() => navigate(-1)}>atrás</button>
+      </>
+    );
+  }
+  const montar = (entradas, props = {}) => render(
+    <MemoryRouter initialEntries={entradas} initialIndex={entradas.length - 1}>
+      <Routes>
+        <Route path="/p" element={<Pantalla {...props} />} />
+        <Route path="/antes" element={<p>pantalla anterior</p>} />
+      </Routes>
+      <Url />
+    </MemoryRouter>
+  );
+
+  it('abrir pone el parámetro con push: «atrás» cierra el panel y no sale', async () => {
+    const alCerrar = vi.fn();
+    montar(['/antes', '/p?page=2'], { alCerrar });
+    await userEvent.click(screen.getByRole('button', { name: 'abrir' }));
+    expect(screen.getByText('panel 7')).toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent('/p?page=2&ver=7');
+
+    await userEvent.click(screen.getByRole('button', { name: 'atrás' }));
+    expect(screen.getByText('sin panel')).toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/p\?page=2$/);
+    expect(alCerrar).toHaveBeenCalledTimes(1);
+  });
+
+  it('cerrar con su botón deshace la entrada: no queda un «atrás» de más', async () => {
+    const alCerrar = vi.fn();
+    montar(['/antes', '/p'], { alCerrar });
+    await userEvent.click(screen.getByRole('button', { name: 'abrir' }));
+    await userEvent.click(screen.getByRole('button', { name: 'cerrar' }));
+    expect(screen.getByText('sin panel')).toBeInTheDocument();
+    expect(alCerrar).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'atrás' }));
+    expect(screen.getByText('pantalla anterior')).toBeInTheDocument();
+  });
+
+  it('llegado con el parámetro desde fuera (un enlace), cerrar lo quita sin salir', async () => {
+    montar(['/antes', '/p?ver=9']);
+    expect(screen.getByText('panel 9')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'cerrar' }));
+    expect(screen.getByText('sin panel')).toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/p$/);
+  });
+
+  it('con soloDesdeLaApp, un parámetro que no puso la app no abre nada', async () => {
+    montar(['/p?ver=9'], { soloDesdeLaApp: true });
+    expect(screen.getByText('sin panel')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'abrir' }));
+    expect(screen.getByText('panel 7')).toBeInTheDocument();
   });
 });
 
