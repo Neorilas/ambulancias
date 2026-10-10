@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -13,6 +12,7 @@ import Finalizacion from './Finalizacion.jsx';
 import InicioTrabajo from './InicioTrabajo.jsx';
 import { errorMotivo } from '../../utils/motivo.js';
 import { IMAGEN_TIPO_LABELS } from '../../utils/constants.js';
+import { useVolver } from '../../hooks/useNavegacion.js';
 
 /**
  * Ficha OPERABLE de un trabajo del modelo v25 (vehículos en
@@ -252,8 +252,8 @@ function CicloSinVehiculos({ trabajo, onHecho }) {
 
 // ── Página ────────────────────────────────────────────────────────────────────
 export default function TrabajoV25({ trabajo, onRecargar }) {
-  const navigate = useNavigate();
   const { canManageTrabajos } = useAuth();
+  const volver = useVolver(canManageTrabajos() ? '/trabajos' : '/');
   const { notify } = useNotification();
 
   // { tipo: 'inicio' | 'fin', vehicleId } mientras se hacen las fotos de uno
@@ -297,7 +297,7 @@ export default function TrabajoV25({ trabajo, onRecargar }) {
     <div className="space-y-5 animate-fade-in max-w-3xl">
       {/* Cabecera */}
       <div className="flex items-start gap-3">
-        <button onClick={() => navigate(-1)} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
+        <button onClick={volver} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[19px] font-semibold text-neutral-900">{trabajo.nombre}</h1>

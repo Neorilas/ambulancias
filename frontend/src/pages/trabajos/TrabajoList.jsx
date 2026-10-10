@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -8,19 +8,31 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import CalendarioTrab from '../../components/calendar/CalendarioTrab.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
+import { esDiaValido } from '../../utils/calendario.js';
+import { useEstadoEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import TrabajoForm from './TrabajoForm.jsx';
+
+const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export default function TrabajoList() {
   const { canManageTrabajos, canDeleteAny } = useAuth();
   const { notify } = useNotification();
   const navigate   = useNavigate();
 
+  // Vista, página, filtros y el mes y el día del calendario van en la URL
+  // para que «‹» desde la ficha de un trabajo vuelva a donde se estaba: en
+  // estado de React, al volver se remontaba en «Lista» y en la página 1, sin
+  // filtros. También es lo que hace funcionar `/trabajos?estado=activo` del
+  // Dashboard, que antes se ignoraba
+  const [url, cambiarUrl] = useEstadoEnUrl({
+    vista: 'lista', mes: '', dia: '', page: '1', search: '', estado: '', tipo: '',
+  });
+  const page    = paginaDeUrl(url.page);
+  const filters = { search: url.search, estado: url.estado, tipo: url.tipo };
+
   const [trabajos,   setTrabajos]   = useState([]);
   const [pagination, setPagination] = useState(null);
-  const [page,       setPage]       = useState(1);
-  const [filters,    setFilters]    = useState({ search: '', estado: '', tipo: '' });
   const [loading,    setLoading]    = useState(false);
-  const [view,       setView]       = useState('list'); // 'list' | 'calendar'
   const [showForm,   setShowForm]   = useState(false);
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
@@ -39,7 +51,7 @@ export default function TrabajoList() {
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar trabajos'); }
     finally { setLoading(false); }
-  }, [page, filters]);
+  }, [page, url.search, url.estado, url.tipo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -58,10 +70,12 @@ export default function TrabajoList() {
     }
   };
 
-  const setFilter = (k, v) => {
-    setFilters(f => ({ ...f, [k]: v }));
-    setPage(1);
-  };
+  const view   = url.vista === 'calendario' ? 'calendar' : 'list';
+  const mesCal = MES_RE.test(url.mes) ? url.mes : null;
+  const diaCal = esDiaValido(url.dia) ? url.dia : null;
+  const setView = (v) => cambiarUrl({ vista: v === 'calendar' ? 'calendario' : 'lista' });
+  const setPage = (fn) => cambiarUrl({ page: fn(page) });
+  const setFilter = (k, v) => cambiarUrl({ [k]: v, page: 1 });
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -76,12 +90,14 @@ export default function TrabajoList() {
           <div className="flex rounded-md border border-neutral-200 overflow-hidden bg-white">
             <button
               onClick={() => setView('list')}
+              aria-pressed={view === 'list'}
               className={`px-3 h-8 text-[12.5px] font-medium border-r border-neutral-200 ${view === 'list' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
               Lista
             </button>
             <button
               onClick={() => setView('calendar')}
+              aria-pressed={view === 'calendar'}
               className={`px-3 h-8 text-[12.5px] font-medium ${view === 'calendar' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
               Calendario
@@ -98,6 +114,10 @@ export default function TrabajoList() {
       {view === 'calendar' ? (
         <div className="card">
           <CalendarioTrab
+            mes={mesCal}
+            dia={diaCal}
+            onCambiarMes={(mes) => cambiarUrl({ mes })}
+            onCambiarDia={(dia) => cambiarUrl({ dia })}
             onSelectTrabajo={(t) => navigate(`/trabajos/${t.id}`)}
           />
         </div>

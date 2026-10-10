@@ -15,6 +15,7 @@ import TrabajoForm from './TrabajoForm.jsx';
 import TrabajoV25 from './TrabajoV25.jsx';
 import AsignacionForm from '../asignaciones/AsignacionForm.jsx';
 import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
+import { useVolver } from '../../hooks/useNavegacion.js';
 
 /**
  * Ficha de un trabajo (v33, el trabajo padre). La ve todo el que va en
@@ -126,6 +127,9 @@ export default function TrabajoDetail() {
   const location = useLocation();
   const { canManageTrabajos } = useAuth();
   const { notify } = useNotification();
+  // Abierta desde un aviso push o un enlace no hay pantalla anterior: «‹»
+  // lleva al listado de trabajos (gestión) o a la portada
+  const volver = useVolver(canManageTrabajos() ? '/trabajos' : '/');
 
   const [trabajo,        setTrabajo]        = useState(null);
   const [loading,        setLoading]        = useState(true);
@@ -161,7 +165,7 @@ export default function TrabajoDetail() {
       notify.error(err.response?.status === 403
         ? 'No tienes acceso a este trabajo'
         : 'Error al cargar el trabajo');
-      navigate(-1);
+      volver();
     } finally {
       setLoading(false);
     }
@@ -210,7 +214,7 @@ export default function TrabajoDetail() {
     <div className="space-y-5 animate-fade-in max-w-3xl">
       {/* Cabecera */}
       <div className="flex items-start gap-3">
-        <button onClick={() => navigate(-1)} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
+        <button onClick={volver} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[19px] font-semibold text-neutral-900">{trabajo.nombre}</h1>

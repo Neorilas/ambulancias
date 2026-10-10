@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { informesService } from '../../services/informes.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading }     from '../../components/common/LoadingSpinner.jsx';
+import { useEstadoEnUrl }  from '../../hooks/useNavegacion.js';
 import {
   nombreMes, pct, por100, valorMetrica, variacion, fmt, fmtMin,
 } from '../../utils/informes.js';
@@ -189,11 +190,16 @@ function conPct(n, total) {
 export default function Informes() {
   const { notify } = useNotification();
   const maxMes = useMemo(mesActual, []);
-  const [mes, setMes]         = useState(maxMes);
+  // Mes y pestaña en la URL: al volver de la ficha de un vehículo del informe
+  // se sigue en el mismo mes (en `useState` volvía al actual)
+  const [url, cambiarUrl] = useEstadoEnUrl({ mes: maxMes, tecnico: PESTANAS_TECNICO[0].key });
+  const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(url.mes) && url.mes <= maxMes ? url.mes : maxMes;
+  const setMes = (m) => cambiarUrl({ mes: m });
   const [datos, setDatos]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tabTecnico, setTabTecnico] = useState(PESTANAS_TECNICO[0].key);
-  const pestanaTec = PESTANAS_TECNICO.find(p => p.key === tabTecnico);
+  const pestanaTec = PESTANAS_TECNICO.find(p => p.key === url.tecnico) || PESTANAS_TECNICO[0];
+  const tabTecnico = pestanaTec.key;
+  const setTabTecnico = (k) => cambiarUrl({ tecnico: k });
 
   const cargar = useCallback(async () => {
     setLoading(true);

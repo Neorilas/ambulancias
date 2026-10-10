@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { flotaService } from '../../services/flota.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
@@ -8,6 +8,7 @@ import { rutaAsignacion, tituloAsignacion } from '../../utils/enlaceAsignacion.j
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import MapaLeaflet from '../../components/flota/MapaLeaflet.jsx';
 import { formatHora } from '../../utils/dateUtils.js';
+import { useEstadoEnUrl } from '../../hooks/useNavegacion.js';
 import {
   FILTROS,
   contarPorFiltro,
@@ -191,16 +192,20 @@ export default function MapaFlota() {
 
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
-  const [filtro, setFiltro] = useState('todos');
-  const [busqueda, setBusqueda] = useState('');
+  // Filtro, búsqueda y la ambulancia elegida van en la URL: desde su ficha se
+  // va a la del vehículo, y al volver tiene que seguir elegida y filtrada.
+  const [url, cambiarUrl] = useEstadoEnUrl({ filtro: 'todos', q: '', vehiculo: '' });
+  const filtro      = url.filtro;
+  const busqueda    = url.q;
+  const setFiltro   = (f) => cambiarUrl({ filtro: f });
+  const setBusqueda = (q) => cambiarUrl({ q });
   const [seleccionada, setSeleccionada] = useState(null);
 
   // `?vehiculo=<id>`: se llega desde la ficha de una ambulancia para verla a
   // ELLA. Se aplica una sola vez, con la primera carga: si se reaplicara en
   // cada refresco, el mapa volvería a saltar a ese vehículo cada 30 s aunque
   // el usuario ya estuviera mirando otro.
-  const [params] = useSearchParams();
-  const vehiculoPedido = Number(params.get('vehiculo')) || null;
+  const vehiculoPedido = Number(url.vehiculo) || null;
   const pedidoAplicado = useRef(false);
   const fichaRef = useRef(null);
   const irAFicha = useRef(false);
@@ -275,6 +280,14 @@ export default function MapaFlota() {
     () => flota.find(f => f.clave === seleccionada) || null,
     [flota, seleccionada]
   );
+
+  // Elegir (o soltar) a mano también apunta `?vehiculo=` en la URL: al volver
+  // de la ficha del vehículo, el efecto de arriba la vuelve a elegir. Una
+  // entrada de Cartrack sin vehículo nuestro no tiene ficha ni se apunta.
+  const elegir = (clave) => {
+    setSeleccionada(clave);
+    cambiarUrl({ vehiculo: flota.find(f => f.clave === clave)?.vehiculoId || '' });
+  };
 
   // Ya pintada la ficha (no antes: el nodo aún estaría vacío).
   useEffect(() => {
@@ -365,7 +378,7 @@ export default function MapaFlota() {
                 key={entrada.clave}
                 entrada={entrada}
                 activa={entrada.clave === seleccionada}
-                onClick={() => setSeleccionada(entrada.clave)}
+                onClick={() => elegir(entrada.clave)}
               />
             ))}
           </div>
@@ -376,7 +389,7 @@ export default function MapaFlota() {
             <MapaLeaflet
               entradas={visibles}
               seleccionada={seleccionada}
-              onSeleccionar={setSeleccionada}
+              onSeleccionar={elegir}
               onAbrirAsignacion={puedeVerAsignaciones
                 ? (asig) => navigate(rutaAsignacion(asig, isFeatureEnabled('menu_trabajos')))
                 : null}
@@ -387,7 +400,7 @@ export default function MapaFlota() {
             {elegida && (
               <Ficha
                 entrada={elegida}
-                onCerrar={() => setSeleccionada(null)}
+                onCerrar={() => elegir(null)}
                 puedeVerAsignaciones={puedeVerAsignaciones}
               />
             )}

@@ -20,6 +20,7 @@ import { vehiclesService }   from '../services/vehicles.service.js';
 import { useNotification }   from '../context/NotificationContext.jsx';
 import { PageLoading }       from '../components/common/LoadingSpinner.jsx';
 import ConfirmDialog         from '../components/common/ConfirmDialog.jsx';
+import { useEstadoEnUrl }    from '../hooks/useNavegacion.js';
 import { formatFechaSola, formatDate } from '../utils/dateUtils.js';
 import {
   TIPO_LABEL,
@@ -72,9 +73,17 @@ export default function AlertsPage() {
   const [horizonte, setHorizonte] = useState(60);
 
   // Filtros
-  const [filtroTipo,      setFiltroTipo]      = useState('todos');    // todos|itv|its|tarjeta_transporte
-  const [filtroUmbral,    setFiltroUmbral]    = useState('todos');    // todos|vencida|15|30|45|60
-  const [filtroEstado,    setFiltroEstado]    = useState('activas');  // activas|descartadas|todas
+  // Filtros en la URL: «Ver vehículo» lleva a su ficha y al volver siguen
+  // puestos (en `useState` se perdían)
+  const [filtros, cambiarFiltros] = useEstadoEnUrl({
+    tipo:   'todos',    // todos|itv|its|tarjeta_transporte
+    umbral: 'todos',    // todos|vencida|15|30|45|60
+    estado: 'activas',  // activas|descartadas|todas
+  });
+  const { tipo: filtroTipo, umbral: filtroUmbral, estado: filtroEstado } = filtros;
+  const setFiltroTipo   = (v) => cambiarFiltros({ tipo: v });
+  const setFiltroUmbral = (v) => cambiarFiltros({ umbral: v });
+  const setFiltroEstado = (v) => cambiarFiltros({ estado: v });
 
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [tick, setTick] = useState(0); // fuerza recálculo tras dismiss/restore
@@ -280,7 +289,7 @@ export default function AlertsPage() {
                     </div>
                     <div className="text-xs text-neutral-500">Caducidad: {fechaStr}</div>
                     <div className="flex gap-2 pt-1 border-t border-neutral-100">
-                      <Link to="/vehiculos" className="btn-ghost text-xs flex-1 text-center">Ver vehículo</Link>
+                      <Link to={`/vehiculos/${a.vehicle_id}`} className="btn-ghost text-xs flex-1 text-center">Ver vehículo</Link>
                       {descartada
                         ? <button onClick={() => handleRestore(a)} className="btn-ghost text-xs flex-1 text-primary-600">↺ Restaurar</button>
                         : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs flex-1 text-neutral-600">Descartar</button>
@@ -332,7 +341,7 @@ export default function AlertsPage() {
                             }
                           </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <Link to="/vehiculos" className="btn-ghost text-xs">Ver vehículo</Link>
+                            <Link to={`/vehiculos/${a.vehicle_id}`} className="btn-ghost text-xs">Ver vehículo</Link>
                             {descartada
                               ? <button onClick={() => handleRestore(a)} className="btn-ghost text-xs text-primary-600 ml-1">↺ Restaurar</button>
                               : <button onClick={() => handleDismiss(a)} className="btn-ghost text-xs text-neutral-600 ml-1">Descartar</button>

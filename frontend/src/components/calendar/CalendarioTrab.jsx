@@ -15,15 +15,22 @@ const DOT_COLORS = {
   finalizado_anticipado: 'bg-bad-500',
 };
 
-export default function CalendarioTrab({ onSelectTrabajo }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+/**
+ * Calendario de todos los trabajos (`/trabajos`, vista «Calendario»). El mes
+ * ('yyyy-MM') y el día elegido ('yyyy-MM-dd' o null) los lleva quien lo monta,
+ * en la URL, para que al volver de la ficha de un trabajo se vuelva al mismo
+ * mes y día. Sin `mes`, el del día elegido, y sin ninguno, el actual.
+ */
+export default function CalendarioTrab({ mes, dia, onCambiarMes, onCambiarDia, onSelectTrabajo }) {
+  const mesVisto     = mes || dia?.slice(0, 7) || format(new Date(), 'yyyy-MM');
+  const currentMonth = parseISO(`${mesVisto}-01`);
+  const selectedDay  = dia ? parseISO(dia) : null;
   const [trabajos,     setTrabajos]     = useState([]);
   const [loading,      setLoading]      = useState(false);
-  const [selectedDay,  setSelectedDay]  = useState(null);
 
   useEffect(() => {
     loadMonth(currentMonth);
-  }, [currentMonth]);
+  }, [mesVisto]);
 
   async function loadMonth(date) {
     setLoading(true);
@@ -68,7 +75,8 @@ export default function CalendarioTrab({ onSelectTrabajo }) {
         {/* Navegación de mes */}
         <div className="flex items-center justify-between">
           <button
-            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+            onClick={() => onCambiarMes(format(subMonths(currentMonth, 1), 'yyyy-MM'))}
+            aria-label="Mes anterior"
             className="btn-ghost btn-icon"
           >
             ‹
@@ -77,7 +85,8 @@ export default function CalendarioTrab({ onSelectTrabajo }) {
             {format(currentMonth, 'MMMM yyyy', { locale: es })}
           </h2>
           <button
-            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+            onClick={() => onCambiarMes(format(addMonths(currentMonth, 1), 'yyyy-MM'))}
+            aria-label="Mes siguiente"
             className="btn-ghost btn-icon"
           >
             ›
@@ -108,7 +117,8 @@ export default function CalendarioTrab({ onSelectTrabajo }) {
                 return (
                   <button
                     key={day.toISOString()}
-                    onClick={() => setSelectedDay(isSelected ? null : day)}
+                    onClick={() => onCambiarDia(isSelected ? null : format(day, 'yyyy-MM-dd'))}
+                    aria-pressed={!!isSelected}
                     className={`relative aspect-square flex flex-col items-center justify-center
                                 rounded-lg text-sm transition-colors p-1
                                 ${isSelected  ? 'bg-primary-100 ring-2 ring-primary-500' :
