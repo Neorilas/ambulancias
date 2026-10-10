@@ -24,12 +24,16 @@ describe('utils/trabajos', () => {
   });
 
   describe('formularioInicial', () => {
-    it('el alta arranca con una ambulancia por rellenar (D6)', () => {
+    it('el alta arranca sin ambulancias ni equipo: las dos cosas son opcionales (2026-10-10)', () => {
       expect(formularioInicial(null)).toEqual({
         nombre: '', descripcion: '', ubicacion: '', tipo: 'traslado',
         fecha_inicio: '', fecha_fin: '', coordinador_user_id: '',
-        asignaciones: [ambulanciaVacia()],
+        usuarios: [], asignaciones: [],
       });
+    });
+
+    it('al editar, carga el equipo del trabajo', () => {
+      expect(formularioInicial({ usuarios: [{ user_id: 30 }, { user_id: 31 }] }).usuarios).toEqual([30, 31]);
     });
 
     it('al editar, los datos y el coordinador; las ambulancias se cambian en la ficha', () => {
@@ -55,8 +59,11 @@ describe('utils/trabajos', () => {
       expect(validarTrabajo(formValido({ asignaciones: [] }))).toEqual({});
     });
 
+    it('en el alta, sin ninguna ambulancia también vale', () => {
+      expect(validarTrabajo(formValido({ asignaciones: [] }), { alta: true })).toEqual({});
+    });
+
     it.each([
-      ['sin ninguna (D6)', [], 'al menos una'],
       ['sin vehículo', [{ ...ambulanciaVacia(), responsables: [20] }], 'el vehículo y al menos un responsable'],
       ['sin responsable', [{ ...ambulanciaVacia(), vehicle_id: '7' }], 'el vehículo y al menos un responsable'],
       ['la misma dos veces (D5)', [
@@ -89,15 +96,17 @@ describe('utils/trabajos', () => {
       expect(p.asignaciones).toEqual([{
         vehicle_id: 7, responsables: [20], personal: [30], km_inicio: 1200, notas: null,
       }]);
-      // Nada del modelo v25: el backend daría 400
+      expect(p.usuarios).toEqual([]);
+      // Nada del modelo v25: el backend daría 400. `usuarios` sí: es el
+      // equipo del trabajo
       expect(p).not.toHaveProperty('vehiculos');
-      expect(p).not.toHaveProperty('usuarios');
     });
 
-    it('al editar, solo datos y coordinador', () => {
-      const p = payloadTrabajo(formValido());
+    it('al editar, datos, coordinador y equipo del trabajo; sin ambulancias', () => {
+      const p = payloadTrabajo(formValido({ usuarios: ['30', '', 31] }));
       expect(p).not.toHaveProperty('asignaciones');
       expect(p.coordinador_user_id).toBe(50);
+      expect(p.usuarios).toEqual([30, 31]);
     });
 
     it('con fecha propia la manda en UTC, como las del trabajo', () => {

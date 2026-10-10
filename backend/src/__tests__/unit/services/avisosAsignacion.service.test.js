@@ -329,4 +329,31 @@ describe('avisosAsignacion.service', () => {
         .resolves.toBeDefined();
     });
   });
+
+  // 2026-10-10: la gente asignada al trabajo, vaya o no en una ambulancia
+  describe('avisarEquipoTrabajo', () => {
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1 });
+    });
+
+    it('a quien entra, menos a quien lo hace, abriendo la ficha del trabajo', async () => {
+      await avisos.avisarEquipoTrabajo(
+        { id: 40, nombre: 'Maratón', fecha_inicio: '2026-11-01 07:00:00' }, [5, 6, 6, 9], { asignadoPor: 9 });
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([5, 6], expect.objectContaining({
+        url: '/trabajos/40', tag: 'trab-40-equipo',
+      }));
+      const [, aviso] = push.notificarUsuarios.mock.calls[0];
+      expect(aviso.titulo).toBe('Maratón · nuevo trabajo');
+      // El texto del body es UTC sin zona: 07:00 UTC son las 08:00 en España
+      expect(aviso.cuerpo).toContain('08:00');
+    });
+
+    it('sin nadie a quien avisar no llama; un fallo de push no se propaga', async () => {
+      await avisos.avisarEquipoTrabajo({ id: 40, nombre: 'M' }, [9], { asignadoPor: 9 });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarEquipoTrabajo({ id: 40, nombre: 'M' }, [5])).resolves.toBeDefined();
+    });
+  });
 });

@@ -87,4 +87,14 @@ describe('MisTrabajos', () => {
     montar();
     expect(await screen.findByText('No tienes trabajos')).toBeInTheDocument();
   });
+
+  it('en el equipo del trabajo sin ambulancia: lo dice', async () => {
+    trabajosService.misTrab.mockResolvedValue({ data: [
+      { id: 4, nombre: 'Feria', estado: 'programado', fecha_inicio: iso(3600e3), fecha_fin: iso(7200e3),
+        soy_coordinador: false, en_equipo: true, mi_asignacion: null },
+    ] });
+    montar();
+    const [feria] = await screen.findAllByTestId('tarjeta-trabajo');
+    expect(feria).toHaveTextContent('Estás en el equipo de este trabajo.');
+  });
 });

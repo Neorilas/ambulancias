@@ -2302,12 +2302,11 @@ describe('asignación dentro de un trabajo (v33)', () => {
       ['SELECT au.user_id, au.rol, au.orden', [[{ user_id: asig.user_id, rol: 'responsable', orden: 0, nombre: 'Tec', username: 'tec' }]]],
       ['created_at AS uploaded_at', [evidencias]],
       ['SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id', [evidencias]],
-      ['SELECT estado FROM asignaciones_libres WHERE trabajo_id', [estadosTrabajo.map(estado => ({ estado }))]],
+      ['AS borrada FROM asignaciones_libres WHERE trabajo_id', [estadosTrabajo.map(estado => ({ estado, borrada: 0 }))]],
       ['SELECT id, identificador, nombre, coordinador_user_id FROM trabajos', [[TRABAJO_40]]],
       ['FROM trabajos WHERE id = ?', (params) => [[{ ...TRABAJO_40, id: params[0] }]]],
       ['SELECT id FROM vehicles WHERE id = ?', (params) => [[{ id: Number(params[0]) }]]],
       ['SELECT id FROM users', (params) => [params.map(id => ({ id }))]],
-      ['SELECT COUNT(*) AS otras', [[{ otras: 1 }]]],
       ['INSERT INTO asignaciones_libres', [{ insertId: 10 }]],
     ];
     query.mockImplementation(async (sql, params = []) => {
@@ -2447,12 +2446,12 @@ describe('asignación dentro de un trabajo (v33)', () => {
       return res;
     };
 
-    it('la última ambulancia viva no se cancela (D6)', async () => {
-      bd([['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
+    it('la última ambulancia se puede cancelar: el trabajo se queda sin ninguna y vuelve a programado', async () => {
+      bd([], { estadosTrabajo: ['cancelada'] });
       const res = mockRes();
       await updateAsignacion(mockReq({ params: { id: '10' }, body: { estado: 'cancelada' }, user: ADMIN }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(llamadas('UPDATE asignaciones_libres SET')).toHaveLength(0);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')[0][1][0]).toBe('programado');
     });
 
     it('cancelar la última que faltaba deja el trabajo pendiente de cierre y avisa al coordinador', async () => {
@@ -2492,13 +2491,8 @@ describe('asignación dentro de un trabajo (v33)', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('no se puede dejar sin trabajo ni sacar la única de su trabajo', async () => {
+    it('no se puede dejar sin trabajo: una asignación siempre va en uno', async () => {
       expect((await editar({ trabajo_id: null })).status).toHaveBeenCalledWith(400);
-
-      bd([['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
-      const res = mockRes();
-      await updateAsignacion(mockReq({ params: { id: '10' }, body: { trabajo_id: 41 }, user: ADMIN }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
     });
 
     it('cambiar a una ambulancia que ya va en el trabajo → 400 (D5)', async () => {
@@ -2510,18 +2504,13 @@ describe('asignación dentro de un trabajo (v33)', () => {
       expect(params).toEqual([40, 8, 10]);
     });
 
-    it('borrar: la última no (D6); otra sí, y el trabajo se resincroniza', async () => {
-      const filaBorrar = [['SELECT id, estado, trabajo_id FROM asignaciones_libres', [[{ id: 10, estado: 'programada', trabajo_id: 40 }]]]];
-      bd([...filaBorrar, ['SELECT COUNT(*) AS otras', [[{ otras: 0 }]]]]);
+    it('borrar, aunque sea la última, resincroniza el trabajo', async () => {
+      bd([['SELECT id, estado, trabajo_id FROM asignaciones_libres', [[{ id: 10, estado: 'programada', trabajo_id: 40 }]]]],
+         { estadosTrabajo: [] });
       const res = mockRes();
       await deleteAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-
-      bd(filaBorrar);
-      const res2 = mockRes();
-      await deleteAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res2, mockNext());
-      expect(res2.status).toHaveBeenCalledWith(200);
-      expect(llamadas('UPDATE trabajos SET estado')).toHaveLength(1);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE trabajos SET estado')).toHaveLength(0);   // sin ninguna fila: no se toca
     });
   });
 

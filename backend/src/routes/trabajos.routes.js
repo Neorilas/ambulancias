@@ -38,13 +38,12 @@ const validarCamposTrabajo = [
   body('usuarios.*').optional().isInt({ min: 1 }),
 ];
 
-// Las ambulancias del alta (v33, D6): cada una es una asignación. Que haya al
-// menos una, que no se repitan y las fechas por defecto las decide el
-// controlador (`leerAmbulancias`); aquí, la forma y los tamaños, con los
+// Las ambulancias del alta (v33): cada una es una asignación. Pueden ser
+// ninguna (2026-10-10). Que no se repitan y las fechas por defecto las decide
+// el controlador (`leerAmbulancias`); aquí, la forma y los tamaños, con los
 // mismos topes que POST /asignaciones.
 const validarAmbulanciasAlta = [
-  body('asignaciones').isArray({ min: 1, max: 20 })
-    .withMessage('Un trabajo necesita al menos una ambulancia'),
+  body('asignaciones').optional().isArray({ max: 20 }),
   body('asignaciones.*.vehicle_id').isInt({ min: 1 }),
   body('asignaciones.*.responsables').isArray({ min: 1, max: 20 })
     .withMessage('Cada ambulancia necesita al menos un responsable'),

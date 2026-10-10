@@ -322,6 +322,33 @@ async function getTrabajoCompleto(id) {
 }
 
 /**
+ * Por qué NO se puede cerrar el trabajo ahora (o null si se puede). La usan
+ * `cerrarTrabajo` (que manda) y `vistaParaUsuario` (`puede_cerrar`, para no
+ * ofrecer el botón en vano), así que dicen lo mismo.
+ *  - D3: ninguna ambulancia abierta (programada o activa).
+ *  - Sin ninguna viva (2026-10-10: un trabajo puede no tener ambulancias, o
+ *    quedarse sin ellas), solo una vez empezado: antes, lo que toca si no se
+ *    va a hacer es eliminarlo, no cerrarlo como hecho.
+ *  - Un trabajo v25 (con vehículos en trabajo_vehiculos) se cierra por ellos.
+ *
+ * @param {{estado, fecha_inicio, v25: boolean}} t
+ * @param {string[]} estados  los de sus asignaciones no borradas
+ */
+function motivoNoSeCierra(t, estados) {
+  if (CERRADOS.includes(t.estado)) return 'El trabajo ya está cerrado';
+  if (t.v25) return 'Este trabajo es del modelo anterior: se cierra al cerrar sus vehículos';
+  const abiertas = estados.filter(e => e === 'programada' || e === 'activa').length;
+  if (abiertas) {
+    return `No se puede cerrar: ${abiertas === 1 ? 'queda 1 ambulancia' : `quedan ${abiertas} ambulancias`} sin finalizar`;
+  }
+  const vivas = estados.filter(e => e !== 'cancelada').length;
+  if (!vivas && instanteUtc(t.fecha_inicio) > ahora()) {
+    return 'Aún no ha empezado y no lleva ninguna ambulancia: si no se va a hacer, elimínalo';
+  }
+  return null;
+}
+
+/**
  * De una ambulancia ajena solo se ve cuál es y quién va en ella (decisión 6
  * del plan del trabajo padre): ni estado, ni fechas, ni km, ni fotos. Es una
  * LISTA BLANCA a propósito (§6.2 del mapa): un campo nuevo de la asignación no
@@ -390,9 +417,11 @@ function vistaParaUsuario(t, user) {
     mi_rol: todo ? 'gestion'
       : coordina ? 'coordinador'
       : (soyResponsable || rolNuevo === 'responsable') ? 'responsable' : 'equipo',
-    // D3: se cierra con todas sus ambulancias finalizadas, y solo el
-    // coordinador o gestión. El backend lo vuelve a mirar en cerrarTrabajo.
-    puede_cerrar: t.estado === TRABAJO_ESTADOS.PENDIENTE_CIERRE && (coordina || gestiona(user)),
+    // D3: lo cierra el coordinador o gestión, con la misma regla que
+    // cerrarTrabajo (motivoNoSeCierra), que es quien manda.
+    puede_cerrar: (coordina || gestiona(user)) && !motivoNoSeCierra(
+      { ...t, v25: (t.vehiculos || []).length > 0 },
+      (t.asignaciones || []).map(a => a.estado)),
   };
 }
 
@@ -464,10 +493,14 @@ async function listTrabajos(req, res, next) {
               (SELECT COUNT(*) FROM asignaciones_libres a
                 WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada')
               + (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos,
-              (SELECT COUNT(DISTINCT au.user_id) FROM asignacion_usuarios au
-                 JOIN asignaciones_libres a ON a.id = au.asignacion_id
-                WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada')
-              + (SELECT COUNT(*) FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id) AS num_usuarios
+              -- Personas distintas: el equipo del trabajo y, además, quien
+              -- vaya en una ambulancia sin estar en él
+              (SELECT COUNT(*) FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id)
+              + (SELECT COUNT(DISTINCT au.user_id) FROM asignacion_usuarios au
+                   JOIN asignaciones_libres a ON a.id = au.asignacion_id
+                  WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada'
+                    AND NOT EXISTS (SELECT 1 FROM trabajo_usuarios tu2
+                                     WHERE tu2.trabajo_id = t.id AND tu2.user_id = au.user_id)) AS num_usuarios
        FROM trabajos t
        JOIN users u ON t.created_by = u.id
        LEFT JOIN users co ON co.id = t.coordinador_user_id
@@ -559,14 +592,15 @@ async function insertarVehiculo(conn, trabajoId, veh) {
  * Normaliza las ambulancias del alta. Cada una es una asignación: vehículo,
  * responsables (1..N), equipo (`personal`, 0..N; en pantalla «Equipo», D8) y,
  * opcionales, sus fechas (por defecto las del trabajo), km de inicio y notas.
- * D6: al menos una. D5: sin repetir ambulancia.
+ * Pueden ser ninguna. D5: sin repetir ambulancia.
  *
  * @returns {{ambulancias?: object[], error?: string}}
  */
 function leerAmbulancias(lista, trabajo) {
-  if (!Array.isArray(lista) || !lista.length) {
-    return { error: 'Un trabajo necesita al menos una ambulancia' };
-  }
+  // Desde el 2026-10-10 un trabajo puede nacer sin ambulancias: se le añaden
+  // después desde su ficha.
+  if (lista === undefined || lista === null) return { ambulancias: [] };
+  if (!Array.isArray(lista)) return { error: 'asignaciones debe ser una lista' };
   const ambulancias = [];
   for (const amb of lista) {
     const vehicleId = Number(amb?.vehicle_id);
@@ -598,9 +632,11 @@ function leerAmbulancias(lista, trabajo) {
 
 // ============================================================
 // POST /trabajos  (admin o gestor)
-// El trabajo nace CON su primera ambulancia, en una sola transacción (D6):
-// no existe el trabajo sin ambulancias. Las siguientes se añaden desde su
-// ficha con POST /asignaciones y trabajo_id.
+// El trabajo, su coordinador, su equipo (la gente asignada al trabajo,
+// `usuarios` → trabajo_usuarios) y las ambulancias que ya se sepan, en una
+// sola transacción. Puede nacer sin ambulancias (2026-10-10; deshace la D6):
+// se añaden después desde su ficha con POST /asignaciones y trabajo_id, y su
+// responsable puede ser del equipo del trabajo o no.
 // ============================================================
 async function createTrabajo(req, res, next) {
   try {
@@ -609,9 +645,9 @@ async function createTrabajo(req, res, next) {
     if (instanteUtc(fecha_fin) <= instanteUtc(fecha_inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
-    // El formulario anterior (modelo v25) manda `vehiculos` y `usuarios`.
-    // Ese modelo ya no se crea; quien lo vea tiene la app sin actualizar.
-    if (req.body.vehiculos !== undefined || req.body.usuarios !== undefined) {
+    // El formulario anterior (modelo v25) manda `vehiculos`. Ese modelo ya no
+    // se crea; quien lo vea tiene la app sin actualizar.
+    if (req.body.vehiculos !== undefined) {
       return error(res, 'Esta versión de la app ya no puede crear trabajos: recárgala para actualizarla', 400);
     }
 
@@ -619,14 +655,22 @@ async function createTrabajo(req, res, next) {
     const { ambulancias, error: errAmb } = leerAmbulancias(req.body.asignaciones, { fecha_inicio, fecha_fin });
     if (errAmb) return error(res, errAmb, 400);
 
-    const vehiculoIds = ambulancias.map(a => a.vehicle_id);
-    const [vehs] = await query(
-      `SELECT id FROM vehicles WHERE id IN (${vehiculoIds.map(() => '?').join(',')}) AND deleted_at IS NULL`,
-      vehiculoIds
-    );
-    if (vehs.length !== vehiculoIds.length) return notFound(res, 'Vehículo');
+    // El equipo del trabajo: la gente asignada, vaya o no en una ambulancia
+    const equipo = [...new Set(idsDe(req.body.usuarios) || [])];
+    if (equipo.some(id => !Number.isInteger(id) || id < 1)) {
+      return error(res, 'El equipo debe ser una lista de ids de usuario válidos', 400);
+    }
 
-    const personas = [coordinadorId, ...ambulancias.flatMap(a => [...a.responsables, ...a.personal])];
+    const vehiculoIds = ambulancias.map(a => a.vehicle_id);
+    if (vehiculoIds.length) {
+      const [vehs] = await query(
+        `SELECT id FROM vehicles WHERE id IN (${vehiculoIds.map(() => '?').join(',')}) AND deleted_at IS NULL`,
+        vehiculoIds
+      );
+      if (vehs.length !== vehiculoIds.length) return notFound(res, 'Vehículo');
+    }
+
+    const personas = [coordinadorId, ...equipo, ...ambulancias.flatMap(a => [...a.responsables, ...a.personal])];
     const malos = await asignaciones.usuariosNoValidos([...new Set(personas)]);
     if (malos.length) {
       return error(res, `Usuarios inexistentes o dados de baja: ${malos.join(', ')}`, 400);
@@ -644,6 +688,10 @@ async function createTrabajo(req, res, next) {
          coordinadorId, req.user.id]
       );
       const nuevoId = result.insertId;
+      for (const userId of equipo) {
+        await conn.execute(
+          'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)', [nuevoId, userId]);
+      }
       const ids = [];
       for (const amb of ambulancias) {
         ids.push(await asignaciones.insertarAsignacion(conn, { ...amb, trabajo_id: nuevoId }, req.user.id));
@@ -672,13 +720,18 @@ async function createTrabajo(req, res, next) {
     }
 
     const t = await getTrabajoCompleto(trabajoId);
+    // Al equipo del trabajo, «nuevo trabajo»; quien va en una ambulancia ya
+    // ha recibido el «nuevo servicio» de arriba.
+    const enAmbulancias = new Set(ambulancias.flatMap(a => [...a.responsables, ...a.personal]));
+    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id)), { asignadoPor: req.user.id });
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
       action:   'create_trabajo',
       entityType: 'trabajo', entityId: trabajoId,
       details:  { identificador: t.identificador, nombre: t.nombre, tipo: t.tipo,
-                  coordinador_user_id: coordinadorId, ambulancias: ambulancias.length },
+                  coordinador_user_id: coordinadorId, ambulancias: ambulancias.length,
+                  equipo: equipo.length },
       ip: req.ip,
     });
     return created(res, { ...vistaParaUsuario(t, req.user), avisos_alta: avisosAlta }, 'Trabajo creado');
@@ -705,10 +758,11 @@ async function updateTrabajo(req, res, next) {
     if (CERRADOS.includes(actual.estado)) {
       return error(res, 'No se puede modificar un trabajo finalizado', 400);
     }
-    // Con asignaciones (v33), las ambulancias y quién va en ellas se cambian
-    // en cada asignación; `vehiculos` y `usuarios` son del modelo v25.
-    if (Number(actual.num_asignaciones) > 0 &&
-        (req.body.vehiculos !== undefined || req.body.usuarios !== undefined)) {
+    // Del modelo nuevo (con coordinador, o con asignaciones), las ambulancias
+    // y quién va en ellas se cambian en cada asignación: `vehiculos` es del
+    // v25. `usuarios` sí vale: es el equipo del trabajo (2026-10-10).
+    const modeloNuevo = Number(actual.num_asignaciones) > 0 || !!actual.coordinador_user_id;
+    if (modeloNuevo && req.body.vehiculos !== undefined) {
       return error(res, 'Las ambulancias de este trabajo y quién va en ellas se cambian en cada una de ellas', 400);
     }
     const coordinador = req.body.coordinador_user_id !== undefined
@@ -829,6 +883,12 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    // «Nuevo trabajo» solo a quien ENTRA en el equipo; quien ya iba no tiene
+    // nada nuevo que saber. Solo en el modelo nuevo: el v25 nunca avisó.
+    if (equipo !== undefined && (modeloNuevo || coordinador !== undefined)) {
+      const yaIban = new Set(miembros.map(m => m.user_id));
+      avisos.avisarEquipoTrabajo(t, equipo.filter(id => !yaIban.has(id)), { asignadoPor: req.user.id });
+    }
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,
@@ -1061,10 +1121,9 @@ async function finalizeVehiculo(req, res, next) {
 // ============================================================
 async function cargarTrabajoSinVehiculos(id) {
   const [rows] = await query(
-    `SELECT t.id, t.estado, t.fecha_inicio, t.fecha_fin,
+    `SELECT t.id, t.estado, t.fecha_inicio, t.fecha_fin, t.coordinador_user_id,
             (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id)
-            + (SELECT COUNT(*) FROM asignaciones_libres a
-                WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL) AS num_vehiculos
+            + (SELECT COUNT(*) FROM asignaciones_libres a WHERE a.trabajo_id = t.id) AS num_vehiculos
      FROM trabajos t
      WHERE t.id = ? AND t.deleted_at IS NULL`,
     [id]
@@ -1075,12 +1134,25 @@ async function cargarTrabajoSinVehiculos(id) {
 const MSG_CON_VEHICULOS =
   'Este trabajo tiene vehículos: cada responsable activa y cierra el suyo por separado';
 
+/**
+ * Activar y cerrar a mano es solo del v25 «sin vehículos». Un trabajo del
+ * modelo nuevo (con coordinador, o que ha tenido ambulancias) arranca con su
+ * primera ambulancia y lo cierra su coordinador: aunque se haya quedado sin
+ * ambulancias (2026-10-10), por aquí gestión lo cerraría saltándose esa regla.
+ */
+function motivoNoManual(trabajo) {
+  if (trabajo.coordinador_user_id) {
+    return 'Este trabajo arranca con su primera ambulancia y lo cierra su coordinador con «Cerrar trabajo»';
+  }
+  return trabajo.num_vehiculos > 0 ? MSG_CON_VEHICULOS : null;
+}
+
 async function activarTrabajo(req, res, next) {
   try {
     const id = parseInt(req.params.id);
     const trabajo = await cargarTrabajoSinVehiculos(id);
     if (!trabajo) return notFound(res, 'Trabajo');
-    if (trabajo.num_vehiculos > 0) return error(res, MSG_CON_VEHICULOS, 400);
+    if (motivoNoManual(trabajo)) return error(res, motivoNoManual(trabajo), 400);
     if (trabajo.estado !== TRABAJO_ESTADOS.PROGRAMADO) {
       return error(res, 'Solo se pueden activar trabajos programados', 400);
     }
@@ -1109,7 +1181,7 @@ async function finalizeTrabajo(req, res, next) {
     const id = parseInt(req.params.id);
     const trabajo = await cargarTrabajoSinVehiculos(id);
     if (!trabajo) return notFound(res, 'Trabajo');
-    if (trabajo.num_vehiculos > 0) return error(res, MSG_CON_VEHICULOS, 400);
+    if (motivoNoManual(trabajo)) return error(res, motivoNoManual(trabajo), 400);
     if (CERRADOS.includes(trabajo.estado)) {
       return error(res, 'El trabajo ya está finalizado', 400);
     }
@@ -1156,8 +1228,9 @@ async function cerrarTrabajo(req, res, next) {
   try {
     const id = parseInt(req.params.id);
     const [rows] = await query(
-      `SELECT id, identificador, nombre, estado, coordinador_user_id
-       FROM trabajos WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT t.id, t.identificador, t.nombre, t.estado, t.fecha_inicio, t.coordinador_user_id,
+              (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos_v25
+       FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
       [id]
     );
     if (!rows.length) return notFound(res, 'Trabajo');
@@ -1166,24 +1239,15 @@ async function cerrarTrabajo(req, res, next) {
     if (!gestiona(req.user) && trabajo.coordinador_user_id !== req.user.id) {
       return forbidden(res, 'Solo el coordinador del trabajo puede cerrarlo');
     }
-    if (CERRADOS.includes(trabajo.estado)) {
-      return error(res, 'El trabajo ya está cerrado', 400);
-    }
 
     // Se mira en las asignaciones y no en el estado guardado: es la regla, y
     // así no depende de que la última sincronización llegara a escribirse.
     const [asigs] = await query(
       'SELECT estado FROM asignaciones_libres WHERE trabajo_id = ? AND deleted_at IS NULL', [id]
     );
-    if (!asigs.length) {
-      return error(res, 'Este trabajo es del modelo anterior: se cierra al cerrar sus vehículos', 400);
-    }
-    const abiertas = asigs.filter(a => a.estado === 'programada' || a.estado === 'activa').length;
-    if (abiertas) {
-      return error(res,
-        `No se puede cerrar: ${abiertas === 1 ? 'queda 1 ambulancia' : `quedan ${abiertas} ambulancias`} sin finalizar`,
-        400);
-    }
+    const motivo = motivoNoSeCierra(
+      { ...trabajo, v25: Number(trabajo.num_vehiculos_v25) > 0 }, asigs.map(a => a.estado));
+    if (motivo) return error(res, motivo, 400);
 
     // El WHERE repite «no cerrado»: si dos personas pulsan a la vez, solo una
     // lo cierra y solo ella deja rastro en la auditoría.
@@ -1317,8 +1381,9 @@ async function uploadEvidencia(req, res, next) {
 
 // ============================================================
 // GET /trabajos/mis-trabajos
-// La portada del técnico (D7): una tarjeta por trabajo que coordina o en el
-// que va en alguna ambulancia, con «tu ambulancia» y su estado. Sigue
+// La portada del técnico (D7): una tarjeta por trabajo que coordina, en cuyo
+// equipo está o en el que va en alguna ambulancia, con «tu ambulancia» y su
+// estado. Sigue
 // saliendo con su ambulancia ya finalizada hasta que el coordinador cierra el
 // trabajo (D11): por eso el filtro mira el estado del TRABAJO, no el de la
 // asignación.
@@ -1342,6 +1407,8 @@ async function misTrab(req, res, next) {
       `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
               t.fecha_inicio, t.fecha_fin, t.coordinador_user_id,
               t.coordinador_user_id = ? AS soy_coordinador,
+              EXISTS (SELECT 1 FROM trabajo_usuarios te
+                       WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo,
               (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR ', ')
                  FROM asignaciones_libres a JOIN vehicles v ON v.id = a.vehicle_id
                 WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada') AS vehiculos_resumen
@@ -1349,7 +1416,7 @@ async function misTrab(req, res, next) {
        ${where}
        ORDER BY FIELD(t.estado, 'activo', 'pendiente_cierre', 'programado'), t.fecha_inicio ASC, t.id
        LIMIT ? OFFSET ?`,
-      [uid, ...propios(uid), limit, offset]
+      [uid, uid, ...propios(uid), limit, offset]
     );
 
     // «Tu ambulancia»: la asignación en la que va este usuario en cada
@@ -1384,6 +1451,7 @@ async function misTrab(req, res, next) {
     const data = rows.map(r => ({
       ...r,
       soy_coordinador: !!r.soy_coordinador,
+      en_equipo: !!r.en_equipo,
       mi_asignacion: porTrabajo.get(r.id) || null,
     }));
     return paginated(res, { data, total: countRows[0].total, page, limit });
@@ -1400,5 +1468,5 @@ module.exports = {
   uploadEvidencia, misTrab,
   // Para los tests (el cálculo vive en services/estadoTrabajo.service)
   estadoTrabajoDesde: estadoTrabajo.estadoTrabajoDesde,
-  sincronizarEstadoTrabajo, vistaParaUsuario, leerVehiculos, leerAmbulancias,
+  sincronizarEstadoTrabajo, vistaParaUsuario, leerVehiculos, leerAmbulancias, motivoNoSeCierra,
 };

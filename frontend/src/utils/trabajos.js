@@ -30,8 +30,9 @@ export const ambulanciaVacia = () => ({
 
 /**
  * Estado inicial del formulario a partir de un trabajo (o ninguno). Las
- * ambulancias solo van en el alta (D6: el trabajo nace con al menos una);
- * después, cada una se cambia como asignación desde la ficha del trabajo.
+ * ambulancias solo van en el alta, y pueden ser ninguna (2026-10-10): después
+ * se añaden y se cambian una a una desde la ficha del trabajo. `usuarios` es
+ * el equipo del trabajo: la gente asignada, vaya o no en una ambulancia.
  */
 export function formularioInicial(trabajo) {
   return {
@@ -42,7 +43,8 @@ export function formularioInicial(trabajo) {
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
     coordinador_user_id: trabajo?.coordinador_user_id || '',
-    asignaciones: trabajo ? [] : [ambulanciaVacia()],
+    usuarios:     (trabajo?.usuarios || []).map(u => u.user_id),
+    asignaciones: [],
   };
 }
 
@@ -61,11 +63,10 @@ export function validarTrabajo(form, { alta = false } = {}) {
   }
   if (!alta) return e;
 
+  // Las ambulancias son opcionales; las que se añadan, completas
   const ambs = form.asignaciones || [];
   const ids  = ambs.map(a => parseInt(a.vehicle_id, 10));
-  if (!ambs.length) {
-    e.asignaciones = 'Añade al menos una ambulancia';
-  } else if (ambs.some((a, i) => !ids[i] || !idsElegidos(a.responsables).length)) {
+  if (ambs.some((a, i) => !ids[i] || !idsElegidos(a.responsables).length)) {
     e.asignaciones = 'Cada ambulancia necesita el vehículo y al menos un responsable';
   } else if (new Set(ids).size !== ids.length) {
     e.asignaciones = 'La misma ambulancia está dos veces';
@@ -81,9 +82,9 @@ export function validarTrabajo(form, { alta = false } = {}) {
 }
 
 /**
- * Lo que se manda al backend. En el alta, con sus ambulancias; al editar,
- * solo los datos del trabajo y el coordinador (con `vehiculos` o `usuarios`
- * el backend daría 400: es el formato del modelo anterior).
+ * Lo que se manda al backend: los datos, el coordinador y el equipo del
+ * trabajo (`usuarios`); en el alta, además, sus ambulancias. Nunca
+ * `vehiculos`: es el formato del modelo anterior y el backend daría 400.
  */
 export function payloadTrabajo(form, { alta = false } = {}) {
   const datos = {
@@ -94,6 +95,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     fecha_inicio: toUtcIso(form.fecha_inicio),
     fecha_fin:    toUtcIso(form.fecha_fin),
     coordinador_user_id: parseInt(form.coordinador_user_id, 10),
+    usuarios:     idsElegidos(form.usuarios),
   };
   if (!alta) return datos;
   return {

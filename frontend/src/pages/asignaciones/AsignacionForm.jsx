@@ -36,6 +36,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   const trabajoNombre = trabajo?.nombre || asignacion?.trabajo?.nombre || asignacion?.trabajo_nombre || null;
   const yaEnTrabajo = new Set((trabajo?.asignaciones || [])
     .filter(a => a.estado !== 'cancelada').map(a => a.vehicle_id));
+  // El equipo del trabajo sale primero al elegir responsables y equipo de la
+  // ambulancia; se puede elegir a cualquiera igual (2026-10-10).
+  const delEquipo = trabajo ? new Set((trabajo.usuarios || []).map(u => u.user_id)) : null;
 
   const [vehicles, setVehicles] = useState([]);
   const [users,    setUsers]    = useState([]);
@@ -216,6 +219,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             minimo={1}
             textoAnadir="Añadir otro responsable"
             error={!!errors.responsables}
+            destacados={delEquipo}
           />
           {errors.responsables && <p className="field-error">{errors.responsables}</p>}
         </div>
@@ -236,6 +240,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             onChange={setMiembros('personal')}
             minimo={0}
             textoAnadir="Añadir al equipo"
+            destacados={delEquipo}
           />
         </div>
 

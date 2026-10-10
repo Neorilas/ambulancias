@@ -17,10 +17,12 @@ import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
 
 /**
  * Ficha de un trabajo (v33, el trabajo padre). La ve todo el que va en
- * cualquiera de sus ambulancias, su coordinador y gestión; qué ve cada uno de
- * cada ambulancia lo recorta el backend (`vistaParaUsuario`):
+ * cualquiera de sus ambulancias o en su equipo, su coordinador y gestión; qué
+ * ve cada uno de cada ambulancia lo recorta el backend (`vistaParaUsuario`):
  *  - la suya, entera; de las demás, solo cuál es y quién va (decisión 6);
+ *  - quien está en el equipo del trabajo sin ambulancia, como las ajenas;
  *  - el coordinador y gestión, todas (D2).
+ * Puede no llevar ninguna ambulancia (2026-10-10): se le añaden después.
  *
  * Aquí no se opera ninguna ambulancia: «Tu ambulancia» y cada tarjeta abren el
  * detalle de la asignación de siempre, que es donde están el inicio, las
@@ -161,6 +163,9 @@ export default function TrabajoDetail() {
   const mias         = misAmbulancias(trabajo);
   const vehiculosV25 = trabajo.vehiculos || [];
   const coordinador  = nombresDe(trabajo.coordinador ? [trabajo.coordinador] : []);
+  const equipo       = trabajo.usuarios || [];
+  // En el equipo del trabajo pero en ninguna ambulancia (todavía, o nunca)
+  const soloEquipo   = trabajo.mi_rol === 'equipo' && !mias.length;
 
   const cerrarTrabajo = async () => {
     setCerrando(true);
@@ -215,6 +220,17 @@ export default function TrabajoDetail() {
         </div>
       )}
 
+      {/* Sin ambulancias que cerrar: el coordinador lo da por hecho cuando
+          ya ha empezado (antes, si no se va a hacer, se elimina) */}
+      {trabajo.puede_cerrar && trabajo.estado !== 'pendiente_cierre' && (
+        <div className="card space-y-2">
+          <p className="text-sm text-neutral-700">
+            Este trabajo no lleva ninguna ambulancia en marcha. Si ya se ha hecho, ciérralo.
+          </p>
+          <button onClick={() => setConfirmCerrar(true)} className="btn-secondary">Cerrar trabajo</button>
+        </div>
+      )}
+
       {cerrado && trabajo.cerrado_at && (
         <div className="card bg-ok-50 border-ok-200 text-sm text-ok-600">
           {ESTADO_LABELS[trabajo.estado]} · cerrado el {formatDateTime(trabajo.cerrado_at)}
@@ -225,6 +241,11 @@ export default function TrabajoDetail() {
       {mias.map(a => (
         <TuAmbulancia key={a.id} a={a} onAbrir={() => setDetalleId(a.id)} />
       ))}
+      {soloEquipo && !cerrado && (
+        <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600" data-testid="solo-equipo">
+          Estás en el equipo de este trabajo. Si te ponen en una ambulancia, la verás aquí.
+        </div>
+      )}
 
       {/* Ficha: la ve todo el que va en el trabajo */}
       <div className="card space-y-4">
@@ -257,8 +278,20 @@ export default function TrabajoDetail() {
         </div>
       </div>
 
-      {/* Ambulancias */}
-      {(ambulancias.length > 0 || (gestion && !cerrado && !vehiculosV25.length)) && (
+      {/* Equipo del trabajo: la gente asignada, vaya o no en una ambulancia */}
+      {(equipo.length > 0 || (gestion && !cerrado)) && !vehiculosV25.length && (
+        <div className="card space-y-2">
+          <h2 className="font-semibold text-neutral-900">Equipo del trabajo</h2>
+          {equipo.length ? (
+            <p className="text-sm text-neutral-700">{nombresDe(equipo)}</p>
+          ) : (
+            <p className="text-sm text-neutral-500">Sin nadie asignado todavía. Se añade desde «Editar».</p>
+          )}
+        </div>
+      )}
+
+      {/* Ambulancias (un trabajo v25 lleva las suyas aparte, más abajo) */}
+      {(ambulancias.length > 0 || !vehiculosV25.length) && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-neutral-900">Ambulancias</h2>
@@ -268,6 +301,11 @@ export default function TrabajoDetail() {
               </button>
             )}
           </div>
+          {ambulancias.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              Aún no lleva ninguna ambulancia{gestion && !cerrado ? ': añádelas cuando se sepan, con su responsable' : ''}.
+            </p>
+          )}
           {ambulancias.map(a => (
             <Ambulancia key={a.id} a={a} resaltada={a.id === resaltada} refResaltada={refResaltada}
               onAbrir={() => setDetalleId(a.id)} />

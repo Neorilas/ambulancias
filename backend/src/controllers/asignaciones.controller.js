@@ -317,19 +317,6 @@ function fueraDelTrabajo(trabajo, fechaInicio, fechaFin) {
 }
 
 /**
- * D6: un trabajo tiene siempre al menos una ambulancia. ¿Es esta la última
- * viva (ni cancelada ni borrada)?
- */
-async function esUltimaDelTrabajo(trabajoId, asignacionId) {
-  const [rows] = await query(
-    `SELECT COUNT(*) AS otras FROM asignaciones_libres
-     WHERE trabajo_id = ? AND id <> ? AND deleted_at IS NULL AND estado <> 'cancelada'`,
-    [trabajoId, asignacionId]
-  );
-  return Number(rows[0]?.otras || 0) === 0;
-}
-
-/**
  * Inserta una asignación con sus miembros. La usan `createAsignacion` y el alta
  * de un trabajo con su primera ambulancia (`trabajos.controller`), que la
  * necesita dentro de su propia transacción (D6). No sincroniza el estado del
@@ -809,7 +796,8 @@ async function updateAsignacion(req, res, next) {
     // Mover la ambulancia a otro trabajo, o meter en uno una asignación del
     // modelo antiguo: solo mientras no ha empezado y sin evidencia, el mismo
     // candado que el del vehículo y por lo mismo (las fotos cuelgan de la
-    // asignación). Sacarla de su trabajo no se puede: siempre va en uno.
+    // asignación). Sacarla de su trabajo no se puede: siempre va en uno. El
+    // trabajo de origen sí puede quedarse sin ambulancias (2026-10-10).
     const trabajoPedido = req.body.trabajo_id;
     if (trabajoPedido === null && asig.trabajo_id) {
       return error(res, 'Una ambulancia de un trabajo no se puede dejar sin trabajo', 400);
@@ -826,18 +814,11 @@ async function updateAsignacion(req, res, next) {
       trabajoDestino = await cargarTrabajo(Number(trabajoPedido));
       if (!trabajoDestino) return notFound(res, 'Trabajo');
       if (!trabajoDestino.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
-      if (asig.trabajo_id && await esUltimaDelTrabajo(asig.trabajo_id, asig.id)) {
-        return error(res, 'Es la única ambulancia de su trabajo: no se puede sacar de él', 400);
-      }
     }
     // D5, en el trabajo en el que queda: con otra ambulancia o en otro trabajo
     if ((cambiaVehiculo || cambiaTrabajo) && trabajoDestino &&
         await vehiculoYaEnTrabajo(trabajoDestino.id, Number(vehicle_id || asig.vehicle_id), asig.id)) {
       return error(res, 'Esa ambulancia ya va en este trabajo', 400);
-    }
-    // D6: la última ambulancia viva de un trabajo no se cancela
-    if (estado === 'cancelada' && asig.trabajo_id && await esUltimaDelTrabajo(asig.trabajo_id, asig.id)) {
-      return error(res, 'Es la única ambulancia del trabajo: no se puede cancelar. Si no va ninguna, elimina el trabajo', 400);
     }
     const tocaPadre = asig.trabajo_id || cambiaTrabajo;
     const sincronizados = [];
@@ -979,11 +960,6 @@ async function deleteAsignacion(req, res, next) {
     );
     if (!rows.length) return notFound(res, 'Asignación');
     const { trabajo_id: trabajoId } = rows[0];
-
-    // D6: un trabajo no se queda sin ambulancias. Una cancelada ya no contaba.
-    if (trabajoId && rows[0].estado !== 'cancelada' && await esUltimaDelTrabajo(trabajoId, rows[0].id)) {
-      return error(res, 'Es la única ambulancia del trabajo: no se puede eliminar. Si no va ninguna, elimina el trabajo', 400);
-    }
 
     let sincronizado = null;
     await transaction(async (conn) => {

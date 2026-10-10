@@ -14,6 +14,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionNueva: jest.fn(),
+  avisarEquipoTrabajo: jest.fn(),
   avisarTrabajoPendienteCierre: jest.fn(),
 }));
 
@@ -126,8 +127,8 @@ function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
       if (sql.includes('SELECT estado FROM trabajo_vehiculos')) {
         return [estados.map(e => ({ estado: e }))];
       }
-      if (sql.includes('SELECT estado FROM asignaciones_libres')) {
-        return [asignaciones.map(e => ({ estado: e }))];
+      if (sql.includes('FROM asignaciones_libres WHERE trabajo_id')) {
+        return [asignaciones.map(e => ({ estado: e, borrada: 0 }))];
       }
       if (sql.startsWith('INSERT')) return [{ insertId: insertId++ }];
       return [{ affectedRows: 1 }];
@@ -282,12 +283,26 @@ describe('trabajos.controller', () => {
       expect(vistaParaUsuario(t, sinRol)).toBeNull();
     });
 
-    it('puede_cerrar: pendiente de cierre y siendo coordinador o gestión (D3)', () => {
-      const pendiente = { ...t, estado: 'pendiente_cierre' };
+    it('puede_cerrar: sin ambulancias abiertas y siendo coordinador o gestión (D3)', () => {
+      const pendiente = { ...t, estado: 'pendiente_cierre',
+        asignaciones: [{ ...A, estado: 'finalizada' }, { ...B, estado: 'finalizada' }, C] };
       expect(vistaParaUsuario(pendiente, coord).puede_cerrar).toBe(true);
       expect(vistaParaUsuario(pendiente, admin).puede_cerrar).toBe(true);
       expect(vistaParaUsuario(pendiente, resp1).puede_cerrar).toBe(false);
       expect(vistaParaUsuario(t, coord).puede_cerrar).toBe(false);
+    });
+
+    it('puede_cerrar sin ambulancias: solo una vez empezado (antes, se elimina)', () => {
+      const sinAmb = (fecha_inicio) => ({ ...t, estado: 'programado', fecha_inicio, asignaciones: [] });
+      expect(vistaParaUsuario(sinAmb(AYER()), coord).puede_cerrar).toBe(true);
+      expect(vistaParaUsuario(sinAmb(MANANA()), coord).puede_cerrar).toBe(false);
+    });
+
+    it('quien está en el equipo del trabajo, sin ambulancia, lo ve como equipo y las ambulancias recortadas', () => {
+      const conEquipo = { ...t, usuarios: [{ user_id: 77 }] };
+      const v = vistaParaUsuario(conEquipo, { id: 77, roles: ['tecnico'], permissions: [] });
+      expect(v.mi_rol).toBe('equipo');
+      expect(v.asignaciones.every(a => !a.detalle)).toBe(true);
     });
   });
 
@@ -492,7 +507,7 @@ describe('trabajos.controller', () => {
 
       const [sql, params] = query.mock.calls[1];
       expect(sql).toContain("t.estado IN ('programado', 'activo', 'pendiente_cierre')");
-      expect(params).toEqual([20, 20, 20, 20, 20, 20, 0]);
+      expect(params).toEqual([20, 20, 20, 20, 20, 20, 20, 0]);
       const [, paramsMias] = query.mock.calls[2];
       expect(paramsMias).toEqual([20, 1, 2]);
     });
@@ -528,14 +543,18 @@ describe('trabajos.controller', () => {
   // D6: el trabajo nace con su primera ambulancia, que es una asignación.
   describe('leerAmbulancias', () => {
     const TRAB = { fecha_inicio: '2026-10-15 08:00:00', fecha_fin: '2026-10-15 20:00:00' };
+    it('ninguna vale: el trabajo puede nacer sin ambulancias (2026-10-10)', () => {
+      expect(leerAmbulancias(undefined, TRAB)).toEqual({ ambulancias: [] });
+      expect(leerAmbulancias([], TRAB)).toEqual({ ambulancias: [] });
+    });
+
     it('por defecto, las fechas del trabajo; el equipo va como personal', () => {
       const { ambulancias } = leerAmbulancias([{ vehicle_id: '7', responsables: [20], personal: [30], notas: '  ' }], TRAB);
       expect(ambulancias).toEqual([{ vehicle_id: 7, responsables: [20], personal: [30],
         fecha_inicio: TRAB.fecha_inicio, fecha_fin: TRAB.fecha_fin, km_inicio: null, notas: null }]);
     });
     it.each([
-      ['sin ninguna (D6)', [], 'al menos una ambulancia'],
-      ['no es lista', 'x', 'al menos una ambulancia'],
+      ['no es lista', 'x', 'debe ser una lista'],
       ['sin vehículo', [{ responsables: [1] }], 'vehicle_id'],
       ['sin responsable', [{ vehicle_id: 7 }], 'al menos un responsable'],
       ['persona repetida', [{ vehicle_id: 7, responsables: [2], personal: [2] }], 'dos veces'],
@@ -597,14 +616,30 @@ describe('trabajos.controller', () => {
       }));
     });
 
-    it('400 sin ambulancias (D6): no existe el trabajo sin ninguna', async () => {
+    it('sin ambulancias y con su equipo: se crea, y al equipo le llega «nuevo trabajo»', async () => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10 });
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ asignaciones: [] }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(transaction).not.toHaveBeenCalled();
+      await createTrabajo(mockReq({ body: body({ asignaciones: undefined, usuarios: [20, 30, 30] }), user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(ejecutadas.some(e => e.sql.includes('INSERT INTO asignaciones_libres'))).toBe(false);
+      const equipo = ejecutadas.filter(e => e.sql.includes('INSERT IGNORE INTO trabajo_usuarios'));
+      expect(equipo.map(e => e.params)).toEqual([[10, 20], [10, 30]]);
+      // Sin ambulancia que consultar, ni la consulta de vehículos (IN () es SQL inválido)
+      expect(query.mock.calls.some(([sql]) => sql.includes('FROM vehicles WHERE id IN'))).toBe(false);
+      expect(avisos.avisarEquipoTrabajo).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), [20, 30], { asignadoPor: 1 });
+      expect(res._json.data.avisos_alta).toEqual([]);
     });
 
-    it('400 con el formato del formulario anterior (vehiculos/usuarios)', async () => {
+    it('a quien va en una ambulancia no le llega además «nuevo trabajo»', async () => {
+      bd(reglasOk());
+      conexion({ insertId: 10 });
+      await createTrabajo(mockReq({ body: body({ usuarios: [20, 40] }), user: admin }), mockRes(), mockNext());
+      expect(avisos.avisarEquipoTrabajo.mock.calls[0][1]).toEqual([40]);
+    });
+
+    it('400 con el formato del formulario anterior (vehiculos)', async () => {
       const res = mockRes();
       await createTrabajo(mockReq({ body: body({ vehiculos: [], usuarios: [] }), user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
@@ -835,14 +870,28 @@ describe('trabajos.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it.each([['vehiculos', { vehiculos: [] }], ['usuarios', { usuarios: [30] }]])(
-      'con asignaciones no acepta %s del modelo v25: se cambian en cada ambulancia', async (_n, body) => {
-        bd([existente('activo', { num_asignaciones: 2 })]);
-        const res = mockRes();
-        await updateTrabajo(mockReq({ params: { id: '1' }, body, user: admin }), res, mockNext());
-        expect(res.status).toHaveBeenCalledWith(400);
-        expect(transaction).not.toHaveBeenCalled();
-      });
+    it.each([
+      ['con asignaciones', { num_asignaciones: 2 }],
+      ['con coordinador y sin ambulancias', { coordinador_user_id: 50 }],
+    ])('del modelo nuevo (%s) no acepta vehiculos del v25', async (_n, extra) => {
+      bd([existente('activo', extra)]);
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { vehiculos: [] }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('el equipo del trabajo se cambia, y solo avisa a quien entra', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }),
+          ['UNION', [[{ user_id: 30 }]]], usuariosOk, ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [30, 31] }, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_usuarios'))).toBe(true);
+      expect(avisos.avisarEquipoTrabajo).toHaveBeenCalledWith(expect.anything(), [31], { asignadoPor: 1 });
+    });
   });
 
   // ── DELETE /trabajos/:id ───────────────────────────────────
@@ -895,9 +944,9 @@ describe('trabajos.controller', () => {
 
   // ── POST /trabajos/:id/cerrar (D3) ─────────────────────────
   describe('cerrarTrabajo', () => {
-    const fila = (extra = {}) => ['SELECT id, identificador, nombre, estado, coordinador_user_id',
+    const fila = (extra = {}) => ['AS num_vehiculos_v25',
       [[{ id: 1, identificador: 'TRB-2026-0002', nombre: 'Maratón', estado: 'pendiente_cierre',
-          coordinador_user_id: 50, ...extra }]]];
+          fecha_inicio: AYER(), coordinador_user_id: 50, num_vehiculos_v25: 0, ...extra }]]];
     const estados = (...lista) => ['SELECT estado FROM asignaciones_libres', [lista.map(estado => ({ estado }))]];
     const cerrado = ['SET estado = ?, cerrado_at', [{ affectedRows: 1 }]];
     const cerrar = async (user) => {
@@ -943,14 +992,24 @@ describe('trabajos.controller', () => {
     });
 
     it('400 si ya está cerrado; 400 si es del modelo anterior; 404 si no existe', async () => {
-      bd([fila({ estado: 'finalizado' })]);
+      bd([fila({ estado: 'finalizado' }), estados('finalizada')]);
       expect((await cerrar(coord)).status).toHaveBeenCalledWith(400);
 
-      bd([fila({ estado: 'activo' }), estados()]);
+      bd([fila({ estado: 'activo', num_vehiculos_v25: 2 }), estados()]);
       expect((await cerrar(coord)).status).toHaveBeenCalledWith(400);
 
       bd([]);
       expect((await cerrar(coord)).status).toHaveBeenCalledWith(404);
+    });
+
+    it('sin ambulancias: se cierra si ya ha empezado; si no, hay que eliminarlo', async () => {
+      bd([fila({ estado: 'programado' }), estados('cancelada'), cerrado, ...trabajoConAsignaciones()]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(200);
+
+      bd([fila({ estado: 'programado', fecha_inicio: MANANA() }), estados()]);
+      const res = await cerrar(coord);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('elimínalo');
     });
 
     it('si dos lo cierran a la vez, solo uno deja rastro', async () => {

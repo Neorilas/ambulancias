@@ -98,14 +98,16 @@ formato nuevo o viejo), `guardarMiembros`, `buscarSolapes`,
 §8), y las del trabajo padre (v33, §6.1 «La asignación dentro de su trabajo»):
 `trabajoAparte` (las columnas `trabajo_*` del JOIN → objeto `trabajo`),
 `esCoordinador`, `cargarTrabajo`, `vehiculoYaEnTrabajo` (D5),
-`esUltimaDelTrabajo` (D6), `fueraDelTrabajo` (D4) e `insertarAsignacion` (la
-usa también el alta de un trabajo);
+`fueraDelTrabajo` (D4) e `insertarAsignacion` (la usa también el alta de un
+trabajo);
 `vehicles.controller` → `canOperacionalAccess`, `getVehicleHistorial` (mezcla
 trabajos + asignaciones), `fetchComentarios`; `trabajos.controller` →
 `generateIdentificador`, `getTrabajoCompleto` (sin recortar; trae
 `asignaciones` con `leerAsignacionesDelTrabajo` y `coordinador`),
 `vistaParaUsuario` (el recorte por persona, §6.2) + `ambulanciaAjena` (su lista
-blanca), `leerAmbulancias` (las del alta, D6), `cerrarTrabajo`, `leerVehiculos`
+blanca), `leerAmbulancias` (las del alta, pueden ser ninguna), `cerrarTrabajo` +
+`motivoNoSeCierra` (la regla de cierre, también para `puede_cerrar`),
+`motivoNoManual` (bloquea el activar/cerrar a mano del v25 a un trabajo nuevo), `leerVehiculos`
 y `guardarResponsables` (v25), `FILTRO_PROPIOS` + `propios(uid)` (el «es mío»
 de los listados, cuatro parámetros). El estado derivado vive en
 `services/estadoTrabajo.service.js`.
@@ -157,7 +159,7 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **nuevo trabajo**, a quien entra en el equipo del trabajo (`avisarEquipoTrabajo`, 2026-10-10; tag `trab-<id>-equipo`; quien además va en una ambulancia del alta ya recibe el «nuevo servicio» y no se le repite) · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) |
 | Asignación de un trabajo (v33) | Todos sus avisos **abren el trabajo** con esa ambulancia señalada, `/trabajos/<trabajo_id>?asignacion=<id>`, tanto los de gestión como los del técnico (D10), y el texto lo nombra. Las asignaciones sin trabajo conservan `/asignaciones?id=` y `/mis-asignaciones`. Trampa: hasta que se enciendan `menu_trabajos`/`menu_mis_trabajos` (fase 7) ese enlace rebota a quien no es superadmin; solo hay asignaciones con trabajo si alguien las crea desde la pantalla oculta |
 | Aviso de «nuevo servicio» | Va al TÉCNICO, no a gestión (desde 2026-09-25; el de cambio de vehículo también). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
 | Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de la asignación»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
@@ -642,9 +644,9 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/facturas` | `facturas/Facturas.jsx` | admin, super | `menu_facturas` (encendida, v32; §2.8) |
 | `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups; en Resumen, las cards «Errores totales» y «Errores hoy» abren la pestaña Errores sin filtros, `StatCard` con `onClick`) | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
-| `/mis-trabajos` | `MisTrabajos.jsx`: la portada del técnico (v33, D7). Tarjetas por trabajo (hoy arriba, próximos debajo) con «Tu ambulancia» y su estado; **un único botón, «Ver trabajo»**: la tarjeta no ejecuta nada | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
+| `/mis-trabajos` | `MisTrabajos.jsx`: la portada del técnico (v33, D7). Tarjetas por trabajo (hoy arriba, próximos debajo) con «Tu ambulancia» y su estado, «Coordinas este trabajo» o «Estás en el equipo de este trabajo» (`en_equipo`); **un único botón, «Ver trabajo»**: la tarjeta no ejecuta nada | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
 | `/trabajos` | `trabajos/TrabajoList.jsx` | admin, gestor, super | `menu_trabajos` (off) |
-| `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` (v33): ficha, aviso de pendiente de cierre con «Cerrar trabajo» (`puede_cerrar`), bloque «Tu ambulancia» con el siguiente paso (`siguientePaso`) y una tarjeta por ambulancia; ambos abren `AsignacionDetalle` (con `desdeTrabajo`), que es donde se opera. `?asignacion=<id>` **resalta** esa ambulancia y la lleva a la vista, no la abre (D10: que se vea en qué trabajo está). Gestión: «Editar» y «+ Añadir ambulancia» (`AsignacionForm` con `trabajo`). Un trabajo v25 sale en solo lectura | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
+| `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` (v33): ficha, aviso de pendiente de cierre con «Cerrar trabajo» (`puede_cerrar`), bloque «Tu ambulancia» con el siguiente paso (`siguientePaso`) y una tarjeta por ambulancia; ambos abren `AsignacionDetalle` (con `desdeTrabajo`), que es donde se opera. `?asignacion=<id>` **resalta** esa ambulancia y la lleva a la vista, no la abre (D10: que se vea en qué trabajo está). Gestión: «Editar» y «+ Añadir ambulancia» (`AsignacionForm` con `trabajo`). Tarjeta «Equipo del trabajo»; sin ambulancias, «Aún no lleva ninguna ambulancia», y quien está en el equipo sin ambulancia lo ve explicado (`solo-equipo`). Si `puede_cerrar` fuera de pendiente de cierre (trabajo empezado sin ambulancias en marcha), tarjeta con «Cerrar trabajo». Un trabajo v25 sale en solo lectura | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
 
 Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
 `requiredFeature`, que acepta una lista: vale con uno encendido). **Espera a
@@ -680,7 +682,7 @@ asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
 | `TrabajoList/Detail/Form`, `MisTrabajos`, `CalendarioTrab` | `trabajos.service` (+ `utils/trabajos.js`) | `/trabajos` (`cerrar` → `POST /trabajos/:id/cerrar`). Las ambulancias se operan con `asignaciones.service`: `TrabajoDetail` abre `AsignacionDetalle` y añade con `AsignacionForm` (`trabajo_id`). **`InicioTrabajo` y `Finalizacion` (de trabajos) se retiraron en la fase 4**, y con ellos los métodos del ciclo v25 del servicio: su backend sigue vivo hasta la fase 6, sin pantalla |
-| `TrabajoForm` | `trabajos.service`, `vehicles.service`, `users.service` | Alta: datos + coordinador (`UserCombobox`) + al menos una ambulancia (vehículo, responsables, equipo, horas propias opcionales). Editar: datos y coordinador. `payloadTrabajo(form, { alta })` no manda nunca `vehiculos`/`usuarios` (400 en el backend). Tras crear, `TrabajoList` lleva a la ficha nueva y se enseñan los `avisos_alta` |
+| `TrabajoForm` | `trabajos.service`, `vehicles.service`, `users.service` | Datos + coordinador (`UserCombobox`) + equipo del trabajo (`usuarios`, `ListaMiembros`). En el alta, además, las ambulancias que se sepan, **o ninguna** (vehículo, responsables y equipo —con el equipo del trabajo primero, `destacados`—, horas propias opcionales). Editar: datos, coordinador y equipo del trabajo. `payloadTrabajo(form, { alta })` no manda nunca `vehiculos` (400 en el backend). Tras crear, `TrabajoList` lleva a la ficha nueva y se enseñan los `avisos_alta` |
 
 `services/api.js`: instancia axios, adjunta el token, refresca en 401 y
 reintenta. Todos los servicios cuelgan de ella.
@@ -772,7 +774,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `utils/alarmaSinIniciar.js` | Qué alarmas de «sin iniciar» suenan en este dispositivo: lo atendido con «Enterado» (localStorage, se poda solo) y las etiquetas. El sonido está en el componente `AlarmaSinIniciar` (§2.5) |
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `ambulanciaVacia`, `validarTrabajo` y `payloadTrabajo`, los dos con `{ alta }`: las ambulancias solo van en el alta) y «Tu ambulancia» (`misAmbulancias`, `siguientePaso` = texto del botón, `textoEstadoAmbulancia`, que tolera que falte `progreso_fotos` porque «Mis trabajos» no lo trae). Solo traduce `mi_rol`/`detalle`/`puede_cerrar`, que calcula el backend |
-| `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en los responsables de cada vehículo de `TrabajoForm` |
+| `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en `TrabajoForm`. `destacados` (Set de ids): salen primero y marcados «equipo del trabajo» al elegir quién va en una ambulancia de un trabajo; los demás se pueden elegir igual |
 | `utils/miembrosAsignacion.js` | Responsables/equipo (`personal` en BD) en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
@@ -1009,7 +1011,9 @@ vehicles 1─N vehicle_revisiones
 users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
 trabajos N:M vehicles (trabajo_vehiculos: estado, inicio_real_at, finalizado_at, km, motivo)
 trabajo_vehiculos N:M users (trabajo_vehiculo_responsables: orden; 0 = responsable_user_id)
-trabajos N:M users (trabajo_usuarios = el EQUIPO: ve la ficha, no la evidencia)
+trabajos N:M users (trabajo_usuarios = el EQUIPO DEL TRABAJO: la gente asignada, vaya o no en
+                   una ambulancia; ve la ficha y quién va, no la evidencia. Lo usan el v25 y,
+                   desde 2026-10-10, el modelo nuevo)
 ```
 
 Estados: asignación `programada → activa → finalizada | cancelada`; trabajo
@@ -1436,8 +1440,9 @@ hace el backend:
   al crear, al cambiar de ambulancia y al mover de trabajo. Cuentan las vivas
   (ni canceladas ni borradas). Va en el controlador y no como UNIQUE porque el
   borrado es lógico y una cancelada tiene que poder convivir con la nueva.
-- **D6, un trabajo nunca se queda sin ambulancias:** cancelar o borrar la
-  última viva da 400 (`esUltimaDelTrabajo`); sacarla de su trabajo, también.
+- **Un trabajo puede quedarse sin ambulancias (2026-10-10, deshace la D6):**
+  se puede crear sin ninguna y añadirlas después, y cancelar, borrar o sacar
+  de él la última. Lo que no se puede es dejar una asignación sin trabajo.
 - **D4, fechas fuera de las del trabajo:** se guarda y la respuesta lleva
   `fuera_del_trabajo: true` para que el formulario avise, como los solapes.
 - **Mover a otro trabajo** (o meter en uno una antigua): solo `programada` y
@@ -1449,12 +1454,17 @@ hace el backend:
   misma transacción**: crear, activar, finalizar, cancelar o mover por `PUT`,
   borrar y el cron. Todas finalizadas (las canceladas no cuentan) →
   `pendiente_cierre`, nunca `finalizado`: el trabajo lo cierra el coordinador
-  (D3). El `UPDATE` del padre lleva `estado <> ?` para saber si ESTA llamada
+  (D3). Sin ninguna viva, `programado`. Para saber que un trabajo es del
+  modelo nuevo basta con que haya tenido UNA asignación, aunque esté borrada
+  (la consulta las trae todas con `borrada`); uno que no ha tenido ninguna
+  (recién creado sin ambulancias, o v25) no se toca desde aquí. El `UPDATE` del padre lleva `estado <> ?` para saber si ESTA llamada
   lo cambió (mysql2 cuenta filas encontradas, no cambiadas): así dos cierres
   cruzados no avisan dos veces al coordinador, y no hace falta marca en BD
   porque el cron nunca deja un trabajo pendiente de cierre (solo activa).
-- El cron ya no pasa a `activo` por su `fecha_inicio` un trabajo que tenga
-  asignaciones: arranca cuando arranca su primera ambulancia.
+- El cron solo pasa a `activo` por su `fecha_inicio` los trabajos v25 (sin
+  coordinador, o con filas en `trabajo_vehiculos`) que nunca han tenido
+  asignaciones. Uno nuevo arranca cuando arranca su primera ambulancia, y sin
+  ambulancias se queda `programado`: se las pueden poner después.
 
 ### 6.2 Quién hace qué en un trabajo
 
@@ -1469,7 +1479,7 @@ antes, que conviven hasta la fase 6 del plan.
 | Su ambulancia entera (estado, horas, km, progreso de fotos) | sí | sí | — | — |
 | Las demás ambulancias | **solo cuál es y quién va** | **solo cuál es y quién va** | todo (D2) | todo |
 | Operar una ambulancia (activar, fotos, llegada, finalizar) | la suya | no | no, salvo que además sea su responsable o gestión | todas |
-| Cerrar el trabajo (`POST /:id/cerrar`) | no | no | **sí**, con todas finalizadas (D3) | sí |
+| Cerrar el trabajo (`POST /:id/cerrar`) | no | no | **sí**, sin ambulancias abiertas (D3) | sí |
 | Crear / editar / borrar el trabajo, añadir ambulancias | no | no | no | sí (admin o gestor) |
 
 - **El recorte es `vistaParaUsuario`**, como antes: cada ambulancia sale con
@@ -1480,38 +1490,51 @@ antes, que conviven hasta la fase 6 del plan.
   nuevo de la asignación no se filtre a nadie por olvido. Las canceladas no se
   enseñan a quien no es gestión ni coordinador, y haber ido en una cancelada
   no da acceso.
+- **Equipo del trabajo (2026-10-10):** la gente asignada al trabajo
+  (`trabajo_usuarios`, campo `usuarios` de la API), vaya o no en una
+  ambulancia. Ve la ficha y, de las ambulancias, lo mismo que de las ajenas
+  (`mi_rol` del trabajo = `equipo`). El responsable de una ambulancia puede ser
+  de ese equipo o no: no se exige ni se añade solo; en pantalla, la gente del
+  equipo sale primero al elegir (`destacados`). Al entrar en él, aviso «nuevo
+  trabajo».
 - **Quién lo ve** (`FILTRO_PROPIOS`, también el 403): el coordinador, quien va
-  en una asignación viva suya, y los dos casos del v25. Cuatro parámetros,
-  todos el id del usuario (`propios(uid)`).
-- **Alta (D6):** `POST /trabajos` exige `coordinador_user_id` (D1: cualquier
-  usuario activo, no hace falta que vaya) y `asignaciones[]` con al menos una
-  ambulancia, y lo crea todo en **una transacción** (`leerAmbulancias` +
-  `asignaciones.insertarAsignacion`). Las fechas de cada ambulancia son por
+  en una asignación viva suya, quien está en su equipo y el responsable v25.
+  Cuatro parámetros, todos el id del usuario (`propios(uid)`).
+- **Alta:** `POST /trabajos` exige `coordinador_user_id` (D1: cualquier
+  usuario activo, no hace falta que vaya); `usuarios[]` (el equipo del trabajo)
+  y `asignaciones[]` (las ambulancias que ya se sepan) son opcionales, y lo
+  crea todo en **una transacción** (`leerAmbulancias` +
+  `asignaciones.insertarAsignacion`). Sin ambulancias no se consulta
+  `vehicles` (un `IN ()` vacío es SQL inválido). Las fechas de cada ambulancia son por
   defecto las del trabajo. Devuelve `avisos_alta` por ambulancia (solapes,
   ambulancia ocupada, fuera del trabajo) y manda el «nuevo servicio» a cada
-  uno. **El formulario anterior (`vehiculos`/`usuarios`) da 400** con «recárgala
-  para actualizarla»: ese modelo ya no se crea. Las siguientes ambulancias se
+  uno. **El formulario anterior (`vehiculos`) da 400** con «recárgala para
+  actualizarla»: ese modelo ya no se crea. Las siguientes ambulancias se
   añaden con `POST /asignaciones` y `trabajo_id`.
-- **Editar:** el coordinador se cambia, no se quita. Con asignaciones,
-  `vehiculos` y `usuarios` dan 400: las ambulancias y quién va se cambian en
-  cada una.
+- **Editar:** el coordinador se cambia, no se quita; el equipo del trabajo
+  (`usuarios`) se rehace entero, y solo avisa a quien entra. En un trabajo del
+  modelo nuevo (con coordinador o con asignaciones) `vehiculos` da 400: las
+  ambulancias y quién va en ellas se cambian en cada una.
 - **Borrar:** solo si ninguna ambulancia ha empezado ni terminado (sus fotos y
   horas son la evidencia del servicio); sus asignaciones se borran con él, en
   la misma transacción, para no dejar tarjetas colgando.
 - **Cerrar (D3):** `cerrarTrabajo` mira las asignaciones, no el estado
-  guardado: ninguna `programada` ni `activa`. Sella `cerrado_at` y
-  `cerrado_por`, y el `WHERE` repite «no cerrado» para que dos pulsaciones
-  cruzadas auditen una vez (`close_trabajo`, con `por_gestion`). Un trabajo sin
-  asignaciones (v25) da 400: se cierra por sus vehículos.
+  guardado (`motivoNoSeCierra`, la misma regla que `puede_cerrar`): ninguna
+  `programada` ni `activa`; **sin ninguna viva, solo si ya ha empezado** (antes
+  no se cierra como hecho: si no se va a hacer, se elimina). Sella `cerrado_at`
+  y `cerrado_por`, y el `WHERE` repite «no cerrado» para que dos pulsaciones
+  cruzadas auditen una vez (`close_trabajo`, con `por_gestion`). Un trabajo con
+  vehículos v25 da 400: se cierra por ellos.
 - **Mis trabajos (D7, D11):** `misTrab` saca los trabajos `programado`,
-  `activo` o `pendiente_cierre` que coordino o en los que voy, con
-  `mi_asignacion` (si voy en dos, la que llevo como responsable) y
-  `soy_coordinador`. Filtra por el estado **del trabajo**, no de la asignación:
+  `activo` o `pendiente_cierre` que coordino, en cuyo equipo estoy o en los
+  que voy, con `mi_asignacion` (si voy en dos, la que llevo como responsable),
+  `soy_coordinador` y `en_equipo`. Filtra por el estado **del trabajo**, no de la asignación:
   con su ambulancia finalizada la tarjeta sigue hasta que el coordinador
   cierra.
-- `/:id/activar` y `/:id/finalize` (trabajo sin vehículos) cuentan también las
-  asignaciones: con alguna, 400, o gestión podría cerrar a mano un trabajo
-  nuevo saltándose a sus ambulancias.
+- `/:id/activar` y `/:id/finalize` (trabajo v25 sin vehículos) dan 400 a un
+  trabajo del modelo nuevo (`motivoNoManual`: con coordinador o que haya tenido
+  asignaciones, aunque estén borradas), o gestión podría arrancarlo o cerrarlo
+  a mano saltándose a sus ambulancias y al coordinador.
 
 **Modelo v25 (trabajos anteriores a v33)**
 
@@ -1692,6 +1715,7 @@ solo actúa en el navegador no es un control de acceso.
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
+| Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |
 | Cerrar un trabajo (quién, cuándo) | `trabajos.controller.cerrarTrabajo` (+ `puede_cerrar` en `vistaParaUsuario`, que tiene que decir lo mismo) → `POST /trabajos/:id/cerrar` (clasificada `controlador` en `autorizacion-rutas.test.js`) → aviso previo `avisarTrabajoPendienteCierre` → acción `close_trabajo` en `ACTION_LABEL` de `AdminPanel` (§6.2) |
 | Responsables de un vehículo en un trabajo | v25 → `trabajos.controller` (`leerVehiculos`, `guardarResponsables`, `vistaParaUsuario`, `cargarVehiculoDelTrabajo`, `FILTRO_PROPIOS`) + `ownership.middleware` + `vehicles.controller` (`canOperacionalAccess`, listado de operacionales) → `TrabajoForm` (`ListaMiembros`) + `utils/trabajos.js`. Reglas en §6.2 |

@@ -167,14 +167,17 @@ async function startServer() {
           WHERE tv.estado = 'programado' AND t.fecha_inicio <= ? AND t.deleted_at IS NULL`,
         [ahoraUtc]
       );
-      // Solo los del modelo antiguo: un trabajo con asignaciones (v33) no
-      // arranca por su reloj, sino cuando arranca alguna de sus ambulancias
-      // (más abajo, al activarlas, se sincroniza).
+      // Solo los del modelo antiguo (v25: sin coordinador, o con vehículos en
+      // trabajo_vehiculos). Uno del modelo nuevo no arranca por su reloj, sino
+      // cuando arranca alguna de sus ambulancias (más abajo, al activarlas, se
+      // sincroniza), y sin ambulancias se queda programado: puede que se
+      // las pongan después (2026-10-10).
       const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
          WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL
-           AND NOT EXISTS (SELECT 1 FROM asignaciones_libres al
-                            WHERE al.trabajo_id = trabajos.id AND al.deleted_at IS NULL)`,
+           AND NOT EXISTS (SELECT 1 FROM asignaciones_libres al WHERE al.trabajo_id = trabajos.id)
+           AND (coordinador_user_id IS NULL
+                OR EXISTS (SELECT 1 FROM trabajo_vehiculos tv WHERE tv.trabajo_id = trabajos.id))`,
         [ahoraUtc]
       );
       if (trab.affectedRows > 0 || trabVeh.affectedRows > 0) {

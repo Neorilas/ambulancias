@@ -8,16 +8,17 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import {
   formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
 } from '../../utils/trabajos.js';
-import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
+import { textoSolapes, textoVehiculoOcupado, idsElegidos } from '../../utils/miembrosAsignacion.js';
 
 /**
  * Alta y edición de un trabajo (v33, el trabajo padre).
  *
- * En el ALTA se rellena el trabajo, quién lo coordina y al menos una ambulancia
- * (D6, D9): no se guarda sin ella. Cada ambulancia es una asignación, con sus
- * responsables y su equipo. Al EDITAR solo se tocan los datos y el
- * coordinador: las ambulancias se añaden y se cambian una a una desde la ficha
- * del trabajo, que es donde se ve su estado.
+ * Se rellena el trabajo, quién lo coordina y su EQUIPO (la gente asignada al
+ * trabajo, vaya o no en una ambulancia). En el ALTA se pueden poner ya las
+ * ambulancias que se sepan, o ninguna (2026-10-10): cada una es una
+ * asignación, con sus responsables y su equipo, elegidos del equipo del
+ * trabajo (salen primero) o de fuera. Al EDITAR, las ambulancias se añaden y
+ * se cambian una a una desde la ficha del trabajo, que es donde se ve su estado.
  */
 export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const isEdit = !!trabajo;
@@ -53,6 +54,10 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     });
     setErrors(er => ({ ...er, asignaciones: '' }));
   };
+
+  const setEquipo = (lista) => setForm(f => ({ ...f, usuarios: lista }));
+  // Al elegir quién va en cada ambulancia, la gente del equipo sale primero
+  const delEquipo = new Set(idsElegidos(form.usuarios));
 
   const anadirAmbulancia = () =>
     setForm(f => ({ ...f, asignaciones: [...f.asignaciones, ambulanciaVacia()] }));
@@ -182,19 +187,37 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           {errors.coordinador_user_id && <p className="field-error">{errors.coordinador_user_id}</p>}
         </div>
 
-        {/* Ambulancias: solo en el alta */}
+        {/* Equipo del trabajo: la gente asignada, vaya o no en una ambulancia */}
+        <div>
+          <label className="label">Equipo del trabajo</label>
+          <p className="text-xs text-neutral-500 mb-2">
+            La gente asignada al trabajo: ven la ficha y quién va en cada ambulancia.
+            Al poner responsables a una ambulancia salen los primeros, aunque se
+            puede elegir a cualquiera.
+          </p>
+          <ListaMiembros
+            users={users}
+            lista={form.usuarios}
+            ocupados={form.usuarios}
+            onChange={setEquipo}
+            minimo={0}
+            textoAnadir="Añadir al equipo del trabajo"
+          />
+        </div>
+
+        {/* Ambulancias: solo en el alta, y opcionales */}
         {alta && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">Ambulancias <span className="text-bad-500">*</span></label>
+              <label className="label mb-0">Ambulancias</label>
               <button type="button" onClick={anadirAmbulancia} className="btn-secondary text-xs px-2 py-1">
                 + Añadir ambulancia
               </button>
             </div>
             <p className="text-xs text-neutral-500 mb-2">
-              Los responsables inician, documentan y finalizan su ambulancia. El equipo
-              va con ellos y ve el trabajo, pero no la opera. Más ambulancias se pueden
-              añadir después desde la ficha del trabajo.
+              Las que ya se sepan; si no, se añaden después desde la ficha del trabajo.
+              Los responsables inician, documentan y finalizan su ambulancia; su equipo
+              va con ellos y la ve, pero no la opera.
             </p>
             {errors.asignaciones && <p className="field-error mb-2">{errors.asignaciones}</p>}
             <div className="space-y-3">
@@ -204,10 +227,8 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                   <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-neutral-600">Ambulancia {i + 1}</span>
-                      {form.asignaciones.length > 1 && (
-                        <button type="button" onClick={() => quitarAmbulancia(i)}
-                          className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
-                      )}
+                      <button type="button" onClick={() => quitarAmbulancia(i)}
+                        className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
                     </div>
                     <div>
                       <label className="label text-xs">Vehículo</label>
@@ -229,6 +250,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                         minimo={1}
                         textoAnadir="Añadir otro responsable"
                         error={!!errors.asignaciones}
+                        destacados={delEquipo}
                       />
                     </div>
                     <div>
@@ -240,6 +262,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                         onChange={lista => setAmbulancia(i, 'personal', lista)}
                         minimo={0}
                         textoAnadir="Añadir al equipo"
+                        destacados={delEquipo}
                       />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

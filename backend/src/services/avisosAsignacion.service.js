@@ -28,7 +28,7 @@
 
 const push   = require('./push.service');
 const logger = require('../utils/logger.utils');
-const { diaYHoraEnEspana } = require('../utils/fecha.utils');
+const { diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
 
 /** Red de seguridad: ningún aviso puede acabar en una promesa rechazada. */
 function disparar(promesa) {
@@ -319,8 +319,33 @@ function avisarTrabajoPendienteCierre(trabajo) {
   }
 }
 
+/**
+ * Te han puesto en el equipo de un trabajo (2026-10-10): la gente asignada al
+ * trabajo, vaya o no todavía en una ambulancia. A quien ENTRA, menos a quien
+ * lo hace; quien además va en una ambulancia ya recibe el «nuevo servicio» y
+ * lo quita quien llama. Abre la ficha del trabajo.
+ */
+function avisarEquipoTrabajo(trabajo, ids = [], { asignadoPor = null } = {}) {
+  try {
+    const avisar = [...new Set((ids || []).map(Number))].filter(id => id !== Number(asignadoPor));
+    if (!avisar.length) return Promise.resolve(null);
+    // instanteUtc: puede llegar el texto del body (UTC sin zona) o un Date de BD
+    const inicio = trabajo?.fecha_inicio ? diaYHoraEnEspana(instanteUtc(trabajo.fecha_inicio)) : null;
+    return disparar(push.notificarUsuarios(avisar, {
+      titulo: `${trabajo.nombre} · nuevo trabajo`,
+      cuerpo: `Te han puesto en el equipo del trabajo.${inicio ? ` Empieza el ${inicio}.` : ''}`,
+      url:    `/trabajos/${trabajo.id}`,
+      tag:    `trab-${trabajo.id}-equipo`,
+    }));
+  } catch (err) {
+    logger.error(`Aviso de equipo del trabajo no enviado: ${err?.message || err}`);
+    return Promise.resolve(null);
+  }
+}
+
 module.exports = {
   avisarAsignacionNueva,
+  avisarEquipoTrabajo,
   avisarCambioVehiculo,
   avisarAsignacionActivada,
   avisarFotosInicioCompletas,

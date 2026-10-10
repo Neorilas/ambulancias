@@ -45,18 +45,20 @@ function estadoTrabajoDesde(estados) {
 }
 
 /**
- * Modelo nuevo (v33), a partir de los estados de sus asignaciones. Las
- * canceladas no cuentan: una ambulancia que no va no retiene ni cierra nada.
+ * Modelo nuevo (v33), a partir de los estados de sus asignaciones vivas (sin
+ * las borradas). Las canceladas no cuentan: una ambulancia que no va no
+ * retiene ni cierra nada.
  *  - todas finalizadas → pendiente_cierre (D3: el trabajo NO se cierra solo;
  *    lo cierra el coordinador);
  *  - alguna activa o finalizada → activo;
  *  - ninguna empezada → programado.
- * Sin ninguna viva devuelve null y el estado no se toca (no debería pasar: no
- * se puede cancelar ni borrar la última, D6).
+ * Sin ninguna viva, programado: desde el 2026-10-10 un trabajo puede quedarse
+ * sin ambulancias (se crean después, o se quitan), y entonces no hay nada en
+ * marcha.
  */
 function estadoTrabajoDesdeAsignaciones(estados) {
   const vivas = estados.filter(e => e !== 'cancelada');
-  if (!vivas.length) return null;
+  if (!vivas.length) return TRABAJO_ESTADOS.PROGRAMADO;
   if (vivas.every(e => e === 'finalizada')) return TRABAJO_ESTADOS.PENDIENTE_CIERRE;
   if (vivas.some(e => e !== 'programada')) return TRABAJO_ESTADOS.ACTIVO;
   return TRABAJO_ESTADOS.PROGRAMADO;
@@ -79,13 +81,17 @@ function estadoTrabajoDesdeAsignaciones(estados) {
  * @returns {Promise<{estado: string|null, cambia: boolean}>}
  */
 async function sincronizarEstadoTrabajo(conn, trabajoId) {
+  // Todas, también las borradas: basta con que haya tenido UNA para saber que
+  // es del modelo nuevo, aunque ya no le quede ninguna viva. Un trabajo que
+  // nunca ha tenido ninguna (recién creado sin ambulancias, o uno v25) no se
+  // toca desde aquí.
   const [asigs] = await conn.execute(
-    'SELECT estado FROM asignaciones_libres WHERE trabajo_id = ? AND deleted_at IS NULL',
+    'SELECT estado, deleted_at IS NOT NULL AS borrada FROM asignaciones_libres WHERE trabajo_id = ?',
     [trabajoId]
   );
   let estado;
   if (Array.isArray(asigs) && asigs.length) {
-    estado = estadoTrabajoDesdeAsignaciones(asigs.map(r => r.estado));
+    estado = estadoTrabajoDesdeAsignaciones(asigs.filter(r => !Number(r.borrada)).map(r => r.estado));
   } else {
     const [rows] = await conn.execute(
       'SELECT estado FROM trabajo_vehiculos WHERE trabajo_id = ?', [trabajoId]

@@ -6,7 +6,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usuariosDisponibles, puedeAnadir } from '../../utils/miembrosAsignacion.js';
 
 // ── Combobox buscador de usuario ─────────────────────────────────────────────
-export function UserCombobox({ users, value, onChange, error }) {
+// `destacados` (ids): salen primero y marcados. Al poner responsable o equipo
+// a una ambulancia de un trabajo, son la gente del equipo del trabajo; se
+// puede elegir a cualquier otro igual (2026-10-10).
+export function UserCombobox({ users, value, onChange, error, destacados = null }) {
   const [query,    setQuery]    = useState('');
   const [open,     setOpen]     = useState(false);
   const [selected, setSelected] = useState(null);
@@ -38,12 +41,16 @@ export function UserCombobox({ users, value, onChange, error }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [selected]);
 
-  const filtered = query.trim() === ''
+  const buscados = query.trim() === ''
     ? users
     : users.filter(u => {
         const haystack = `${u.nombre} ${u.apellidos} ${u.username}`.toLowerCase();
         return haystack.includes(query.toLowerCase());
       });
+  const esDestacado = u => !!destacados && destacados.has(u.id);
+  const filtered = destacados
+    ? [...buscados.filter(esDestacado), ...buscados.filter(u => !esDestacado(u))]
+    : buscados;
 
   const handleSelect = (u) => {
     setSelected(u);
@@ -108,7 +115,9 @@ export function UserCombobox({ users, value, onChange, error }) {
                 onMouseDown={() => handleSelect(u)}
               >
                 <span>{u.nombre} {u.apellidos}</span>
-                <span className="text-xs text-neutral-400 ml-2">@{u.username}</span>
+                <span className="text-xs text-neutral-400 ml-2">
+                  {esDestacado(u) ? 'equipo del trabajo · ' : ''}@{u.username}
+                </span>
               </li>
             ))
           )}
@@ -128,7 +137,7 @@ export function UserCombobox({ users, value, onChange, error }) {
 // quien no esté ya en `ocupados`: la misma persona no puede figurar dos veces
 // (el backend lo rechaza igualmente). La usan AsignacionForm (responsables y
 // personal) y TrabajoForm (responsables de cada vehículo).
-export default function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error }) {
+export default function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error, destacados = null }) {
   const cambiar = (i, id) => onChange(lista.map((v, j) => (j === i ? id : v)));
   const quitar  = i => onChange(lista.filter((_, j) => j !== i));
   return (
@@ -141,6 +150,7 @@ export default function ListaMiembros({ users, lista, ocupados, onChange, minimo
               value={valor}
               onChange={id => cambiar(i, id)}
               error={error && !valor}
+              destacados={destacados}
             />
           </div>
           {lista.length > minimo && (

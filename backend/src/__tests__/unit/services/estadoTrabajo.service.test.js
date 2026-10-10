@@ -18,13 +18,16 @@ const {
 } = require('../../../services/estadoTrabajo.service');
 
 /** Conexión que contesta por SQL y apunta lo que se ejecuta. */
-function conexion({ asignaciones = [], vehiculos = [], afectadas = 1 } = {}) {
+function conexion({ asignaciones = [], borradas = [], vehiculos = [], afectadas = 1 } = {}) {
   const ejecutadas = [];
   return {
     ejecutadas,
     execute: jest.fn(async (sql, params) => {
       ejecutadas.push({ sql, params });
-      if (sql.includes('FROM asignaciones_libres')) return [asignaciones.map(estado => ({ estado }))];
+      if (sql.includes('FROM asignaciones_libres')) {
+        return [[...asignaciones.map(estado => ({ estado, borrada: 0 })),
+                 ...borradas.map(estado => ({ estado, borrada: 1 }))]];
+      }
       if (sql.includes('FROM trabajo_vehiculos'))   return [vehiculos.map(estado => ({ estado }))];
       if (sql.startsWith('UPDATE trabajos'))        return [{ affectedRows: afectadas }];
       return [[]];
@@ -37,7 +40,9 @@ describe('estadoTrabajo.service', () => {
 
   describe('estadoTrabajoDesdeAsignaciones (modelo nuevo)', () => {
     it.each([
-      [[], null],
+      // Sin ninguna viva no hay nada en marcha (un trabajo puede quedarse sin
+      // ambulancias desde 2026-10-10)
+      [[], 'programado'],
       [['programada', 'programada'], 'programado'],
       [['activa', 'programada'], 'activo'],
       // Una cerrada y otra sin empezar: el trabajo está en marcha
@@ -47,7 +52,7 @@ describe('estadoTrabajo.service', () => {
       // Las canceladas no cuentan, ni para retener ni para cerrar
       [['finalizada', 'cancelada'], 'pendiente_cierre'],
       [['programada', 'cancelada'], 'programado'],
-      [['cancelada'], null],
+      [['cancelada'], 'programado'],
     ])('%j → %s', (estados, esperado) => {
       expect(estadoTrabajoDesdeAsignaciones(estados)).toBe(esperado);
     });
@@ -76,10 +81,15 @@ describe('estadoTrabajo.service', () => {
       expect(upd.sql).toContain('estado <> ?');
     });
 
-    it('las asignaciones borradas no cuentan', async () => {
-      const conn = conexion({ asignaciones: ['activa'] });
-      await sincronizarEstadoTrabajo(conn, 40);
-      expect(conn.ejecutadas[0].sql).toContain('deleted_at IS NULL');
+    it('las asignaciones borradas no cuentan para el estado...', async () => {
+      const conn = conexion({ asignaciones: ['programada'], borradas: ['activa'] });
+      expect((await sincronizarEstadoTrabajo(conn, 40)).estado).toBe('programado');
+    });
+
+    it('...pero dicen que es del modelo nuevo: sin ninguna viva vuelve a programado', async () => {
+      const conn = conexion({ borradas: ['activa'], vehiculos: ['activo'] });
+      expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'programado', cambia: true });
+      expect(conn.ejecutadas.some(e => e.sql.includes('trabajo_vehiculos'))).toBe(false);
     });
 
     it('sin asignaciones cae al modelo antiguo', async () => {

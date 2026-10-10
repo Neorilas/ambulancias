@@ -162,4 +162,38 @@ describe('TrabajoDetail', () => {
     expect(screen.queryByRole('button', { name: '+ Añadir ambulancia' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
+
+  // 2026-10-10: un trabajo puede no llevar ambulancias, y tiene su equipo
+  describe('sin ambulancias y con equipo del trabajo', () => {
+    const SIN_AMB = {
+      ...TRABAJO, estado: 'programado', asignaciones: [],
+      usuarios: [{ user_id: 30, nombre: 'Eva', apellidos: 'Gil' }, { user_id: 31, nombre: 'Leo', apellidos: 'Paz' }],
+    };
+
+    it('enseña el equipo del trabajo y que aún no lleva ambulancias; gestión puede añadirlas', async () => {
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue({ ...SIN_AMB, mi_rol: 'gestion' });
+      montar();
+      expect(await screen.findByText('Equipo del trabajo')).toBeInTheDocument();
+      expect(screen.getByText('Eva Gil, Leo Paz')).toBeInTheDocument();
+      expect(screen.getByText(/Aún no lleva ninguna ambulancia/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '+ Añadir ambulancia' })).toBeInTheDocument();
+    });
+
+    it('quien está en el equipo sin ambulancia lo ve explicado, sin «Tu ambulancia»', async () => {
+      comoUsuario({ id: 30, username: 'eva', roles: ['enfermero'], permissions: [] });
+      trabajosService.get.mockResolvedValue({ ...SIN_AMB, mi_rol: 'equipo' });
+      montar();
+      expect(await screen.findByTestId('solo-equipo')).toBeInTheDocument();
+      expect(screen.queryByTestId('tu-ambulancia')).not.toBeInTheDocument();
+    });
+
+    it('el coordinador lo puede cerrar sin ambulancias cuando el backend lo permite', async () => {
+      comoUsuario({ id: 50, username: 'carla', roles: [], permissions: [] });
+      trabajosService.get.mockResolvedValue({ ...SIN_AMB, mi_rol: 'coordinador', puede_cerrar: true });
+      montar();
+      expect(await screen.findByText(/no lleva ninguna ambulancia en marcha/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cerrar trabajo' })).toBeInTheDocument();
+    });
+  });
 });

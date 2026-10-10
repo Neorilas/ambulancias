@@ -10,7 +10,8 @@ import { textoEstadoAmbulancia } from '../utils/trabajos.js';
 /**
  * «Mis trabajos»: la portada del técnico (D7 del plan del trabajo padre).
  *
- * Una tarjeta por trabajo que coordina o en el que va en alguna ambulancia:
+ * Una tarjeta por trabajo que coordina, en cuyo equipo está o en el que va en
+ * alguna ambulancia:
  * hoy arriba, los próximos debajo. La tarjeta NO ejecuta nada: su único botón
  * es «Ver trabajo», y las acciones (inicio, fotos, llegada, cierre) están
  * dentro, en «Tu ambulancia». Con su ambulancia finalizada la tarjeta sigue
@@ -54,6 +55,9 @@ function TarjetaTrabajo({ t, onVer }) {
         <p className="text-sm text-neutral-600">
           Coordinas este trabajo{t.estado === 'pendiente_cierre' ? ': todas han terminado, falta que lo cierres' : ''}.
         </p>
+      ) : t.en_equipo ? (
+        // En el equipo del trabajo, todavía (o nunca) en una ambulancia
+        <p className="text-sm text-neutral-600">Estás en el equipo de este trabajo.</p>
       ) : null}
 
       <button onClick={onVer} className="btn-primary w-full sm:w-auto">Ver trabajo</button>
