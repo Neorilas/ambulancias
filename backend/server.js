@@ -142,9 +142,10 @@ async function startServer() {
   }
 
   // Cron: auto-activar trabajos y asignaciones programados cuya fecha_inicio ya pasó
-  const { query: dbQuery } = require('./src/config/database');
+  const { query: dbQuery, transaction: dbTransaction } = require('./src/config/database');
   const { ahora } = require('./src/utils/fecha.utils');
   const avisosAsignacion = require('./src/services/avisosAsignacion.service');
+  const estadoTrabajo = require('./src/services/estadoTrabajo.service');
   const vigilancia       = require('./src/services/vigilancia.service');
   const autoActivar = async () => {
     try {
@@ -166,9 +167,17 @@ async function startServer() {
           WHERE tv.estado = 'programado' AND t.fecha_inicio <= ? AND t.deleted_at IS NULL`,
         [ahoraUtc]
       );
+      // Solo los del modelo antiguo (v25: sin coordinador, o con vehículos en
+      // trabajo_vehiculos). Uno del modelo nuevo no arranca por su reloj, sino
+      // cuando arranca alguna de sus ambulancias (más abajo, al activarlas, se
+      // sincroniza), y sin ambulancias se queda programado: puede que se
+      // las pongan después (2026-10-10).
       const [trab] = await dbQuery(
         `UPDATE trabajos SET estado = 'activo'
-         WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL`,
+         WHERE estado = 'programado' AND fecha_inicio <= ? AND deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM asignaciones_libres al WHERE al.trabajo_id = trabajos.id)
+           AND (coordinador_user_id IS NULL
+                OR EXISTS (SELECT 1 FROM trabajo_vehiculos tv WHERE tv.trabajo_id = trabajos.id))`,
         [ahoraUtc]
       );
       if (trab.affectedRows > 0 || trabVeh.affectedRows > 0) {
@@ -182,12 +191,13 @@ async function startServer() {
       // la fila: si el responsable acaba de pulsar «Inicio de servicio» en ese
       // hueco, aquí afecta a 0 filas y no se manda un segundo aviso.
       const [programadas] = await dbQuery(
-        `SELECT al.id, al.user_id,
+        `SELECT al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
                 v.alias AS vehiculo_alias, v.matricula,
                 CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
            FROM asignaciones_libres al
            JOIN vehicles v ON v.id = al.vehicle_id
            JOIN users u    ON u.id = al.user_id
+           LEFT JOIN trabajos t ON t.id = al.trabajo_id
           WHERE al.estado = 'programada'
             AND al.fecha_inicio <= ?
             AND al.deleted_at IS NULL`,
@@ -203,6 +213,18 @@ async function startServer() {
         );
         if (res.affectedRows === 0) continue;   // se adelantó el responsable
         activadas++;
+        // El trabajo de esa ambulancia pasa a «activo» (estadoTrabajo.service).
+        // Con su propio catch: un fallo aquí no puede dejar sin activar ni
+        // sin aviso al resto de asignaciones del mismo tick.
+        if (asignacion.trabajo_id) {
+          try {
+            // En su propia transacción: sincronizarEstadoTrabajo bloquea la fila
+            // del trabajo para no cruzarse con un cierre que llegue a la vez
+            await dbTransaction(conn => estadoTrabajo.sincronizarEstadoTrabajo(conn, asignacion.trabajo_id));
+          } catch (err) {
+            logger.error(`Cron: no se pudo sincronizar el trabajo ${asignacion.trabajo_id}: ${err.message}`);
+          }
+        }
         avisosAsignacion.avisarAsignacionActivada(asignacion);
       }
       if (activadas > 0) {

@@ -48,8 +48,11 @@ export default function Sidebar({ isOpen, onClose }) {
         {
           label: 'Operación',
           items: [
-            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: isFeatureEnabled('menu_mis_asignaciones') },
+            // «Mis trabajos» primero: es la entrada principal (D7). «Mis
+            // asignaciones» se queda mientras haya asignaciones del modelo
+            // antiguo abiertas, y luego se retira.
             { to: '/mis-trabajos',     label: 'Mis trabajos',     show: isFeatureEnabled('menu_mis_trabajos') },
+            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: isFeatureEnabled('menu_mis_asignaciones') },
           ],
         },
         {
@@ -81,8 +84,8 @@ export default function Sidebar({ isOpen, onClose }) {
         {
           label: null,
           items: [
-            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: true },
             { to: '/mis-trabajos',     label: 'Mis trabajos',     show: isFeatureEnabled('menu_mis_trabajos') },
+            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: true },
           ],
         },
       ];

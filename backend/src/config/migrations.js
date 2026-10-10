@@ -1119,6 +1119,61 @@ const MIGRATIONS = [
                       'menu', 1, 96)`);
     },
   },
+
+  {
+    name: 'v33_trabajo_padre',
+    description: 'El trabajo es el padre: asignaciones con trabajo_id, coordinador y cierre del trabajo',
+    async run() {
+      // Decisión del 2026-09-27 (MAPA_CODIGO.md §6.2): una asignación es una
+      // ambulancia DENTRO de un trabajo. NULL-able porque las asignaciones que
+      // ya existen se quedan en el modelo antiguo hasta cerrarse, y porque el
+      // frontend se sube a mano: el viejo sigue creando asignaciones sin
+      // trabajo hasta que se publique el nuevo. Sin CASCADE: un trabajo con
+      // asignaciones no se borra (y además el borrado de trabajos es lógico).
+      await ensureColumn('asignaciones_libres', 'trabajo_id',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN trabajo_id INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Trabajo al que pertenece; NULL = asignación del modelo antiguo'
+             AFTER id,
+           ADD INDEX idx_al_trabajo (trabajo_id),
+           ADD CONSTRAINT fk_al_trabajo FOREIGN KEY (trabajo_id)
+             REFERENCES trabajos(id) ON DELETE RESTRICT`);
+
+      // Quien cierra el trabajo. NULL-able: los trabajos de antes no tienen,
+      // y esos los sigue cerrando gestión.
+      await ensureColumn('trabajos', 'coordinador_user_id',
+        `ALTER TABLE trabajos
+           ADD COLUMN coordinador_user_id INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Quien cierra el trabajo; ve el detalle de todas sus ambulancias'
+             AFTER ubicacion,
+           ADD INDEX idx_trab_coordinador (coordinador_user_id),
+           ADD CONSTRAINT fk_trab_coordinador FOREIGN KEY (coordinador_user_id)
+             REFERENCES users(id) ON DELETE RESTRICT`);
+      await ensureColumn('trabajos', 'cerrado_at',
+        `ALTER TABLE trabajos
+           ADD COLUMN cerrado_at DATETIME NULL DEFAULT NULL
+             COMMENT 'Instante en que el coordinador cerró el trabajo (UTC)'`);
+      await ensureColumn('trabajos', 'cerrado_por',
+        `ALTER TABLE trabajos
+           ADD COLUMN cerrado_por INT UNSIGNED NULL DEFAULT NULL,
+           ADD CONSTRAINT fk_trab_cerrado_por FOREIGN KEY (cerrado_por)
+             REFERENCES users(id) ON DELETE SET NULL`);
+
+      // `pendiente_cierre`: todas sus ambulancias han finalizado y falta que
+      // el coordinador cierre el trabajo. Se mira el COLUMN_TYPE, como v8,
+      // porque ensureColumn no sirve para un cambio de ENUM.
+      const [enumRows] = await query(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trabajos'
+           AND COLUMN_NAME = 'estado' AND COLUMN_TYPE LIKE '%pendiente_cierre%'`
+      );
+      if (enumRows[0].c === 0) {
+        await query(`ALTER TABLE trabajos MODIFY COLUMN estado
+          ENUM('programado','activo','pendiente_cierre','finalizado','finalizado_anticipado')
+          NOT NULL DEFAULT 'programado'`);
+      }
+    },
+  },
 ];
 
 // ============================================================

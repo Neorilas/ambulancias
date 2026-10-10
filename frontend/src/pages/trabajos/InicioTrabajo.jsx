@@ -6,6 +6,12 @@ import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { IMAGEN_TIPOS_INICIO } from '../../utils/constants.js';
 
 /**
+ * MODELO v25 (trabajos con `trabajo_vehiculos`). Convive con el trabajo padre
+ * hasta la fase 6 del plan, para que los trabajos antiguos a medias se puedan
+ * terminar; lo abre `TrabajoV25`. Se borró en la fase 4 y se recuperó tal cual
+ * de master el 2026-10-10. Los trabajos nuevos no pasan por aquí: sus
+ * ambulancias son asignaciones (`InicioAsignacion`).
+ *
  * Flujo de INICIO de un vehículo del trabajo — fotos al recibirlo.
  * · Fotos obligatorias de inicio (contorno + aceite + líquidos + cuadro).
  * · NO pide km ni motivo.

@@ -8,6 +8,12 @@ import { parseKm } from '../../utils/kmUtils.js';
 import { errorMotivo } from '../../utils/motivo.js';
 
 /**
+ * MODELO v25 (trabajos con `trabajo_vehiculos`). Convive con el trabajo padre
+ * hasta la fase 6 del plan, para que los trabajos antiguos a medias se puedan
+ * terminar; lo abre `TrabajoV25`. Se borró en la fase 4 y se recuperó tal cual
+ * de master el 2026-10-10. Los trabajos nuevos cierran cada ambulancia como
+ * asignación (`FinalizacionAsignacion`).
+ *
  * Cierre de UN vehículo del trabajo (v25: cada responsable cierra el suyo; el
  * trabajo se da por finalizado cuando cierra el último).
  * Paso 1: Fotos + km

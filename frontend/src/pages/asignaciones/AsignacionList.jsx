@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import {
@@ -17,6 +18,14 @@ const ESTADOS = ['', 'programada', 'activa', 'finalizada', 'cancelada'];
 
 export default function AsignacionList() {
   const { notify } = useNotification();
+  const { features, isFeatureEnabled } = useFeatures();
+  // D9: con Trabajos encendido, una ambulancia se da de alta desde su trabajo
+  // y este listado queda como vista operativa, sin botón de alta. Se mira la
+  // lista REAL de flags y no isFeatureEnabled, que al superadmin le dice que
+  // sí a todo: con el flag apagado (hasta la fase 7) el alta suelta es la
+  // única que tiene gestión y no puede desaparecer.
+  const altaSuelta      = !features.includes('menu_trabajos');
+  const trabajosVisibles = isFeatureEnabled('menu_trabajos');
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [pagination,   setPagination]   = useState(null);
@@ -35,6 +44,15 @@ export default function AsignacionList() {
   // se estaba en el listado (la alarma se ve desde cualquier pantalla).
   const [params, setParams] = useSearchParams();
   const idPedido = Number(params.get('id')) || null;
+  // `?trabajo_id=N` (o `sin`): las ambulancias de un trabajo, o las del
+  // modelo antiguo que no tienen.
+  const trabajoFiltro = params.get('trabajo_id') || '';
+  const quitarFiltroTrabajo = () => {
+    const siguiente = new URLSearchParams(params);
+    siguiente.delete('trabajo_id');
+    setParams(siguiente, { replace: true });
+    setPage(1);
+  };
   useEffect(() => { if (idPedido) setDetalleId(idPedido); }, [idPedido]);
 
   const cerrarDetalle = () => {
@@ -54,6 +72,7 @@ export default function AsignacionList() {
     try {
       const params = { page, limit: 20 };
       if (estado) params.estado = estado;
+      if (trabajoFiltro) params.trabajo_id = trabajoFiltro;
       const resp = await asignacionesService.list(params);
       setAsignaciones(resp.data || []);
       setPagination(resp.pagination);
@@ -62,7 +81,7 @@ export default function AsignacionList() {
     } finally {
       setLoading(false);
     }
-  }, [page, estado]);
+  }, [page, estado, trabajoFiltro]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -100,10 +119,21 @@ export default function AsignacionList() {
           <h1 className="text-[19px] font-semibold text-neutral-900">Asignaciones de vehículos</h1>
           <p className="text-neutral-500 text-sm">{pagination?.total ?? 0} asignaciones</p>
         </div>
-        <button onClick={() => { setEditItem(null); setShowForm(true); }} className="btn-primary">
-          + Nueva asignación
-        </button>
+        {altaSuelta && (
+          <button onClick={() => { setEditItem(null); setShowForm(true); }} className="btn-primary">
+            + Nueva asignación
+          </button>
+        )}
       </div>
+
+      {trabajoFiltro && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="badge-blue">
+            {trabajoFiltro === 'sin' ? 'Sin trabajo' : `Trabajo #${trabajoFiltro}`}
+          </span>
+          <button onClick={quitarFiltroTrabajo} className="btn-ghost btn-sm">Quitar filtro</button>
+        </div>
+      )}
 
       {/* Filtro estado */}
       <div className="flex gap-2 flex-wrap">
@@ -131,6 +161,7 @@ export default function AsignacionList() {
                 <thead>
                   <tr>
                     <th>Vehículo</th>
+                    {trabajosVisibles && <th>Trabajo</th>}
                     <th>Responsable</th>
                     <th>Inicio</th>
                     <th>Fin</th>
@@ -141,20 +172,33 @@ export default function AsignacionList() {
                 </thead>
                 <tbody>
                   {asignaciones.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-8 text-neutral-400">Sin asignaciones</td></tr>
+                    <tr><td colSpan={trabajosVisibles ? 8 : 7} className="text-center py-8 text-neutral-400">Sin asignaciones</td></tr>
                   ) : asignaciones.map(a => (
                     <tr key={a.id} className="cursor-pointer" onClick={() => setDetalleId(a.id)}>
                       <td>
                         <p className="font-medium text-neutral-900">{a.vehiculo_alias}</p>
                         <p className="text-xs text-neutral-500 data">{a.matricula}</p>
                       </td>
+                      {trabajosVisibles && (
+                        <td onClick={e => a.trabajo_id && e.stopPropagation()}>
+                          {a.trabajo_id ? (
+                            <Link to={`/trabajos/${a.trabajo_id}?asignacion=${a.id}`}
+                              className="text-sm font-medium text-primary-600 hover:underline">
+                              {a.trabajo_nombre}
+                            </Link>
+                          ) : (
+                            // Modelo antiguo: hasta que la retención se las lleve
+                            <span className="badge-gray whitespace-nowrap">Sin trabajo</span>
+                          )}
+                        </td>
+                      )}
                       <td>
                         <p className="text-sm text-neutral-700" title={a.responsables_nombres || undefined}>
                           {resumenNombres(a.responsables_nombres) || a.responsable_nombre}
                         </p>
                         {a.personal_nombres ? (
                           <p className="text-xs text-neutral-400" title={a.personal_nombres}>
-                            + personal: {resumenNombres(a.personal_nombres)}
+                            + equipo: {resumenNombres(a.personal_nombres)}
                           </p>
                         ) : (
                           <p className="text-xs text-neutral-400">@{a.responsable_username}</p>

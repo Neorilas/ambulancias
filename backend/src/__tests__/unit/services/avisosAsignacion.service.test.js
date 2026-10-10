@@ -266,4 +266,94 @@ describe('avisosAsignacion.service', () => {
       await expect(avisos.avisarCambioVehiculo(NUEVA, [7])).resolves.toBeDefined();
     });
   });
+
+  // D10 del plan del trabajo padre: todo aviso de una ambulancia de un
+  // trabajo abre el trabajo, con esa ambulancia señalada, y nombra el trabajo.
+  describe('asignación dentro de un trabajo (v33)', () => {
+    const EN_TRABAJO = { ...ASIGNACION, trabajo_id: 40, trabajo_nombre: 'Maratón' };
+    const COMPLETA   = { ...ASIGNACION, trabajo_id: 40, trabajo: { id: 40, nombre: 'Maratón' },
+                         responsables: [{ id: 7, nombre: 'Juan', apellidos: 'López' }], personal: [{ id: 8 }] };
+
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1 });
+    });
+
+    it.each([
+      ['activada',    () => avisos.avisarAsignacionActivada(EN_TRABAJO)],
+      ['fotos',       () => avisos.avisarFotosInicioCompletas(EN_TRABAJO)],
+      ['llegada',     () => avisos.avisarLlegadaEvento(EN_TRABAJO)],
+      ['fin evento',  () => avisos.avisarFinEvento(EN_TRABAJO)],
+      ['sin iniciar', () => avisos.avisarAsignacionSinIniciar(EN_TRABAJO, { minutos: 30 })],
+      ['finalizada',  () => avisos.avisarAsignacionFinalizada(EN_TRABAJO)],
+    ])('el aviso de %s a gestión abre el trabajo y lo nombra', async (_n, disparar) => {
+      await disparar();
+      const [aviso] = push.notificarAdmins.mock.calls[0];
+      expect(aviso.url).toBe('/trabajos/40?asignacion=12');
+      expect(aviso.cuerpo).toContain('en «Maratón»');
+    });
+
+    it('el «nuevo servicio» y el cambio de vehículo llevan al técnico al trabajo, no a /mis-asignaciones', async () => {
+      await avisos.avisarAsignacionNueva(COMPLETA, [7, 8]);
+      await avisos.avisarCambioVehiculo(COMPLETA, [7]);
+      const urls = push.notificarUsuarios.mock.calls.map(c => c[1].url);
+      expect(urls).toEqual(['/trabajos/40?asignacion=12', '/trabajos/40?asignacion=12', '/trabajos/40?asignacion=12']);
+      expect(push.notificarUsuarios.mock.calls[0][1].cuerpo).toContain('en «Maratón»');
+    });
+
+    it('sin trabajo, los enlaces de siempre y sin «en …» en el texto', async () => {
+      await avisos.avisarAsignacionActivada(ASIGNACION);
+      expect(push.notificarAdmins.mock.calls[0][0].url).toBe('/asignaciones?id=12');
+      expect(push.notificarAdmins.mock.calls[0][0].cuerpo).not.toContain('«');
+      expect(avisos.urlParaMiembros(ASIGNACION)).toBe('/mis-asignaciones');
+    });
+
+    it('pendiente de cierre: solo al coordinador, con la ficha del trabajo', async () => {
+      await avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'Maratón', coordinador_user_id: 5 });
+      expect(push.notificarAdmins).not.toHaveBeenCalled();
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([5], expect.objectContaining({
+        url: '/trabajos/40', tag: 'trab-40-pendiente-cierre',
+      }));
+      expect(push.notificarUsuarios.mock.calls[0][1].titulo).toContain('Maratón');
+    });
+
+    it('pendiente de cierre de un trabajo sin coordinador (anterior a v33): a gestión', async () => {
+      await avisos.avisarTrabajoPendienteCierre({ id: 41, nombre: 'Viejo', coordinador_user_id: null });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+      expect(push.notificarAdmins).toHaveBeenCalledWith(expect.objectContaining({ url: '/trabajos/41' }));
+    });
+
+    it('un fallo del servicio de push no se propaga', async () => {
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'M', coordinador_user_id: 5 }))
+        .resolves.toBeDefined();
+    });
+  });
+
+  // 2026-10-10: la gente asignada al trabajo, vaya o no en una ambulancia
+  describe('avisarEquipoTrabajo', () => {
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1 });
+    });
+
+    it('a quien entra, menos a quien lo hace, abriendo la ficha del trabajo', async () => {
+      await avisos.avisarEquipoTrabajo(
+        { id: 40, nombre: 'Maratón', fecha_inicio: '2026-11-01 07:00:00' }, [5, 6, 6, 9], { asignadoPor: 9 });
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([5, 6], expect.objectContaining({
+        url: '/trabajos/40', tag: 'trab-40-equipo',
+      }));
+      const [, aviso] = push.notificarUsuarios.mock.calls[0];
+      expect(aviso.titulo).toBe('Maratón · nuevo trabajo');
+      // El texto del body es UTC sin zona: 07:00 UTC son las 08:00 en España
+      expect(aviso.cuerpo).toContain('08:00');
+    });
+
+    it('sin nadie a quien avisar no llama; un fallo de push no se propaga', async () => {
+      await avisos.avisarEquipoTrabajo({ id: 40, nombre: 'M' }, [9], { asignadoPor: 9 });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+      push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
+      await expect(avisos.avisarEquipoTrabajo({ id: 40, nombre: 'M' }, [5])).resolves.toBeDefined();
+    });
+  });
 });

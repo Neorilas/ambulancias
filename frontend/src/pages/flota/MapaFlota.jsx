@@ -377,7 +377,10 @@ export default function MapaFlota() {
               entradas={visibles}
               seleccionada={seleccionada}
               onSeleccionar={setSeleccionada}
-              onAbrirAsignacion={puedeVerAsignaciones ? (id) => navigate(rutaAsignacion(id)) : null}
+              onAbrirAsignacion={puedeVerAsignaciones
+                ? (asig) => navigate(rutaAsignacion(asig, isFeatureEnabled('menu_trabajos')))
+                : null}
+              trabajosVisibles={isFeatureEnabled('menu_trabajos')}
             />
           </div>
           <div ref={fichaRef} className={elegida ? 'scroll-mt-20' : 'hidden'}>

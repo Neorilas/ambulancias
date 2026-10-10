@@ -15,6 +15,7 @@ const { subirImagen, processAndSave } = require('../middleware/upload.middleware
 const { uploadLimiter }            = require('../middleware/rateLimiter.middleware');
 const { requireTrabajoEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { TRABAJO_TIPOS, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
+const { limpiarMilesKm } = require('../utils/km.utils');
 
 const router = express.Router();
 router.use(authenticate);
@@ -35,6 +36,27 @@ const validarCamposTrabajo = [
   body('vehiculos.*.kilometros_inicio').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }),
   body('usuarios').optional().isArray(),
   body('usuarios.*').optional().isInt({ min: 1 }),
+];
+
+// Las ambulancias del alta (v33): cada una es una asignación. Pueden ser
+// ninguna (2026-10-10). Que no se repitan y las fechas por defecto las decide
+// el controlador (`leerAmbulancias`); aquí, la forma y los tamaños, con los
+// mismos topes que POST /asignaciones.
+const validarAmbulanciasAlta = [
+  body('asignaciones').optional().isArray({ max: 20 }),
+  body('asignaciones.*.vehicle_id').isInt({ min: 1 }),
+  body('asignaciones.*.responsables').isArray({ min: 1, max: 20 })
+    .withMessage('Cada ambulancia necesita al menos un responsable'),
+  body('asignaciones.*.responsables.*').isInt({ min: 1 }),
+  body('asignaciones.*.personal').optional().isArray({ max: 30 }),
+  body('asignaciones.*.personal.*').isInt({ min: 1 }),
+  body('asignaciones.*.fecha_inicio').optional({ nullable: true, checkFalsy: true })
+    .isISO8601().customSanitizer(fechaApiAMysql),
+  body('asignaciones.*.fecha_fin').optional({ nullable: true, checkFalsy: true })
+    .isISO8601().customSanitizer(fechaApiAMysql),
+  body('asignaciones.*.km_inicio').optional({ nullable: true })
+    .customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
+  body('asignaciones.*.notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
 ];
 
 // GET /trabajos/mis-trabajos  (para personal operacional)
@@ -68,7 +90,13 @@ router.post('/',
     body('tipo').notEmpty().isIn(Object.values(TRABAJO_TIPOS)).withMessage(`tipo inválido. Valores válidos: ${Object.values(TRABAJO_TIPOS).join(', ')}`),
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
+    // D1: cualquier usuario activo; no hace falta que vaya en una ambulancia
+    // Sin `vehiculos`: el formulario viejo lo manda y no trae coordinador; así
+    // le llega el «recárgala» del controlador y no un «falta el coordinador»
+    body('coordinador_user_id').if(body('vehiculos').not().exists())
+      .notEmpty().withMessage('Falta el coordinador del trabajo').isInt({ min: 1 }),
     ...validarCamposTrabajo,
+    ...validarAmbulanciasAlta,
   ],
   handleValidation,
   ctrl.createTrabajo
@@ -83,6 +111,8 @@ router.put('/:id',
     body('tipo').optional().isIn(Object.values(TRABAJO_TIPOS)),
     body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
+    // Se puede cambiar, no quitar: todo trabajo nuevo tiene quien lo cierre
+    body('coordinador_user_id').optional().isInt({ min: 1 }),
     ...validarCamposTrabajo,
   ],
   handleValidation,
@@ -97,7 +127,16 @@ router.delete('/:id',
   ctrl.deleteTrabajo
 );
 
-// Ciclo de vida POR VEHÍCULO: cada responsable activa y cierra el suyo. El
+// POST /trabajos/:id/cerrar — D3: lo cierra su coordinador (o gestión) con
+// todas sus ambulancias finalizadas. Quién puede lo decide el controlador,
+// porque depende del trabajo concreto (es SU coordinador).
+router.post('/:id/cerrar',
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.cerrarTrabajo
+);
+
+// Ciclo de vida POR VEHÍCULO (modelo v25): cada responsable activa y cierra el suyo. El
 // permiso lo decide el controlador (responsable de ESE vehículo, o gestión).
 const paramsVehiculo = [param('id').isInt({ min: 1 }), param('vehicleId').isInt({ min: 1 })];
 

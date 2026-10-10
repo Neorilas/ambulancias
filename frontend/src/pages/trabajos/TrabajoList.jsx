@@ -116,6 +116,7 @@ export default function TrabajoList() {
               <option value="">Todos los estados</option>
               <option value="programado">Programado</option>
               <option value="activo">Activo</option>
+              <option value="pendiente_cierre">Pendiente de cierre</option>
               <option value="finalizado">Finalizado</option>
               <option value="finalizado_anticipado">Fin. anticipado</option>
             </select>
@@ -142,6 +143,7 @@ export default function TrabajoList() {
                       className={`card hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
                         t.estado === 'activo'     ? 'border-l-green-500' :
                         t.estado === 'programado' ? 'border-l-yellow-400' :
+                        t.estado === 'pendiente_cierre' ? 'border-l-yellow-400' :
                         t.estado === 'finalizado' ? 'border-l-neutral-300' :
                         'border-l-red-300'
                       }`}
@@ -164,7 +166,8 @@ export default function TrabajoList() {
                             {t.identificador} · {formatDateTime(t.fecha_inicio)} → {formatDateTime(t.fecha_fin)}
                           </p>
                           <p className="text-xs text-neutral-400 mt-0.5">
-                            {t.num_vehiculos} vehículo(s) · {t.num_usuarios} persona(s)
+                            {t.num_vehiculos} ambulancia(s) · {t.num_usuarios} persona(s)
+                            {t.coordinador_nombre && <> · Coordina {t.coordinador_nombre}</>}
                           </p>
                         </div>
                         {canDeleteAny() && (
@@ -195,7 +198,8 @@ export default function TrabajoList() {
 
       {showForm && (
         <TrabajoForm
-          onSaved={() => { setShowForm(false); load(); }}
+          // Recién creado, a su ficha: es donde se añaden más ambulancias
+          onSaved={(nuevo) => { setShowForm(false); if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`); else load(); }}
           onClose={() => setShowForm(false)}
         />
       )}

@@ -1,6 +1,14 @@
 import api from './api.js';
 import { conReintentos, SUBIDA_FOTO_TIMEOUT_MS } from '../utils/subidaFotos.js';
 
+/**
+ * Trabajos (v33, el trabajo padre): sus ambulancias son asignaciones y se
+ * operan con `asignaciones.service` (activar, fotos, llegada, finalizar). Aquí
+ * queda lo del trabajo: datos, coordinador, quién ve qué y el cierre.
+ *
+ * Y, hasta la fase 6 del plan, el ciclo por vehículo del modelo v25, para que
+ * los trabajos antiguos a medias se puedan terminar (`TrabajoV25`).
+ */
 export const trabajosService = {
   list(params = {}) {
     return api.get('/trabajos', { params }).then(r => r.data);
@@ -14,6 +22,7 @@ export const trabajosService = {
   get(id) {
     return api.get(`/trabajos/${id}`).then(r => r.data.data);
   },
+  /** El trabajo con su coordinador y al menos una ambulancia (`asignaciones`). */
   create(data) {
     return api.post('/trabajos', data).then(r => r.data.data);
   },
@@ -23,6 +32,12 @@ export const trabajosService = {
   delete(id) {
     return api.delete(`/trabajos/${id}`).then(r => r.data);
   },
+  /** Lo cierra su coordinador (o gestión) con todas sus ambulancias finalizadas. */
+  cerrar(id) {
+    return api.post(`/trabajos/${id}/cerrar`).then(r => r.data.data);
+  },
+
+  // ── Modelo v25 (convive hasta la fase 6) ──────────────────────
   // Ciclo de vida por vehículo: cada responsable activa y cierra el suyo
   activarVehiculo(id, vehicleId) {
     return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/activar`).then(r => r.data.data);
@@ -30,7 +45,7 @@ export const trabajosService = {
   finalizeVehiculo(id, vehicleId, data) {
     return api.post(`/trabajos/${id}/vehiculos/${vehicleId}/finalize`, data).then(r => r.data);
   },
-  // Solo trabajos SIN vehículos (los lleva gestión a mano)
+  // Solo trabajos v25 SIN vehículos (los lleva gestión a mano)
   activar(id) {
     return api.post(`/trabajos/${id}/activar`).then(r => r.data.data);
   },

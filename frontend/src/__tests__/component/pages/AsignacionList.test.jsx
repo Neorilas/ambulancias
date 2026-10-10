@@ -16,6 +16,11 @@ vi.mock('../../../pages/asignaciones/AsignacionDetalle.jsx', () => ({
   ),
 }));
 vi.mock('../../../pages/asignaciones/AsignacionForm.jsx', () => ({ default: () => null }));
+// Los flags se fijan por test: el enlace al trabajo depende de su pantalla.
+const flags = vi.hoisted(() => ({ activos: [] }));
+vi.mock('../../../context/FeaturesContext.jsx', () => ({
+  useFeatures: () => ({ features: flags.activos, isFeatureEnabled: (k) => flags.activos.includes(k) }),
+}));
 
 import { asignacionesService }  from '../../../services/asignaciones.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
@@ -83,5 +88,49 @@ describe('AsignacionList · número', () => {
     expect(await screen.findByText('#123')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Nº' })).toBeInTheDocument();
     expect(screen.queryByText('Km inicio')).not.toBeInTheDocument();
+  });
+});
+
+// D9: con Trabajos encendido, el alta va por el trabajo y aquí queda la vista
+// operativa, con la columna y el filtro de trabajo.
+describe('AsignacionList · trabajo (v33)', () => {
+  const FILA = {
+    id: 7, estado: 'programada', vehiculo_alias: 'UVI 1', matricula: '7777AAA',
+    responsable_nombre: 'Ana', responsable_username: 'ana',
+    fecha_inicio: '2026-10-20T08:00:00Z', fecha_fin: '2026-10-20T20:00:00Z',
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asignacionesService.list.mockResolvedValue({
+      data: [{ ...FILA, trabajo_id: 40, trabajo_nombre: 'Maratón' }, { ...FILA, id: 8 }],
+      pagination: { total: 2 },
+    });
+  });
+
+  it('con Trabajos apagado: alta suelta y sin columna de trabajo', async () => {
+    flags.activos = [];
+    montar('/asignaciones');
+    await screen.findByText('#7');
+    expect(screen.getByRole('button', { name: /Nueva asignación/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Trabajo' })).not.toBeInTheDocument();
+  });
+
+  it('con Trabajos encendido: sin alta, y cada fila con su trabajo o «Sin trabajo»', async () => {
+    flags.activos = ['menu_trabajos'];
+    montar('/asignaciones');
+    await screen.findByText('#7');
+    expect(screen.queryByRole('button', { name: /Nueva asignación/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Maratón' })).toHaveAttribute('href', '/trabajos/40?asignacion=7');
+    expect(screen.getByText('Sin trabajo')).toBeInTheDocument();
+  });
+
+  it('?trabajo_id= filtra y se puede quitar', async () => {
+    const user = userEvent.setup();
+    flags.activos = ['menu_trabajos'];
+    montar('/asignaciones?trabajo_id=40');
+    await waitFor(() => expect(asignacionesService.list).toHaveBeenCalledWith(
+      expect.objectContaining({ trabajo_id: '40' })));
+    await user.click(screen.getByRole('button', { name: 'Quitar filtro' }));
+    await waitFor(() => expect(screen.getByTestId('url')).toBeEmptyDOMElement());
   });
 });

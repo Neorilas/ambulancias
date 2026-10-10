@@ -224,4 +224,55 @@ describe('retencion.service', () => {
       expect(transaction).not.toHaveBeenCalled();
     });
   });
+
+  // El trabajo padre (v33)
+  describe('asignaciones de un trabajo', () => {
+    it('no purga las de un trabajo que el coordinador aún no ha cerrado', async () => {
+      query.mockResolvedValueOnce([[]]);
+      await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+
+      const [sql] = query.mock.calls[1];
+      expect(sql).toContain('trabajo_id IS NULL OR trabajo_id IN');
+      expect(sql).toContain("tc.estado IN ('finalizado', 'finalizado_anticipado')");
+      // Lo mismo en la consulta de los meses a archivar: tienen que ver las mismas filas
+      expect(query.mock.calls[0][0]).toContain('trabajo_id IS NULL OR trabajo_id IN');
+    });
+
+    it('el trabajo cerrado se va con su última ambulancia, y queda en la auditoría', async () => {
+      query.mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, trabajo_id: 40, contaba: 1 }]]);
+      const ejecutadas = conexion();
+
+      const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+
+      const borraTrabajo = ejecutadas.find(e => e.sql.startsWith('DELETE FROM trabajos'));
+      expect(borraTrabajo.sql).toContain("estado IN ('finalizado', 'finalizado_anticipado') OR deleted_at IS NOT NULL");
+      expect(borraTrabajo.sql).toContain('NOT EXISTS (SELECT 1 FROM asignaciones_libres WHERE trabajo_id = ?)');
+      expect(borraTrabajo.sql).toContain('NOT EXISTS (SELECT 1 FROM trabajo_vehiculos  WHERE trabajo_id = ?)');
+      expect(borraTrabajo.params).toEqual([40, 40, 40]);
+      // Después de borrar la asignación, que es lo que deja al trabajo sin ninguna
+      const orden = ejecutadas.map(e => e.sql.trim().split(/\s+/).slice(0, 3).join(' '));
+      expect(orden.indexOf('DELETE FROM trabajos')).toBeGreaterThan(orden.indexOf('DELETE FROM asignaciones_libres'));
+      expect(r.trabajos).toEqual([40]);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        details: expect.objectContaining({ trabajos: [40] }),
+      }));
+    });
+
+    it('si al trabajo le queda alguna (el DELETE no toca nada), sigue', async () => {
+      query.mockResolvedValueOnce([[{ id: 5, vehicle_id: 3, trabajo_id: 40, contaba: 1 }]]);
+      transaction.mockImplementation(async (cb) => cb({
+        execute: jest.fn(async (sql) => [sql.startsWith('DELETE FROM trabajos') ? { affectedRows: 0 } : (sql.startsWith('SELECT') ? [] : { affectedRows: 1 })]),
+      }));
+      const r = await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+      expect(r.asignaciones).toBe(1);
+      expect(r.trabajos).toEqual([]);
+    });
+
+    it('una sin trabajo no intenta borrar ninguno', async () => {
+      query.mockResolvedValueOnce([[{ id: 6, vehicle_id: 3, trabajo_id: null, contaba: 1 }]]);
+      const ejecutadas = conexion();
+      await purgarAsignacionesAntiguas({ meses: 9, instante: AHORA });
+      expect(ejecutadas.some(e => e.sql.startsWith('DELETE FROM trabajos'))).toBe(false);
+    });
+  });
 });

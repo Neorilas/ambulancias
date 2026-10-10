@@ -22,6 +22,8 @@ module.exports = {
   TRABAJO_ESTADOS: {
     PROGRAMADO:          'programado',
     ACTIVO:              'activo',
+    // Todas sus ambulancias han finalizado; falta que el coordinador lo cierre (v33)
+    PENDIENTE_CIERRE:    'pendiente_cierre',
     FINALIZADO:          'finalizado',
     FINALIZADO_ANTICIPADO: 'finalizado_anticipado',
   },

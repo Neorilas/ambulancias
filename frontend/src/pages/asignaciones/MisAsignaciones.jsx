@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import {
   formatDateTime, formatDateTimeShort, inicioServicioPermitidoDesde, esProntoParaIniciar,
@@ -14,6 +16,9 @@ import { resumenNombres } from '../../utils/miembrosAsignacion.js';
 export default function MisAsignaciones() {
   const { notify } = useNotification();
   const { canManageTrabajos } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
+  // El trabajo se enlaza solo si su pantalla está abierta para quien mira
+  const puedeVerTrabajo = isFeatureEnabled('menu_trabajos') || isFeatureEnabled('menu_mis_trabajos');
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [loading,      setLoading]      = useState(true);
@@ -71,7 +76,7 @@ export default function MisAsignaciones() {
           {asignaciones.map(a => {
             const isActiva     = a.estado === 'activa';
             const isProgramada = a.estado === 'programada';
-            // El personal ve la asignación, pero no la inicia ni la finaliza
+            // El equipo ve la asignación, pero no la inicia ni la finaliza
             const esPersonal   = a.mi_rol === 'personal' && !canManageTrabajos();
 
             return (
@@ -85,8 +90,23 @@ export default function MisAsignaciones() {
                       <span className={ASIGNACION_ESTADO_COLORS[a.estado]}>
                         {ASIGNACION_ESTADO_LABELS[a.estado]}
                       </span>
-                      {esPersonal && <span className="badge-gray">Personal</span>}
+                      {esPersonal && <span className="badge-gray">Equipo</span>}
                     </div>
+
+                    {/* Su trabajo (v33): título y enlace a la ficha */}
+                    {a.trabajo_nombre && (
+                      <p className="text-[12.5px] text-neutral-500 mt-1.5">
+                        Trabajo:{' '}
+                        {puedeVerTrabajo ? (
+                          <Link to={`/trabajos/${a.trabajo_id}?asignacion=${a.id}`}
+                            className="font-medium text-primary-600 hover:underline">
+                            {a.trabajo_nombre}
+                          </Link>
+                        ) : (
+                          <span className="text-neutral-700">{a.trabajo_nombre}</span>
+                        )}
+                      </p>
+                    )}
 
                     {(a.responsables_nombres || a.personal_nombres) && (
                       <p className="text-[12.5px] text-neutral-500 mt-1.5">
@@ -94,7 +114,7 @@ export default function MisAsignaciones() {
                           <>{a.responsables_nombres.includes(',') ? 'Responsables' : 'Responsable'}: <span className="text-neutral-700">{a.responsables_nombres}</span></>
                         )}
                         {a.personal_nombres && (
-                          <> · Personal: <span className="text-neutral-700">{a.personal_nombres}</span></>
+                          <> · Equipo: <span className="text-neutral-700">{a.personal_nombres}</span></>
                         )}
                       </p>
                     )}

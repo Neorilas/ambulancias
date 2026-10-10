@@ -237,6 +237,8 @@ async function getVehicle(req, res, next) {
     );
     const [asigActiva] = await query(
       `SELECT al.id, al.fecha_inicio, al.fecha_fin, al.inicio_real_at,
+              -- El enlace de la cabecera lleva al trabajo si lo tiene (v33)
+              al.trabajo_id, t.nombre AS trabajo_nombre,
               -- Todos los responsables (v23), con el principal de respaldo
               COALESCE((SELECT GROUP_CONCAT(CONCAT(mru.nombre,' ',mru.apellidos) ORDER BY mr.orden SEPARATOR ', ')
                  FROM asignacion_usuarios mr JOIN users mru ON mr.user_id = mru.id
@@ -244,6 +246,7 @@ async function getVehicle(req, res, next) {
                        CONCAT(u.nombre,' ',u.apellidos)) AS responsable_nombre
        FROM asignaciones_libres al
        JOIN users u ON al.user_id = u.id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
        WHERE al.vehicle_id = ? AND al.deleted_at IS NULL AND al.estado = 'activa'
        ORDER BY al.fecha_inicio DESC
        LIMIT 1`,

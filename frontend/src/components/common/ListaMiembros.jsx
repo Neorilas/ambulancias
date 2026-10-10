@@ -6,7 +6,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usuariosDisponibles, puedeAnadir } from '../../utils/miembrosAsignacion.js';
 
 // ── Combobox buscador de usuario ─────────────────────────────────────────────
-export function UserCombobox({ users, value, onChange, error }) {
+// `destacados` (Set de ids): al poner responsable o equipo a una ambulancia de
+// un trabajo, la gente ya asociada al trabajo (`asociadosDeTrabajo` /
+// `asociadosDeFormulario` en utils/trabajos.js). El desplegable sale entonces
+// en dos bloques con título: primero «Asociados al trabajo» y debajo «No
+// pertenecen al trabajo», que se pueden elegir igual (pedido 2026-10-10).
+const TOPE_RESTO = 50;
+
+export function UserCombobox({ users, value, onChange, error, destacados = null }) {
   const [query,    setQuery]    = useState('');
   const [open,     setOpen]     = useState(false);
   const [selected, setSelected] = useState(null);
@@ -38,12 +45,17 @@ export function UserCombobox({ users, value, onChange, error }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [selected]);
 
-  const filtered = query.trim() === ''
+  const buscados = query.trim() === ''
     ? users
     : users.filter(u => {
         const haystack = `${u.nombre} ${u.apellidos} ${u.username}`.toLowerCase();
         return haystack.includes(query.toLowerCase());
       });
+  const esDestacado = u => !!destacados && destacados.has(u.id);
+  const delTrabajo = destacados ? buscados.filter(esDestacado) : [];
+  const resto      = destacados ? buscados.filter(u => !esDestacado(u)) : buscados;
+  // El tope es para el resto de la plantilla; la gente del trabajo sale entera
+  const restoVisible = resto.slice(0, TOPE_RESTO);
 
   const handleSelect = (u) => {
     setSelected(u);
@@ -97,24 +109,23 @@ export function UserCombobox({ users, value, onChange, error }) {
 
       {open && (
         <ul className="absolute z-50 mt-1 w-full bg-superficie border border-neutral-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {delTrabajo.length + resto.length === 0 ? (
             <li className="px-3 py-2 text-sm text-neutral-400 text-center">Sin resultados</li>
           ) : (
-            filtered.slice(0, 50).map(u => (
-              <li
-                key={u.id}
-                className={`px-3 py-2 cursor-pointer text-sm flex items-center justify-between hover:bg-primary-50
-                  ${selected?.id === u.id ? 'bg-primary-50 font-medium text-primary-700' : 'text-neutral-700'}`}
-                onMouseDown={() => handleSelect(u)}
-              >
-                <span>{u.nombre} {u.apellidos}</span>
-                <span className="text-xs text-neutral-400 ml-2">@{u.username}</span>
-              </li>
-            ))
+            <>
+              {delTrabajo.length > 0 && <Grupo titulo="Asociados al trabajo" />}
+              {delTrabajo.map(u => (
+                <Opcion key={u.id} u={u} elegido={selected?.id === u.id} onElegir={handleSelect} />
+              ))}
+              {destacados && resto.length > 0 && <Grupo titulo="No pertenecen al trabajo" />}
+              {restoVisible.map(u => (
+                <Opcion key={u.id} u={u} elegido={selected?.id === u.id} onElegir={handleSelect} />
+              ))}
+            </>
           )}
-          {filtered.length > 50 && (
+          {resto.length > TOPE_RESTO && (
             <li className="px-3 py-1.5 text-xs text-neutral-400 text-center border-t border-neutral-100">
-              Mostrando 50 de {filtered.length} — refina la búsqueda
+              Mostrando {TOPE_RESTO} de {resto.length} — refina la búsqueda
             </li>
           )}
         </ul>
@@ -123,12 +134,35 @@ export function UserCombobox({ users, value, onChange, error }) {
   );
 }
 
+// Título de un bloque del desplegable: no se puede elegir
+function Grupo({ titulo }) {
+  return (
+    <li role="presentation"
+      className="micro px-3 pt-2.5 pb-1 bg-neutral-50 border-b border-neutral-100 sticky top-0 cursor-default">
+      {titulo}
+    </li>
+  );
+}
+
+function Opcion({ u, elegido, onElegir }) {
+  return (
+    <li
+      className={`px-3 py-2 cursor-pointer text-sm flex items-center justify-between hover:bg-primary-50
+        ${elegido ? 'bg-primary-50 font-medium text-primary-700' : 'text-neutral-700'}`}
+      onMouseDown={() => onElegir(u)}
+    >
+      <span>{u.nombre} {u.apellidos}</span>
+      <span className="text-xs text-neutral-400 ml-2">@{u.username}</span>
+    </li>
+  );
+}
+
 // ── Lista de personas ────────────────────────────────────────────────────────
 // Una fila por persona, con «Añadir…» debajo. Cada combobox ofrece solo a
 // quien no esté ya en `ocupados`: la misma persona no puede figurar dos veces
 // (el backend lo rechaza igualmente). La usan AsignacionForm (responsables y
 // personal) y TrabajoForm (responsables de cada vehículo).
-export default function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error }) {
+export default function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error, destacados = null }) {
   const cambiar = (i, id) => onChange(lista.map((v, j) => (j === i ? id : v)));
   const quitar  = i => onChange(lista.filter((_, j) => j !== i));
   return (
@@ -141,6 +175,7 @@ export default function ListaMiembros({ users, lista, ocupados, onChange, minimo
               value={valor}
               onChange={id => cambiar(i, id)}
               error={error && !valor}
+              destacados={destacados}
             />
           </div>
           {lista.length > minimo && (

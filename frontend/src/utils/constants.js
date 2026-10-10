@@ -37,6 +37,8 @@ export const PERMISSIONS = {
 export const TRABAJO_ESTADOS = {
   PROGRAMADO:            'programado',
   ACTIVO:                'activo',
+  // Todas sus ambulancias han finalizado; falta que el coordinador lo cierre (v33)
+  PENDIENTE_CIERRE:      'pendiente_cierre',
   FINALIZADO:            'finalizado',
   FINALIZADO_ANTICIPADO: 'finalizado_anticipado',
 };
@@ -106,6 +108,7 @@ export const IMAGEN_TIPO_LABELS = Object.fromEntries(
 export const ESTADO_COLORS = {
   programado:            'badge-yellow',
   activo:                'badge-blue',
+  pendiente_cierre:      'badge-yellow',
   finalizado:            'badge-green',
   finalizado_anticipado: 'badge-red',
 };
@@ -113,6 +116,7 @@ export const ESTADO_COLORS = {
 export const ESTADO_LABELS = {
   programado:            'Programado',
   activo:                'Activo',
+  pendiente_cierre:      'Pendiente de cierre',
   finalizado:            'Finalizado',
   finalizado_anticipado: 'Fin. Anticipado',
 };

@@ -53,7 +53,7 @@ async function revisarAsignacionesSinIniciar() {
     const limite = new Date(ahora().getTime() - minutos * 60 * 1000);
 
     const [candidatas] = await query(
-      `SELECT al.id, al.user_id,
+      `SELECT al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
               v.alias AS vehiculo_alias, v.matricula,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
               (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
@@ -62,6 +62,7 @@ async function revisarAsignacionesSinIniciar() {
          FROM asignaciones_libres al
          JOIN vehicles v ON v.id = al.vehicle_id
          JOIN users u    ON u.id = al.user_id
+         LEFT JOIN trabajos t ON t.id = al.trabajo_id
         WHERE al.inicio_real_at IS NULL
           AND al.estado IN ('programada', 'activa')
           AND al.deleted_at IS NULL
@@ -122,6 +123,7 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
   const limite = new Date(ahora().getTime() - AVISO_SIN_INICIAR_MINUTOS * 60 * 1000);
   const [filas] = await query(
     `SELECT al.id, al.fecha_inicio, al.estado, al.aviso_sin_iniciar_at,
+            al.trabajo_id, t.nombre AS trabajo_nombre,
             v.alias AS vehiculo_alias, v.matricula,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
             (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
@@ -130,6 +132,7 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
        FROM asignaciones_libres al
        JOIN vehicles v ON v.id = al.vehicle_id
        JOIN users u    ON u.id = al.user_id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE al.aviso_sin_iniciar_at IS NOT NULL
         AND al.inicio_real_at IS NULL
         AND al.estado IN ('programada', 'activa')

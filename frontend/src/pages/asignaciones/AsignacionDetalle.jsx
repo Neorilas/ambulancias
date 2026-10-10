@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { formatDateTime, formatHora, duration, formatMinutos } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import {
@@ -194,9 +196,15 @@ function IncidenciaCard({ inc, vehicleId, users, canManage, onSaved }) {
   );
 }
 
-export default function AsignacionDetalle({ id, onClose }) {
+// `desdeTrabajo`: se abre desde la ficha de su trabajo, así que sobra el
+// enlace «Ver trabajo».
+export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false }) {
   const { notify } = useNotification();
   const { user, canManageTrabajos } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
+  // El enlace al trabajo depende de los flags de su pantalla: apagados, el
+  // trabajo se nombra sin enlazar (si no, ProtectedRoute rebotaría).
+  const puedeVerTrabajo = isFeatureEnabled('menu_trabajos') || isFeatureEnabled('menu_mis_trabajos');
   const [asig,    setAsig]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
@@ -338,6 +346,9 @@ export default function AsignacionDetalle({ id, onClose }) {
   const miRol          = rolEnAsignacion(asig, user?.id);
   const soyResponsable = miRol === 'responsable' || canManageTrabajos();
   const soloPersonal   = miRol === 'personal' && !canManageTrabajos();
+  // El coordinador del trabajo la ve entera pero no la opera (D2)
+  const soloCoordina   = !miRol && !canManageTrabajos()
+                         && !!asig?.trabajo?.coordinador && asig.trabajo.coordinador.id === user?.id;
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
@@ -372,7 +383,7 @@ export default function AsignacionDetalle({ id, onClose }) {
           </div>
           <div className="flex items-center gap-2">
           {/* Gestión puede editar mientras siga abierta, también ya activa y
-              con las fotos de inicio subidas: cambiar el personal, el
+              con las fotos de inicio subidas: cambiar el equipo, el
               responsable o las notas no toca la evidencia (§6.1 del mapa). */}
           {asig && puedeGestionar && !finalizada && (
             <button onClick={() => setShowEditar(true)} className="btn-secondary btn-sm">
@@ -393,6 +404,33 @@ export default function AsignacionDetalle({ id, onClose }) {
           <div className="flex-1 flex items-center justify-center text-neutral-400">No encontrado</div>
         ) : (
           <div className="flex-1 p-5 space-y-6">
+            {/* Su trabajo (v33): lo ve todo el que va en la ambulancia */}
+            {asig.trabajo && (
+              <div className="card bg-neutral-50 border-neutral-200 space-y-1" data-testid="trabajo-de-asignacion">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-neutral-400 text-xs">Trabajo</p>
+                    <p className="font-medium text-neutral-900">{asig.trabajo.nombre}</p>
+                  </div>
+                  {!desdeTrabajo && puedeVerTrabajo && (
+                    <Link to={`/trabajos/${asig.trabajo.id}?asignacion=${asig.id}`}
+                      className="text-xs font-medium text-primary-600 hover:underline whitespace-nowrap">
+                      Ver trabajo →
+                    </Link>
+                  )}
+                </div>
+                {asig.trabajo.ubicacion && (
+                  <p className="text-xs text-neutral-600">{asig.trabajo.ubicacion}</p>
+                )}
+                {asig.trabajo.descripcion && (
+                  <p className="text-sm text-neutral-700 whitespace-pre-line">{asig.trabajo.descripcion}</p>
+                )}
+                {asig.trabajo.coordinador && (
+                  <p className="text-xs text-neutral-500">Coordina {nombreMiembro(asig.trabajo.coordinador)}</p>
+                )}
+              </div>
+            )}
+
             {/* Info general */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -415,7 +453,7 @@ export default function AsignacionDetalle({ id, onClose }) {
               </div>
               {asig.personal?.length > 0 && (
                 <div className="col-span-2">
-                  <p className="text-neutral-400 text-xs mb-0.5">Personal</p>
+                  <p className="text-neutral-400 text-xs mb-0.5">Equipo</p>
                   <p className="text-neutral-900">
                     {asig.personal.map(nombreMiembro).join(', ')}
                   </p>
@@ -498,11 +536,16 @@ export default function AsignacionDetalle({ id, onClose }) {
               )}
             </div>
 
-            {/* Quien va como personal ve la asignación, pero no la mueve */}
+            {/* Quien va en el equipo ve la asignación, pero no la mueve */}
             {soloPersonal && !finalizada && (
               <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
-                Vas como <strong>personal</strong> en esta asignación. Solo los
+                Vas en el <strong>equipo</strong> de esta ambulancia. Solo los
                 responsables pueden iniciarla, documentar el vehículo y finalizarla.
+              </div>
+            )}
+            {soloCoordina && !finalizada && (
+              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
+                Coordinas este trabajo: ves la ambulancia, pero la operan sus responsables.
               </div>
             )}
 

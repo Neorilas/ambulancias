@@ -12,12 +12,19 @@ jest.mock('../../../middleware/upload.middleware', () => ({
   deleteFile: jest.fn(),
 }));
 
+jest.mock('../../../services/avisosAsignacion.service', () => ({
+  avisarAsignacionNueva: jest.fn(),
+  avisarEquipoTrabajo: jest.fn(),
+  avisarTrabajoPendienteCierre: jest.fn(),
+}));
+
 const {
   listTrabajos, listTrabajosCalendario, getTrabajo, createTrabajo,
-  updateTrabajo, deleteTrabajo, activarVehiculo, finalizeVehiculo,
+  updateTrabajo, deleteTrabajo, cerrarTrabajo, activarVehiculo, finalizeVehiculo,
   activarTrabajo, finalizeTrabajo, uploadEvidencia, misTrab,
-  estadoTrabajoDesde, vistaParaUsuario, leerVehiculos,
+  estadoTrabajoDesde, vistaParaUsuario, leerVehiculos, leerAmbulancias,
 } = require('../../../controllers/trabajos.controller');
+const avisos = require('../../../services/avisosAsignacion.service');
 const { logAudit } = require('../../../controllers/admin.controller');
 const { deleteFile } = require('../../../middleware/upload.middleware');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
@@ -32,6 +39,8 @@ const equipo  = { id: 30, username: 'eva',   roles: ['enfermero'], permissions: 
 const ajeno   = { id: 99, username: 'nadie', roles: ['tecnico'], permissions: [] };
 // La mayoría de la plantilla no tiene rol: antes no era «operacional» y veía todo
 const sinRol  = { id: 98, username: 'sinrol', roles: [], permissions: [] };
+// Coordinador de un trabajo (v33): no hace falta que vaya en ninguna ambulancia
+const coord   = { id: 50, username: 'carla', roles: [], permissions: [] };
 
 const MANANA = () => new Date(Date.now() + 86400000);
 const AYER   = () => new Date(Date.now() - 86400000);
@@ -81,14 +90,45 @@ function trabajoDosVehiculos({ trabajo = {}, vehiculos, responsables, usuarios, 
   ];
 }
 
+/**
+ * Reglas para un trabajo del modelo nuevo (v33): dos ambulancias como
+ * asignaciones. A (UVI-1) la llevan Ana (responsable) y Eva (equipo); B
+ * (SVB-2), Luis. Coordina Carla (50), que no va en ninguna.
+ */
+function trabajoConAsignaciones({ trabajo = {}, asignaciones, miembros, fotosAsig = [] } = {}) {
+  return [
+    ['JOIN users u ON t.created_by = u.id', [[{
+      id: 1, identificador: 'TRB-2026-0002', nombre: 'Maratón', estado: 'activo',
+      descripcion: 'Cobertura de la maratón', ubicacion: 'Parque del Retiro',
+      coordinador_user_id: 50, coordinador_nombre: 'Carla', coordinador_apellidos: 'Ruiz',
+      fecha_inicio: AYER(), fecha_fin: MANANA(), ...trabajo,
+    }]]],
+    ['FROM asignaciones_libres al\n     JOIN vehicles v ON v.id = al.vehicle_id', [asignaciones || [
+      { id: 201, vehicle_id: 7, estado: 'activa', km_inicio: 1000, inicio_real_at: AYER(),
+        fecha_inicio: AYER(), fecha_fin: MANANA(), matricula: '7777AAA', vehiculo_alias: 'UVI-1' },
+      { id: 202, vehicle_id: 8, estado: 'programada', km_inicio: 2000, inicio_real_at: null,
+        fecha_inicio: AYER(), fecha_fin: MANANA(), matricula: '8888BBB', vehiculo_alias: 'SVB-2' },
+    ]]],
+    ['FROM asignacion_usuarios au\n     JOIN asignaciones_libres al', [miembros || [
+      { asignacion_id: 201, rol: 'responsable', id: 20, nombre: 'Ana' },
+      { asignacion_id: 201, rol: 'personal', id: 30, nombre: 'Eva' },
+      { asignacion_id: 202, rol: 'responsable', id: 21, nombre: 'Luis' },
+    ]]],
+    ['FROM vehicle_images vi\n     JOIN asignaciones_libres al', [fotosAsig]],
+  ];
+}
+
 /** Conexión de transacción que registra lo que ejecuta. */
-function conexion({ estados = [], insertId = 500 } = {}) {
+function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
   const ejecutadas = [];
   const conn = {
     execute: jest.fn(async (sql, params) => {
       ejecutadas.push({ sql, params });
       if (sql.includes('SELECT estado FROM trabajo_vehiculos')) {
         return [estados.map(e => ({ estado: e }))];
+      }
+      if (sql.includes('FROM asignaciones_libres WHERE trabajo_id')) {
+        return [asignaciones.map(e => ({ estado: e, borrada: 0 }))];
       }
       if (sql.startsWith('INSERT')) return [{ insertId: insertId++ }];
       return [{ affectedRows: 1 }];
@@ -195,6 +235,77 @@ describe('trabajos.controller', () => {
     });
   });
 
+  // El trabajo como padre (v33): las ambulancias son asignaciones
+  describe('vistaParaUsuario con asignaciones (v33)', () => {
+    const A = { id: 201, vehicle_id: 7, estado: 'activa', km_inicio: 1000, inicio_real_at: AYER(),
+                fecha_inicio: AYER(), progreso_fotos: { inicio: {} }, matricula: '7777AAA', vehiculo_alias: 'UVI-1',
+                responsables: [{ id: 20 }], personal: [{ id: 30 }] };
+    const B = { id: 202, vehicle_id: 8, estado: 'programada', km_inicio: 2000, inicio_real_at: null,
+                fecha_inicio: AYER(), progreso_fotos: { inicio: {} }, matricula: '8888BBB', vehiculo_alias: 'SVB-2',
+                responsables: [{ id: 21 }], personal: [] };
+    const C = { ...B, id: 203, vehicle_id: 9, estado: 'cancelada', responsables: [{ id: 22 }], personal: [{ id: 31 }] };
+    const t = { id: 1, estado: 'activo', coordinador_user_id: 50, usuarios: [], vehiculos: [], evidencias: [],
+                asignaciones: [A, B, C] };
+
+    it('el responsable de A ve la suya entera; de B solo cuál es y quién va (decisión 6)', () => {
+      const v = vistaParaUsuario(t, resp1);
+      expect(v.mi_rol).toBe('responsable');
+      const [mia, otra] = v.asignaciones;
+      expect(mia).toMatchObject({ id: 201, mi_rol: 'responsable', detalle: true, km_inicio: 1000 });
+      // Lista blanca: ni estado, ni km, ni fechas, ni fotos de la ajena
+      expect(Object.keys(otra).sort()).toEqual(
+        ['detalle', 'id', 'matricula', 'mi_rol', 'personal', 'responsables', 'vehicle_id', 'vehiculo_alias']);
+      expect(otra.responsables).toEqual([{ id: 21 }]);
+    });
+
+    it('el equipo de A ve A entera, sin poder operarla, y B recortada', () => {
+      const v = vistaParaUsuario(t, equipo);
+      expect(v.mi_rol).toBe('equipo');
+      expect(v.asignaciones[0]).toMatchObject({ mi_rol: 'equipo', detalle: true });
+      expect(v.asignaciones[1].detalle).toBe(false);
+    });
+
+    it('las canceladas no se le enseñan a quien va en el trabajo, ni dan acceso a quien iba en ellas', () => {
+      expect(vistaParaUsuario(t, resp1).asignaciones.map(a => a.id)).toEqual([201, 202]);
+      expect(vistaParaUsuario(t, { id: 22, roles: ['tecnico'], permissions: [] })).toBeNull();
+    });
+
+    it('el coordinador ve todas con detalle aunque no vaya en ninguna (D2); gestión también', () => {
+      const v = vistaParaUsuario(t, coord);
+      expect(v.mi_rol).toBe('coordinador');
+      expect(v.asignaciones.map(a => a.id)).toEqual([201, 202, 203]);
+      expect(v.asignaciones.every(a => a.detalle)).toBe(true);
+      expect(vistaParaUsuario(t, admin).asignaciones.every(a => a.detalle)).toBe(true);
+    });
+
+    it('nadie más lo ve', () => {
+      expect(vistaParaUsuario(t, ajeno)).toBeNull();
+      expect(vistaParaUsuario(t, sinRol)).toBeNull();
+    });
+
+    it('puede_cerrar: sin ambulancias abiertas y siendo coordinador o gestión (D3)', () => {
+      const pendiente = { ...t, estado: 'pendiente_cierre',
+        asignaciones: [{ ...A, estado: 'finalizada' }, { ...B, estado: 'finalizada' }, C] };
+      expect(vistaParaUsuario(pendiente, coord).puede_cerrar).toBe(true);
+      expect(vistaParaUsuario(pendiente, admin).puede_cerrar).toBe(true);
+      expect(vistaParaUsuario(pendiente, resp1).puede_cerrar).toBe(false);
+      expect(vistaParaUsuario(t, coord).puede_cerrar).toBe(false);
+    });
+
+    it('puede_cerrar sin ambulancias: solo una vez empezado (antes, se elimina)', () => {
+      const sinAmb = (fecha_inicio) => ({ ...t, estado: 'programado', fecha_inicio, asignaciones: [] });
+      expect(vistaParaUsuario(sinAmb(AYER()), coord).puede_cerrar).toBe(true);
+      expect(vistaParaUsuario(sinAmb(MANANA()), coord).puede_cerrar).toBe(false);
+    });
+
+    it('quien está en el equipo del trabajo, sin ambulancia, lo ve como equipo y las ambulancias recortadas', () => {
+      const conEquipo = { ...t, usuarios: [{ user_id: 77 }] };
+      const v = vistaParaUsuario(conEquipo, { id: 77, roles: ['tecnico'], permissions: [] });
+      expect(v.mi_rol).toBe('equipo');
+      expect(v.asignaciones.every(a => !a.detalle)).toBe(true);
+    });
+  });
+
   // ── GET /trabajos/:id ──────────────────────────────────────
   describe('getTrabajo', () => {
     it('devuelve el trabajo con descripción, ubicación y responsables por vehículo', async () => {
@@ -216,6 +327,67 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await getTrabajo(mockReq({ params: { id: '9' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('con asignaciones: cada ambulancia con quién va y el progreso de SUS fotos, y el coordinador', async () => {
+      bd(trabajoConAsignaciones({ fotosAsig: fotos('inicio', IMAGEN_TIPOS_INICIO).map(f => ({ ...f, asignacion_id: 201 })) }));
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+
+      const t = res._json.data;
+      expect(t.coordinador).toEqual({ id: 50, nombre: 'Carla', apellidos: 'Ruiz' });
+      expect(t).not.toHaveProperty('coordinador_nombre');
+      const [a, b] = t.asignaciones;
+      expect(a.responsables).toEqual([{ id: 20, nombre: 'Ana' }]);
+      expect(a.personal).toEqual([{ id: 30, nombre: 'Eva' }]);
+      expect(a.progreso_fotos.inicio.completo).toBe(true);
+      expect(b.progreso_fotos.inicio.completado).toBe(0);
+    });
+
+    it('con asignaciones: el coordinador entra aunque no vaya; un ajeno, no', async () => {
+      bd(trabajoConAsignaciones());
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: coord }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data.mi_rol).toBe('coordinador');
+
+      const res2 = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: ajeno }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(403);
+    });
+
+    // `v25` decide qué pinta la ficha: la operación del modelo anterior
+    // (TrabajoV25) o la del trabajo padre. Misma regla que cerrarTrabajo.
+    describe('v25: de qué modelo es el trabajo', () => {
+      const v25De = async (reglas) => {
+        bd(reglas);
+        const res = mockRes();
+        await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        return res._json.data.v25;
+      };
+
+      it('con vehículos en trabajo_vehiculos, sí', async () => {
+        expect(await v25De(trabajoDosVehiculos({ trabajo: { num_asignaciones: 0 } }))).toBe(true);
+      });
+
+      it('sin vehículos, sin coordinador y sin haber tenido asignaciones (el «sin vehículos»), sí', async () => {
+        expect(await v25De(trabajoDosVehiculos({ vehiculos: [], trabajo: { num_asignaciones: 0 } }))).toBe(true);
+      });
+
+      it('con coordinador, no, aunque aún no lleve ambulancias', async () => {
+        expect(await v25De(trabajoConAsignaciones({ asignaciones: [], trabajo: { num_asignaciones: 0 } }))).toBe(false);
+      });
+
+      it('sin coordinador pero con asignaciones que tuvo (aunque estén borradas), no', async () => {
+        expect(await v25De(trabajoDosVehiculos({ vehiculos: [], trabajo: { num_asignaciones: 1 } }))).toBe(false);
+      });
+
+      it('la cuenta de asignaciones no sale en la respuesta', async () => {
+        bd(trabajoDosVehiculos({ trabajo: { num_asignaciones: 0 } }));
+        const res = mockRes();
+        await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        expect(res._json.data).not.toHaveProperty('num_asignaciones');
+      });
     });
 
     it('403 a quien no va en el trabajo', async () => {
@@ -279,7 +451,7 @@ describe('trabajos.controller', () => {
   // ── Listados ───────────────────────────────────────────────
   describe('listTrabajos', () => {
     it('gestión ve todos, sin filtro de pertenencia', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 2 }]]], ['GROUP BY t.id', [[{ id: 1 }, { id: 2 }]]]]);
+      bd([['COUNT(*) AS total', [[{ total: 2 }]]], ['AS num_vehiculos', [[{ id: 1 }, { id: 2 }]]]]);
       const res = mockRes();
       await listTrabajos(mockReq({ query: {}, user: admin }), res, mockNext());
       expect(res._json.data).toHaveLength(2);
@@ -287,13 +459,17 @@ describe('trabajos.controller', () => {
     });
 
     it.each([['un técnico', resp1], ['un usuario sin rol', sinRol]])(
-      '%s solo ve los suyos: equipo o responsable de un vehículo', async (_n, user) => {
+      '%s solo ve los suyos: coordina, va en una ambulancia, o equipo/responsable (v25)', async (_n, user) => {
         bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
         await listTrabajos(mockReq({ query: {}, user }), mockRes(), mockNext());
         const [sql, params] = query.mock.calls[0];
+        expect(sql).toContain('t.coordinador_user_id = ?');
+        expect(sql).toContain('asignacion_usuarios aup');
+        // Una ambulancia cancelada ya no lleva a nadie
+        expect(sql).toContain("alp.estado <> 'cancelada'");
         expect(sql).toContain('trabajo_usuarios tu');
         expect(sql).toContain('trabajo_vehiculo_responsables tvr');
-        expect(params).toEqual([user.id, user.id]);
+        expect(params).toEqual([user.id, user.id, user.id, user.id]);
       });
 
     it('aplica los filtros, y la búsqueda mira también la ubicación', async () => {
@@ -324,7 +500,7 @@ describe('trabajos.controller', () => {
       await listTrabajosCalendario(mockReq({ query: { year: '2026', month: '4' }, user: resp1 }), mockRes(), mockNext());
       const [sql, params] = query.mock.calls[0];
       expect(sql).toContain('trabajo_vehiculo_responsables');
-      expect(params.slice(2)).toEqual([20, 20]);
+      expect(params.slice(2)).toEqual([20, 20, 20, 20]);
     });
 
     it('diciembre pasa a enero del año siguiente', async () => {
@@ -344,16 +520,49 @@ describe('trabajos.controller', () => {
   });
 
   describe('misTrab', () => {
-    it('una fila por trabajo, suyos por equipo o por vehículo', async () => {
-      bd([['COUNT(*) AS total', [[{ total: 1 }]]],
-          ['vehiculos_resumen', [[{ id: 1, vehiculos_resumen: 'UVI-1, SVB-2', soy_responsable: 1 }]]]]);
+    it('una tarjeta por trabajo abierto (también pendiente de cierre, D11) con «tu ambulancia»', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 2 }]]],
+          ['vehiculos_resumen', [[{ id: 1, nombre: 'Maratón', soy_coordinador: 0 },
+                                  { id: 2, nombre: 'Concierto', soy_coordinador: 1 }]]],
+          ['JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?', [[
+            { trabajo_id: 1, id: 201, estado: 'finalizada', rol: 'responsable', vehiculo_alias: 'UVI-1' },
+            { trabajo_id: 1, id: 202, estado: 'activa', rol: 'personal', vehiculo_alias: 'SVB-2' },
+          ]]]]);
       const res = mockRes();
       await misTrab(mockReq({ query: {}, user: resp1 }), res, mockNext());
-      expect(res._json.data).toHaveLength(1);
+
+      const [maraton, concierto] = res._json.data;
+      // Va en dos: manda la que lleva como responsable, aunque ya esté finalizada
+      expect(maraton.mi_asignacion).toMatchObject({ id: 201, estado: 'finalizada', mi_rol: 'responsable' });
+      expect(maraton.mi_asignacion).not.toHaveProperty('trabajo_id');
+      expect(maraton.soy_coordinador).toBe(false);
+      // Solo lo coordina: tarjeta sin ambulancia propia
+      expect(concierto).toMatchObject({ soy_coordinador: true, mi_asignacion: null });
+
       const [sql, params] = query.mock.calls[1];
-      expect(sql).toContain('mis_vehiculos_pendientes');
-      expect(sql).not.toContain('LEFT JOIN trabajo_vehiculos');  // multiplicaba filas
-      expect(params).toEqual([20, 20, 20, 20, 20, 0]);
+      expect(sql).toContain("t.estado IN ('programado', 'activo', 'pendiente_cierre')");
+      expect(params).toEqual([20, 20, 20, 20, 20, 20, 20, 20, 0]);
+      // Modelo v25: los vehículos que lleva y no ha cerrado
+      expect(sql).toContain('AS mis_vehiculos_v25');
+      const [, paramsMias] = query.mock.calls[2];
+      expect(paramsMias).toEqual([20, 1, 2]);
+    });
+
+    it('el equipo sale como «equipo», con los nombres de quien la lleva', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 1 }]]],
+          ['vehiculos_resumen', [[{ id: 1 }]]],
+          ['JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?', [[
+            { trabajo_id: 1, id: 201, rol: 'personal', responsables_nombres: 'Ana García' },
+          ]]]]);
+      const res = mockRes();
+      await misTrab(mockReq({ query: {}, user: equipo }), res, mockNext());
+      expect(res._json.data[0].mi_asignacion).toMatchObject({ mi_rol: 'equipo', responsables_nombres: 'Ana García' });
+    });
+
+    it('sin trabajos no pregunta por ambulancias', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+      await misTrab(mockReq({ query: {}, user: resp1 }), mockRes(), mockNext());
+      expect(query).toHaveBeenCalledTimes(2);
     });
 
     it('respeta el limit que se pide, con tope', async () => {
@@ -367,80 +576,153 @@ describe('trabajos.controller', () => {
   });
 
   // ── POST /trabajos ─────────────────────────────────────────
+  // D6: el trabajo nace con su primera ambulancia, que es una asignación.
+  describe('leerAmbulancias', () => {
+    const TRAB = { fecha_inicio: '2026-10-15 08:00:00', fecha_fin: '2026-10-15 20:00:00' };
+    it('ninguna vale: el trabajo puede nacer sin ambulancias (2026-10-10)', () => {
+      expect(leerAmbulancias(undefined, TRAB)).toEqual({ ambulancias: [] });
+      expect(leerAmbulancias([], TRAB)).toEqual({ ambulancias: [] });
+    });
+
+    it('por defecto, las fechas del trabajo; el equipo va como personal', () => {
+      const { ambulancias } = leerAmbulancias([{ vehicle_id: '7', responsables: [20], personal: [30], notas: '  ' }], TRAB);
+      expect(ambulancias).toEqual([{ vehicle_id: 7, responsables: [20], personal: [30],
+        fecha_inicio: TRAB.fecha_inicio, fecha_fin: TRAB.fecha_fin, km_inicio: null, notas: null }]);
+    });
+    it.each([
+      ['no es lista', 'x', 'debe ser una lista'],
+      ['sin vehículo', [{ responsables: [1] }], 'vehicle_id'],
+      ['sin responsable', [{ vehicle_id: 7 }], 'al menos un responsable'],
+      ['persona repetida', [{ vehicle_id: 7, responsables: [2], personal: [2] }], 'dos veces'],
+      ['ambulancia repetida (D5)', [{ vehicle_id: 7, responsables: [2] }, { vehicle_id: 7, responsables: [3] }], 'misma ambulancia'],
+      ['fechas al revés', [{ vehicle_id: 7, responsables: [2], fecha_inicio: '2026-10-15 21:00:00' }], 'posterior'],
+    ])('rechaza: %s', (_n, lista, msg) => {
+      expect(leerAmbulancias(lista, TRAB).error).toContain(msg);
+    });
+  });
+
   describe('createTrabajo', () => {
     const body = (extra = {}) => ({
       nombre: 'Maratón', tipo: 'cobertura_evento',
       descripcion: '  Cobertura  ', ubicacion: '',
-      fecha_inicio: '2026-10-15T08:00:00Z', fecha_fin: '2026-10-15T20:00:00Z',
-      vehiculos: [{ vehicle_id: 7, responsables: [20, 21], kilometros_inicio: 1200 }],
-      usuarios: [30],
+      fecha_inicio: '2026-10-15 08:00:00', fecha_fin: '2026-10-15 20:00:00',
+      coordinador_user_id: 50,
+      asignaciones: [{ vehicle_id: 7, responsables: [20, 21], personal: [30], km_inicio: 1200 }],
       ...extra,
     });
+    const reglasOk = (extra = []) => [
+      ...extra,
+      ['SELECT id FROM vehicles WHERE id IN', (params) => [params.map(id => ({ id }))]],
+      ['FROM users', (params) => [params.map(id => ({ id }))]],
+      ['trabajo_coordinador_apellidos', [[{ id: 11, user_id: 20, vehicle_id: 7, trabajo_id: 10 }]]],
+      ...trabajoDosVehiculos({ vehiculos: [] }),
+    ];
 
-    it('crea el trabajo con sus vehículos, varios responsables y el equipo', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]],
-          ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion({ insertId: 10 });
+    it('crea el trabajo con su coordinador y la primera ambulancia como asignación, en una transacción', async () => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
 
       const res = mockRes();
       await createTrabajo(mockReq({ body: body(), user: admin }), res, mockNext());
 
       expect(res.status).toHaveBeenCalledWith(201);
       const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
-      // descripción recortada, ubicación en blanco → NULL
+      // descripción recortada, ubicación en blanco → NULL; el coordinador, el 8.º
       expect(insTrab.params.slice(1, 4)).toEqual(['Maratón', 'Cobertura', null]);
+      expect(insTrab.params[7]).toBe(50);
 
-      const insVeh = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_vehiculos'));
-      expect(insVeh.params).toEqual([10, 7, 20, 1200]);  // principal = primero
+      const insAsig = ejecutadas.find(e => e.sql.includes('INSERT INTO asignaciones_libres'));
+      // vehículo, principal = primer responsable, …, trabajo_id el último
+      expect(insAsig.params[0]).toBe(7);
+      expect(insAsig.params[1]).toBe(20);
+      expect(insAsig.params[insAsig.params.length - 1]).toBe(10);
+      const miembros = ejecutadas.find(e => e.sql.includes('INSERT INTO asignacion_usuarios'));
+      expect(miembros.params).toEqual([11, 20, 'responsable', 0, 11, 21, 'responsable', 1, 11, 30, 'personal', 0]);
+      expect(ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado')).params[0]).toBe('programado');
+      // Nada del modelo v25
+      expect(ejecutadas.some(e => e.sql.includes('trabajo_vehiculos (') || e.sql.includes('trabajo_usuarios'))).toBe(false);
 
-      const resps = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_vehiculo_responsables'));
-      expect(resps.params).toEqual([11, 20, 0, 11, 21, 1]);
-
-      expect(ejecutadas.some(e => e.sql.includes('UPDATE vehicles SET kilometros_actuales'))).toBe(true);
-      expect(ejecutadas.some(e => e.sql.includes('INSERT IGNORE INTO trabajo_usuarios'))).toBe(true);
-      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'create_trabajo' }));
+      expect(avisos.avisarAsignacionNueva).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 11 }), [20, 21, 30], { asignadoPor: 1 });
+      expect(res._json.data.avisos_alta).toEqual([expect.objectContaining({
+        asignacion_id: 11, vehicle_id: 7, solapes: [], vehiculo_ocupado: [], fuera_del_trabajo: false,
+      })]);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'create_trabajo', details: expect.objectContaining({ coordinador_user_id: 50, ambulancias: 1 }),
+      }));
     });
 
-    it('un trabajo sin vehículos también vale', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]], ...trabajoDosVehiculos()]);
-      const { ejecutadas } = conexion();
+    it('sin ambulancias y con su equipo: se crea, y al equipo le llega «nuevo trabajo»', async () => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10 });
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ vehiculos: [] }), user: admin }), res, mockNext());
+      await createTrabajo(mockReq({ body: body({ asignaciones: undefined, usuarios: [20, 30, 30] }), user: admin }), res, mockNext());
+
       expect(res.status).toHaveBeenCalledWith(201);
-      expect(ejecutadas.some(e => e.sql.includes('trabajo_vehiculos'))).toBe(false);
+      expect(ejecutadas.some(e => e.sql.includes('INSERT INTO asignaciones_libres'))).toBe(false);
+      const equipo = ejecutadas.filter(e => e.sql.includes('INSERT IGNORE INTO trabajo_usuarios'));
+      expect(equipo.map(e => e.params)).toEqual([[10, 20], [10, 30]]);
+      // Sin ambulancia que consultar, ni la consulta de vehículos (IN () es SQL inválido)
+      expect(query.mock.calls.some(([sql]) => sql.includes('FROM vehicles WHERE id IN'))).toBe(false);
+      expect(avisos.avisarEquipoTrabajo).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), [20, 30], { asignadoPor: 1 });
+      expect(res._json.data.avisos_alta).toEqual([]);
+    });
+
+    it('a quien va en una ambulancia no le llega además «nuevo trabajo»', async () => {
+      bd(reglasOk());
+      conexion({ insertId: 10 });
+      await createTrabajo(mockReq({ body: body({ usuarios: [20, 40] }), user: admin }), mockRes(), mockNext());
+      expect(avisos.avisarEquipoTrabajo.mock.calls[0][1]).toEqual([40]);
+    });
+
+    it('400 con el formato del formulario anterior (vehiculos)', async () => {
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: body({ vehiculos: [], usuarios: [] }), user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('recárgala');
     });
 
     it('400 si las fechas van al revés', async () => {
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ fecha_fin: '2026-10-14T08:00:00Z' }), user: admin }), res, mockNext());
+      await createTrabajo(mockReq({ body: body({ fecha_fin: '2026-10-14 08:00:00' }), user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('400 si un vehículo no lleva responsable', async () => {
+    it('400 si una ambulancia no lleva responsable', async () => {
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ vehiculos: [{ vehicle_id: 7 }] }), user: admin }), res, mockNext());
+      await createTrabajo(mockReq({ body: body({ asignaciones: [{ vehicle_id: 7 }] }), user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res._json.message).toContain('al menos un responsable');
     });
 
-    it('400 si el equipo trae ids que no son números', async () => {
+    it('404 si una ambulancia no existe', async () => {
+      bd([['SELECT id FROM vehicles WHERE id IN', [[]]]]);
       const res = mockRes();
-      await createTrabajo(mockReq({ body: body({ usuarios: ['x'] }), user: admin }), res, mockNext());
-      expect(res.status).toHaveBeenCalledWith(400);
+      await createTrabajo(mockReq({ body: body(), user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(404);
     });
 
-    it('400 si alguien no existe o está de baja', async () => {
-      bd([['FROM users', [[{ id: 20 }, { id: 21 }]]]]);  // falta el 30
+    it('400 si alguien (también el coordinador) no existe o está de baja', async () => {
+      bd([['SELECT id FROM vehicles WHERE id IN', [[{ id: 7 }]]], ['FROM users', [[{ id: 20 }, { id: 21 }, { id: 30 }]]]]);
       const res = mockRes();
       await createTrabajo(mockReq({ body: body(), user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res._json.message).toContain('30');
+      expect(res._json.message).toContain('50');
+    });
+
+    it('fechas de la ambulancia fuera de las del trabajo: se crea, con aviso (D4)', async () => {
+      bd(reglasOk());
+      conexion({ insertId: 10 });
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: body({ asignaciones: [
+        { vehicle_id: 7, responsables: [20], fecha_inicio: '2026-10-15 06:30:00' },
+      ] }), user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res._json.data.avisos_alta[0].fuera_del_trabajo).toBe(true);
     });
 
     it('continúa la numeración del año', async () => {
-      bd([['FROM users', (params) => [params.map(id => ({ id }))]],
-          ['identificador LIKE', [[{ identificador: 'TRB-2026-0041' }]]],
-          ...trabajoDosVehiculos()]);
+      bd(reglasOk([['identificador LIKE', [[{ identificador: 'TRB-2026-0041' }]]]]));
       const { ejecutadas } = conexion();
       await createTrabajo(mockReq({ body: body(), user: admin }), mockRes(), mockNext());
       const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
@@ -450,10 +732,11 @@ describe('trabajos.controller', () => {
 
   // ── PUT /trabajos/:id ──────────────────────────────────────
   describe('updateTrabajo', () => {
-    const existente = (estado = 'programado') =>
-      ['SELECT id, estado, fecha_inicio, fecha_fin FROM trabajos',
+    const existente = (estado = 'programado', extra = {}) =>
+      ['AS num_asignaciones',
        [[{ id: 1, estado, fecha_inicio: new Date('2026-10-15T08:00:00Z'),
-           fecha_fin: new Date('2026-10-15T20:00:00Z') }]]];
+           fecha_fin: new Date('2026-10-15T20:00:00Z'), coordinador_user_id: null,
+           num_asignaciones: 0, ...extra }]]];
     const usuariosOk = ['FROM users', (params) => [params.map(id => ({ id }))]];
     const actuales = (filas) => ['AS fotos', [filas]];
 
@@ -602,16 +885,82 @@ describe('trabajos.controller', () => {
       await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [0] }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it('cambia el coordinador, comprobando que existe y está activo', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }), usuariosOk, ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinador_user_id: 51 }, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
+      expect(upd.sql).toContain('coordinador_user_id = ?');
+      expect(upd.params).toEqual([51, 1]);
+      expect(query.mock.calls.some(([sql, params]) => sql.includes('FROM users') && params.includes(51))).toBe(true);
+    });
+
+    it('un coordinador nuevo de baja → 400', async () => {
+      bd([existente('activo', { coordinador_user_id: 50 }), ['FROM users', [[]]]]);
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinador_user_id: 51 }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it.each([
+      ['con asignaciones', { num_asignaciones: 2 }],
+      ['con coordinador y sin ambulancias', { coordinador_user_id: 50 }],
+    ])('del modelo nuevo (%s) no acepta vehiculos del v25', async (_n, extra) => {
+      bd([existente('activo', extra)]);
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { vehiculos: [] }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('el equipo del trabajo se cambia, y solo avisa a quien entra', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }),
+          ['UNION', [[{ user_id: 30 }]]], usuariosOk, ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      const res = mockRes();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { usuarios: [30, 31] }, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_usuarios'))).toBe(true);
+      expect(avisos.avisarEquipoTrabajo).toHaveBeenCalledWith(expect.anything(), [31], { asignadoPor: 1 });
+    });
   });
 
   // ── DELETE /trabajos/:id ───────────────────────────────────
   describe('deleteTrabajo', () => {
     it('borrado lógico', async () => {
       bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'programado' }]]]]);
+      const { ejecutadas } = conexion();
       const res = mockRes();
       await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(query.mock.calls[1][0]).toContain('SET deleted_at');
+      expect(ejecutadas[0].sql).toContain('UPDATE trabajos SET deleted_at');
+      expect(ejecutadas).toHaveLength(1);
+    });
+
+    it('con ambulancias sin empezar: se borran con él', async () => {
+      bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'programado' }]]],
+          ['SELECT estado FROM asignaciones_libres', [[{ estado: 'programada' }, { estado: 'cancelada' }]]]]);
+      const { ejecutadas } = conexion();
+      const res = mockRes();
+      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      const asigs = ejecutadas.find(e => e.sql.includes('UPDATE asignaciones_libres SET deleted_at'));
+      expect(asigs.sql).toContain('WHERE trabajo_id = ? AND deleted_at IS NULL');
+      expect(asigs.params[1]).toBe(1);
+    });
+
+    it.each(['activa', 'finalizada'])('400 si alguna ambulancia está %s: es evidencia del servicio', async (estado) => {
+      bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'pendiente_cierre' }]]],
+          ['SELECT estado FROM asignaciones_libres', [[{ estado }]]]]);
+      const res = mockRes();
+      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(transaction).not.toHaveBeenCalled();
     });
 
     it('400 si está activo', async () => {
@@ -626,6 +975,101 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  // ── POST /trabajos/:id/cerrar (D3) ─────────────────────────
+  describe('cerrarTrabajo', () => {
+    const fila = (extra = {}) => ['AS num_vehiculos_v25',
+      [[{ id: 1, identificador: 'TRB-2026-0002', nombre: 'Maratón', estado: 'pendiente_cierre',
+          fecha_inicio: AYER(), coordinador_user_id: 50, num_vehiculos_v25: 0, num_asignaciones: 2, ...extra }]]];
+    const estados = (...lista) => ['SELECT estado FROM asignaciones_libres', [lista.map(estado => ({ estado }))]];
+    const cerrado = ['SET estado = ?, cerrado_at', [{ affectedRows: 1 }]];
+    const cerrar = async (user) => {
+      const res = mockRes();
+      await cerrarTrabajo(mockReq({ params: { id: '1' }, user }), res, mockNext());
+      return res;
+    };
+
+    it('el coordinador lo cierra con todas sus ambulancias finalizadas: sella quién y cuándo, y audita', async () => {
+      bd([fila(), estados('finalizada', 'cancelada'), cerrado, ...trabajoConAsignaciones({ trabajo: { estado: 'finalizado' } })]);
+      const res = await cerrar(coord);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const [sql, params] = query.mock.calls.find(([q]) => q.includes('SET estado = ?, cerrado_at'));
+      expect(sql).toContain("estado NOT IN ('finalizado', 'finalizado_anticipado')");
+      expect(params[0]).toBe('finalizado');
+      expect(params[1]).toBeInstanceOf(Date);
+      expect(params.slice(2)).toEqual([50, 1, 1]);
+      // El WHERE repite «ninguna ambulancia abierta»
+      expect(sql).toContain("a.estado IN ('programada', 'activa')");
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'close_trabajo', details: expect.objectContaining({ por_gestion: false }),
+      }));
+    });
+
+    it('gestión también puede (y queda dicho en la auditoría)', async () => {
+      bd([fila(), estados('finalizada'), cerrado, ...trabajoConAsignaciones()]);
+      expect((await cerrar(admin)).status).toHaveBeenCalledWith(200);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        details: expect.objectContaining({ por_gestion: true }),
+      }));
+    });
+
+    it('403 a quien no lo coordina, aunque vaya en una ambulancia', async () => {
+      bd([fila(), estados('finalizada')]);
+      expect((await cerrar(resp1)).status).toHaveBeenCalledWith(403);
+    });
+
+    it('400 con ambulancias sin finalizar, aunque el estado guardado diga otra cosa', async () => {
+      bd([fila(), estados('finalizada', 'activa')]);
+      const res = await cerrar(coord);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('queda 1 ambulancia');
+      expect(query.mock.calls.some(([q]) => q.includes('cerrado_at'))).toBe(false);
+    });
+
+    it('400 si ya está cerrado; 400 si es del modelo anterior; 404 si no existe', async () => {
+      bd([fila({ estado: 'finalizado' }), estados('finalizada')]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(400);
+
+      bd([fila({ estado: 'activo', num_vehiculos_v25: 2 }), estados()]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(400);
+
+      bd([]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(404);
+    });
+
+    it('sin ambulancias: se cierra si ya ha empezado; si no, hay que eliminarlo', async () => {
+      bd([fila({ estado: 'programado' }), estados('cancelada'), cerrado, ...trabajoConAsignaciones()]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(200);
+
+      bd([fila({ estado: 'programado', fecha_inicio: MANANA() }), estados()]);
+      const res = await cerrar(coord);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('elimínalo');
+    });
+
+    it('si dos lo cierran a la vez, solo uno deja rastro', async () => {
+      bd([fila(), estados('finalizada'), ['SET estado = ?, cerrado_at', [{ affectedRows: 0 }]],
+          ['SELECT estado FROM trabajos WHERE id = ?', [[{ estado: 'finalizado' }]]], ...trabajoConAsignaciones()]);
+      expect((await cerrar(coord)).status).toHaveBeenCalledWith(200);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('si entra una ambulancia entre la comprobación y el cierre, no lo cierra y lo dice (409)', async () => {
+      bd([fila(), estados('finalizada'), ['SET estado = ?, cerrado_at', [{ affectedRows: 0 }]],
+          ['SELECT estado FROM trabajos WHERE id = ?', [[{ estado: 'activo' }]]]]);
+      const res = await cerrar(coord);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('un trabajo v25 sin vehículos ni coordinador no se cierra por aquí (se saltaría el motivo)', async () => {
+      bd([fila({ estado: 'activo', coordinador_user_id: null, num_asignaciones: 0 }), estados()]);
+      const res = await cerrar(admin);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('modelo anterior');
     });
   });
 
@@ -665,7 +1109,7 @@ describe('trabajos.controller', () => {
       expect(act.sql).toContain('inicio_real_at = COALESCE(inicio_real_at, ?)');
       expect(act.params[2]).toBe(101);
       const sinc = ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado'));
-      expect(sinc.params).toEqual(['activo', 1]);
+      expect(sinc.params).toEqual(['activo', 1, 'activo']);
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'activate_trabajo_vehiculo' }));
     });
 
@@ -784,7 +1228,7 @@ describe('trabajos.controller', () => {
       expect(cierre.params[1]).toBe(1200);
       expect(cierre.params[4]).toBe(101);           // solo esa fila
       const sinc = ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado'));
-      expect(sinc.params).toEqual(['activo', 1]);
+      expect(sinc.params).toEqual(['activo', 1, 'activo']);
       expect(res._json.message).toBe('Vehículo cerrado correctamente');
     });
 
@@ -962,7 +1406,8 @@ describe('trabajos.controller', () => {
       ['listTrabajos',           () => listTrabajos(mockReq({ query: {}, user: admin }), mockRes(), next)],
       ['listTrabajosCalendario', () => listTrabajosCalendario(mockReq({ query: {}, user: admin }), mockRes(), next)],
       ['getTrabajo',             () => getTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
-      ['createTrabajo',          () => createTrabajo(mockReq({ body: { nombre: 'T', tipo: 'otro', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02', usuarios: [3] }, user: admin }), mockRes(), next)],
+      ['createTrabajo',          () => createTrabajo(mockReq({ body: { nombre: 'T', tipo: 'otro', fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02', coordinador_user_id: 5, asignaciones: [{ vehicle_id: 7, responsables: [3] }] }, user: admin }), mockRes(), next)],
+      ['cerrarTrabajo',          () => cerrarTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
       ['updateTrabajo',          () => updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'T' }, user: admin }), mockRes(), next)],
       ['deleteTrabajo',          () => deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), mockRes(), next)],
       ['activarVehiculo',        () => activarVehiculo(reqVeh(admin), mockRes(), next)],

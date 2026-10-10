@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../../components/common/Modal.jsx';
-import ListaMiembros from '../../components/common/ListaMiembros.jsx';
+import ListaMiembros, { UserCombobox } from '../../components/common/ListaMiembros.jsx';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import {
-  formularioInicial, vehiculoVacio, validarTrabajo, payloadTrabajo,
+  formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
 } from '../../utils/trabajos.js';
+import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
 
+/**
+ * Alta y edición de un trabajo (v33, el trabajo padre).
+ *
+ * Se rellena el trabajo, quién lo coordina y su EQUIPO (la gente asignada al
+ * trabajo, vaya o no en una ambulancia). En el ALTA se pueden poner ya las
+ * ambulancias que se sepan, o ninguna (2026-10-10): cada una es una
+ * asignación, con sus responsables y su equipo, elegidos del equipo del
+ * trabajo (salen primero) o de fuera. Al EDITAR, las ambulancias se añaden y
+ * se cambian una a una desde la ficha del trabajo, que es donde se ve su estado.
+ */
 export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const isEdit = !!trabajo;
+  const alta   = !isEdit;
   const { notify } = useNotification();
 
   const [vehicles, setVehicles] = useState([]);
@@ -20,13 +32,8 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const [form,     setForm]     = useState(() => formularioInicial(trabajo));
 
   useEffect(() => {
-    Promise.all([
-      vehiclesService.list({ limit: 100 }),
-      usersService.list({ limit: 100 }),
-    ]).then(([vResp, uResp]) => {
-      setVehicles(vResp.data || []);
-      setUsers(uResp.data   || []);
-    });
+    vehiclesService.list({ limit: 100 }).then(r => setVehicles(r.data || [])).catch(console.error);
+    usersService.list({ limit: 300 }).then(r => setUsers(r.data || [])).catch(console.error);
   }, []);
 
   const set = (field) => (e) => {
@@ -34,52 +41,62 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     setErrors(er => ({ ...er, [field]: '' }));
   };
 
-  const addVehicle = () => {
-    setForm(f => ({ ...f, vehiculos: [...f.vehiculos, vehiculoVacio()] }));
+  const setCoordinador = (id) => {
+    setForm(f => ({ ...f, coordinador_user_id: id }));
+    setErrors(er => ({ ...er, coordinador_user_id: '' }));
   };
 
-  const removeVehicle = (i) => {
-    setForm(f => ({ ...f, vehiculos: f.vehiculos.filter((_, idx) => idx !== i) }));
-  };
-
-  const setVehicleField = (i, field, val) => {
+  const setAmbulancia = (i, campo, valor) => {
     setForm(f => {
-      const vs = [...f.vehiculos];
-      vs[i] = { ...vs[i], [field]: val };
-      return { ...f, vehiculos: vs };
+      const lista = [...f.asignaciones];
+      lista[i] = { ...lista[i], [campo]: valor };
+      return { ...f, asignaciones: lista };
     });
-    setErrors(er => ({ ...er, vehiculos: '' }));
+    setErrors(er => ({ ...er, asignaciones: '' }));
   };
 
-  const toggleUser = (uid) => {
-    setForm(f => ({
-      ...f,
-      usuarios: f.usuarios.includes(uid)
-        ? f.usuarios.filter(u => u !== uid)
-        : [...f.usuarios, uid],
-    }));
-  };
+  const setEquipo = (lista) => setForm(f => ({ ...f, usuarios: lista }));
+  // Al elegir quién va en cada ambulancia, arriba la gente ya asociada al
+  // trabajo (equipo, coordinador, quien va en otra ambulancia) y debajo el resto
+  const delEquipo = asociadosDeFormulario(form);
 
-  // Un vehículo solo puede ir una vez: cada selector ofrece los que no estén
-  // ya elegidos en otra fila (más el suyo, para poder mostrarlo).
+  const anadirAmbulancia = () =>
+    setForm(f => ({ ...f, asignaciones: [...f.asignaciones, ambulanciaVacia()] }));
+  const quitarAmbulancia = (i) =>
+    setForm(f => ({ ...f, asignaciones: f.asignaciones.filter((_, j) => j !== i) }));
+
+  // Una ambulancia solo puede ir una vez (D5): cada selector ofrece las que no
+  // estén ya elegidas en otra fila, más la suya para poder mostrarla.
   const vehiculosLibres = (propio) => {
-    const usados = new Set(form.vehiculos.map(v => String(v.vehicle_id)).filter(Boolean));
+    const usados = new Set(form.asignaciones.map(a => String(a.vehicle_id)).filter(Boolean));
     return vehicles.filter(v => String(v.id) === String(propio) || !usados.has(String(v.id)));
   };
 
   const handleSubmit = async (ev) => {
     ev.preventDefault();
-    const e = validarTrabajo(form);
+    const e = validarTrabajo(form, { alta });
     setErrors(e);
     if (Object.keys(e).length) return;
     setSaving(true);
     try {
-      const payload = payloadTrabajo(form);
-      if (isEdit) await trabajosService.update(trabajo.id, payload);
-      else        await trabajosService.create(payload);
+      const payload = payloadTrabajo(form, { alta });
+      const guardado = isEdit
+        ? await trabajosService.update(trabajo.id, payload)
+        : await trabajosService.create(payload);
 
       notify.success(isEdit ? 'Trabajo actualizado' : 'Trabajo creado');
-      onSaved();
+      // Avisos por ambulancia, como al crear una asignación: lo guardado,
+      // guardado está; solo se cuenta.
+      for (const a of guardado?.avisos_alta || []) {
+        const solapes = textoSolapes(a.solapes);
+        if (solapes) notify.warning(solapes, 10000);
+        const ocupada = textoVehiculoOcupado(a.vehiculo_ocupado);
+        if (ocupada) notify.warning(ocupada, 10000);
+        if (a.fuera_del_trabajo) {
+          notify.warning('Aviso: las horas de una ambulancia se salen de las del trabajo', 10000);
+        }
+      }
+      onSaved(guardado);
     } catch (err) {
       notify.error(err.response?.data?.message || 'Error al guardar');
     } finally {
@@ -117,6 +134,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           <textarea className="input min-h-20 resize-y" value={form.descripcion}
             onChange={set('descripcion')}
             placeholder="Qué hay que hacer, punto de encuentro, contacto…" />
+          <p className="text-xs text-neutral-500 mt-1">La ve todo el que vaya en cualquiera de las ambulancias.</p>
         </div>
 
         {/* Ubicación y tipo */}
@@ -154,96 +172,132 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           </div>
         </div>
 
-        {/* Vehículos */}
+        {/* Coordinador (D1: cualquier usuario activo; no hace falta que vaya) */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="label mb-0">Vehículos</label>
-            <button type="button" onClick={addVehicle} className="btn-secondary text-xs px-2 py-1">
-              + Añadir vehículo
-            </button>
-          </div>
-          <p className="text-xs text-neutral-500 mb-2">
-            Cada responsable activa, documenta y cierra su vehículo por su cuenta.
+          <label className="label">Coordinador <span className="text-bad-500">*</span></label>
+          <UserCombobox
+            users={users.filter(u => u.activo !== false && u.activo !== 0)}
+            value={form.coordinador_user_id}
+            onChange={setCoordinador}
+            error={!!errors.coordinador_user_id}
+          />
+          <p className="text-xs text-neutral-500 mt-1">
+            Ve todas las ambulancias del trabajo y lo cierra cuando todas han terminado.
+            No hace falta que vaya en ninguna.
           </p>
-          {errors.vehiculos && <p className="field-error mb-2">{errors.vehiculos}</p>}
-          <div className="space-y-3">
-            {form.vehiculos.map((veh, i) => (
-              <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-neutral-600">Vehículo {i + 1}</span>
-                  {veh.bloqueado ? (
-                    <span className="text-xs text-neutral-400">Ya en servicio: no se puede quitar</span>
-                  ) : (
-                    <button type="button" onClick={() => removeVehicle(i)}
-                      className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="sm:col-span-2">
-                    <label className="label text-xs">Vehículo</label>
-                    <select className="input text-sm" value={veh.vehicle_id} disabled={veh.bloqueado}
-                      onChange={e => setVehicleField(i, 'vehicle_id', e.target.value)}>
-                      <option value="">Seleccionar...</option>
-                      {vehiculosLibres(veh.vehicle_id).map(v => (
-                        <option key={v.id} value={v.id}>{v.alias} ({v.matricula})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label text-xs">Km inicio</label>
-                    <input type="text" inputMode="numeric" className="input text-sm"
-                      value={veh.kilometros_inicio} disabled={veh.bloqueado}
-                      onChange={e => setVehicleField(i, 'kilometros_inicio', e.target.value)}
-                      placeholder="Opcional" />
-                  </div>
-                </div>
-                <div>
-                  <label className="label text-xs">Responsables <span className="text-bad-500">*</span></label>
-                  <ListaMiembros
-                    users={users}
-                    lista={veh.responsables}
-                    ocupados={veh.responsables}
-                    onChange={lista => setVehicleField(i, 'responsables', lista)}
-                    minimo={1}
-                    textoAnadir="Añadir otro responsable"
-                    error={!!errors.vehiculos}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          {errors.coordinador_user_id && <p className="field-error">{errors.coordinador_user_id}</p>}
         </div>
 
-        {/* Equipo */}
+        {/* Equipo del trabajo: la gente asignada, vaya o no en una ambulancia */}
         <div>
-          <label className="label">Equipo</label>
+          <label className="label">Equipo del trabajo</label>
           <p className="text-xs text-neutral-500 mb-2">
-            Ven el título, la descripción, la ubicación y las fechas del trabajo,
-            pero no la evidencia de los vehículos. Los responsables de un
-            vehículo no hace falta marcarlos aquí.
+            La gente asignada al trabajo: ven la ficha y quién va en cada ambulancia.
+            Al poner responsables a una ambulancia salen los primeros, aunque se
+            puede elegir a cualquiera.
           </p>
-          <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-neutral-50 rounded-lg border border-neutral-200">
-            {users.map(u => {
-              const sel = form.usuarios.includes(u.id);
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => toggleUser(u.id)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
-                    ${sel
-                      ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-white text-neutral-600 border-neutral-300 hover:border-primary-400'}`}
-                >
-                  {u.nombre} {u.apellidos}
-                  {u.roles?.length > 0 && (
-                    <span className="ml-1 text-xs opacity-70">({u.roles[0]})</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <ListaMiembros
+            users={users}
+            lista={form.usuarios}
+            ocupados={form.usuarios}
+            onChange={setEquipo}
+            minimo={0}
+            textoAnadir="Añadir al equipo del trabajo"
+          />
         </div>
+
+        {/* Ambulancias: solo en el alta, y opcionales */}
+        {alta && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="label mb-0">Ambulancias</label>
+              <button type="button" onClick={anadirAmbulancia} className="btn-secondary text-xs px-2 py-1">
+                + Añadir ambulancia
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500 mb-2">
+              Las que ya se sepan; si no, se añaden después desde la ficha del trabajo.
+              Los responsables inician, documentan y finalizan su ambulancia; su equipo
+              va con ellos y la ve, pero no la opera.
+            </p>
+            {errors.asignaciones && <p className="field-error mb-2">{errors.asignaciones}</p>}
+            <div className="space-y-3">
+              {form.asignaciones.map((amb, i) => {
+                const ocupados = [...amb.responsables, ...amb.personal];
+                return (
+                  <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-neutral-600">Ambulancia {i + 1}</span>
+                      <button type="button" onClick={() => quitarAmbulancia(i)}
+                        className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
+                    </div>
+                    <div>
+                      <label className="label text-xs">Vehículo</label>
+                      <select className="input text-sm" value={amb.vehicle_id}
+                        onChange={e => setAmbulancia(i, 'vehicle_id', e.target.value)}>
+                        <option value="">Seleccionar...</option>
+                        {vehiculosLibres(amb.vehicle_id).map(v => (
+                          <option key={v.id} value={v.id}>{v.alias} ({v.matricula})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label text-xs">Responsables <span className="text-bad-500">*</span></label>
+                      <ListaMiembros
+                        users={users}
+                        lista={amb.responsables}
+                        ocupados={ocupados}
+                        onChange={lista => setAmbulancia(i, 'responsables', lista)}
+                        minimo={1}
+                        textoAnadir="Añadir otro responsable"
+                        error={!!errors.asignaciones}
+                        destacados={delEquipo}
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Equipo (opcional)</label>
+                      <ListaMiembros
+                        users={users}
+                        lista={amb.personal}
+                        ocupados={ocupados}
+                        onChange={lista => setAmbulancia(i, 'personal', lista)}
+                        minimo={0}
+                        textoAnadir="Añadir al equipo"
+                        destacados={delEquipo}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="label text-xs">Inicio (si no es el del trabajo)</label>
+                        <input type="datetime-local" className="input text-sm" value={amb.fecha_inicio}
+                          onChange={e => setAmbulancia(i, 'fecha_inicio', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="label text-xs">Fin (si no es el del trabajo)</label>
+                        <input type="datetime-local" className="input text-sm" value={amb.fecha_fin}
+                          onChange={e => setAmbulancia(i, 'fecha_fin', e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="label text-xs">Km inicio</label>
+                        <input type="text" inputMode="numeric" className="input text-sm"
+                          value={amb.km_inicio} placeholder="Opcional"
+                          onChange={e => setAmbulancia(i, 'km_inicio', e.target.value)} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="label text-xs">Notas para esta ambulancia</label>
+                        <input type="text" className="input text-sm" value={amb.notas} maxLength={1000}
+                          placeholder="Opcional"
+                          onChange={e => setAmbulancia(i, 'notas', e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </form>
     </Modal>
   );

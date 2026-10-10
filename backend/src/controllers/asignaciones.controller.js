@@ -19,6 +19,7 @@ const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../util
 const { errorMotivo }            = require('../utils/motivo.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 const vigilancia                 = require('../services/vigilancia.service');
+const estadoTrabajo              = require('../services/estadoTrabajo.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -84,6 +85,34 @@ function marcarFotosInicioTarde(asig, evidencias) {
     : null;
 }
 
+/**
+ * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la
+ * asignación es del modelo antiguo). Lo que ve todo el que va en la ambulancia
+ * (decisión 1 del plan del trabajo padre): título, descripción, ubicación,
+ * fechas y quién lo coordina. `trabajo_id` se queda en la fila.
+ */
+function trabajoAparte(fila) {
+  const {
+    trabajo_identificador, trabajo_nombre, trabajo_descripcion, trabajo_ubicacion,
+    trabajo_estado, trabajo_fecha_inicio, trabajo_fecha_fin, trabajo_coordinador_id,
+    trabajo_coordinador_nombre, trabajo_coordinador_apellidos, ...asig
+  } = fila;
+  asig.trabajo = asig.trabajo_id ? {
+    id:            asig.trabajo_id,
+    identificador: trabajo_identificador,
+    nombre:        trabajo_nombre,
+    descripcion:   trabajo_descripcion,
+    ubicacion:     trabajo_ubicacion,
+    estado:        trabajo_estado,
+    fecha_inicio:  trabajo_fecha_inicio,
+    fecha_fin:     trabajo_fecha_fin,
+    coordinador:   trabajo_coordinador_id
+      ? { id: trabajo_coordinador_id, nombre: trabajo_coordinador_nombre, apellidos: trabajo_coordinador_apellidos }
+      : null,
+  } : null;
+  return asig;
+}
+
 // Helper: obtener asignación completa con relaciones
 async function getAsignacionCompleta(id) {
   const [rows] = await query(
@@ -92,17 +121,25 @@ async function getAsignacionCompleta(id) {
             v.kilometros_actuales AS vehiculo_km_actual,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
             u.username AS responsable_username,
-            CONCAT(c.nombre,' ',c.apellidos) AS creado_por_nombre
+            CONCAT(c.nombre,' ',c.apellidos) AS creado_por_nombre,
+            t.identificador AS trabajo_identificador, t.nombre AS trabajo_nombre,
+            t.descripcion AS trabajo_descripcion, t.ubicacion AS trabajo_ubicacion,
+            t.estado AS trabajo_estado,
+            t.fecha_inicio AS trabajo_fecha_inicio, t.fecha_fin AS trabajo_fecha_fin,
+            t.coordinador_user_id AS trabajo_coordinador_id,
+            co.nombre AS trabajo_coordinador_nombre, co.apellidos AS trabajo_coordinador_apellidos
      FROM asignaciones_libres al
      JOIN vehicles v ON al.vehicle_id = v.id
      JOIN users u    ON al.user_id    = u.id
      JOIN users c    ON al.created_by = c.id
+     LEFT JOIN trabajos t ON t.id = al.trabajo_id
+     LEFT JOIN users co   ON co.id = t.coordinador_user_id
      WHERE al.id = ? AND al.deleted_at IS NULL`,
     [id]
   );
   if (!rows.length) return null;
 
-  const asig = rows[0];
+  const asig = trabajoAparte(rows[0]);
 
   // Quién va en la asignación: responsables (activan, evidencian y cierran) y
   // personal (solo la ven). Ver v23 en migrations.js.
@@ -222,6 +259,87 @@ function rolEnAsignacion(asig, userId) {
   // sigue funcionando con el responsable principal.
   if (!responsables.length && asig.user_id === userId) return 'responsable';
   return null;
+}
+
+/**
+ * ¿Es el coordinador del trabajo de esta asignación? Ve la asignación entera
+ * (D2), pero serlo no le deja operarla: activar, fotos y cierre siguen
+ * pidiendo ser responsable o gestionar trabajos.
+ */
+function esCoordinador(asig, userId) {
+  return !!asig?.trabajo?.coordinador && asig.trabajo.coordinador.id === userId;
+}
+
+// ============================================================
+// Helpers: la asignación dentro de su trabajo (v33)
+// ============================================================
+
+/**
+ * El trabajo al que se quiere colgar una ambulancia. `abierto` es falso si ya
+ * lo cerró el coordinador: entonces no admite ambulancias nuevas. `v25` dice
+ * si lleva vehículos del modelo anterior (trabajo_vehiculos): con una
+ * asignación dentro, su estado pasaría a calcularse por ella y ya no se podría
+ * cerrar por ninguna vía.
+ */
+async function cargarTrabajo(trabajoId) {
+  const [rows] = await query(
+    `SELECT t.id, t.nombre, t.estado, t.fecha_inicio, t.fecha_fin,
+            EXISTS (SELECT 1 FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS v25
+     FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
+    [trabajoId]
+  );
+  if (!rows.length) return null;
+  return { ...rows[0], v25: !!Number(rows[0].v25), abierto: !estadoTrabajo.CERRADOS.includes(rows[0].estado) };
+}
+
+const MSG_TRABAJO_V25 = 'Es un trabajo del modelo anterior: no admite ambulancias nuevas';
+
+/**
+ * D5: la misma ambulancia no va dos veces en un trabajo. Cuentan las
+ * asignaciones vivas: una cancelada o borrada deja volver a ponerla. Se mira
+ * en el controlador y no con un UNIQUE porque el borrado es lógico y la
+ * cancelada debe poder convivir con la nueva.
+ */
+async function vehiculoYaEnTrabajo(trabajoId, vehicleId, excluirId = 0) {
+  const [rows] = await query(
+    `SELECT id FROM asignaciones_libres
+     WHERE trabajo_id = ? AND vehicle_id = ? AND id <> ?
+       AND deleted_at IS NULL AND estado <> 'cancelada'
+     LIMIT 1`,
+    [trabajoId, vehicleId, excluirId]
+  );
+  return rows.length > 0;
+}
+
+/**
+ * D4: las fechas de una ambulancia pueden salirse de las del trabajo (llega
+ * antes a montar, se queda a recoger). Es un AVISO para quien asigna, como
+ * los solapes de personas; no bloquea.
+ */
+function fueraDelTrabajo(trabajo, fechaInicio, fechaFin) {
+  if (!trabajo) return false;
+  return instanteUtc(fechaInicio) < instanteUtc(trabajo.fecha_inicio)
+      || instanteUtc(fechaFin)    > instanteUtc(trabajo.fecha_fin);
+}
+
+/**
+ * Inserta una asignación con sus miembros. La usan `createAsignacion` y el alta
+ * de un trabajo con su primera ambulancia (`trabajos.controller`), que la
+ * necesita dentro de su propia transacción (D6). No sincroniza el estado del
+ * trabajo: lo hace quien llama, una vez, al final.
+ */
+async function insertarAsignacion(conn, datos, creadoPor) {
+  const { trabajo_id = null, vehicle_id, responsables, personal = [],
+          fecha_inicio, fecha_fin, km_inicio, notas } = datos;
+  const [result] = await conn.execute(
+    `INSERT INTO asignaciones_libres
+       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [vehicle_id, responsables[0], creadoPor, fecha_inicio, fecha_fin,
+     km_inicio || null, notas || null, trabajo_id]
+  );
+  await guardarMiembros(conn, result.insertId, responsables, personal);
+  return result.insertId;
 }
 
 /** Lista de ids enteros de un campo del body, o undefined si no viene. */
@@ -412,6 +530,16 @@ async function listAsignaciones(req, res, next) {
       params.push(estado);
     }
 
+    // Filtro por trabajo (D9): `?trabajo_id=N`, o `sin` para las del modelo
+    // antiguo, que no tienen.
+    const trabajoFiltro = req.query.trabajo_id;
+    if (trabajoFiltro === 'sin') {
+      whereParts.push('al.trabajo_id IS NULL');
+    } else if (parseInt(trabajoFiltro) > 0) {
+      whereParts.push('al.trabajo_id = ?');
+      params.push(parseInt(trabajoFiltro));
+    }
+
     const where = 'WHERE ' + whereParts.join(' AND ');
 
     const [countRows] = await query(
@@ -423,6 +551,8 @@ async function listAsignaciones(req, res, next) {
     const [rows] = await query(
       `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
               al.estado, al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
+              al.trabajo_id, t.identificador AS trabajo_identificador, t.nombre AS trabajo_nombre,
+              t.estado AS trabajo_estado,
               v.matricula, v.alias AS vehiculo_alias,
               v.kilometros_actuales AS vehiculo_km_actual,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
@@ -444,6 +574,7 @@ async function listAsignaciones(req, res, next) {
        FROM asignaciones_libres al
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
        ${where}
        ORDER BY ${ORDEN_LISTADO}
        LIMIT ? OFFSET ?`,
@@ -483,8 +614,9 @@ async function getAsignacion(req, res, next) {
 
     if (!asig) return notFound(res, 'Asignación');
 
-    // Operacionales solo ven aquellas en las que van (responsable o personal)
-    if (!canManage && !rolEnAsignacion(asig, req.user.id)) {
+    // Operacionales solo ven aquellas en las que van (responsable o personal),
+    // y el coordinador de su trabajo las ve todas (D2).
+    if (!canManage && !rolEnAsignacion(asig, req.user.id) && !esCoordinador(asig, req.user.id)) {
       return forbidden(res, 'No tienes acceso a esta asignación');
     }
 
@@ -521,15 +653,30 @@ async function createAsignacion(req, res, next) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 
+    // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 8, que
+    // va DESPUÉS de encender menu_trabajos: con el flag apagado, el alta
+    // suelta de AsignacionList no lo manda (MAPA_CODIGO.md §7).
+    const trabajoId = req.body.trabajo_id ? Number(req.body.trabajo_id) : null;
+    let trabajo = null;
+    if (trabajoId) {
+      trabajo = await cargarTrabajo(trabajoId);
+      if (!trabajo) return notFound(res, 'Trabajo');
+      if (!trabajo.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
+      if (trabajo.v25) return error(res, MSG_TRABAJO_V25, 400);
+      if (await vehiculoYaEnTrabajo(trabajoId, vehicle_id)) {
+        return error(res, 'Esa ambulancia ya va en este trabajo', 400);
+      }
+    }
+
     const asignacionId = await transaction(async (conn) => {
-      const [result] = await conn.execute(
-        `INSERT INTO asignaciones_libres
-           (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [vehicle_id, responsables[0], req.user.id, fecha_inicio, fecha_fin, km_inicio || null, notas || null]
-      );
-      await guardarMiembros(conn, result.insertId, responsables, personal);
-      return result.insertId;
+      const id = await insertarAsignacion(conn, {
+        trabajo_id: trabajoId, vehicle_id, responsables, personal,
+        fecha_inicio, fecha_fin, km_inicio, notas,
+      }, req.user.id);
+      // Una ambulancia nueva puede devolver a «activo» un trabajo pendiente
+      // de cierre, o dejarlo programado si es la primera.
+      if (trabajoId) await estadoTrabajo.sincronizarEstadoTrabajo(conn, trabajoId);
+      return id;
     });
 
     const asig    = await getAsignacionCompleta(asignacionId);
@@ -551,7 +698,10 @@ async function createAsignacion(req, res, next) {
     });
     // Sin await: el aviso no retrasa la respuesta ni puede tumbarla.
     avisos.avisarAsignacionNueva(asig, [...responsables, ...personal], { asignadoPor: req.user.id });
-    return created(res, { ...asig, solapes, vehiculo_ocupado }, 'Asignación creada correctamente');
+    return created(res, {
+      ...asig, solapes, vehiculo_ocupado,
+      fuera_del_trabajo: fueraDelTrabajo(trabajo, fecha_inicio, fecha_fin),
+    }, 'Asignación creada correctamente');
   } catch (err) {
     next(err);
   }
@@ -568,6 +718,7 @@ function cambiosAsignacion(antes, despues) {
   const nombres = lista => (lista || []).map(m => m.username);
   const campos = {
     vehiculo:     [a => a.matricula],
+    trabajo:      [a => a.trabajo_id ?? null],
     fecha_inicio: [a => iso(a.fecha_inicio)],
     fecha_fin:    [a => iso(a.fecha_fin)],
     km_inicio:    [a => a.km_inicio ?? null],
@@ -649,6 +800,38 @@ async function updateAsignacion(req, res, next) {
       return error(res, `estado inválido. Usa el endpoint /activar o /finalizar`, 400);
     }
 
+    // ── El trabajo (v33) ─────────────────────────────────────
+    // Mover la ambulancia a otro trabajo, o meter en uno una asignación del
+    // modelo antiguo: solo mientras no ha empezado y sin evidencia, el mismo
+    // candado que el del vehículo y por lo mismo (las fotos cuelgan de la
+    // asignación). Sacarla de su trabajo no se puede: siempre va en uno. El
+    // trabajo de origen sí puede quedarse sin ambulancias (2026-10-10).
+    const trabajoPedido = req.body.trabajo_id;
+    if (trabajoPedido === null && asig.trabajo_id) {
+      return error(res, 'Una ambulancia de un trabajo no se puede dejar sin trabajo', 400);
+    }
+    const cambiaTrabajo = trabajoPedido != null && Number(trabajoPedido) !== asig.trabajo_id;
+    let trabajoDestino = asig.trabajo;
+    if (cambiaTrabajo) {
+      if (asig.estado !== 'programada') {
+        return error(res, 'Solo se puede pasar a otro trabajo una ambulancia que aún no ha empezado', 400);
+      }
+      if (asig.evidencias.length || asig.incidencias.length) {
+        return error(res, 'No se puede pasar a otro trabajo: ya hay evidencia o incidencias registradas en esta asignación', 400);
+      }
+      trabajoDestino = await cargarTrabajo(Number(trabajoPedido));
+      if (!trabajoDestino) return notFound(res, 'Trabajo');
+      if (!trabajoDestino.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
+      if (trabajoDestino.v25) return error(res, MSG_TRABAJO_V25, 400);
+    }
+    // D5, en el trabajo en el que queda: con otra ambulancia o en otro trabajo
+    if ((cambiaVehiculo || cambiaTrabajo) && trabajoDestino &&
+        await vehiculoYaEnTrabajo(trabajoDestino.id, Number(vehicle_id || asig.vehicle_id), asig.id)) {
+      return error(res, 'Esa ambulancia ya va en este trabajo', 400);
+    }
+    const tocaPadre = asig.trabajo_id || cambiaTrabajo;
+    const sincronizados = [];
+
     const kmNuevo = km_inicio !== undefined ? km_inicio : null;
     try {
       await transaction(async (conn) => {
@@ -672,7 +855,8 @@ async function updateAsignacion(req, res, next) {
              fecha_fin    = COALESCE(?, fecha_fin),
              km_inicio    = IF(?, ?, COALESCE(?, km_inicio)),
              notas        = IF(?, ?, notas),
-             estado       = COALESCE(?, estado)
+             estado       = COALESCE(?, estado),
+             trabajo_id   = COALESCE(?, trabajo_id)
            WHERE id = ?
              AND (? = 0 OR (
                    estado IN ('programada', 'activa')
@@ -689,20 +873,34 @@ async function updateAsignacion(req, res, next) {
             notas !== undefined ? 1 : 0,
             notas !== undefined ? (String(notas ?? '').trim() || null) : null,
             estado       || null,
+            cambiaTrabajo ? Number(trabajoPedido) : null,
             asig.id,
-            cambiaVehiculo ? 1 : 0,
+            (cambiaVehiculo || cambiaTrabajo) ? 1 : 0,
           ]
         );
         // Lanzar deshace también el cambio de miembros de esta misma edición.
-        if (cambiaVehiculo && resUpd && resUpd.affectedRows === 0) throw new VehiculoConEvidencia();
+        if ((cambiaVehiculo || cambiaTrabajo) && resUpd && resUpd.affectedRows === 0) {
+          throw new VehiculoConEvidencia();
+        }
         if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
+
+        // Cancelarla o moverla cambia el estado del trabajo (o de los dos)
+        if (tocaPadre && (estado || cambiaTrabajo)) {
+          for (const tid of new Set([asig.trabajo_id, trabajoDestino?.id].filter(Boolean))) {
+            sincronizados.push([tid, await estadoTrabajo.sincronizarEstadoTrabajo(conn, tid)]);
+          }
+        }
       });
     } catch (err) {
       if (err instanceof VehiculoConEvidencia) {
-        return error(res, 'No se puede cambiar el vehículo: se acaba de subir evidencia en esta asignación', 409);
+        return error(res, cambiaVehiculo
+          ? 'No se puede cambiar el vehículo: se acaba de subir evidencia en esta asignación'
+          : 'No se puede pasar a otro trabajo: se acaba de subir evidencia en esta asignación', 409);
       }
       throw err;
     }
+    // Cancelar la última que faltaba deja el trabajo listo para cerrar
+    for (const [tid, r] of sincronizados) estadoTrabajo.avisarSiPendienteCierre(tid, r);
 
     const updated = await getAsignacionCompleta(asig.id);
     const solapes = await buscarSolapes(
@@ -715,6 +913,9 @@ async function updateAsignacion(req, res, next) {
     const vehiculo_ocupado = (cambiaVehiculo || cambianFechas)
       ? await buscarVehiculoOcupado(updated.vehicle_id, updated.fecha_inicio, updated.fecha_fin, asig.id)
       : [];
+    // D4, con el mismo criterio: solo si algo de lo que lo decide ha cambiado
+    const fuera_del_trabajo = (cambianFechas || cambiaTrabajo)
+      && fueraDelTrabajo(updated.trabajo, updated.fecha_inicio, updated.fecha_fin);
 
     // Se audita TODA edición que cambie algo, con el antes y el después de
     // cada campo tocado. Antes solo se registraba si cambiaban los miembros y
@@ -751,7 +952,7 @@ async function updateAsignacion(req, res, next) {
         avisos.avisarCambioVehiculo(updated, seguian, { anterior: asig, cambiadoPor: req.user.id });
       }
     }
-    return success(res, { ...updated, solapes, vehiculo_ocupado }, 'Asignación actualizada');
+    return success(res, { ...updated, solapes, vehiculo_ocupado, fuera_del_trabajo }, 'Asignación actualizada');
   } catch (err) {
     next(err);
   }
@@ -763,15 +964,21 @@ async function updateAsignacion(req, res, next) {
 async function deleteAsignacion(req, res, next) {
   try {
     const [rows] = await query(
-      'SELECT id, estado FROM asignaciones_libres WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, estado, trabajo_id FROM asignaciones_libres WHERE id = ? AND deleted_at IS NULL',
       [req.params.id]
     );
     if (!rows.length) return notFound(res, 'Asignación');
+    const { trabajo_id: trabajoId } = rows[0];
 
-    await query(
-      'UPDATE asignaciones_libres SET deleted_at = ? WHERE id = ?',
-      [ahora(), rows[0].id]
-    );
+    let sincronizado = null;
+    await transaction(async (conn) => {
+      await conn.execute(
+        'UPDATE asignaciones_libres SET deleted_at = ? WHERE id = ?',
+        [ahora(), rows[0].id]
+      );
+      if (trabajoId) sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, trabajoId);
+    });
+    if (trabajoId) estadoTrabajo.avisarSiPendienteCierre(trabajoId, sincronizado);
 
     logAudit({
       userId:   req.user.id,
@@ -828,10 +1035,14 @@ async function activarAsignacion(req, res, next) {
     // aviso lo mandó el cron.
     const yaEstabaActiva = asig.estado === 'activa';
 
-    await query(
-      'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?) WHERE id = ?',
-      ['activa', ahora(), asig.id]
-    );
+    await transaction(async (conn) => {
+      await conn.execute(
+        'UPDATE asignaciones_libres SET estado = ?, inicio_real_at = COALESCE(inicio_real_at, ?) WHERE id = ?',
+        ['activa', ahora(), asig.id]
+      );
+      // La primera ambulancia que arranca pone el trabajo en marcha
+      if (asig.trabajo_id) await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
+    });
 
     if (!yaEstabaActiva) avisos.avisarAsignacionActivada(asig);
 
@@ -1085,7 +1296,9 @@ async function finalizarAsignacion(req, res, next) {
 
     // Cerrar la asignación y poner al día el vehículo van juntos: si el
     // kilometraje de la flota no avanzara, la ficha del vehículo se quedaría
-    // congelada aunque la ambulancia lleve meses saliendo.
+    // congelada aunque la ambulancia lleve meses saliendo. Y el estado del
+    // trabajo, también: la última en cerrar lo deja pendiente de cierre.
+    let sincronizado = null;
     await transaction(async (conn) => {
       await conn.execute(
         `UPDATE asignaciones_libres SET
@@ -1118,12 +1331,16 @@ async function finalizarAsignacion(req, res, next) {
           [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
         );
       }
+      if (asig.trabajo_id) {
+        sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
+      }
     });
 
     // Tras la transacción: si el cierre se hubiera deshecho, el aviso habría
     // anunciado un servicio que sigue abierto. Vale también por el aviso de
     // «fotos de fin completas» — llegar aquí exige tenerlas todas.
     avisos.avisarAsignacionFinalizada(asig, { km_fin });
+    if (asig.trabajo_id) estadoTrabajo.avisarSiPendienteCierre(asig.trabajo_id, sincronizado);
 
     logAudit({
       userId:   req.user.id,
@@ -1340,5 +1557,13 @@ module.exports = {
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,
   rolEnAsignacion,
+  esCoordinador,
   leerMiembros,
+  // Para el alta de un trabajo con su primera ambulancia (trabajos.controller)
+  usuariosNoValidos,
+  insertarAsignacion,
+  fueraDelTrabajo,
+  buscarSolapes,
+  buscarVehiculoOcupado,
+  getAsignacionCompleta,
 };

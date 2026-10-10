@@ -8,7 +8,6 @@ vi.mock('../../../services/api', () => ({
 }));
 
 const mockData = (data) => ({ data: { data } });
-const mockResp = (d) => ({ data: d });
 
 describe('trabajos.service', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -55,39 +54,49 @@ describe('trabajos.service', () => {
     expect(api.delete).toHaveBeenCalledWith('/trabajos/1');
   });
 
-  it('activar', async () => {
-    api.post.mockResolvedValueOnce(mockData({ id: 1 }));
-    await trabajosService.activar(1);
-    expect(api.post).toHaveBeenCalledWith('/trabajos/1/activar');
+  it('cerrar: lo cierra el coordinador (v33)', async () => {
+    api.post.mockResolvedValueOnce(mockData({ id: 1, estado: 'finalizado' }));
+    const r = await trabajosService.cerrar(1);
+    expect(api.post).toHaveBeenCalledWith('/trabajos/1/cerrar');
+    expect(r).toEqual({ id: 1, estado: 'finalizado' });
   });
 
-  it('finalize', async () => {
-    api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
-    await trabajosService.finalize(1, { vehiculos_km: [] });
-    expect(api.post).toHaveBeenCalledWith('/trabajos/1/finalize', { vehiculos_km: [] });
-  });
-
-  it('activarVehiculo', async () => {
-    api.post.mockResolvedValueOnce(mockData({ id: 1 }));
-    const r = await trabajosService.activarVehiculo(1, 7);
-    expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/activar');
-    expect(r).toEqual({ id: 1 });
-  });
-
-  it('finalizeVehiculo', async () => {
-    api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
-    const r = await trabajosService.finalizeVehiculo(1, 7, { kilometros_fin: 1200 });
-    expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/finalize', { kilometros_fin: 1200 });
-    expect(r).toEqual({ message: 'ok' });
-  });
-
-  it('uploadEvidencia', async () => {
-    api.post.mockResolvedValueOnce(mockData({}));
-    const fd = new FormData();
-    await trabajosService.uploadEvidencia(1, fd);
-    expect(api.post).toHaveBeenCalledWith('/trabajos/1/evidencias', fd, {
-      headers: { 'Content-Type': undefined }, timeout: SUBIDA_FOTO_TIMEOUT_MS,
+  // Modelo v25: convive hasta la fase 6 para terminar los trabajos antiguos
+  describe('ciclo v25', () => {
+    it('activar (sin vehículos)', async () => {
+      api.post.mockResolvedValueOnce(mockData({ id: 1 }));
+      await trabajosService.activar(1);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/activar');
     });
-    expect(SUBIDA_FOTO_TIMEOUT_MS).toBeGreaterThan(30000);
+
+    it('finalize (sin vehículos)', async () => {
+      api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
+      await trabajosService.finalize(1, { motivo_finalizacion_anticipada: 'Se suspende' });
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/finalize', { motivo_finalizacion_anticipada: 'Se suspende' });
+    });
+
+    it('activarVehiculo', async () => {
+      api.post.mockResolvedValueOnce(mockData({ id: 1 }));
+      const r = await trabajosService.activarVehiculo(1, 7);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/activar');
+      expect(r).toEqual({ id: 1 });
+    });
+
+    it('finalizeVehiculo', async () => {
+      api.post.mockResolvedValueOnce({ data: { message: 'ok' } });
+      const r = await trabajosService.finalizeVehiculo(1, 7, { kilometros_fin: 1200 });
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/vehiculos/7/finalize', { kilometros_fin: 1200 });
+      expect(r).toEqual({ message: 'ok' });
+    });
+
+    it('uploadEvidencia, con el timeout largo de las fotos', async () => {
+      api.post.mockResolvedValueOnce(mockData({}));
+      const fd = new FormData();
+      await trabajosService.uploadEvidencia(1, fd);
+      expect(api.post).toHaveBeenCalledWith('/trabajos/1/evidencias', fd, {
+        headers: { 'Content-Type': undefined }, timeout: SUBIDA_FOTO_TIMEOUT_MS,
+      });
+      expect(SUBIDA_FOTO_TIMEOUT_MS).toBeGreaterThan(30000);
+    });
   });
 });

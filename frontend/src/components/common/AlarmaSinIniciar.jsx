@@ -32,6 +32,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { PERMISSIONS } from '../../utils/constants.js';
 import { formatHora } from '../../utils/dateUtils.js';
@@ -93,6 +94,8 @@ function cerrarNotificaciones(alarmas) {
 
 export default function AlarmaSinIniciar() {
   const { isAuthenticated, hasPermission } = useAuth();
+  const { isFeatureEnabled } = useFeatures();
+  const trabajosVisibles = isFeatureEnabled('menu_trabajos');
   const activo = isAuthenticated && hasPermission(PERMISSIONS.MANAGE_TRABAJOS);
 
   const [vigentes, setVigentes]     = useState([]);   // lo que dice el servidor
@@ -251,7 +254,8 @@ export default function AlarmaSinIniciar() {
                 </div>
               </div>
               <Link
-                to={rutaAsignacion(a.id)}
+                // Con trabajo, a su ficha con la ambulancia señalada (D10)
+                to={rutaAsignacion(a, trabajosVisibles)}
                 onClick={enterado}
                 className="shrink-0 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100"
               >
