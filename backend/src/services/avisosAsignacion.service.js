@@ -8,7 +8,8 @@
  * acabarían diciendo cosas distintas del mismo suceso.
  *
  * Todos van a los administradores salvo `avisarAsignacionNueva` y
- * `avisarCambioVehiculo`, que van a los miembros de la asignación, y
+ * `avisarCambioVehiculo`, que van a los miembros de la asignación,
+ * `avisarEquipoTrabajo`, al equipo del trabajo, y `avisarCoordinadorTrabajo` y
  * `avisarTrabajoPendienteCierre`, al coordinador del trabajo. Los de administradores excluyen al
  * responsable de la asignación: quien acaba de pulsar el
  * botón no necesita que su propio teléfono le avise de lo que acaba de hacer.
@@ -343,9 +344,36 @@ function avisarEquipoTrabajo(trabajo, ids = [], { asignadoPor = null } = {}) {
   }
 }
 
+/**
+ * Te han puesto de coordinador de un trabajo (2026-10-11): al crearlo o al
+ * cambiarlo. Puede ser cualquier usuario activo (D1), también un técnico que no
+ * va en ninguna ambulancia, y sin esto no se enteraba hasta el «listo para
+ * cerrar». No a quien lo pone, que suele ser el admin que se nombra a sí mismo.
+ * Tag propio: quien además va en una ambulancia recibe también el «nuevo
+ * servicio», que es otra cosa (qué ambulancia lleva).
+ */
+function avisarCoordinadorTrabajo(trabajo, coordinadorId, { asignadoPor = null } = {}) {
+  try {
+    const id = Number(coordinadorId);
+    if (!Number.isInteger(id) || id < 1 || id === Number(asignadoPor)) return Promise.resolve(null);
+    const inicio = trabajo?.fecha_inicio ? diaYHoraEnEspana(instanteUtc(trabajo.fecha_inicio)) : null;
+    return disparar(push.notificarUsuarios([id], {
+      titulo: `${trabajo.nombre} · eres el coordinador`,
+      cuerpo: 'Te han puesto de coordinador del trabajo: ves todas sus ambulancias y lo cierras cuando terminen.'
+            + (inicio ? ` Empieza el ${inicio}.` : ''),
+      url:    `/trabajos/${trabajo.id}`,
+      tag:    `trab-${trabajo.id}-coordinador`,
+    }));
+  } catch (err) {
+    logger.error(`Aviso al coordinador del trabajo no enviado: ${err?.message || err}`);
+    return Promise.resolve(null);
+  }
+}
+
 module.exports = {
   avisarAsignacionNueva,
   avisarEquipoTrabajo,
+  avisarCoordinadorTrabajo,
   avisarCambioVehiculo,
   avisarAsignacionActivada,
   avisarFotosInicioCompletas,

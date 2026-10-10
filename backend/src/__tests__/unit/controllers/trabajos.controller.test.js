@@ -15,6 +15,7 @@ jest.mock('../../../middleware/upload.middleware', () => ({
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionNueva: jest.fn(),
   avisarEquipoTrabajo: jest.fn(),
+  avisarCoordinadorTrabajo: jest.fn(),
   avisarTrabajoPendienteCierre: jest.fn(),
 }));
 
@@ -748,6 +749,14 @@ describe('trabajos.controller', () => {
       expect(avisos.avisarEquipoTrabajo.mock.calls[0][1]).toEqual([40]);
     });
 
+    it('al coordinador le llega el suyo, y no además «nuevo trabajo» si está en el equipo', async () => {
+      bd(reglasOk());
+      conexion({ insertId: 10 });
+      await createTrabajo(mockReq({ body: body({ usuarios: [50, 40] }), user: admin }), mockRes(), mockNext());
+      expect(avisos.avisarCoordinadorTrabajo).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 50, { asignadoPor: 1 });
+      expect(avisos.avisarEquipoTrabajo.mock.calls[0][1]).toEqual([40]);
+    });
+
     it('400 con el formato del formulario anterior (vehiculos)', async () => {
       const res = mockRes();
       await createTrabajo(mockReq({ body: body({ vehiculos: [], usuarios: [] }), user: admin }), res, mockNext());
@@ -970,6 +979,25 @@ describe('trabajos.controller', () => {
       expect(upd.sql).toContain('coordinador_user_id = ?');
       expect(upd.params).toEqual([51, 1]);
       expect(query.mock.calls.some(([sql, params]) => sql.includes('FROM users') && params.includes(51))).toBe(true);
+      expect(avisos.avisarCoordinadorTrabajo).toHaveBeenCalledWith(expect.anything(), 51, { asignadoPor: 1 });
+    });
+
+    it('mandar el mismo coordinador que ya tenía no le avisa otra vez', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }), usuariosOk, ...trabajoDosVehiculos()]);
+      conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinador_user_id: 50, nombre: 'X' }, user: admin }),
+        mockRes(), mockNext());
+      expect(avisos.avisarCoordinadorTrabajo).not.toHaveBeenCalled();
+    });
+
+    it('el coordinador nuevo que entra a la vez en el equipo recibe solo el suyo', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }),
+          ['UNION', [[]]], usuariosOk, ...trabajoDosVehiculos()]);
+      conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinador_user_id: 51, usuarios: [51, 31] }, user: admin }),
+        mockRes(), mockNext());
+      expect(avisos.avisarCoordinadorTrabajo).toHaveBeenCalledWith(expect.anything(), 51, { asignadoPor: 1 });
+      expect(avisos.avisarEquipoTrabajo).toHaveBeenCalledWith(expect.anything(), [31], { asignadoPor: 1 });
     });
 
     it('un coordinador nuevo de baja → 400', async () => {

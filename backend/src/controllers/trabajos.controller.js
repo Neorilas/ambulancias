@@ -855,10 +855,14 @@ async function createTrabajo(req, res, next) {
     }
 
     t = await getTrabajoCompleto(trabajoId);
+    // Al coordinador, el suyo (puede ser cualquier usuario activo, también un
+    // técnico, y si no se le avisa no se entera hasta el «listo para cerrar»).
+    avisos.avisarCoordinadorTrabajo(t, coordinadorId, { asignadoPor: req.user.id });
     // Al equipo del trabajo, «nuevo trabajo»; quien va en una ambulancia ya
-    // ha recibido el «nuevo servicio» de arriba.
+    // ha recibido el «nuevo servicio» de arriba, y el coordinador, el suyo.
     const enAmbulancias = new Set(ambulancias.flatMap(a => [...a.responsables, ...a.personal]));
-    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id)), { asignadoPor: req.user.id });
+    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id) && id !== coordinadorId),
+      { asignadoPor: req.user.id });
     } catch (err) {
       logger.error(`Trabajo ${trabajoId} creado, pero falló lo de después (avisos/lectura): ${err.message}`);
     }
@@ -1022,11 +1026,17 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    // Coordinador nuevo: se le avisa a él, no al que deja de serlo
+    const cambiaCoordinador = coordinador !== undefined && coordinador !== Number(actual.coordinador_user_id);
+    if (cambiaCoordinador) avisos.avisarCoordinadorTrabajo(t, coordinador, { asignadoPor: req.user.id });
     // «Nuevo trabajo» solo a quien ENTRA en el equipo; quien ya iba no tiene
-    // nada nuevo que saber. Solo en el modelo nuevo: el v25 nunca avisó.
+    // nada nuevo que saber, y el coordinador nuevo ya tiene el suyo. Solo en
+    // el modelo nuevo: el v25 nunca avisó.
     if (equipo !== undefined && (modeloNuevo || coordinador !== undefined)) {
       const yaIban = new Set(miembros.map(m => m.user_id));
-      avisos.avisarEquipoTrabajo(t, equipo.filter(id => !yaIban.has(id)), { asignadoPor: req.user.id });
+      avisos.avisarEquipoTrabajo(t,
+        equipo.filter(id => !yaIban.has(id) && !(cambiaCoordinador && id === coordinador)),
+        { asignadoPor: req.user.id });
     }
     logAudit({
       userId:   req.user.id,
