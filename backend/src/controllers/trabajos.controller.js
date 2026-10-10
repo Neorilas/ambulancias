@@ -482,6 +482,32 @@ async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
   return { fila: rows[0], puede: resp.length > 0 };
 }
 
+/**
+ * Orden del listado de trabajos (2026-10-10, petición del usuario: «ordenados
+ * por fecha»). Hasta entonces era `fecha_inicio DESC` a secas: el más lejano en
+ * el futuro arriba, y los de hoy enterrados bajo los de dentro de semanas.
+ * Mismo criterio que `ORDEN_LISTADO` de asignaciones:
+ *
+ * 1. Los cerrados (finalizado/finalizado_anticipado) al final.
+ * 2. Los `activo` encabezan los abiertos: un trabajo pasa a activo en cuanto
+ *    arranca una de sus ambulancias, y eso puede ser antes de su
+ *    `fecha_inicio` (activarAsignacion no mira el reloj).
+ * 3. El resto de abiertos (programado, pendiente_cierre) por `fecha_inicio`
+ *    ASC: el más próximo arriba.
+ * 4. Entre los cerrados, el que se cerró más tarde primero. `cerrado_at` solo
+ *    lo tiene el modelo nuevo; un v25 cae en su `fecha_fin`.
+ *
+ * Va en SQL y no en el navegador porque el listado pagina: ordenar solo la
+ * página recibida daría un orden distinto en cada una. `t.id` cierra el orden
+ * para que la paginación no repita ni pierda filas con la misma fecha.
+ */
+const ORDEN_LISTADO_TRABAJOS = `
+  CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN 1 ELSE 0 END ASC,
+  CASE WHEN t.estado = 'activo' THEN 0 ELSE 1 END ASC,
+  CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN NULL ELSE t.fecha_inicio END ASC,
+  COALESCE(t.cerrado_at, t.fecha_fin) DESC,
+  t.id ASC`;
+
 // ============================================================
 // GET /trabajos
 // ============================================================
@@ -536,7 +562,7 @@ async function listTrabajos(req, res, next) {
        JOIN users u ON t.created_by = u.id
        LEFT JOIN users co ON co.id = t.coordinador_user_id
        ${where}
-       ORDER BY t.fecha_inicio DESC
+       ORDER BY ${ORDEN_LISTADO_TRABAJOS}
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

@@ -162,9 +162,15 @@ export default function TrabajoList() {
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
                           </div>
-                          <p className="text-xs text-neutral-500 mt-1">
-                            {t.identificador} · {formatDateTime(t.fecha_inicio)} → {formatDateTime(t.fecha_fin)}
+                          {/* Las fechas destacan (2026-10-10): el listado va
+                              ordenado por ellas y es lo primero que se busca.
+                              Cada fecha entera en su línea: en el móvil no
+                              cabe el par y se partía la de fin por la hora */}
+                          <p className="text-[15px] font-semibold text-neutral-900 mt-1 data" data-testid="fechas-trabajo">
+                            <span className="whitespace-nowrap">{formatDateTime(t.fecha_inicio)} →</span>{' '}
+                            <span className="whitespace-nowrap">{formatDateTime(t.fecha_fin)}</span>
                           </p>
+                          <p className="text-xs text-neutral-500 mt-0.5 data">{t.identificador}</p>
                           <p className="text-xs text-neutral-400 mt-0.5">
                             {t.num_vehiculos} ambulancia(s) · {t.num_usuarios} persona(s)
                             {t.coordinador_nombre && <> · Coordina {t.coordinador_nombre}</>}
@@ -198,8 +204,13 @@ export default function TrabajoList() {
 
       {showForm && (
         <TrabajoForm
-          // Recién creado, a su ficha: es donde se añaden más ambulancias
-          onSaved={(nuevo) => { setShowForm(false); if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`); else load(); }}
+          // Recién creado, a su ficha: es donde se añaden más ambulancias, y
+          // `recienCreado` le pone el aviso con «Añadir otro trabajo»
+          onSaved={(nuevo) => {
+            setShowForm(false);
+            if (nuevo?.id) navigate(`/trabajos/${nuevo.id}`, { state: { recienCreado: true } });
+            else load();
+          }}
           onClose={() => setShowForm(false)}
         />
       )}

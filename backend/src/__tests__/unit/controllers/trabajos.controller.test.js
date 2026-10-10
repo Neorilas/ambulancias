@@ -484,6 +484,25 @@ describe('trabajos.controller', () => {
       expect(params).toEqual(['activo', 'traslado', '2026-01-01', '2026-12-31 23:59:59',
         '%Retiro%', '%Retiro%', '%Retiro%']);
     });
+
+    // Antes era `fecha_inicio DESC` suelto: el más lejano arriba y los de hoy
+    // enterrados. Solo se puede mirar el SQL, pero eso basta para que no vuelva.
+    it('ordena por fecha: abiertos del más próximo al más lejano, cerrados al final', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+      await listTrabajos(mockReq({ query: {}, user: admin }), mockRes(), mockNext());
+      const sql = query.mock.calls[1][0].replace(/\s+/g, ' ');
+      expect(sql).toContain(
+        "ORDER BY CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN 1 ELSE 0 END ASC");
+      // Lo que está en curso encabeza los abiertos
+      expect(sql).toContain("CASE WHEN t.estado = 'activo' THEN 0 ELSE 1 END ASC");
+      expect(sql).toContain(
+        "CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN NULL ELSE t.fecha_inicio END ASC");
+      // Entre los cerrados, el último cerrado primero; un v25 no tiene cerrado_at
+      expect(sql).toContain('COALESCE(t.cerrado_at, t.fecha_fin) DESC');
+      // Desempate único, o la paginación repite o pierde filas
+      expect(sql).toMatch(/t\.id ASC LIMIT \? OFFSET \?/);
+      expect(sql).not.toContain('ORDER BY t.fecha_inicio DESC');
+    });
   });
 
   describe('listTrabajosCalendario', () => {

@@ -29,7 +29,13 @@ vi.mock('../../../pages/asignaciones/AsignacionDetalle.jsx', () => ({
 vi.mock('../../../pages/asignaciones/AsignacionForm.jsx', () => ({
   default: ({ trabajo }) => <p>alta de ambulancia en {trabajo.nombre}</p>,
 }));
-vi.mock('../../../pages/trabajos/TrabajoForm.jsx', () => ({ default: () => null }));
+// El formulario tiene sus propios tests: aquí solo importa que el alta que se
+// abre desde la ficha («Añadir otro trabajo») lleva al trabajo nuevo.
+vi.mock('../../../pages/trabajos/TrabajoForm.jsx', () => ({
+  default: ({ trabajo, onSaved }) => (trabajo ? null : (
+    <button onClick={() => onSaved({ id: 2 })}>guardar el alta</button>
+  )),
+}));
 
 import { trabajosService }      from '../../../services/trabajos.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
@@ -166,6 +172,40 @@ describe('TrabajoDetail', () => {
     montar();
     await user.click(await screen.findByRole('button', { name: '+ Añadir ambulancia' }));
     expect(screen.getByText('alta de ambulancia en Maratón')).toBeInTheDocument();
+  });
+
+  // 2026-10-10: tras crear un trabajo se llega a su ficha con `recienCreado`
+  describe('recién creado: «Añadir otro trabajo»', () => {
+    const RECIEN = { pathname: '/trabajos/1', state: { recienCreado: true } };
+
+    it('abre otra alta y lleva a la ficha del nuevo, que también permite seguir', async () => {
+      const user = userEvent.setup();
+      comoUsuario(GESTOR);
+      trabajosService.get.mockImplementation(async (id) => ({
+        ...TRABAJO, id: Number(id), mi_rol: 'gestion', nombre: id === '2' ? 'Traslado Getafe' : 'Maratón',
+      }));
+      montar(RECIEN);
+      const aviso = await screen.findByTestId('trabajo-creado');
+      await user.click(within(aviso).getByRole('button', { name: 'Añadir otro trabajo' }));
+      await user.click(screen.getByRole('button', { name: 'guardar el alta' }));
+      expect(await screen.findByRole('heading', { name: 'Traslado Getafe' })).toBeInTheDocument();
+      expect(trabajosService.get).toHaveBeenLastCalledWith('2');
+      expect(screen.getByTestId('trabajo-creado')).toBeInTheDocument();
+    });
+
+    it('sin venir del alta no sale', async () => {
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion' });
+      montar();
+      await screen.findByRole('button', { name: '+ Añadir ambulancia' });
+      expect(screen.queryByTestId('trabajo-creado')).not.toBeInTheDocument();
+    });
+
+    it('quien no gestiona no lo ve aunque llegue con el estado', async () => {
+      montar(RECIEN);
+      await screen.findByTestId('tu-ambulancia');
+      expect(screen.queryByRole('button', { name: 'Añadir otro trabajo' })).not.toBeInTheDocument();
+    });
   });
 
   it('el técnico no ve «Añadir ambulancia» ni «Editar»', async () => {

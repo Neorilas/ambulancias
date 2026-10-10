@@ -476,14 +476,16 @@ function DashboardAdmin({ user }) {
         ))}
       </div>
 
-      {/* Últimos trabajos */}
+      {/* Próximos trabajos: los 6 primeros del listado, que desde 2026-10-10
+          va en curso → más próximo → cerrados al final (ORDEN_LISTADO_TRABAJOS).
+          Hasta entonces era fecha_inicio DESC y el panel se llamaba «Últimos» */}
       <div className="card">
         <div className="card-header">
-          <h2 className="font-semibold text-neutral-900">Últimos trabajos</h2>
+          <h2 className="font-semibold text-neutral-900">Próximos trabajos</h2>
           <Link to="/trabajos" className="text-primary-600 text-sm font-medium hover:underline">Ver todos</Link>
         </div>
         {recent.length === 0 ? (
-          <p className="text-neutral-400 text-sm py-4 text-center">Sin trabajos recientes</p>
+          <p className="text-neutral-400 text-sm py-4 text-center">Sin trabajos</p>
         ) : (
           <div className="space-y-2">
             {recent.map(t => (
