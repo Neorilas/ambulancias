@@ -43,8 +43,9 @@ router.post('/',
   requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [
     body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
-    // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 6 del
-    // plan del trabajo padre: el frontend anterior no lo manda.
+    // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 8 del
+    // plan del trabajo padre (tras encender menu_trabajos): el alta suelta
+    // que se ve con el flag apagado no lo manda.
     body('trabajo_id').optional({ nullable: true }).isInt({ min: 1 }),
     // Miembros: `responsables` (1..N) y `personal` (0..N). `user_id` suelto es
     // el formato del frontend anterior y se sigue aceptando como un único

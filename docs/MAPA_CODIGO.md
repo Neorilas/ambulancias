@@ -1425,9 +1425,12 @@ dentro de un trabajo, con sus responsables y su equipo (el «personal» de
 siempre: en BD sigue `personal`, en pantalla «Equipo»). Plan completo y
 decisiones D1–D11 en `docs/PLAN_TRABAJO_PADRE.md` (solo en local). Lo que ya
 hace el backend:
-- `trabajo_id` es **opcional hasta la fase 6** del plan: el frontend se sube a
-  mano y el publicado sigue creando asignaciones sueltas. Las asignaciones que
-  ya existían se quedan sin trabajo y funcionan como siempre.
+- `trabajo_id` es **opcional hasta la fase 8** del plan, que va DESPUÉS de
+  encender `menu_trabajos` (fase 7): con el flag apagado, `AsignacionList`
+  enseña el alta suelta, que no lo manda, y exigirlo antes daría 400 a
+  administración al crear cualquier asignación (§7). Además las PWA ya
+  instaladas siguen un rato con el frontend anterior. Las asignaciones que ya
+  existían se quedan sin trabajo y funcionan como siempre.
 - `getAsignacionCompleta` trae `trabajo` (título, descripción, ubicación,
   fechas, estado y coordinador) con un `LEFT JOIN`, **sin consulta extra**: los
   tests de este controlador encolan las respuestas por orden y una consulta
@@ -1702,7 +1705,14 @@ portada sigue en `/mis-asignaciones` y `AsignacionList` conserva el botón de
 alta suelta. Las dos cosas miran la lista real (`features.includes`), no
 `isFeatureEnabled`. Al encender `menu_trabajos` el alta suelta desaparece
 (D9) y aparece la columna «Trabajo»; al encender `menu_mis_trabajos`, la
-portada pasa a «Mis trabajos».
+portada pasa a «Mis trabajos». Lo único que cambia para todos con los flags
+apagados es el rótulo «Personal» → «Equipo» (D8).
+
+**Trampa: no exigir `trabajo_id` en `POST /asignaciones` mientras
+`menu_trabajos` pueda estar apagado.** El alta suelta que reaparece con el
+flag apagado no lo manda: daría 400 y administración no podría crear
+asignaciones. Por eso es la fase 8, posterior al encendido; y si se despliega,
+apagar el flag como marcha atrás tiene el mismo efecto.
 
 **Encender Trabajos es un acto deliberado**, igual que `menu_flota`: la
 migración no toca los flags. Tras desplegar, un superadmin enciende

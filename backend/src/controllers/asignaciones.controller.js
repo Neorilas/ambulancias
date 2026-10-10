@@ -653,8 +653,9 @@ async function createAsignacion(req, res, next) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
 
-    // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 6: el
-    // frontend anterior sigue creando asignaciones sueltas.
+    // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 8, que
+    // va DESPUÉS de encender menu_trabajos: con el flag apagado, el alta
+    // suelta de AsignacionList no lo manda (MAPA_CODIGO.md §7).
     const trabajoId = req.body.trabajo_id ? Number(req.body.trabajo_id) : null;
     let trabajo = null;
     if (trabajoId) {
