@@ -38,12 +38,17 @@
  */
 
 const { query } = require('../config/database');
-const { INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } = require('../config/constants');
-const { ahora, instanteEnEspana, anioMesEnEspana } = require('../utils/fecha.utils');
+const { INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EXIGIDO_DESDE } = require('../config/constants');
+const { ahora, instanteEnEspana, anioMesEnEspana, instanteUtc } = require('../utils/fecha.utils');
+const { SQL_REVISAR_FIN_EVENTO, paramsRevisarFinEvento } = require('../controllers/asignaciones.controller');
 const logger = require('../utils/logger.utils');
 
 const VERSION_INFORME = 2;   // 2: tiempo por técnico (asignación y en el evento)
 const MINUTO = 60000;
+// «Inicio evento/servicio» (la llegada, v26) llegó a PRO el 25-sep a las
+// 17:32: desde el 26 a las 00:00 en hora española se echa de menos. Antes, no
+// existía y no se marca. Mismo formato que FIN_EVENTO_EXIGIDO_DESDE.
+const LLEGADA_EXIGIDA_DESDE = '2026-09-25 22:00:00';
 const RE_MES = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 // ── Meses ────────────────────────────────────────────────────
@@ -332,6 +337,110 @@ async function obtenerInforme(mes, instante = ahora()) {
   return { ...vivo, fuente: 'en_vivo', en_curso: mes === actual };
 }
 
+// ── Detalle de un técnico ────────────────────────────────────
+
+/**
+ * Por qué las horas de un servicio no son de fiar. Las `grave` dejan el
+ * servicio fuera de una suma (o la inflan); las `aviso` la dejan contar pero
+ * no cuadran con lo previsto. Solo se marca lo que ya debería estar hecho:
+ * una asignación en curso aún no tiene por qué haber cerrado nada.
+ *   - sin_iniciar        nadie pulsó «Inicio de la asignación» (no suma nada)
+ *   - sin_finalizar      iniciada, sin «Finalizar asignación» y ya pasada la
+ *                        hora de fin (sus horas de asignación no suman)
+ *   - sin_inicio_evento  sin «Inicio evento/servicio» (no suma al evento).
+ *                        Solo desde LLEGADA_EXIGIDA_DESDE
+ *   - evento_sin_fin     con inicio de evento y sin fin (no suma al evento).
+ *                        Solo desde FIN_EVENTO_EXIGIDO_DESDE
+ *   - fin_evento_pegado  el fin del evento se pulsó en base (MAPA §6.1, «A
+ *                        revisar»): las horas de evento llevan la vuelta. Con
+ *                        la misma regla de quién la ve: la saca
+ *                        SQL_REVISAR_FIN_EVENTO con el id de quien pregunta
+ *   - inicio_tardio / cierre_tardio / cierre_anticipado: los del informe
+ */
+function avisosServicio(a, s, limite) {
+  const avisos = [];
+  const debioCerrar = s.finalizado || a.fecha_fin.getTime() + INICIO_TARDIO_MINUTOS * MINUTO <= limite.getTime();
+  const desde = (corte) => a.inicio_real_at && a.inicio_real_at.getTime() >= instanteUtc(corte).getTime();
+
+  if (s.sin_iniciar) avisos.push({ codigo: 'sin_iniciar', nivel: 'grave' });
+  if (s.sin_finalizar && debioCerrar) avisos.push({ codigo: 'sin_finalizar', nivel: 'grave' });
+  if (s.iniciado && debioCerrar && !a.llegada_servicio_at && desde(LLEGADA_EXIGIDA_DESDE)) {
+    avisos.push({ codigo: 'sin_inicio_evento', nivel: 'grave' });
+  }
+  if (s.evento_sin_fin && debioCerrar && desde(FIN_EVENTO_EXIGIDO_DESDE)) {
+    avisos.push({ codigo: 'evento_sin_fin', nivel: 'grave' });
+  }
+  if (a.revisar_fin_evento === 'pegado') {
+    avisos.push({ codigo: 'fin_evento_pegado', nivel: 'grave',
+                  minutos: Math.max(0, Math.floor((a.finalizado_at - a.fin_servicio_at) / MINUTO)) });
+  }
+  if (s.tardio) avisos.push({ codigo: 'inicio_tardio', nivel: 'aviso', minutos: s.retraso_min });
+  if (s.cierre_tardio || s.cierre_anticipado) {
+    avisos.push({ codigo: s.cierre_tardio ? 'cierre_tardio' : 'cierre_anticipado', nivel: 'aviso',
+                  minutos: Math.abs(minutosEntre(a.fecha_fin, a.finalizado_at)) });
+  }
+  return avisos;
+}
+
+/**
+ * Los servicios de un técnico en un mes, uno por fila, con sus horas y lo que
+ * no cuadra. Las horas salen de `analizarServicio`, igual que la fila del
+ * técnico en `calcularInforme`: las sumas del detalle son las de la tabla.
+ * Siempre en vivo: si el mes está archivado (la retención ya purgó parte),
+ * el detalle puede no estar completo y se avisa con `archivado`.
+ *
+ * @param {string} mes      'YYYY-MM'
+ * @param {number} userId   el técnico
+ * @param {number} viewerId quien pregunta (la marca «A revisar» no se enseña
+ *                          a quien va en la ambulancia ni la coordina)
+ * @returns {Promise<object|null>} null si el usuario no existe
+ */
+async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
+  const [usuarios] = await query('SELECT id, nombre, apellidos FROM users WHERE id = ?', [userId]);
+  if (!usuarios.length) return null;
+
+  const { desde, hasta } = limitesMes(mes);
+  const limite = instante < hasta ? instante : hasta;
+  const [filas] = await query(
+    `SELECT al.id, al.trabajo_id, al.estado, al.fecha_inicio, al.fecha_fin,
+            al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
+            au.rol, v.alias, v.matricula, t.nombre AS trabajo_nombre, t.identificador AS trabajo_identificador,
+            ${SQL_REVISAR_FIN_EVENTO} AS revisar_fin_evento
+       FROM asignacion_usuarios au
+       JOIN asignaciones_libres al ON al.id = au.asignacion_id
+       JOIN vehicles v ON v.id = al.vehicle_id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
+      WHERE au.user_id = ?
+        AND al.deleted_at IS NULL AND al.estado <> 'cancelada'
+        AND al.fecha_inicio >= ? AND al.fecha_inicio < ?
+      ORDER BY al.fecha_inicio, al.id`,
+    [...paramsRevisarFinEvento(viewerId), userId, desde, hasta]
+  );
+  const [archivo] = await query('SELECT 1 AS hay FROM informe_mensual WHERE mes = ?', [mes]);
+
+  const iso = (x) => (x ? x.toISOString() : null);
+  const servicios = filas.map((a) => {
+    const s = analizarServicio(a, limite);
+    return {
+      asignacion_id: a.id, trabajo_id: a.trabajo_id,
+      trabajo: a.trabajo_id ? (a.trabajo_nombre || a.trabajo_identificador || null) : null,
+      alias: a.alias, matricula: a.matricula, rol: a.rol, estado: a.estado,
+      fecha_inicio: iso(a.fecha_inicio), fecha_fin: iso(a.fecha_fin),
+      inicio_real_at: iso(a.inicio_real_at), llegada_servicio_at: iso(a.llegada_servicio_at),
+      fin_servicio_at: iso(a.fin_servicio_at), finalizado_at: iso(a.finalizado_at),
+      minutos_asignacion: s.minutos_servicio,
+      minutos_en_evento: s.minutos_en_sitio,
+      avisos: avisosServicio(a, s, limite),
+    };
+  });
+
+  return {
+    mes, user_id: usuarios[0].id, nombre: nombreDe({ ...usuarios[0], user_id: usuarios[0].id }),
+    umbral_min: INICIO_TARDIO_MINUTOS, archivado: archivo.length > 0, en_curso: mes === mesDe(instante),
+    servicios,
+  };
+}
+
 /**
  * Guarda el informe de cada mes de la lista que aún no esté archivado. Solo
  * meses ya cerrados: el en curso todavía cambia. LANZA si no puede guardar
@@ -366,7 +475,7 @@ async function archivarMeses(instantes, instante = ahora()) {
 }
 
 module.exports = {
-  calcularInforme, obtenerInforme, archivarMeses,
+  calcularInforme, obtenerInforme, archivarMeses, detalleTecnico,
   mesDe, esMes, mesDesplazado, limitesMes, mediana,
   VERSION_INFORME,
 };

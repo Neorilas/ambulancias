@@ -3,12 +3,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
 vi.mock('../../../services/informes.service.js', () => ({
-  informesService: { getMensual: vi.fn() },
+  informesService: { getMensual: vi.fn(), getDetalleTecnico: vi.fn() },
 }));
+vi.mock('../../../utils/pdfInformeTecnico.js', () => ({ descargarPdfTecnico: vi.fn() }));
 
 import { informesService }      from '../../../services/informes.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import Informes                 from '../../../pages/informes/Informes.jsx';
+import { descargarPdfTecnico }  from '../../../utils/pdfInformeTecnico.js';
 
 const RESUMEN = {
   servicios: 20, iniciados: 20, inicios_tardios: 4, retraso_mediana_min: 45, retraso_medio_min: 50,
@@ -79,17 +81,19 @@ describe('Informes', () => {
     await screen.findByText('Ana Ruiz');
     const filas = () => [...screen.getByText('Ana Ruiz').closest('table').rows].slice(1).map(r => r.textContent);
 
-    expect(screen.getByRole('tab', { name: 'Horas de asignación' })).toHaveAttribute('aria-selected', 'true');
+    // La primera pestaña es la de evento/servicio
+    expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Horas de evento/servicio');
+    expect(screen.getByRole('tab', { name: 'Horas de evento/servicio' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('columnheader', { name: 'Horas con evento/servicio activo' })).toBeInTheDocument();
+    expect(filas()[0]).toMatch(/^Ana Ruiz33 h 15 min/);
+    expect(filas()[2]).toMatch(/^Total43 h 15 min82$/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Horas de asignación' }));
     expect(screen.getByRole('columnheader', { name: 'Horas con asignación activa' })).toBeInTheDocument();
     // Luis (75 h) antes que Ana (61 h 30 min); total 136 h 30 min
     expect(filas()[0]).toMatch(/^Luis Gil75 h/);
     expect(filas()[1]).toMatch(/^Ana Ruiz61 h 30 min/);
     expect(filas()[2]).toMatch(/^Total136 h 30 min121$/);
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Horas de evento/servicio' }));
-    expect(screen.getByRole('columnheader', { name: 'Horas con evento/servicio activo' })).toBeInTheDocument();
-    expect(filas()[0]).toMatch(/^Ana Ruiz33 h 15 min/);
-    expect(filas()[2]).toMatch(/^Total43 h 15 min82$/);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Puntualidad' }));
     expect(screen.getByRole('columnheader', { name: 'Cierres tardíos' })).toBeInTheDocument();
@@ -99,10 +103,18 @@ describe('Informes', () => {
   it('un informe sin tiempos por técnico (archivado viejo) pinta «—»', async () => {
     const { minutos_asignacion, asignaciones_medidas, ...sinTiempo } = DATOS.actual.por_tecnico[0];
     informesService.getMensual.mockResolvedValue({ ...DATOS, actual: { ...DATOS.actual, por_tecnico: [sinTiempo] } });
-    montar();
+    montar('/informes?tecnico=asignacion');
     const celdas = (await screen.findByText('Ana Ruiz')).closest('tr').querySelectorAll('td');
     expect(celdas[1]).toHaveTextContent('—');
     expect(celdas[2]).toHaveTextContent('—');
+  });
+
+  it('«Por técnico» va antes que el resto', async () => {
+    montar();
+    await screen.findByText('Ana Ruiz');
+    const titulos = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);
+    expect(titulos[0]).toBe('Por técnico');
+    expect(titulos.indexOf('Puntualidad')).toBeGreaterThan(0);
   });
 
   it('cambiar de mes vuelve a pedir el informe', async () => {
@@ -160,5 +172,68 @@ describe('Informes · lo que se estaba mirando sobrevive a ir a una ficha', () =
     montar('/informes?mes=2999-01');
     await screen.findByText('Ana Ruiz');
     expect(informesService.getMensual).not.toHaveBeenCalledWith('2999-01');
+  });
+});
+
+const DETALLE = {
+  mes: '2026-08', user_id: 7, nombre: 'Ana Ruiz', umbral_min: 30, archivado: false, en_curso: false,
+  servicios: [
+    { asignacion_id: 1, trabajo: 'Feria de agosto', alias: 'Ambulancia 1', matricula: '1111AAA', rol: 'responsable',
+      estado: 'finalizada', fecha_inicio: '2026-08-05T06:00:00Z', fecha_fin: '2026-08-05T14:00:00Z',
+      inicio_real_at: '2026-08-05T06:05:00Z', llegada_servicio_at: '2026-08-05T06:30:00Z',
+      fin_servicio_at: '2026-08-05T13:00:00Z', finalizado_at: '2026-08-05T14:00:00Z',
+      minutos_asignacion: 475, minutos_en_evento: 390, avisos: [] },
+    { asignacion_id: 2, trabajo: null, alias: 'Ambulancia 1', matricula: '1111AAA', rol: 'personal',
+      estado: 'finalizada', fecha_inicio: '2026-08-06T06:00:00Z', fecha_fin: '2026-08-06T14:00:00Z',
+      inicio_real_at: '2026-08-06T06:05:00Z', llegada_servicio_at: '2026-08-06T06:30:00Z',
+      fin_servicio_at: null, finalizado_at: '2026-08-06T14:00:00Z',
+      minutos_asignacion: 475, minutos_en_evento: null,
+      avisos: [{ codigo: 'evento_sin_fin', nivel: 'grave' }] },
+  ],
+};
+
+// Pulsar un técnico: sus servicios del mes con lo que no cuadra, y el PDF
+describe('Informes · detalle de un técnico', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    informesService.getMensual.mockResolvedValue(DATOS);
+    informesService.getDetalleTecnico.mockResolvedValue(DETALLE);
+  });
+
+  it('pulsar el nombre abre sus servicios, marca los que no cuadran y lo apunta en la URL', async () => {
+    montar('/informes?mes=2026-08');
+    fireEvent.click(await screen.findByRole('button', { name: 'Ana Ruiz' }));
+
+    expect(await screen.findByText('Feria de agosto')).toBeInTheDocument();
+    expect(informesService.getDetalleTecnico).toHaveBeenCalledWith('7', '2026-08');
+    expect(screen.getByTestId('donde')).toHaveTextContent('detalle=7');
+    expect(screen.getByRole('heading', { name: 'Horas de Ana Ruiz' })).toBeInTheDocument();
+    const aviso = screen.getByText('Evento sin fin: no suma horas de evento');
+    expect(aviso.closest('tr')).toHaveClass('bg-bad-50');
+    expect(screen.getByText('Feria de agosto').closest('tr')).not.toHaveClass('bg-bad-50');
+    expect(screen.getByText('08:30 – sin fin')).toBeInTheDocument();
+    expect(screen.getByText('Equipo')).toBeInTheDocument();
+  });
+
+  it('la fila entera también abre el detalle', async () => {
+    montar('/informes?mes=2026-08');
+    const fila = (await screen.findByRole('button', { name: 'Luis Gil' })).closest('tr');
+    fireEvent.click(fila.querySelectorAll('td')[1]);
+    await waitFor(() => expect(informesService.getDetalleTecnico).toHaveBeenCalledWith('8', '2026-08'));
+  });
+
+  it('«Descargar PDF» genera el PDF con el detalle', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    await screen.findByText('Feria de agosto');
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar PDF' }));
+    await waitFor(() => expect(descargarPdfTecnico).toHaveBeenCalledWith(DETALLE));
+  });
+
+  it('cerrar quita el detalle de la URL', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    await screen.findByText('Feria de agosto');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cerrar' }).at(-1));   // el del pie; la X también se llama así
+    await waitFor(() => expect(screen.queryByText('Feria de agosto')).not.toBeInTheDocument());
+    expect(screen.getByTestId('donde')).not.toHaveTextContent('detalle');
   });
 });

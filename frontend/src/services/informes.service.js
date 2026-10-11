@@ -14,4 +14,13 @@ export const informesService = {
   getMensual(mes) {
     return api.get('/informes/mensual', { params: mes ? { mes } : {} }).then(r => r.data.data);
   },
+
+  /**
+   * Los servicios de un técnico en el mes, con sus horas y avisos:
+   * `{ mes, user_id, nombre, umbral_min, archivado, en_curso, servicios: [...] }`.
+   */
+  getDetalleTecnico(userId, mes) {
+    return api.get(`/informes/tecnico/${encodeURIComponent(userId)}`, { params: mes ? { mes } : {} })
+      .then(r => r.data.data);
+  },
 };

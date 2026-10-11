@@ -125,6 +125,7 @@ const ACCESO = {
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],
   'GET /informes/mensual':             ['denegada'],
+  'GET /informes/tecnico/:userId':      ['denegada'],
   'GET /facturas/':                    ['oculta'],
   'POST /facturas/':                   ['oculta'],
   'POST /facturas/leer':               ['oculta'],
@@ -152,6 +153,7 @@ const NIVEL = {
   'DELETE /vehicles/:id':                  'administrador',
   'DELETE /vehicles/:vehicleId/revisiones/:revId': 'administrador',
   'GET /informes/mensual':                 'administrador',
+  'GET /informes/tecnico/:userId':         'administrador',
   'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
 };
 const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';

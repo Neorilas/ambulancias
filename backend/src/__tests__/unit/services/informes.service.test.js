@@ -268,3 +268,99 @@ describe('informes.service · obtenerInforme y archivarMeses', () => {
     await expect(inf.archivarMeses([d('2025-11-03T07:00:00Z')], AHORA)).rejects.toThrow('disco lleno');
   });
 });
+
+describe('informes.service · detalleTecnico', () => {
+  const OCT = new Date('2026-10-11T10:00:00.000Z');
+  /** Asignación de octubre (después de los dos cortes de botones). */
+  const oct = (extra = {}) => asig({
+    fecha_inicio: d('2026-10-05T06:00:00Z'), fecha_fin: d('2026-10-05T14:00:00Z'),
+    inicio_real_at: d('2026-10-05T06:05:00Z'),
+    llegada_servicio_at: d('2026-10-05T06:30:00Z'), fin_servicio_at: d('2026-10-05T13:00:00Z'),
+    finalizado_at: d('2026-10-05T14:00:00Z'), rol: 'responsable', revisar_fin_evento: null,
+    trabajo_id: null, ...extra,
+  });
+  function bdDetalle({ usuario = { id: 7, nombre: 'Ana', apellidos: 'Ruiz' }, filas = [], archivado = false } = {}) {
+    query.mockReset();
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM users')) return [usuario ? [usuario] : []];
+      if (sql.includes('FROM asignacion_usuarios au')) return [filas];
+      if (sql.includes('FROM informe_mensual')) return [archivado ? [{ hay: 1 }] : []];
+      return [[]];
+    });
+  }
+  const codigos = (s) => s.avisos.map(a => a.codigo);
+
+  it('usuario que no existe → null', async () => {
+    bdDetalle({ usuario: null });
+    expect(await inf.detalleTecnico('2026-10', 99, 1, OCT)).toBeNull();
+  });
+
+  it('filtra por técnico y mes, y la marca «A revisar» se pide con el id de quien mira', async () => {
+    bdDetalle();
+    await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    const [sql, params] = query.mock.calls[1];
+    expect(sql).toContain('au.user_id = ?');
+    expect(sql).toContain("al.estado <> 'cancelada'");
+    expect(params.slice(0, 3)).toEqual([1, 1, 1]);          // paramsRevisarFinEvento(viewer)
+    expect(params[5]).toBe(7);
+    expect(params[6].toISOString()).toBe('2026-09-30T22:00:00.000Z');
+  });
+
+  it('servicio limpio: horas de asignación y de evento, sin avisos', async () => {
+    bdDetalle({ filas: [oct()] });
+    const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    expect(r).toMatchObject({ nombre: 'Ana Ruiz', en_curso: true, archivado: false, umbral_min: 30 });
+    expect(r.servicios[0]).toMatchObject({ minutos_asignacion: 475, minutos_en_evento: 390, avisos: [] });
+  });
+
+  it('marca lo que deja las horas fuera o infladas', async () => {
+    bdDetalle({ filas: [
+      oct({ id: 1, inicio_real_at: null, estado: 'activa', finalizado_at: null,
+            llegada_servicio_at: null, fin_servicio_at: null }),
+      oct({ id: 2, estado: 'activa', finalizado_at: null }),
+      oct({ id: 3, llegada_servicio_at: null, fin_servicio_at: null }),
+      oct({ id: 4, fin_servicio_at: null }),
+      oct({ id: 5, fin_servicio_at: d('2026-10-05T13:50:00Z'), revisar_fin_evento: 'pegado' }),
+    ] });
+    const { servicios: s } = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    expect(codigos(s[0])).toEqual(['sin_iniciar']);
+    expect(codigos(s[1])).toEqual(['sin_finalizar']);
+    expect(s[1].minutos_asignacion).toBeNull();
+    expect(codigos(s[2])).toEqual(['sin_inicio_evento']);
+    expect(codigos(s[3])).toEqual(['evento_sin_fin']);
+    expect(s[4].avisos).toEqual([{ codigo: 'fin_evento_pegado', nivel: 'grave', minutos: 10 }]);
+  });
+
+  it('lo que está en curso no se marca como sin finalizar', async () => {
+    bdDetalle({ filas: [oct({ estado: 'activa', fecha_inicio: d('2026-10-11T06:00:00Z'),
+                              fecha_fin: d('2026-10-11T14:00:00Z'), inicio_real_at: d('2026-10-11T06:00:00Z'),
+                              llegada_servicio_at: null, fin_servicio_at: null, finalizado_at: null })] });
+    const { servicios } = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    expect(servicios[0].avisos).toEqual([]);
+  });
+
+  it('antes de que existieran los botones de evento no se echan de menos', async () => {
+    bdDetalle({ filas: [
+      asig({ id: 1, rol: 'personal' }),                                     // 10-sep, sin llegada
+      asig({ id: 2, fecha_inicio: d('2026-09-28T06:00:00Z'), fecha_fin: d('2026-09-28T14:00:00Z'),
+             inicio_real_at: d('2026-09-28T06:00:00Z'), finalizado_at: d('2026-09-28T14:00:00Z'),
+             llegada_servicio_at: d('2026-09-28T07:00:00Z') }),           // con llegada y sin fin
+    ] });
+    const { servicios } = await inf.detalleTecnico('2026-09', 7, 1, OCT);
+    expect(servicios.map(codigos)).toEqual([[], []]);
+  });
+
+  it('avisos leves: inicio tardío y cierre fuera de hora, con los minutos', async () => {
+    bdDetalle({ filas: [oct({ inicio_real_at: d('2026-10-05T07:00:00Z'), finalizado_at: d('2026-10-05T15:00:00Z') })] });
+    const { servicios } = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    expect(servicios[0].avisos).toEqual([
+      { codigo: 'inicio_tardio', nivel: 'aviso', minutos: 60 },
+      { codigo: 'cierre_tardio', nivel: 'aviso', minutos: 60 },
+    ]);
+  });
+
+  it('avisa si el mes está archivado (el detalle es en vivo)', async () => {
+    bdDetalle({ archivado: true });
+    expect((await inf.detalleTecnico('2026-08', 7, 1, OCT)).archivado).toBe(true);
+  });
+});

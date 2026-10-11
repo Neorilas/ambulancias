@@ -2,7 +2,7 @@
 
 jest.mock('../../../services/informes.service', () => {
   const real = jest.requireActual('../../../services/informes.service');
-  return { ...real, obtenerInforme: jest.fn() };
+  return { ...real, obtenerInforme: jest.fn(), detalleTecnico: jest.fn() };
 });
 jest.mock('../../../utils/fecha.utils', () => ({
   ...jest.requireActual('../../../utils/fecha.utils'),
@@ -13,7 +13,7 @@ jest.mock('../../../controllers/admin.controller', () => ({ logError: jest.fn() 
 
 const informes = require('../../../services/informes.service');
 const { logError } = require('../../../controllers/admin.controller');
-const { getInformeMensual } = require('../../../controllers/informes.controller');
+const { getInformeMensual, getDetalleTecnico } = require('../../../controllers/informes.controller');
 const { mockReq, mockRes } = require('../../helpers/mockReqRes');
 
 describe('informes.controller · getInformeMensual', () => {
@@ -61,5 +61,44 @@ describe('informes.controller · getInformeMensual', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     // Contesta él mismo en vez de next(err): sin esto no llegaba al panel.
     expect(logError).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 500, errorMessage: 'BD caída' }));
+  });
+});
+
+describe('informes.controller · getDetalleTecnico', () => {
+  beforeEach(() => {
+    informes.detalleTecnico.mockReset();
+    informes.detalleTecnico.mockResolvedValue({ mes: '2026-09', user_id: 7, servicios: [] });
+  });
+
+  it('pasa mes, técnico y quien mira', async () => {
+    const res = mockRes();
+    await getDetalleTecnico(mockReq({ params: { userId: '7' }, query: { mes: '2026-08' }, user: { id: 1 } }), res);
+    expect(informes.detalleTecnico).toHaveBeenCalledWith('2026-08', 7, 1, expect.any(Date));
+    expect(res.json.mock.calls[0][0].data.user_id).toBe(7);
+  });
+
+  it('sin mes, el en curso', async () => {
+    await getDetalleTecnico(mockReq({ params: { userId: '7' }, query: {}, user: { id: 1 } }), mockRes());
+    expect(informes.detalleTecnico.mock.calls[0][0]).toBe('2026-09');
+  });
+
+  it('400 con mes o usuario malos; 404 si no existe', async () => {
+    for (const [userId, mes] of [['7', '2026-10'], ['7', 'x'], ['abc', '2026-08'], ['0', '2026-08']]) {
+      const res = mockRes();
+      await getDetalleTecnico(mockReq({ params: { userId }, query: { mes }, user: { id: 1 } }), res);
+      expect(res.status).toHaveBeenCalledWith(400);
+    }
+    informes.detalleTecnico.mockResolvedValue(null);
+    const res = mockRes();
+    await getDetalleTecnico(mockReq({ params: { userId: '99' }, query: {}, user: { id: 1 } }), res);
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('500 si falla, y llega al panel', async () => {
+    informes.detalleTecnico.mockRejectedValue(new Error('BD caída'));
+    const res = mockRes();
+    await getDetalleTecnico(mockReq({ params: { userId: '7' }, query: {}, user: { id: 1 } }), res);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(logError).toHaveBeenCalledWith(expect.objectContaining({ errorMessage: 'BD caída' }));
   });
 });

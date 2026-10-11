@@ -19,4 +19,11 @@ describe('informes.service', () => {
     await informesService.getMensual();
     expect(api.get).toHaveBeenCalledWith('/informes/mensual', { params: {} });
   });
+
+  it('getDetalleTecnico pide el técnico y el mes', async () => {
+    api.get.mockResolvedValueOnce({ data: { data: { user_id: 7, servicios: [] } } });
+    const out = await informesService.getDetalleTecnico(7, '2026-10');
+    expect(api.get).toHaveBeenCalledWith('/informes/tecnico/7', { params: { mes: '2026-10' } });
+    expect(out.user_id).toBe(7);
+  });
 });

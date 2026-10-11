@@ -95,8 +95,10 @@ export default defineConfig(({ mode }) => {
           // cámara para fotos exteriores. Precacheado, lo bajaría TODO el que
           // instala o actualiza la app. Lo cachea src/sw.js en el primer uso.
           // Facturas (lazy en App.jsx) es solo de administración: que no la
-          // baje al móvil el resto de la plantilla.
-          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js'],
+          // baje al móvil el resto de la plantilla. Lo mismo el PDF de
+          // Informes (chunks `pdf-*`, ~800 kB con lo que jsPDF carga por su
+          // cuenta): solo lo usa quien lo descarga.
+          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js', '**/pdf-*.js', '**/pdfInformeTecnico-*.js'],
         },
         devOptions: {
           enabled: true,   // habilitar SW en desarrollo para testing
@@ -156,6 +158,16 @@ export default defineConfig(({ mode }) => {
       sourcemap:  false,
       rollupOptions: {
         output: {
+          // El PDF de Informes (jsPDF y lo que él carga con import():
+          // html2canvas, DOMPurify, canvg) sale con prefijo `pdf-` para
+          // dejarlo fuera del precache (arriba). NO va en manualChunks: ahí
+          // se lleva también módulos que comparte con la app y el `index` lo
+          // importaba de forma estática, o sea, para todos.
+          chunkFileNames: (chunk) => (
+            chunk.moduleIds.some(id => /node_modules\/(jspdf|jspdf-autotable|html2canvas|dompurify|canvg)\//.test(id))
+              ? 'assets/pdf-[name]-[hash].js'
+              : 'assets/[name]-[hash].js'
+          ),
           manualChunks: {
             vendor:    ['react', 'react-dom', 'react-router-dom'],
             utils:     ['axios', 'date-fns'],
