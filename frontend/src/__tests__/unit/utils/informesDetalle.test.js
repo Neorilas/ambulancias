@@ -57,7 +57,7 @@ describe('utils/pdfInformeTecnico', () => {
       servicio({ rol: 'personal', avisos: [{ codigo: 'sin_finalizar', nivel: 'grave' }] }),
     ]);
     expect(limpia.nivel).toBeNull();
-    expect(limpia.celdas[1]).toBe('Ambulancia 3 (1234ABC)');
+    expect(limpia.celdas[1]).toBe('Asignación #1\nAmbulancia 3 (1234ABC)');
     expect(mala.nivel).toBe('grave');
     expect(mala.celdas[2]).toBe('Equipo');
     expect(mala.celdas[7]).toBe('Sin finalizar: no suma horas de asignación');

@@ -6,6 +6,11 @@ vi.mock('../../../services/informes.service.js', () => ({
   informesService: { getMensual: vi.fn(), getDetalleTecnico: vi.fn() },
 }));
 vi.mock('../../../utils/pdfInformeTecnico.js', () => ({ descargarPdfTecnico: vi.fn() }));
+// Flags encendidos para quien mira (lo que decide a dónde lleva cada servicio)
+let flags = ['menu_trabajos', 'menu_asignaciones'];
+vi.mock('../../../context/FeaturesContext.jsx', () => ({
+  useFeatures: () => ({ isFeatureEnabled: (k) => flags.includes(k) }),
+}));
 
 import { informesService }      from '../../../services/informes.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
@@ -45,8 +50,8 @@ const DATOS = {
 };
 
 function Donde() {
-  const { search } = useLocation();
-  return <p data-testid="donde">{search}</p>;
+  const { pathname, search } = useLocation();
+  return <><p data-testid="donde">{search}</p><p data-testid="ruta">{pathname + search}</p></>;
 }
 
 function montar(ruta = '/informes') {
@@ -182,7 +187,7 @@ const DETALLE = {
       estado: 'finalizada', fecha_inicio: '2026-08-05T06:00:00Z', fecha_fin: '2026-08-05T14:00:00Z',
       inicio_real_at: '2026-08-05T06:05:00Z', llegada_servicio_at: '2026-08-05T06:30:00Z',
       fin_servicio_at: '2026-08-05T13:00:00Z', finalizado_at: '2026-08-05T14:00:00Z',
-      minutos_asignacion: 475, minutos_en_evento: 390, avisos: [] },
+      minutos_asignacion: 475, minutos_en_evento: 390, avisos: [], trabajo_id: 5 },
     { asignacion_id: 2, trabajo: null, alias: 'Ambulancia 1', matricula: '1111AAA', rol: 'personal',
       estado: 'finalizada', fecha_inicio: '2026-08-06T06:00:00Z', fecha_fin: '2026-08-06T14:00:00Z',
       inicio_real_at: '2026-08-06T06:05:00Z', llegada_servicio_at: '2026-08-06T06:30:00Z',
@@ -227,6 +232,32 @@ describe('Informes · detalle de un técnico', () => {
     await screen.findByText('Feria de agosto');
     fireEvent.click(screen.getByRole('button', { name: 'Descargar PDF' }));
     await waitFor(() => expect(descargarPdfTecnico).toHaveBeenCalledWith(DETALLE));
+  });
+
+  it('un servicio de un trabajo lleva al trabajo con su ambulancia señalada', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    fireEvent.click(await screen.findByRole('link', { name: 'Feria de agosto' }));
+    expect(screen.getByTestId('ruta')).toHaveTextContent('/trabajos/5?asignacion=1');
+  });
+
+  it('una asignación del modelo antiguo (sin trabajo) lleva a su detalle, también pulsando la fila', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    const enlace = await screen.findByRole('link', { name: 'Asignación #2' });
+    expect(enlace).toHaveAttribute('href', '/asignaciones?id=2');
+    fireEvent.click(enlace.closest('tr').querySelectorAll('td')[3]);
+    expect(screen.getByTestId('ruta')).toHaveTextContent('/asignaciones?id=2');
+  });
+
+  it('sin la pantalla de asignaciones, la suelta no enlaza (rebotaría)', async () => {
+    flags = ['menu_trabajos'];
+    try {
+      montar('/informes?mes=2026-08&detalle=7');
+      await screen.findByText('Asignación #2');
+      expect(screen.queryByRole('link', { name: 'Asignación #2' })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Feria de agosto' })).toBeInTheDocument();
+    } finally {
+      flags = ['menu_trabajos', 'menu_asignaciones'];
+    }
   });
 
   it('cerrar quita el detalle de la URL', async () => {
