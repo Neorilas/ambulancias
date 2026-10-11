@@ -6,7 +6,7 @@ import { EstadoBadge } from '../components/common/StatusBadge.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import CalendarioPersonal from '../components/calendar/CalendarioPersonal.jsx';
 import { formatDateTime, formatDateTimeShort, diaEnEspana } from '../utils/dateUtils.js';
-import { textoEstadoAmbulancia } from '../utils/trabajos.js';
+import { textoEstadoAmbulancia, estaCerrado } from '../utils/trabajos.js';
 import { diaInicial } from '../utils/calendario.js';
 import { getItem, setItem } from '../utils/sessionStorage.js';
 
@@ -15,11 +15,15 @@ import { getItem, setItem } from '../utils/sessionStorage.js';
  *
  * Una tarjeta por trabajo que coordina, en cuyo equipo está o en el que va en
  * alguna ambulancia:
- * hoy arriba, los próximos debajo. La tarjeta NO ejecuta nada: su único botón
+ * hoy arriba, los próximos debajo y, al final, los ya finalizados (2026-10-11),
+ * del más reciente al más antiguo. La tarjeta NO ejecuta nada: su único botón
  * es «Ver trabajo», y las acciones (inicio, fotos, llegada, cierre) están
  * dentro, en «Tu ambulancia». Con su ambulancia finalizada la tarjeta sigue
- * hasta que el coordinador cierra el trabajo (D11): lo decide el backend, que
- * filtra por el estado del trabajo.
+ * entre los abiertos hasta que el coordinador cierra el trabajo (D11): lo
+ * decide el backend, que filtra y ordena por el estado del trabajo. Los
+ * finalizados se piden con `finalizados: 1` y llegan de 50 en 50 («Ver más»):
+ * el orden del backend garantiza que lo abierto va siempre en la primera
+ * página.
  *
  * «Calendario» (2026-10-11) es la otra forma de verlo, para quien la quiera:
  * lo suyo del mes, también lo ya cerrado. Qué vista y qué día van en la URL
@@ -29,15 +33,19 @@ import { getItem, setItem } from '../utils/sessionStorage.js';
  */
 
 const VISTA_GUARDADA = 'vistaMisTrabajos';
+const POR_PAGINA     = 50;
 
 // Lo que está en marcha o empieza hoy (calendario español) va en «Hoy»
 const esDeHoy = (t, hoy) => t.estado !== 'programado' || diaEnEspana(t.fecha_inicio) <= hoy;
+
+const franja = (estado) => estaCerrado(estado) ? 'stripe-finalizada'
+  : estado === 'programado' ? 'stripe-programada' : 'stripe-activa';
 
 function TarjetaTrabajo({ t, onVer }) {
   const mia = t.mi_asignacion;
   return (
     <div className="card pl-5 space-y-2.5" data-testid="tarjeta-trabajo">
-      <span className={t.estado === 'programado' ? 'stripe-programada' : 'stripe-activa'} />
+      <span className={franja(t.estado)} />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-neutral-900">{t.nombre}</p>
@@ -90,17 +98,36 @@ function ListaMisTrabajos({ onVer }) {
   const { notify } = useNotification();
   const [trabajos, setTrabajos] = useState([]);
   const [loading,  setLoading]  = useState(true);
+  const [pagina,   setPagina]   = useState(1);
+  const [hayMas,   setHayMas]   = useState(false);
+  const [cargandoMas, setCargandoMas] = useState(false);
+
+  const cargar = (p) => trabajosService.misTrab({ limit: POR_PAGINA, page: p, finalizados: 1 })
+    .then(r => {
+      // Sin duplicar si entre una página y otra algo cambió de sitio
+      setTrabajos(prev => {
+        const vistos = new Set(prev.map(t => t.id));
+        return [...prev, ...(r.data || []).filter(t => !vistos.has(t.id))];
+      });
+      setPagina(p);
+      setHayMas(!!r.pagination?.hasNext);
+    })
+    .catch(() => notify.error('Error al cargar tus trabajos'));
 
   useEffect(() => {
-    trabajosService.misTrab({ limit: 50 })
-      .then(r => setTrabajos(r.data || []))
-      .catch(() => notify.error('Error al cargar tus trabajos'))
-      .finally(() => setLoading(false));
+    cargar(1).finally(() => setLoading(false));
   }, []);
 
-  const hoy      = diaEnEspana(new Date());
-  const deHoy    = trabajos.filter(t => esDeHoy(t, hoy));
-  const proximos = trabajos.filter(t => !esDeHoy(t, hoy));
+  const verMas = () => {
+    setCargandoMas(true);
+    cargar(pagina + 1).finally(() => setCargandoMas(false));
+  };
+
+  const hoy         = diaEnEspana(new Date());
+  const abiertos    = trabajos.filter(t => !estaCerrado(t.estado));
+  const deHoy       = abiertos.filter(t => esDeHoy(t, hoy));
+  const proximos    = abiertos.filter(t => !esDeHoy(t, hoy));
+  const finalizados = trabajos.filter(t => estaCerrado(t.estado));
 
   if (loading) return <PageLoading />;
   if (trabajos.length === 0) {
@@ -124,6 +151,17 @@ function ListaMisTrabajos({ onVer }) {
           <p className="micro">Próximos</p>
           {proximos.map(t => <TarjetaTrabajo key={t.id} t={t} onVer={() => onVer(t.id)} />)}
         </section>
+      )}
+      {finalizados.length > 0 && (
+        <section className="space-y-3">
+          <p className="micro">Finalizados</p>
+          {finalizados.map(t => <TarjetaTrabajo key={t.id} t={t} onVer={() => onVer(t.id)} />)}
+        </section>
+      )}
+      {hayMas && (
+        <button onClick={verMas} disabled={cargandoMas} className="btn-secondary w-full">
+          {cargandoMas ? 'Cargando…' : 'Ver más'}
+        </button>
       )}
     </>
   );

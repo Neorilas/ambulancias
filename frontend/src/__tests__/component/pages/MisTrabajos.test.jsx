@@ -91,6 +91,49 @@ describe('MisTrabajos', () => {
     expect(await screen.findByText('destino /trabajos/1')).toBeInTheDocument();
   });
 
+  it('pide también los finalizados y los pone al final, en su sección', async () => {
+    trabajosService.misTrab.mockResolvedValue({ data: [
+      { id: 1, nombre: 'Maratón', estado: 'activo', fecha_inicio: iso(-3600e3), fecha_fin: iso(3600e3),
+        soy_coordinador: true, mi_asignacion: null },
+      { id: 2, nombre: 'Concierto', estado: 'programado', fecha_inicio: iso(5 * 86400e3),
+        fecha_fin: iso(5 * 86400e3 + 3600e3), soy_coordinador: true, mi_asignacion: null },
+      { id: 7, nombre: 'Carrera de ayer', estado: 'finalizado', fecha_inicio: iso(-86400e3),
+        fecha_fin: iso(-80000e3), soy_coordinador: false,
+        mi_asignacion: { id: 70, estado: 'finalizada', mi_rol: 'responsable', vehiculo_alias: 'UVI-1' } },
+      { id: 8, nombre: 'Feria de agosto', estado: 'finalizado_anticipado', fecha_inicio: iso(-60 * 86400e3),
+        fecha_fin: iso(-59 * 86400e3), soy_coordinador: true, mi_asignacion: null },
+    ], pagination: { hasNext: false } });
+    montar();
+    await screen.findByText('Maratón');
+    expect(trabajosService.misTrab).toHaveBeenCalledWith(expect.objectContaining({ finalizados: 1, page: 1 }));
+    const tarjetas = screen.getAllByTestId('tarjeta-trabajo').map(t => t.textContent);
+    expect(tarjetas.map(t => t.match(/Maratón|Concierto|Carrera de ayer|Feria de agosto/)[0]))
+      .toEqual(['Maratón', 'Concierto', 'Carrera de ayer', 'Feria de agosto']);
+    // Lo cerrado no cae en «Hoy» aunque no sea «programado»
+    const hoy = screen.getByText('Hoy').closest('section');
+    expect(hoy).not.toHaveTextContent('Carrera de ayer');
+    const fin = screen.getByText('Finalizados').closest('section');
+    expect(fin).toHaveTextContent('Carrera de ayer');
+    expect(fin).toHaveTextContent('Feria de agosto');
+    expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
+  });
+
+  it('«Ver más» trae la página siguiente de finalizados y la añade debajo', async () => {
+    const user = userEvent.setup();
+    const cerrado = (id, nombre) => ({ id, nombre, estado: 'finalizado', fecha_inicio: iso(-id * 86400e3),
+      fecha_fin: iso(-id * 86400e3 + 3600e3), soy_coordinador: true, mi_asignacion: null });
+    trabajosService.misTrab
+      .mockResolvedValueOnce({ data: [cerrado(1, 'Uno')], pagination: { hasNext: true } })
+      .mockResolvedValueOnce({ data: [cerrado(2, 'Dos')], pagination: { hasNext: false } });
+    montar();
+    await screen.findByText('Uno');
+    await user.click(screen.getByRole('button', { name: 'Ver más' }));
+    expect(await screen.findByText('Dos')).toBeInTheDocument();
+    expect(trabajosService.misTrab).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, finalizados: 1 }));
+    expect(screen.getAllByTestId('tarjeta-trabajo')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
+  });
+
   it('sin trabajos lo dice', async () => {
     trabajosService.misTrab.mockResolvedValue({ data: [] });
     montar();

@@ -1546,13 +1546,20 @@ async function uploadEvidencia(req, res, next) {
 }
 
 // ============================================================
-// GET /trabajos/mis-trabajos
+// GET /trabajos/mis-trabajos[?finalizados=1]
 // La portada del técnico (D7): una tarjeta por trabajo que coordina, en cuyo
 // equipo está o en el que va en alguna ambulancia, con «tu ambulancia» y su
 // estado. Sigue
 // saliendo con su ambulancia ya finalizada hasta que el coordinador cierra el
 // trabajo (D11): por eso el filtro mira el estado del TRABAJO, no el de la
 // asignación.
+//
+// Con `finalizados=1` (la lista de «Mis trabajos», 2026-10-11) salen también
+// los ya cerrados, SIEMPRE detrás de los abiertos: primero lo que está en
+// marcha, luego lo programado (por fecha de inicio) y al final lo cerrado, del
+// más reciente al más antiguo. Sin el parámetro no salen: el inicio del
+// operativo (`Dashboard`) usa esta misma llamada para contar «tus trabajos
+// asignados» y pintar su tira de la semana.
 // ============================================================
 async function misTrab(req, res, next) {
   try {
@@ -1560,9 +1567,13 @@ async function misTrab(req, res, next) {
     const limit  = Math.max(1, Math.min(parseInt(req.query.limit) || 20, PAGINATION.MAX_LIMIT));
     const offset = (page - 1) * limit;
     const uid    = req.user.id;
+    const conFinalizados = ['1', 'true'].includes(String(req.query.finalizados));
 
+    const lista    = (estados) => estados.map(e => `'${e}'`).join(', ');
+    const abiertos = ['programado', 'activo', 'pendiente_cierre'];
+    const cerrado  = `t.estado IN (${lista(CERRADOS)})`;
     const where = `WHERE t.deleted_at IS NULL
-                     AND t.estado IN ('programado', 'activo', 'pendiente_cierre')
+                     AND t.estado IN (${lista(conFinalizados ? [...abiertos, ...CERRADOS] : abiertos)})
                      AND ${FILTRO_PROPIOS}`;
 
     const [countRows] = await query(
@@ -1590,7 +1601,10 @@ async function misTrab(req, res, next) {
                   AND tv.estado NOT IN ('finalizado', 'finalizado_anticipado')) AS mis_vehiculos_v25
        FROM trabajos t
        ${where}
-       ORDER BY FIELD(t.estado, 'activo', 'pendiente_cierre', 'programado'), t.fecha_inicio ASC, t.id
+       -- Abiertos primero (en marcha, luego programados, por inicio); los
+       -- cerrados al final, del más reciente al más antiguo
+       ORDER BY ${cerrado}, FIELD(t.estado, 'activo', 'pendiente_cierre', 'programado'),
+                IF(${cerrado}, NULL, t.fecha_inicio) ASC, t.fecha_inicio DESC, t.id
        LIMIT ? OFFSET ?`,
       [uid, uid, uid, ...propios(uid), limit, offset]
     );
