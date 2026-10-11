@@ -692,6 +692,18 @@ describe('trabajos.controller', () => {
       ...trabajoDosVehiculos({ vehiculos: [] }),
     ];
 
+    it('guarda el enlace de Google Maps junto a la ubicación', async () => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
+      await createTrabajo(mockReq({
+        body: body({ ubicacion: 'Retiro', ubicacion_url: 'https://maps.app.goo.gl/abc123' }), user: admin,
+      }), mockRes(), mockNext());
+
+      const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
+      expect(insTrab.sql).toContain('ubicacion_url');
+      expect(insTrab.params.slice(3, 5)).toEqual(['Retiro', 'https://maps.app.goo.gl/abc123']);
+    });
+
     it('crea el trabajo con su coordinador y la primera ambulancia como asignación, en una transacción', async () => {
       bd(reglasOk());
       const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
@@ -701,9 +713,10 @@ describe('trabajos.controller', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
-      // descripción recortada, ubicación en blanco → NULL; el coordinador, el 8.º
-      expect(insTrab.params.slice(1, 4)).toEqual(['Maratón', 'Cobertura', null]);
-      expect(insTrab.params[7]).toBe(50);
+      // descripción recortada, ubicación en blanco → NULL, sin enlace de
+      // Maps → NULL; el coordinador, el 9.º
+      expect(insTrab.params.slice(1, 5)).toEqual(['Maratón', 'Cobertura', null, null]);
+      expect(insTrab.params[8]).toBe(50);
 
       const insAsig = ejecutadas.find(e => e.sql.includes('INSERT INTO asignaciones_libres'));
       // vehículo, principal = primer responsable, …, trabajo_id el último
@@ -882,6 +895,22 @@ describe('trabajos.controller', () => {
       const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
       expect(upd.sql).not.toContain('estado');
       expect(upd.params).toEqual(['Nuevo', null, 'Ifema', 1]);
+    });
+
+    it('guarda el enlace de Google Maps recortado, y en blanco lo borra', async () => {
+      bd([existente(), ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' },
+        body: { ubicacion_url: ' https://maps.app.goo.gl/abc123 ' }, user: admin }), mockRes(), mockNext());
+      const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
+      expect(upd.sql).toContain('ubicacion_url = ?');
+      expect(upd.params).toEqual(['https://maps.app.goo.gl/abc123', 1]);
+
+      bd([existente(), ...trabajoDosVehiculos()]);
+      const otra = conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' },
+        body: { ubicacion_url: '' }, user: admin }), mockRes(), mockNext());
+      expect(otra.ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET')).params).toEqual([null, 1]);
     });
 
     it('conserva la fila de un vehículo que sigue: estado y fotos no se pierden', async () => {

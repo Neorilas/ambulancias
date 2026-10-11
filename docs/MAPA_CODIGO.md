@@ -135,7 +135,7 @@ de los listados, cuatro parámetros). El estado derivado vive en
 | `config/migrations.js` | Runner al arrancar. **Cada cambio de esquema se registra aquí** (§5) |
 | `utils/contextoPeticion.utils.js` | `AsyncLocalStorage` de la petición. Hoy solo lleva `impersonadoPor`, que lee `logAudit` (§6.3) |
 | `utils/fecha.utils.js` | Contrato de fechas: UTC en BD, hora española de cara al usuario. Nunca `NOW()`/`CURDATE()`. También sella `vehicle_images.created_at` al subir y al **rehacer** una foto |
-| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) · `motivo.utils.js` (`errorMotivo`, regla del motivo de fin anticipado, espejo de `frontend/src/utils/motivo.js`; §6.1) |
+| `utils/jwt.utils.js` · `password.utils.js` (política de contraseña) · `response.utils.js` (`success`, errores) · `logger.utils.js` (winston) · `matricula.utils.js` · `km.utils.js` (`limpiarMilesKm`, espejo de `frontend/src/utils/kmUtils.js`) · `motivo.utils.js` (`errorMotivo`, regla del motivo de fin anticipado, espejo de `frontend/src/utils/motivo.js`; §6.1) · `mapas.utils.js` (`esEnlaceGoogleMaps`, qué enlace se admite como ubicación del trabajo, espejo de `frontend/src/utils/mapas.js`; §6.2 «Ubicación en Google Maps») |
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo. Con trabajo (v33) el texto lo nombra («en «Maratón»») y la url es la del trabajo (`urlAsignacion`/`urlParaMiembros`). Incluye `avisarTrabajoPendienteCierre` (al coordinador) |
 | `services/estadoTrabajo.service.js` | El estado DERIVADO de un trabajo (v33): `sincronizarEstadoTrabajo` (lee sus asignaciones; si no tiene, `trabajo_vehiculos` del modelo v25), `estadoTrabajoDesdeAsignaciones`, `estadoTrabajoDesde` (el antiguo) y `avisarSiPendienteCierre`. Un único sitio porque lo cambian asignaciones, trabajos y el cron (§6.1) |
@@ -775,6 +775,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `utils/swAvisos.js` | Las dos decisiones del service worker que sí se pueden probar: leer el payload del push y componer la ruta del aviso. Está fuera de `sw.js` porque un SW no se monta en jsdom |
 | `utils/calendario.js` | El calendario de «Mis trabajos»: cuadrícula del mes de lunes a domingo (`cuadriculaMes`), qué días ocupa cada entrada (`diasDeEntrada`, `entradasDelDia`), color (`situacionEntrada`, `SITUACIONES`), «Llevas UVI-1»/«Coordinas…» (`textoPapel`), el día a abrir (`diaInicial`, `diaAlCambiarDeMes`, acotados a `MES_MIN`..`MES_MAX`) y cuántos trabajos hay en un día (`trabajosDistintos`). Todo en días ESPAÑOLES `yyyy-MM-dd` y meses `yyyy-MM`, sin `Date` del dispositivo. Reglas en §8 |
 | `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `ambulanciaVacia`, `validarTrabajo` y `payloadTrabajo`, los dos con `{ alta }`: las ambulancias solo van en el alta) y «Tu ambulancia» (`misAmbulancias`, `siguientePaso` = texto del botón, `textoEstadoAmbulancia`, que tolera que falte `progreso_fotos` porque «Mis trabajos» no lo trae). Solo traduce `mi_rol`/`detalle`/`puede_cerrar`, que calcula el backend |
+| `utils/mapas.js` + `components/common/EnlaceMaps.jsx` | La ubicación del trabajo en Google Maps (v34): `esEnlaceGoogleMaps` (espejo de `backend/src/utils/mapas.utils.js`), `enlaceBusquedaMaps` y `mapsDeTrabajo` (`{url, exacto}`); el botón «Abrir/Buscar en Google Maps». §6.2 «Ubicación en Google Maps» |
 | `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en `TrabajoForm`. `destacados` (Set de ids): al elegir quién va en una ambulancia de un trabajo, el desplegable sale en dos bloques con título, **«Asociados al trabajo»** arriba y **«No pertenecen al trabajo»** debajo (pedido 2026-10-10); los títulos no se eligen (`role="presentation"`), un bloque vacío al buscar no sale, y el tope de 50 es solo para el resto. Quién es «asociado» lo dicen `asociadosDeTrabajo` (ficha) y `asociadosDeFormulario` (alta) de `utils/trabajos.js`: equipo del trabajo, coordinador y quien va en alguna de sus ambulancias no canceladas |
 | `utils/miembrosAsignacion.js` | Responsables/equipo (`personal` en BD) en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
@@ -995,7 +996,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1071,7 +1072,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v33_trabajo_padre**. (En alguna BD local puede
+Última migración: **v34_trabajo_ubicacion_url**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1492,7 +1493,7 @@ quedarse en solo lectura).
 
 | Acción | Responsable de una ambulancia | Equipo de una ambulancia | Coordinador | Gestión |
 |---|---|---|---|---|
-| Ver la ficha (título, descripción, ubicación, fechas, coordinador) | sí | sí | sí | sí (`view_all_trabajos` o `manage_trabajos`) |
+| Ver la ficha (título, descripción, ubicación y su botón de Google Maps, fechas, coordinador) | sí | sí | sí | sí (`view_all_trabajos` o `manage_trabajos`) |
 | Su ambulancia entera (estado, horas, km, progreso de fotos) | sí | sí | — | — |
 | Las demás ambulancias | **solo cuál es y quién va** | **solo cuál es y quién va** | todo (D2) | todo |
 | Operar una ambulancia (activar, fotos, llegada, finalizar) | la suya | no | no, salvo que además sea su responsable o gestión | todas |
@@ -1561,6 +1562,31 @@ quedarse en solo lectura).
   trabajo del modelo nuevo (`motivoNoManual`: con coordinador o que haya tenido
   asignaciones, aunque estén borradas), o gestión podría arrancarlo o cerrarlo
   a mano saltándose a sus ambulancias y al coordinador.
+
+- **Ubicación en Google Maps (v34, 2026-10-11):** además del texto libre
+  `ubicacion`, el trabajo puede llevar `ubicacion_url`, el enlace que quien lo
+  crea pega desde «Compartir» de Google Maps. Opcional, en el alta y al
+  editar (vacío lo borra). **Solo se admiten enlaces de Google Maps**
+  (`esEnlaceGoogleMaps`: `https`, sin usuario ni puerto, `maps.app.goo.gl`,
+  `goo.gl/maps`, `maps.google.*` o `google.*/maps`), porque acaba como botón
+  en el móvil de toda la gente del trabajo: sin la lista blanca el campo
+  serviría para repartir cualquier enlace. 422 del validador de
+  `trabajos.routes`. Lo ve quien ve la ficha, porque es un campo del trabajo
+  (`vistaParaUsuario` lo pasa con `...t`): coordinador, equipo del trabajo,
+  responsables y equipo de cada ambulancia, gestión. El botón
+  (`EnlaceMaps`) sale en `TrabajoDetail`, `TrabajoV25` y la tarjeta del
+  trabajo de `AsignacionDetalle` — **esta última lee de `trabajoAparte`
+  (`asignaciones.controller`), que copia los campos del trabajo uno a uno:
+  un campo nuevo del trabajo que no se añada ahí no llega a la ambulancia**.
+  No sale en la tarjeta de «Mis trabajos» (D7: su único botón es «Ver
+  trabajo»). **Sin enlace pero con texto**, el botón es «Buscar en Google
+  Maps» con una búsqueda del texto, que puede no llevar al sitio exacto
+  («Retiro, puerta 3»): por eso no dice «Abrir», y el formulario, mientras
+  haya texto sin enlace, avisa de que la búsqueda puede no ser precisa y
+  deja «Comprobar en Google Maps» antes de guardar (pedido del usuario). Es
+  un enlace normal en pestaña nueva (`noopener noreferrer`): no toca la CSP.
+  En Android abre la app de Maps; en la PWA del iPhone se abre en la ventana
+  de Safari de la app, con su «Abrir en la app».
 
 **Modelo v25 (trabajos anteriores a v33)**
 
@@ -1759,6 +1785,7 @@ solo actúa en el navegador no es un control de acceso.
 | Colores grises o un fondo de panel | Si debe seguir el tema oscuro: variables de `index.css` (`:root` y `html[data-tema="oscuro"]`) + escalas de `tailwind.config.js`; paneles con `bg-superficie`. Reiniciar `npm run dev` tras tocar la config (§3.4 «Tema oscuro») |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
+| Un campo nuevo del trabajo que deba ver quien va en una ambulancia | La ficha (`getTrabajoCompleto`, `SELECT t.*`) lo lleva sola, pero la tarjeta del trabajo dentro de la ambulancia NO: `getAsignacionCompleta` (`t.<campo> AS trabajo_<campo>`) **y** `trabajoAparte` en `asignaciones.controller`. Listados con columnas a mano: `listTrabajos`, `misTrab`, `miCalendario`, `listTrabajosCalendario`. Formulario: `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`. Ejemplo: `ubicacion_url` (v34, §6.2) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |

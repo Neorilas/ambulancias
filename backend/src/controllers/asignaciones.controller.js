@@ -93,7 +93,7 @@ function marcarFotosInicioTarde(asig, evidencias) {
  */
 function trabajoAparte(fila) {
   const {
-    trabajo_identificador, trabajo_nombre, trabajo_descripcion, trabajo_ubicacion,
+    trabajo_identificador, trabajo_nombre, trabajo_descripcion, trabajo_ubicacion, trabajo_ubicacion_url,
     trabajo_estado, trabajo_fecha_inicio, trabajo_fecha_fin, trabajo_coordinador_id,
     trabajo_coordinador_nombre, trabajo_coordinador_apellidos, ...asig
   } = fila;
@@ -103,6 +103,7 @@ function trabajoAparte(fila) {
     nombre:        trabajo_nombre,
     descripcion:   trabajo_descripcion,
     ubicacion:     trabajo_ubicacion,
+    ubicacion_url: trabajo_ubicacion_url,
     estado:        trabajo_estado,
     fecha_inicio:  trabajo_fecha_inicio,
     fecha_fin:     trabajo_fecha_fin,
@@ -124,6 +125,7 @@ async function getAsignacionCompleta(id) {
             CONCAT(c.nombre,' ',c.apellidos) AS creado_por_nombre,
             t.identificador AS trabajo_identificador, t.nombre AS trabajo_nombre,
             t.descripcion AS trabajo_descripcion, t.ubicacion AS trabajo_ubicacion,
+            t.ubicacion_url AS trabajo_ubicacion_url,
             t.estado AS trabajo_estado,
             t.fecha_inicio AS trabajo_fecha_inicio, t.fecha_fin AS trabajo_fecha_fin,
             t.coordinador_user_id AS trabajo_coordinador_id,

@@ -9,6 +9,7 @@ import {
   formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
 } from '../../utils/trabajos.js';
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
+import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../utils/mapas.js';
 
 /**
  * Alta y edición de un trabajo (v33, el trabajo padre).
@@ -56,6 +57,11 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   };
 
   const setEquipo = (lista) => setForm(f => ({ ...f, usuarios: lista }));
+
+  // Sin enlace de Maps, quien vaya verá una búsqueda con el texto de la
+  // ubicación, que puede no llevar al sitio exacto: se avisa y se deja
+  // comprobar adónde lleva antes de guardar.
+  const busquedaMaps = !esEnlaceGoogleMaps(form.ubicacion_url) ? enlaceBusquedaMaps(form.ubicacion) : null;
   // Al elegir quién va en cada ambulancia, arriba la gente ya asociada al
   // trabajo (equipo, coordinador, quien va en otra ambulancia) y debajo el resto
   const delEquipo = asociadosDeFormulario(form);
@@ -154,6 +160,34 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
               <option value="otro">Otro</option>
             </select>
           </div>
+        </div>
+
+        {/* Enlace de Google Maps (v34): el punto exacto */}
+        <div>
+          <label className="label">Enlace de Google Maps</label>
+          <input type="url" inputMode="url" autoComplete="off"
+            className={`input ${errors.ubicacion_url ? 'input-error' : ''}`}
+            value={form.ubicacion_url} onChange={set('ubicacion_url')} maxLength={MAX_ENLACE_MAPS}
+            placeholder="https://maps.app.goo.gl/…" />
+          {errors.ubicacion_url ? (
+            <p className="field-error">{errors.ubicacion_url}</p>
+          ) : (
+            <p className="text-xs text-neutral-500 mt-1">
+              Opcional. En Google Maps, busca el sitio, pulsa «Compartir», copia el enlace y pégalo aquí.
+            </p>
+          )}
+          {busquedaMaps && (
+            <div className="mt-2 rounded-lg border border-warn-200 bg-warn-50 px-3 py-2 text-xs text-warn-700"
+              data-testid="aviso-ubicacion-imprecisa">
+              Sin enlace, quien vaya en el trabajo verá «Buscar en Google Maps» con el texto de la
+              ubicación, y la búsqueda puede no llevar al sitio exacto. Revisa adónde lleva o pega el
+              enlace.{' '}
+              <a href={busquedaMaps} target="_blank" rel="noopener noreferrer"
+                className="font-medium underline whitespace-nowrap">
+                Comprobar en Google Maps
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Fechas */}

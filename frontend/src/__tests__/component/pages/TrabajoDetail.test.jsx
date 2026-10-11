@@ -126,6 +126,22 @@ describe('TrabajoDetail', () => {
     expect(screen.getByText('Carla Ruiz')).toBeInTheDocument();
   });
 
+  it('la ubicación lleva a Google Maps: buscando el texto si no hay enlace, al enlace si lo hay', async () => {
+    montar();
+    const buscar = await screen.findByRole('link', { name: 'Buscar en Google Maps' });
+    expect(buscar).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=Retiro');
+    expect(buscar).toHaveAttribute('target', '_blank');
+    expect(buscar).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('con el enlace pegado al crear el trabajo, «Abrir en Google Maps» va a ese enlace', async () => {
+    trabajosService.get.mockResolvedValue({ ...TRABAJO, ubicacion_url: 'https://maps.app.goo.gl/abc123' });
+    montar();
+    expect(await screen.findByRole('link', { name: 'Abrir en Google Maps' }))
+      .toHaveAttribute('href', 'https://maps.app.goo.gl/abc123');
+    expect(screen.queryByRole('link', { name: 'Buscar en Google Maps' })).not.toBeInTheDocument();
+  });
+
   it('«Tu ambulancia» con el siguiente paso, que abre la operación de siempre (D7)', async () => {
     const user = userEvent.setup();
     montar();
