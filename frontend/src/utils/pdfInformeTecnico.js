@@ -36,7 +36,9 @@ export function filasPdf(servicios = []) {
     nivel: horasDudosas(s) ? 'grave' : s.avisos?.length ? 'aviso' : null,
     celdas: [
       formatDate(s.fecha_inicio, 'dd/MM HH:mm'),
-      [s.trabajo, `${s.alias || ''}${s.matricula ? ` (${s.matricula})` : ''}`].filter(Boolean).join('\n'),
+      // Como en la pantalla: el trabajo o, del modelo antiguo, «Asignación #N»
+      [s.trabajo || `Asignación #${s.asignacion_id}`, `${s.alias || ''}${s.matricula ? ` (${s.matricula})` : ''}`]
+        .filter(Boolean).join('\n'),
       ROL_SERVICIO[s.rol] || s.rol || '',
       tramo(s.llegada_servicio_at, s.fin_servicio_at),
       fmtMin(s.minutos_en_evento),

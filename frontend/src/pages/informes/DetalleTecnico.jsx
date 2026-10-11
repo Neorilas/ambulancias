@@ -6,14 +6,20 @@
  * cuadra (sin iniciar, sin finalizar, sin inicio o sin fin de evento, fin del
  * evento pulsado en base…). Las sumas son las de la tabla del informe.
  * «Descargar PDF» genera lo mismo en el navegador (utils/pdfInformeTecnico.js).
+ * Cada fila lleva a lo suyo (`rutaAsignacion`, utils/enlaceAsignacion.js): a su
+ * trabajo con la ambulancia señalada o, si es del modelo antiguo sin trabajo, al
+ * detalle de la asignación. «Atrás» vuelve aquí con el panel abierto.
  *
  * Datos: GET /informes/tecnico/:userId?mes (informes.service → detalleTecnico).
  */
 
 import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import Modal from '../../components/common/Modal.jsx';
 import { informesService } from '../../services/informes.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { useFeatures } from '../../context/FeaturesContext.jsx';
+import { rutaAsignacion, enlazaAlTrabajo } from '../../utils/enlaceAsignacion.js';
 import { formatDate } from '../../utils/dateUtils.js';
 import {
   nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, horasDudosas, ROL_SERVICIO,
@@ -33,6 +39,16 @@ function Cifra({ titulo, valor, alerta }) {
 
 export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
   const { notify } = useNotification();
+  const navigate = useNavigate();
+  const { isFeatureEnabled } = useFeatures();
+  const trabajosVisibles = isFeatureEnabled('menu_trabajos');
+  // A dónde lleva una fila; null si quien mira no tiene ese destino (un
+  // enlace que ProtectedRoute rebota es peor que ninguno, como en EnlaceAsignacion)
+  const destino = (s) => {
+    const a = { id: s.asignacion_id, trabajo_id: s.trabajo_id };
+    if (!enlazaAlTrabajo(a, trabajosVisibles) && !isFeatureEnabled('menu_asignaciones')) return null;
+    return rutaAsignacion(a, trabajosVisibles);
+  };
   const [detalle, setDetalle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
@@ -100,7 +116,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
           <p className="text-xs text-neutral-500">
             Solo suma lo cerrado. <span className="text-bad-600 font-medium">En rojo</span>, servicios cuyas horas
             no suman o no son reales; <span className="text-warn-700 font-medium">en ámbar</span>, los que suman
-            pero no cuadran con lo previsto.
+            pero no cuadran con lo previsto. Pulsa un servicio para abrir su trabajo o su asignación.
             {detalle.archivado && ' Este mes ya está archivado: parte de sus servicios puede haberse purgado y el detalle quedar incompleto.'}
           </p>
 
@@ -123,12 +139,20 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
                 <tbody className="divide-y divide-neutral-100">
                   {servicios.map(s => {
                     const nivel = horasDudosas(s) ? 'grave' : s.avisos?.length ? 'aviso' : null;
+                    const ruta = destino(s);
+                    const titulo = s.trabajo || `Asignación #${s.asignacion_id}`;
                     return (
-                      <tr key={s.asignacion_id} className={nivel ? FONDO_FILA[nivel] : ''}>
+                      <tr key={s.asignacion_id} onClick={ruta ? () => navigate(ruta) : undefined}
+                        className={`${nivel ? FONDO_FILA[nivel] : ''} ${ruta ? 'cursor-pointer hover:brightness-95' : ''}`}>
                         <td className="px-3 py-2 font-mono whitespace-nowrap align-top">{formatDate(s.fecha_inicio, 'dd/MM HH:mm')}</td>
                         <td className="px-3 py-2 align-top min-w-[11rem]">
-                          {s.trabajo && <div className="text-neutral-900">{s.trabajo}</div>}
-                          <div className={`whitespace-nowrap ${s.trabajo ? 'text-xs text-neutral-500' : 'text-neutral-900'}`}>
+                          {ruta ? (
+                            <Link to={ruta} onClick={(e) => e.stopPropagation()}
+                              className="font-medium text-primary-700 hover:underline">
+                              {titulo}
+                            </Link>
+                          ) : <div className="text-neutral-900">{titulo}</div>}
+                          <div className="whitespace-nowrap text-xs text-neutral-500">
                             {s.alias}{s.matricula && <span className="font-mono"> · {s.matricula}</span>}
                           </div>
                           <div className="text-xs text-neutral-400">{ROL_SERVICIO[s.rol] || s.rol}</div>
