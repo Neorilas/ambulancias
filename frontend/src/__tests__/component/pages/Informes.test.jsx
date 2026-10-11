@@ -261,6 +261,17 @@ describe('Informes · detalle de un técnico', () => {
     expect(screen.getByTestId('ruta')).toHaveTextContent(/^\/informes\?mes=2026-08&detalle=7$/);
     expect(screen.getByText('Feria de agosto')).toBeInTheDocument();
     await waitFor(() => expect(informesService.getDetalleTecnico).toHaveBeenCalledTimes(2));
+    // y las cifras del informe de debajo, sin spinner (la tabla no se desmonta)
+    await waitFor(() => expect(informesService.getMensual).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'Luis Gil' })).toBeInTheDocument();
+  });
+
+  it('con un servicio encima, los botones del técnico no se pueden usar', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    fireEvent.click(await screen.findByRole('button', { name: 'Feria de agosto' }));
+    const pie = screen.getAllByRole('button', { name: 'Cerrar' }).at(-1);
+    expect(pie).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Descargar PDF' })).toBeDisabled();
   });
 
   it('con un servicio abierto, Escape no cierra también el panel del técnico', async () => {

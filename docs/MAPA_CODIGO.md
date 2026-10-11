@@ -394,9 +394,17 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
   `usePanelEnUrl`: «atrás» o su cierre lo quitan e Informes nunca se desmonta
   (scroll, pestaña y panel del técnico siguen; medido). Vale igual para el
   modelo antiguo y para trabajos, y no depende de `menu_asignaciones`. Trampas:
-  con `?ver` abierto el Modal no se cierra con Escape (cerrarían los dos y
-  «atrás» retrocedería dos veces); al cerrarlo se recargan las horas sin vaciar
-  la tabla (no salta el scroll); seleccionar texto en una fila no la abre. El
+  con `?ver` abierto nada cierra el panel del técnico (`cerrarTecnico`: ni
+  Escape ni su «Cerrar», que sigue alcanzable con Tab y deshabilitado), o
+  cerrarían los dos y «atrás» retrocedería dos veces o dejaría `?ver`
+  huérfano; al cerrar el servicio se recargan las horas del técnico sin vaciar
+  la tabla (`cargado`: solo otro técnico u otro mes la vacían) y las cifras de
+  Informes con `cargar(true)`, sin spinner (desmontaría la tabla); seleccionar
+  texto en una fila no la abre. Un modal dentro del panel (Editar) ya no
+  desbloquea el scroll al cerrarse: `Modal.jsx` deja `body.overflow` como
+  estaba, no a `''`. Al probarlo con el navegador automatizado, pulsar una fila
+  fuera de la vista hace que la herramienta desplace la página: parece que se
+  pierde el scroll y no es así (medido con clics sobre filas visibles). El
   título de una suelta es «Asignación #N», también en el PDF.
 - **Solo se marca lo que ya debería estar hecho**: un servicio en curso (antes
   de su `fecha_fin` + el margen) no sale «sin finalizar» ni sin evento.

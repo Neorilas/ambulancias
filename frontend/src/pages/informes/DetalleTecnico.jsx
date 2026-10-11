@@ -16,7 +16,7 @@
  * Datos: GET /informes/tecnico/:userId?mes (informes.service → detalleTecnico).
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../../components/common/Modal.jsx';
 import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
 import { informesService } from '../../services/informes.service.js';
@@ -39,22 +39,37 @@ function Cifra({ titulo, valor, alerta }) {
   );
 }
 
-export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
+const sinCerrar = () => {};
+
+/**
+ * `onCambios`: se llama al cerrar un servicio abierto encima, por si desde él
+ * se corrigió algo — Informes recarga sus cifras sin el spinner.
+ */
+export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios }) {
   const { notify } = useNotification();
   // El detalle de un servicio, encima de este panel. Al cerrarse se recargan
   // las horas: desde el detalle la oficina puede corregir algo
   const [recarga, setRecarga] = useState(0);
-  const [verId, abrirVer, cerrarVer] = usePanelEnUrl('ver', { alCerrar: () => setRecarga(n => n + 1) });
+  const [verId, abrirVer, cerrarVer] = usePanelEnUrl('ver', {
+    alCerrar: () => { setRecarga(n => n + 1); onCambios?.(); },
+  });
+  // Con un servicio encima, nada cierra este panel (ni Escape ni su «Cerrar»,
+  // que sigue alcanzable con Tab): cerrarían los dos y «atrás» retrocedería
+  // dos veces o dejaría `?ver` huérfano en la URL
+  const cerrarTecnico = verId ? sinCerrar : onClose;
+  // Lo que ya está pintado: una recarga del mismo técnico y mes no vacía la
+  // tabla (no salta el scroll); otro técnico u otro mes, sí
+  const cargado = useRef(null);
   const [detalle, setDetalle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
 
   useEffect(() => {
     let vivo = true;
-    // Una recarga al volver de un servicio no vacía la tabla: no salta el scroll
-    if (!recarga) { setLoading(true); setDetalle(null); }
+    const clave = `${userId}|${mes}`;
+    if (cargado.current !== clave) { setLoading(true); setDetalle(null); }
     informesService.getDetalleTecnico(userId, mes)
-      .then(d => { if (vivo) setDetalle(d); })
+      .then(d => { if (vivo) { setDetalle(d); cargado.current = clave; } })
       .catch(() => { if (vivo) notify.error('No se pudo cargar el detalle del técnico'); })
       .finally(() => { if (vivo) setLoading(false); });
     return () => { vivo = false; };
@@ -75,20 +90,18 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
   const servicios = detalle?.servicios || [];
   const t = totalesDetalle(servicios);
 
-  // Con un servicio abierto encima, Escape no cierra este panel: lo haría a la
-  // vez que el de arriba y «atrás» retrocedería dos veces
   return (
     <>
     <Modal
       isOpen
-      onClose={verId ? () => {} : onClose}
+      onClose={cerrarTecnico}
       size="full"
       title={`Horas de ${detalle?.nombre || nombre || 'técnico'}`}
       footer={(
         <>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cerrar</button>
+          <button type="button" className="btn-secondary" onClick={cerrarTecnico} disabled={!!verId}>Cerrar</button>
           <button type="button" className="btn-primary" onClick={descargar}
-            disabled={!detalle || generando}>
+            disabled={!detalle || generando || !!verId}>
             {generando ? 'Generando…' : 'Descargar PDF'}
           </button>
         </>
