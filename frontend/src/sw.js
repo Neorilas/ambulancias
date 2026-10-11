@@ -74,12 +74,23 @@ self.addEventListener('message', (event) => {
 // Caché en tiempo de ejecución (portada de la configuración anterior)
 // ============================================================
 
+// En `npm run dev` el SW no intercepta ninguna petición: lo que no tiene ruta
+// lo pide el navegador como si no hubiera SW. Con las rutas puestas, cada
+// petición de /vehicles, /trabajos/calendario, /uploads/ y el modelo la hacía
+// el propio SW, y el navegador integrado de Claude (el del agente
+// probador-local) no deja salir NINGÚN fetch de un service worker: daba
+// net::ERR_FAILED y /vehiculos decía «Todavía no hay vehículos registrados»
+// con 4 en la BD (2026-10-11). En Chrome de verdad el mismo SW de dev va bien.
+// En dev la caché no aporta nada (Vite sirve en local) y el SW sigue
+// instalado para probar los avisos push. En el build `DEV` es `false`.
+const CACHE_EN_EJECUCION = !import.meta.env.DEV;
+
 // Listados que se consultan mucho y aguantan estar unos minutos viejos. Solo
 // GET y nada sensible. La regex va ANCLADA al final: sin el `$` cubría también
 // historial, incidencias, revisiones e imágenes de cada vehículo. La caché se
 // indexa por URL, no por usuario, y se vacía al cerrar sesión
 // (utils/cachesSesion.js).
-registerRoute(
+if (CACHE_EN_EJECUCION) registerRoute(
   ({ url }) => /\/api\/v1\/(vehicles|trabajos\/calendario)\/?$/.test(url.pathname),
   new NetworkFirst({
     cacheName: 'api-cache',
@@ -89,7 +100,7 @@ registerRoute(
 );
 
 // Las fotos subidas no cambian nunca: una vez en caché, se sirven de ahí.
-registerRoute(
+if (CACHE_EN_EJECUCION) registerRoute(
   ({ url }) => url.pathname.includes('/uploads/'),
   new CacheFirst({
     cacheName: 'images-cache',
@@ -101,7 +112,7 @@ registerRoute(
 // el chunk de TensorFlow, que va fuera del precache, y el modelo (7 MB). Los
 // dos llevan versión en el nombre (hash del chunk, carpeta coco-ssd-vN), así
 // que se pueden servir de caché para siempre; se bajan una vez por móvil.
-registerRoute(
+if (CACHE_EN_EJECUCION) registerRoute(
   ({ url }) => /\/assets\/deteccion-[^/]+\.js$/.test(url.pathname) || url.pathname.includes('/modelos/'),
   new CacheFirst({
     cacheName: 'deteccion-cache',

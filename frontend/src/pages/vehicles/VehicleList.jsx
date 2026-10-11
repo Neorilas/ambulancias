@@ -9,6 +9,7 @@ import { formatDate, formatDateTimeShort } from '../../utils/dateUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import VehicleForm from './VehicleForm.jsx';
 import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
+import { reportarFalloDeCarga } from '../../utils/reporteErrores.js';
 
 /**
  * Fecha de próxima revisión con su estado.
@@ -214,6 +215,10 @@ export default function VehicleList() {
   // volver y perdería la página
   const [texto, setTexto] = useBuscadorEnUrl(search, (q) => cambiarUrl({ q, page: 1 }));
   const [loading,    setLoading]    = useState(false);
+  // La carga ha fallado: no es lo mismo que «no hay vehículos». Antes se
+  // quedaba la lista vacía y la pantalla decía «0 en flota / Todavía no hay
+  // vehículos registrados» con 4 en la base de datos (2026-10-11)
+  const [errorCarga, setErrorCarga] = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [editVeh,    setEditVeh]    = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
@@ -222,6 +227,7 @@ export default function VehicleList() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErrorCarga(false);
     try {
       const resp = await vehiclesService.list({
         page, search: search || undefined, limit: 25,
@@ -229,7 +235,13 @@ export default function VehicleList() {
       });
       setVehicles(resp.data || []);
       setPagination(resp.pagination);
-    } catch { notify.error('Error al cargar vehículos'); }
+    } catch (err) {
+      setVehicles([]);
+      setPagination(null);
+      setErrorCarga(true);
+      reportarFalloDeCarga(err, 'Listado de vehículos');
+      notify.error('Error al cargar vehículos');
+    }
     finally { setLoading(false); }
   }, [page, search, soloIncidencias]);
 
@@ -263,7 +275,7 @@ export default function VehicleList() {
         <div className="flex-1">
           <h1 className="text-[19px] font-semibold text-neutral-900">Vehículos</h1>
           <p className="text-neutral-500 text-[13px] mt-0.5">
-            {pagination?.total ?? 0} {soloIncidencias ? 'con incidencias abiertas' : 'en flota'}
+            {errorCarga ? '—' : (pagination?.total ?? 0)} {soloIncidencias ? 'con incidencias abiertas' : 'en flota'}
           </p>
         </div>
         {canEdit && (
@@ -293,7 +305,13 @@ export default function VehicleList() {
         )}
       </div>
 
-      {loading ? <PageLoading /> : (
+      {loading ? <PageLoading /> : errorCarga ? (
+        <div className="empty" role="alert">
+          <p className="empty-title">No se pudieron cargar los vehículos</p>
+          <p className="empty-hint">Comprueba la conexión y vuelve a intentarlo</p>
+          <button onClick={load} className="btn-secondary mt-3">Reintentar</button>
+        </div>
+      ) : (
         <>
           {vehicles.length === 0 ? (
             <div className="empty">

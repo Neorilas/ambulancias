@@ -5,7 +5,8 @@ vi.mock('../../../services/api.js', () => ({ default: { post: (...a) => post(...
 
 import { PREFIJO } from '../../../utils/sessionStorage.js';
 import {
-  registrarError, enviarPendientes, reportarErrorDePeticion, _reiniciar, COLA_MAX, LOTE_MAX,
+  registrarError, enviarPendientes, reportarErrorDePeticion, reportarFalloDeCarga, _reiniciar,
+  COLA_MAX, LOTE_MAX,
 } from '../../../utils/reporteErrores.js';
 
 const cola = () => JSON.parse(localStorage.getItem(PREFIJO + 'erroresPendientes') || '[]');
@@ -127,6 +128,31 @@ describe('utils/reporteErrores', () => {
     it('ni cancelaciones ni el propio envío del reporte', () => {
       reportarErrorDePeticion(err({ code: 'ERR_CANCELED' }));
       reportarErrorDePeticion(err({ config: { method: 'post', url: '/errores-cliente', _sinReporteDeError: true } }));
+      expect(cola()).toEqual([]);
+    });
+  });
+
+  // Una pantalla que se queda en «no se pudo cargar»: el interceptor calla los
+  // GET sin respuesta, así que lo apunta la pantalla (2026-10-11, /vehiculos)
+  describe('reportarFalloDeCarga', () => {
+    const get = (extra) => ({ config: { method: 'get', url: '/vehicles?page=1' }, code: 'ERR_NETWORK', message: 'Network Error', ...extra });
+
+    it('apunta el GET sin respuesta con la pantalla en el mensaje y la url sin query', () => {
+      reportarFalloDeCarga(get(), 'Listado de vehículos');
+      reportarFalloDeCarga(get({ code: 'ECONNABORTED', message: 'timeout of 30000ms exceeded', config: { method: 'get', url: '/users' } }), 'Inicio');
+      expect(cola()).toEqual([
+        expect.objectContaining({ tipo: 'red', metodo: 'GET', url: '/vehicles',
+          mensaje: 'Listado de vehículos no se pudo cargar: Network Error' }),
+        expect.objectContaining({ tipo: 'timeout', url: '/users' }),
+      ]);
+    });
+
+    it('no repite lo que ya apunta el interceptor ni lo que no es de red', () => {
+      reportarFalloDeCarga(get({ response: { status: 502 } }), 'X');      // lo apuntó el interceptor
+      reportarFalloDeCarga(get({ response: { status: 403 } }), 'X');      // un 4xx no es un fallo de la app
+      reportarFalloDeCarga(get({ config: { method: 'post', url: '/a' } }), 'X');   // no-GET: interceptor
+      reportarFalloDeCarga(get({ code: 'ERR_CANCELED' }), 'X');
+      reportarFalloDeCarga(new Error('sin config'), 'X');
       expect(cola()).toEqual([]);
     });
   });
