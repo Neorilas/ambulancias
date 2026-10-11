@@ -384,16 +384,20 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
   él, y en un PDF nominal no se le carga al Equipo un retraso ajeno; visto en
   la revisión de /verifica). La cifra de arriba cuenta solo las filas en rojo
   («En rojo: horas que no valen»).
-- **Cada servicio lleva a lo suyo** (2026-10-11, «algunas van con el sistema
-  antiguo de asignaciones»): el título de la fila es un enlace y la fila entera
-  también navega, con `rutaAsignacion` de `utils/enlaceAsignacion.js` (la misma
-  regla que la alarma, el mapa y la ficha del vehículo): con trabajo y
-  `menu_trabajos`, a `/trabajos/:id?asignacion=N` (señalada, no abierta); si no
-  —modelo antiguo sin trabajo—, a `/asignaciones?id=N`, que abre su detalle.
-  Sin `menu_asignaciones` la suelta no enlaza (ProtectedRoute la rebotaría).
-  El título de una suelta es «Asignación #N», también en el PDF. «Atrás» vuelve
-  a Informes **con el panel abierto**: `?detalle` va en la entrada del
-  historial, puesta con push.
+- **Cada servicio se abre ENCIMA del informe** (2026-10-11). Primero navegaba
+  a su trabajo o a `/asignaciones?id=N` (`rutaAsignacion`), pero al volver
+  Informes se remontaba y se perdía dónde se estaba; el usuario pidió «una
+  pantalla por encima». Ahora pulsar el título (botón) o la fila abre
+  `AsignacionDetalle` —el panel del listado y del trabajo, que ya enseña el
+  trabajo y enlaza a él— como hermano del Modal (no hijo: el panel del Modal
+  lleva `transform` y encerraría el `fixed`), en `?ver=<id>` con
+  `usePanelEnUrl`: «atrás» o su cierre lo quitan e Informes nunca se desmonta
+  (scroll, pestaña y panel del técnico siguen; medido). Vale igual para el
+  modelo antiguo y para trabajos, y no depende de `menu_asignaciones`. Trampas:
+  con `?ver` abierto el Modal no se cierra con Escape (cerrarían los dos y
+  «atrás» retrocedería dos veces); al cerrarlo se recargan las horas sin vaciar
+  la tabla (no salta el scroll); seleccionar texto en una fila no la abre. El
+  título de una suelta es «Asignación #N», también en el PDF.
 - **Solo se marca lo que ya debería estar hecho**: un servicio en curso (antes
   de su `fecha_fin` + el margen) no sale «sin finalizar» ni sin evento.
 - **Cortes por fecha de los botones**, mirando `inicio_real_at`: la falta de
@@ -2166,7 +2170,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio enlaza a su trabajo o asignación: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

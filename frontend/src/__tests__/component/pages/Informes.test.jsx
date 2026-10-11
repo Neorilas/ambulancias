@@ -6,10 +6,13 @@ vi.mock('../../../services/informes.service.js', () => ({
   informesService: { getMensual: vi.fn(), getDetalleTecnico: vi.fn() },
 }));
 vi.mock('../../../utils/pdfInformeTecnico.js', () => ({ descargarPdfTecnico: vi.fn() }));
-// Flags encendidos para quien mira (lo que decide a dónde lleva cada servicio)
-let flags = ['menu_trabajos', 'menu_asignaciones'];
-vi.mock('../../../context/FeaturesContext.jsx', () => ({
-  useFeatures: () => ({ isFeatureEnabled: (k) => flags.includes(k) }),
+// El detalle de un servicio es el panel de siempre; aquí basta con saber que se abre encima
+vi.mock('../../../pages/asignaciones/AsignacionDetalle.jsx', () => ({
+  default: ({ id, onClose }) => (
+    <div data-testid="detalle-asignacion">
+      Asignación {id}<button type="button" onClick={onClose}>Cerrar asignación</button>
+    </div>
+  ),
 }));
 
 import { informesService }      from '../../../services/informes.service.js';
@@ -234,30 +237,37 @@ describe('Informes · detalle de un técnico', () => {
     await waitFor(() => expect(descargarPdfTecnico).toHaveBeenCalledWith(DETALLE));
   });
 
-  it('un servicio de un trabajo lleva al trabajo con su ambulancia señalada', async () => {
+  it('pulsar un servicio abre su detalle encima, sin salir de Informes', async () => {
     montar('/informes?mes=2026-08&detalle=7');
-    fireEvent.click(await screen.findByRole('link', { name: 'Feria de agosto' }));
-    expect(screen.getByTestId('ruta')).toHaveTextContent('/trabajos/5?asignacion=1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Feria de agosto' }));
+    expect(screen.getByTestId('detalle-asignacion')).toHaveTextContent('Asignación 1');
+    expect(screen.getByTestId('ruta')).toHaveTextContent('/informes?mes=2026-08&detalle=7&ver=1');
+    // el panel del técnico sigue debajo, sin recargar la tabla
+    expect(screen.getByText('Feria de agosto')).toBeInTheDocument();
   });
 
-  it('una asignación del modelo antiguo (sin trabajo) lleva a su detalle, también pulsando la fila', async () => {
+  it('una asignación del modelo antiguo también se abre, pulsando la fila', async () => {
     montar('/informes?mes=2026-08&detalle=7');
-    const enlace = await screen.findByRole('link', { name: 'Asignación #2' });
-    expect(enlace).toHaveAttribute('href', '/asignaciones?id=2');
-    fireEvent.click(enlace.closest('tr').querySelectorAll('td')[3]);
-    expect(screen.getByTestId('ruta')).toHaveTextContent('/asignaciones?id=2');
+    const titulo = await screen.findByRole('button', { name: 'Asignación #2' });
+    fireEvent.click(titulo.closest('tr').querySelectorAll('td')[3]);
+    expect(screen.getByTestId('detalle-asignacion')).toHaveTextContent('Asignación 2');
   });
 
-  it('sin la pantalla de asignaciones, la suelta no enlaza (rebotaría)', async () => {
-    flags = ['menu_trabajos'];
-    try {
-      montar('/informes?mes=2026-08&detalle=7');
-      await screen.findByText('Asignación #2');
-      expect(screen.queryByRole('link', { name: 'Asignación #2' })).not.toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Feria de agosto' })).toBeInTheDocument();
-    } finally {
-      flags = ['menu_trabajos', 'menu_asignaciones'];
-    }
+  it('al cerrar el servicio se vuelve al técnico, donde estaba, y se recargan sus horas', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    fireEvent.click(await screen.findByRole('button', { name: 'Feria de agosto' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar asignación' }));
+    await waitFor(() => expect(screen.queryByTestId('detalle-asignacion')).not.toBeInTheDocument());
+    expect(screen.getByTestId('ruta')).toHaveTextContent(/^\/informes\?mes=2026-08&detalle=7$/);
+    expect(screen.getByText('Feria de agosto')).toBeInTheDocument();
+    await waitFor(() => expect(informesService.getDetalleTecnico).toHaveBeenCalledTimes(2));
+  });
+
+  it('con un servicio abierto, Escape no cierra también el panel del técnico', async () => {
+    montar('/informes?mes=2026-08&detalle=7');
+    fireEvent.click(await screen.findByRole('button', { name: 'Feria de agosto' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByTestId('ruta')).toHaveTextContent('detalle=7&ver=1');
   });
 
   it('cerrar quita el detalle de la URL', async () => {
