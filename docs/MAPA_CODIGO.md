@@ -87,7 +87,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
-| `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
+| `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado) y GET `/tecnico/:userId?mes=YYYY-MM` (los servicios de un técnico con sus horas y lo que no cuadra). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
 | `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF) · POST `/leer` (multipart `fichero`: paso 1 de la subida, lee el PDF y devuelve los datos **sin guardar**; `uploadLimiter` + `subirPdf`) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id` · GET `/buzon` (estado del buzón) · POST `/buzon/revisar` (revisa ya; 409 si no está configurado). **Solo administrador y superadmin, y oculta para el resto: 404 como una ruta inexistente** (`ocultarSalvoRoles`, antes de multer). El flag `menu_facturas` solo se le da a administración (§2.8) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
@@ -144,7 +144,7 @@ de los listados, cuatro parámetros). El estado derivado vive en
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
 | `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
 | `services/limpiezaErrores.service.js` | Purga de `error_logs`: los de la app (`cliente`) a 30 días, los del servidor a 180, por tandas de 5000. **Siempre encendida** (son logs, no datos del servicio; no depende del backup como la retención). `server.js` la lanza al arrancar y cada 6 h. Nunca lanza |
-| `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo) y `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) |
+| `services/informes.service.js` | Informe mensual (§2.7): `calcularInforme` (en vivo), `obtenerInforme` (archivado si lo hay, si no en vivo), `archivarMeses` (lo llama la retención antes de purgar; **lanza** si no puede guardar) y `detalleTecnico` (siempre en vivo; requiere `SQL_REVISAR_FIN_EVENTO` de `asignaciones.controller`) |
 | `services/lectorFacturas.service.js` | Lee el texto de un PDF de factura (`unpdf`, pdf.js sin dependencias nativas) y saca proveedor, número, fecha e importe para el paso 1 de la subida (§2.8). Heurístico: lo dudoso, null. **Nunca lanza** |
 | `services/buzonFacturas.service.js` | Lee el buzón de facturas@ por IMAP y guarda los PDF de los remitentes permitidos (§2.8). **Apagado desde 2026-10-04** (Google no adjunta el PDF): solo con `FACTURAS_BUZON_ACTIVO=1` y `FACTURAS_IMAP_USUARIO/CONTRASENA`. **Nunca lanza** |
 | `services/cartrack.service.js` | Posiciones del GPS de la flota (API de Cartrack). Caché compartida, **nunca lanza** (§2.6) |
@@ -361,6 +361,50 @@ botones); la puntualidad, solo de responsable. Esto último es decisión mía,
 pendiente de que el usuario lo confirme; cambiarlo es una línea en el bucle de
 `miembros` de `calcularInforme`. Un archivado v1 no trae los campos y se pinta
 «—».
+
+**«Por técnico» va lo primero y se abre por técnico (2026-10-11).** Pedido
+del usuario: la tabla de técnicos sube al principio de la pantalla y su primera
+pestaña es «Horas de evento/servicio» (`PESTANAS_TECNICO[0]`, que es también la
+de por defecto: una URL sin `?tecnico` abre esa). Pulsar un técnico (el nombre
+es un botón; la fila entera también) abre `DetalleTecnico.jsx` encima, con
+`usePanelEnUrl('detalle')`: «atrás» lo cierra. Lista cada servicio del mes con
+el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
+«Descargar PDF» genera lo mismo en el navegador.
+- Datos: `GET /informes/tecnico/:userId?mes` → `detalleTecnico`. Las horas
+  salen de `analizarServicio`, como la fila del técnico: **las sumas del
+  detalle son las de la tabla**. Es **siempre en vivo**; si el mes está
+  archivado (`informe_mensual`) se avisa de que puede estar incompleto.
+- Avisos (`avisosServicio`, códigos; el texto lo pone `TEXTO_AVISO` del
+  frontend para que pantalla y PDF digan lo mismo). `grave` = esas horas no
+  suman o no son reales, fila en rojo: `sin_iniciar`, `sin_finalizar`,
+  `sin_inicio_evento`, `evento_sin_fin`, `fin_evento_pegado`. `aviso` = suman
+  pero no cuadran con lo previsto, en ámbar: `inicio_tardio`,
+  `cierre_tardio`, `cierre_anticipado` (los mismos cortes del informe, y
+  **solo al responsable**, como la pestaña Puntualidad: esos botones los pulsa
+  él, y en un PDF nominal no se le carga al Equipo un retraso ajeno; visto en
+  la revisión de /verifica). La cifra de arriba cuenta solo las filas en rojo
+  («En rojo: horas que no valen»).
+- **Solo se marca lo que ya debería estar hecho**: un servicio en curso (antes
+  de su `fecha_fin` + el margen) no sale «sin finalizar» ni sin evento.
+- **Cortes por fecha de los botones**, mirando `inicio_real_at`: la falta de
+  «Inicio evento/servicio» solo desde `LLEGADA_EXIGIDA_DESDE` (26-sep 00:00
+  España; llegó a PRO el 25 a las 17:32) y la de «Fin evento/servicio» desde
+  `FIN_EVENTO_EXIGIDO_DESDE` (§6.1). Sin ellos, todo septiembre saldría en rojo.
+- `fin_evento_pegado` sale de `SQL_REVISAR_FIN_EVENTO` con el id de **quien
+  mira**: misma regla que «A revisar» (§6.1), un admin que iba en esa
+  ambulancia o coordina el trabajo no la ve. Los otros avisos son hechos que la
+  tabla ya cuenta para todos y no se filtran.
+- **PDF en el navegador** (`utils/pdfInformeTecnico.js`, jsPDF +
+  jspdf-autotable con `import()` dinámico), no en el backend: los datos ya están
+  en la pantalla. Fuentes estándar = WinAnsi: tildes, ñ, «», – y — salen; una
+  flecha o un emoji, no.
+- **Trampa del empaquetado**: jsPDF y lo que él carga (html2canvas, DOMPurify,
+  canvg) son ~800 kB y entraban en el precache de la PWA, o sea, en el móvil de
+  cada técnico en cada actualización. Van con prefijo `pdf-` (`chunkFileNames`
+  de `vite.config.js`) y fuera por `globIgnores`. **No meterlos en
+  `manualChunks`**: el chunk se lleva módulos que comparte con la app y el
+  `index` lo importaba de forma estática. Comprobar tras tocarlo: `grep pdf
+  dist/sw.js` vacío y el `index-*.js` sin `from"./pdf-`.
 
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
@@ -657,7 +701,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/alertas` | `AlertsPage.jsx`: filtros en la URL (`?tipo`, `?umbral`, `?estado`); «Ver vehículo» abre la ficha de ESE vehículo (hasta 2026-10-11 llevaba al listado) | admin, super | `menu_alertas` |
 | `/perfil` | `Perfil.jsx` | cualquiera | — |
 | `/flota` | `flota/MapaFlota.jsx`: filtro, búsqueda y la elegida en la URL (`?filtro`, `?q`, `?vehiculo`) | **super siempre; admin con el flag** | `menu_flota` (apagada; §2.6) |
-| `/informes` | `informes/Informes.jsx`: mes y pestaña de técnicos en la URL (`?mes`, `?tecnico`) | admin, super | `menu_informes` (encendida, v28; §2.7) |
+| `/informes` | `informes/Informes.jsx`: mes y pestaña de técnicos en la URL (`?mes`, `?tecnico`); el detalle de un técnico es un panel (`DetalleTecnico.jsx`, `?detalle=<id>` con `usePanelEnUrl`) | admin, super | `menu_informes` (encendida, v28; §2.7) |
 | `/facturas` | `facturas/Facturas.jsx` | admin, super | `menu_facturas` (encendida, v32; §2.8) |
 | `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups; en Resumen, las cards «Errores totales» y «Errores hoy» abren la pestaña Errores sin filtros, `StatCard` con `onClick`) | solo super | — |
 | `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
@@ -693,7 +737,7 @@ asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
 | `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
-| `Informes` | `informes.service` + `utils/informes.js` | `GET /informes/mensual` |
+| `Informes` | `informes.service` + `utils/informes.js` + `utils/pdfInformeTecnico.js` | `GET /informes/mensual`, `GET /informes/tecnico/:id` |
 | `Facturas` | `facturas.service` (`leer` y `subir`, los dos pasos de la subida, §2.8; `subir` con el timeout de las fotos, `SUBIDA_FOTO_TIMEOUT_MS`; `descargar` como blob) | `/facturas` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
@@ -1966,7 +2010,7 @@ solo actúa en el navegador no es un control de acceso.
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js` |
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. Una ruta de subida: `subirImagen` + `reabrirContexto` detrás. La sesión vive en `impersonaciones` (v31): lo que cambie su duración o su cierre toca `impersonar`, `auth.middleware` y `finImpersonacion` a la vez. §6.3 |
 | La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
-| El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. §2.7 |
+| El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. El detalle de un técnico: `avisosServicio`/`detalleTecnico` del servicio (códigos y cortes) → `TEXTO_AVISO` de `utils/informes.js` (lo que dicen, igual en pantalla y PDF) → `DetalleTecnico.jsx` y `utils/pdfInformeTecnico.js`; una ruta nueva va también en `ACCESO`/`NIVEL` de `autorizacion-rutas.test.js`. §2.7 |
 | Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `globIgnores` en `vite.config.js` (las tres cosas: está oculta, no solo prohibida) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → lo que se lee del PDF en el paso 1: `services/lectorFacturas.service.js` (`datosDelTexto`, `ALIAS`; usa `importeValido`/`fechaValida` del controlador) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar. Desde v33 excluye las cerradas de un trabajo **sin cerrar** (se quedaría pendiente de cierre para siempre, sin ambulancias que cerrar), y `purgarUna` se lleva el trabajo cerrado o borrado con su última ambulancia (`DELETE … NOT EXISTS`, tras borrar la asignación). El informe mensual no cambia: cuenta por asignación y las de un trabajo entran solas (`docs/BACKUPS.md` §8) |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una, y si tienen trabajo se sincroniza el padre (con su propio `catch`: un fallo ahí no deja sin activar al resto). Los trabajos solo arrancan por reloj si no tienen asignaciones (modelo v25). En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
@@ -2112,7 +2156,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

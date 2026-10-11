@@ -23,5 +23,7 @@ router.use(requireRole(ROLES.SUPERADMIN, ROLES.ADMINISTRADOR));
 
 // GET /informes/mensual?mes=YYYY-MM
 router.get('/mensual', ctrl.getInformeMensual);
+// GET /informes/tecnico/:userId?mes=YYYY-MM
+router.get('/tecnico/:userId', ctrl.getDetalleTecnico);
 
 module.exports = router;

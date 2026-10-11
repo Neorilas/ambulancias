@@ -5,6 +5,8 @@
  * denominador de cada tasa se decide en un solo sitio (aquí).
  */
 
+import { formatDate, formatHora, diaEnEspana } from './dateUtils.js';
+
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
@@ -90,3 +92,61 @@ export function fmtMin(min) {
   const m = min % 60;
   return m ? `${h} h ${m} min` : `${h} h`;
 }
+
+// ── Detalle de un técnico (GET /informes/tecnico/:id) ─────────
+
+/**
+ * Qué dice cada aviso de un servicio del detalle. El backend manda el código
+ * y los minutos (`detalleTecnico` en informes.service); el texto se decide
+ * aquí para que la pantalla y el PDF digan lo mismo. `grave`: esas horas no
+ * suman o no son reales; `aviso`: suman, pero no cuadran con lo previsto.
+ */
+const TEXTO_AVISO = {
+  sin_iniciar:       () => 'Sin iniciar: no suma horas',
+  sin_finalizar:     () => 'Sin finalizar: no suma horas de asignación',
+  sin_inicio_evento: () => 'Sin inicio de evento: no suma horas de evento',
+  evento_sin_fin:    () => 'Evento sin fin: no suma horas de evento',
+  fin_evento_pegado: (m) => `Fin de evento pulsado ${m} min antes de finalizar: horas de evento infladas`,
+  inicio_tardio:     (m) => `Inicio ${fmtMin(m)} tarde`,
+  cierre_tardio:     (m) => `Cierre ${fmtMin(m)} después de lo previsto`,
+  cierre_anticipado: (m) => `Cierre ${fmtMin(m)} antes de lo previsto`,
+};
+
+/** Texto de un aviso; uno que no se conozca (backend más nuevo) sale con su código. */
+export function textoAviso(aviso) {
+  const f = TEXTO_AVISO[aviso?.codigo];
+  return f ? f(aviso.minutos) : String(aviso?.codigo ?? '');
+}
+
+/** ¿Las horas de este servicio no son de fiar? (algún aviso `grave`) */
+export const horasDudosas = (servicio) => (servicio.avisos || []).some(a => a.nivel === 'grave');
+
+/**
+ * Totales del detalle: las sumas son las mismas que la fila del técnico en
+ * la tabla (lo que no está cerrado no suma).
+ */
+export function totalesDetalle(servicios = []) {
+  const t = { servicios: servicios.length, minutos_asignacion: 0, minutos_en_evento: 0,
+              con_horas_dudosas: 0, con_avisos: 0 };
+  for (const s of servicios) {
+    t.minutos_asignacion += s.minutos_asignacion ?? 0;
+    t.minutos_en_evento  += s.minutos_en_evento ?? 0;
+    if (horasDudosas(s)) t.con_horas_dudosas++;
+    if (s.avisos?.length) t.con_avisos++;
+  }
+  return t;
+}
+
+/**
+ * Un tramo de dos horas, en hora española: «08:05 – 16:00», con el día en la
+ * segunda si cae en otro («22:00 – 06/10 02:00»), y «sin …» si falta una.
+ */
+export function tramo(desde, hasta, { sinDesde = 'sin inicio', sinHasta = 'sin fin' } = {}) {
+  if (!desde && !hasta) return '—';
+  const a = desde ? formatHora(desde) : sinDesde;
+  if (!hasta) return `${a} – ${sinHasta}`;
+  const otroDia = desde && diaEnEspana(desde) !== diaEnEspana(hasta);
+  return `${a} – ${otroDia ? formatDate(hasta, 'dd/MM HH:mm') : formatHora(hasta)}`;
+}
+
+export const ROL_SERVICIO = { responsable: 'Responsable', personal: 'Equipo' };

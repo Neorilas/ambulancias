@@ -44,4 +44,29 @@ async function getInformeMensual(req, res) {
   }
 }
 
-module.exports = { getInformeMensual };
+/**
+ * GET /informes/tecnico/:userId?mes=YYYY-MM
+ * Los servicios de un técnico en el mes, con sus horas y lo que no cuadra
+ * (services/informes.service.js → `detalleTecnico`). Es lo que se abre al
+ * pulsar un técnico en «Por técnico» y lo que va al PDF.
+ */
+async function getDetalleTecnico(req, res) {
+  const instante = ahora();
+  const mes = req.query.mes ? String(req.query.mes) : informes.mesDe(instante);
+  if (!informes.esMes(mes)) return error(res, 'Mes no válido: se espera YYYY-MM', 400);
+  if (mes > informes.mesDe(instante)) return error(res, 'Ese mes todavía no ha empezado', 400);
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId < 1) return error(res, 'Usuario no válido', 400);
+
+  try {
+    const detalle = await informes.detalleTecnico(mes, userId, req.user.id, instante);
+    if (!detalle) return error(res, 'Usuario no encontrado', 404);
+    return success(res, detalle);
+  } catch (err) {
+    logger.error(`Informes: error en el detalle del usuario ${userId} de ${mes}: ${err.message}`);
+    registrarErrorServidor(req, err);
+    return error(res, 'No se pudo calcular el detalle');
+  }
+}
+
+module.exports = { getInformeMensual, getDetalleTecnico };

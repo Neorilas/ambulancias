@@ -1,8 +1,10 @@
 /**
  * pages/informes/Informes.jsx
  *
- * Informe mensual para administración (admin y superadmin): puntualidad,
- * incidencias, calidad del registro, flota y desglose por técnico. Cada cifra
+ * Informe mensual para administración (admin y superadmin): desglose por
+ * técnico (lo primero: es para lo que se abre), puntualidad, incidencias,
+ * calidad del registro y flota. Pulsar un técnico abre sus servicios del mes
+ * con lo que no cuadra y el PDF (DetalleTecnico, `?detalle=<id>`). Cada cifra
  * del resumen se compara con el mes anterior y con el mismo mes del año pasado.
  *
  * Los datos salen de GET /informes/mensual; un mes ya purgado por la retención
@@ -15,7 +17,8 @@ import { Link } from 'react-router-dom';
 import { informesService } from '../../services/informes.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading }     from '../../components/common/LoadingSpinner.jsx';
-import { useEstadoEnUrl }  from '../../hooks/useNavegacion.js';
+import { useEstadoEnUrl, usePanelEnUrl } from '../../hooks/useNavegacion.js';
+import DetalleTecnico     from './DetalleTecnico.jsx';
 import {
   nombreMes, pct, por100, valorMetrica, variacion, fmt, fmtMin,
 } from '../../utils/informes.js';
@@ -72,7 +75,7 @@ function Seccion({ titulo, nota, children }) {
 }
 
 /** Tabla con scroll horizontal propio: la página nunca se desborda en móvil. */
-function Tabla({ columnas, filas, vacio, pie }) {
+function Tabla({ columnas, filas, vacio, pie, alPulsar }) {
   if (!filas.length) return <div className="card text-sm text-neutral-500">{vacio}</div>;
   return (
     <div className="card p-0 overflow-hidden">
@@ -89,7 +92,8 @@ function Tabla({ columnas, filas, vacio, pie }) {
           </thead>
           <tbody className="divide-y divide-neutral-100">
             {filas.map(f => (
-              <tr key={f.key}>
+              <tr key={f.key} onClick={alPulsar ? () => alPulsar(f) : undefined}
+                className={alPulsar ? 'cursor-pointer hover:bg-neutral-50' : undefined}>
                 {columnas.map(c => (
                   <td key={c.clave} className={`px-3 py-2.5 ${c.num ? 'text-right font-mono whitespace-nowrap' : ''}`}>
                     {c.pintar(f)}
@@ -115,7 +119,13 @@ function Tabla({ columnas, filas, vacio, pie }) {
   );
 }
 
-const colTecnico = { clave: 'n', titulo: 'Técnico', pintar: t => <span className="font-medium text-neutral-900">{t.nombre}</span> };
+/** El nombre es un botón (teclado y lector de pantalla); la fila entera también abre. */
+const colTecnico = { clave: 'n', titulo: 'Técnico', pintar: t => (
+  <button type="button" className="font-medium text-primary-700 hover:underline text-left"
+    onClick={(e) => { e.stopPropagation(); t.abrir(); }}>
+    {t.nombre}
+  </button>
+) };
 
 /** Suma un campo de todas las filas; «—» si ninguna lo trae (archivado viejo). */
 const suma = (campo) => (filas) => {
@@ -124,7 +134,8 @@ const suma = (campo) => (filas) => {
 };
 
 /**
- * Pestañas de «Por técnico». Las dos primeras son para fiscalizar la carga de
+ * Pestañas de «Por técnico», la de evento/servicio primero (la que se mira).
+ * Las dos primeras son para fiscalizar la carga de
  * trabajo: el sumatorio de horas del mes de cada técnico, de mayor a menor y
  * con fila de total. Suman todos sus servicios, vaya de responsable o de
  * personal, y solo lo cerrado (lo que sigue abierto sale en su columna). La
@@ -132,21 +143,6 @@ const suma = (campo) => (filas) => {
  * en VERSION_INFORME 2: en un archivado anterior salen «—».
  */
 const PESTANAS_TECNICO = [
-  {
-    key: 'asignacion',
-    label: 'Horas de asignación',
-    nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna.',
-    orden: 'minutos_asignacion',
-    columnas: [
-      colTecnico,
-      { clave: 'tt', titulo: 'Horas con asignación activa', num: true,
-        pintar: t => fmtMin(t.minutos_asignacion), total: f => fmtMin(suma('minutos_asignacion')(f)) },
-      { clave: 'tm', titulo: 'Asignaciones finalizadas', num: true,
-        pintar: t => fmt(t.asignaciones_medidas), total: f => fmt(suma('asignaciones_medidas')(f)) },
-      { clave: 'ts', titulo: 'Iniciadas sin finalizar', num: true,
-        pintar: t => fmt(t.asignaciones_sin_finalizar), total: f => fmt(suma('asignaciones_sin_finalizar')(f)) },
-    ],
-  },
   {
     key: 'evento',
     label: 'Horas de evento/servicio',
@@ -160,6 +156,21 @@ const PESTANAS_TECNICO = [
         pintar: t => fmt(t.eventos_medidos), total: f => fmt(suma('eventos_medidos')(f)) },
       { clave: 'es', titulo: 'Con inicio y sin fin', num: true,
         pintar: t => fmt(t.eventos_sin_fin), total: f => fmt(suma('eventos_sin_fin')(f)) },
+    ],
+  },
+  {
+    key: 'asignacion',
+    label: 'Horas de asignación',
+    nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna.',
+    orden: 'minutos_asignacion',
+    columnas: [
+      colTecnico,
+      { clave: 'tt', titulo: 'Horas con asignación activa', num: true,
+        pintar: t => fmtMin(t.minutos_asignacion), total: f => fmtMin(suma('minutos_asignacion')(f)) },
+      { clave: 'tm', titulo: 'Asignaciones finalizadas', num: true,
+        pintar: t => fmt(t.asignaciones_medidas), total: f => fmt(suma('asignaciones_medidas')(f)) },
+      { clave: 'ts', titulo: 'Iniciadas sin finalizar', num: true,
+        pintar: t => fmt(t.asignaciones_sin_finalizar), total: f => fmt(suma('asignaciones_sin_finalizar')(f)) },
     ],
   },
   {
@@ -200,6 +211,8 @@ export default function Informes() {
   const pestanaTec = PESTANAS_TECNICO.find(p => p.key === url.tecnico) || PESTANAS_TECNICO[0];
   const tabTecnico = pestanaTec.key;
   const setTabTecnico = (k) => cambiarUrl({ tecnico: k });
+  // El detalle de un técnico es un panel encima: «atrás» lo cierra
+  const [detalleId, abrirDetalle, cerrarDetalle] = usePanelEnUrl('detalle');
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -224,7 +237,7 @@ export default function Informes() {
   };
   const umbral = actual?.umbral_min ?? 30;
   // En las pestañas de horas, de más carga a menos; en puntualidad, el orden del backend.
-  const filasTecnico = (actual?.por_tecnico || []).map(t => ({ ...t, key: t.user_id }));
+  const filasTecnico = (actual?.por_tecnico || []).map(t => ({ ...t, key: t.user_id, abrir: () => abrirDetalle(t.user_id) }));
   if (pestanaTec.orden) filasTecnico.sort((a, b) => (b[pestanaTec.orden] ?? -1) - (a[pestanaTec.orden] ?? -1));
   const inc = r?.incidencias || {};
 
@@ -260,6 +273,34 @@ export default function Informes() {
         </div>
       ) : (
         <>
+          <Seccion
+            titulo="Por técnico"
+            nota="Pulsa un técnico para ver sus servicios del mes, con lo que no cuadra, y descargarlo en PDF."
+          >
+            <div className="tabs" role="tablist" aria-label="Tramo del servicio">
+              {PESTANAS_TECNICO.map(p => (
+                <button
+                  key={p.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabTecnico === p.key}
+                  onClick={() => setTabTecnico(p.key)}
+                  className={tabTecnico === p.key ? 'tab-active' : 'tab'}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-neutral-500">{pestanaTec.nota}</p>
+            <Tabla
+              vacio="Nadie tuvo servicios este mes."
+              filas={filasTecnico}
+              columnas={pestanaTec.columnas}
+              pie={pestanaTec.orden ? filasTecnico : null}
+              alPulsar={(t) => t.abrir()}
+            />
+          </Seccion>
+
           <Seccion
             titulo="Puntualidad"
             nota={`Tarde = «Inicio de la asignación» más de ${umbral} min después de la hora prevista. Los cierres, frente a la hora de fin prevista con el mismo margen.`}
@@ -340,33 +381,16 @@ export default function Informes() {
               </p>
             )}
           </Seccion>
-
-          <Seccion
-            titulo="Por técnico"
-          >
-            <div className="tabs" role="tablist" aria-label="Tramo del servicio">
-              {PESTANAS_TECNICO.map(p => (
-                <button
-                  key={p.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={tabTecnico === p.key}
-                  onClick={() => setTabTecnico(p.key)}
-                  className={tabTecnico === p.key ? 'tab-active' : 'tab'}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-neutral-500">{pestanaTec.nota}</p>
-            <Tabla
-              vacio="Nadie tuvo servicios este mes."
-              filas={filasTecnico}
-              columnas={pestanaTec.columnas}
-              pie={pestanaTec.orden ? filasTecnico : null}
-            />
-          </Seccion>
         </>
+      )}
+
+      {detalleId && (
+        <DetalleTecnico
+          userId={detalleId}
+          mes={mes}
+          nombre={filasTecnico.find(t => String(t.user_id) === detalleId)?.nombre}
+          onClose={cerrarDetalle}
+        />
       )}
     </div>
   );
