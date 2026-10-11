@@ -359,6 +359,14 @@ describe('informes.service · detalleTecnico', () => {
     ]);
   });
 
+  it('al Equipo no se le cargan el inicio tardío ni el cierre: los pulsa el responsable', async () => {
+    bdDetalle({ filas: [oct({ rol: 'personal', inicio_real_at: d('2026-10-05T07:00:00Z'),
+                              finalizado_at: d('2026-10-05T15:00:00Z') })] });
+    const { servicios } = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+    expect(servicios[0].avisos).toEqual([]);
+    expect(servicios[0].minutos_asignacion).toBe(480);   // sus horas sí cuentan
+  });
+
   it('avisa si el mes está archivado (el detalle es en vivo)', async () => {
     bdDetalle({ archivado: true });
     expect((await inf.detalleTecnico('2026-08', 7, 1, OCT)).archivado).toBe(true);

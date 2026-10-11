@@ -73,7 +73,7 @@ export function construirPdfTecnico(JsPDF, autoTable, detalle, generado = new Da
     `Horas de evento/servicio: ${fmtMin(t.minutos_en_evento)}`,
     `Horas de asignación: ${fmtMin(t.minutos_asignacion)}`,
     `Servicios: ${t.servicios}`,
-    `Con horas que no cuadran: ${t.con_horas_dudosas}`,
+    `En rojo (horas que no valen): ${t.con_horas_dudosas}`,
   ];
   doc.text(resumen.join('     '), 14, 30);
 
@@ -97,8 +97,8 @@ export function construirPdfTecnico(JsPDF, autoTable, detalle, generado = new Da
     head: [['Fecha prevista', 'Trabajo / ambulancia', 'Rol', 'Evento/servicio', 'Horas evento',
             'Asignación', 'Horas asign.', 'Qué no cuadra']],
     body: filas.map(f => f.celdas),
-    foot: [['Total', `${t.servicios} servicios`, '', '', fmtMin(t.minutos_en_evento),
-            '', fmtMin(t.minutos_asignacion), `${t.con_horas_dudosas} con horas que no cuadran`]],
+    foot: [['Total', `${t.servicios} ${t.servicios === 1 ? 'servicio' : 'servicios'}`, '', '', fmtMin(t.minutos_en_evento),
+            '', fmtMin(t.minutos_asignacion), `${t.con_horas_dudosas} en rojo`]],
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     theme: 'grid',

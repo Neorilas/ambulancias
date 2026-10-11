@@ -355,7 +355,9 @@ async function obtenerInforme(mes, instante = ahora()) {
  *                        revisar»): las horas de evento llevan la vuelta. Con
  *                        la misma regla de quién la ve: la saca
  *                        SQL_REVISAR_FIN_EVENTO con el id de quien pregunta
- *   - inicio_tardio / cierre_tardio / cierre_anticipado: los del informe
+ *   - inicio_tardio / cierre_tardio / cierre_anticipado: los del informe, y
+ *                        como en la tabla de Puntualidad SOLO al responsable:
+ *                        esos botones los pulsa él, no el Equipo
  */
 function avisosServicio(a, s, limite) {
   const avisos = [];
@@ -374,8 +376,9 @@ function avisosServicio(a, s, limite) {
     avisos.push({ codigo: 'fin_evento_pegado', nivel: 'grave',
                   minutos: Math.max(0, Math.floor((a.finalizado_at - a.fin_servicio_at) / MINUTO)) });
   }
-  if (s.tardio) avisos.push({ codigo: 'inicio_tardio', nivel: 'aviso', minutos: s.retraso_min });
-  if (s.cierre_tardio || s.cierre_anticipado) {
+  const responsable = a.rol === 'responsable';
+  if (responsable && s.tardio) avisos.push({ codigo: 'inicio_tardio', nivel: 'aviso', minutos: s.retraso_min });
+  if (responsable && (s.cierre_tardio || s.cierre_anticipado)) {
     avisos.push({ codigo: s.cierre_tardio ? 'cierre_tardio' : 'cierre_anticipado', nivel: 'aviso',
                   minutos: Math.abs(minutosEntre(a.fecha_fin, a.finalizado_at)) });
   }

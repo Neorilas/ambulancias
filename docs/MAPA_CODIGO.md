@@ -379,7 +379,11 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
   suman o no son reales, fila en rojo: `sin_iniciar`, `sin_finalizar`,
   `sin_inicio_evento`, `evento_sin_fin`, `fin_evento_pegado`. `aviso` = suman
   pero no cuadran con lo previsto, en ámbar: `inicio_tardio`,
-  `cierre_tardio`, `cierre_anticipado` (los mismos cortes del informe).
+  `cierre_tardio`, `cierre_anticipado` (los mismos cortes del informe, y
+  **solo al responsable**, como la pestaña Puntualidad: esos botones los pulsa
+  él, y en un PDF nominal no se le carga al Equipo un retraso ajeno; visto en
+  la revisión de /verifica). La cifra de arriba cuenta solo las filas en rojo
+  («En rojo: horas que no valen»).
 - **Solo se marca lo que ya debería estar hecho**: un servicio en curso (antes
   de su `fecha_fin` + el margen) no sale «sin finalizar» ni sin evento.
 - **Cortes por fecha de los botones**, mirando `inicio_real_at`: la falta de

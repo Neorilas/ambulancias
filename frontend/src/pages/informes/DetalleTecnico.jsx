@@ -54,7 +54,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
       const { descargarPdfTecnico } = await import('../../utils/pdfInformeTecnico.js');
       await descargarPdfTecnico(detalle);
     } catch {
-      notify.error('No se pudo generar el PDF');
+      notify.error('No se pudo generar el PDF. Recarga la página e inténtalo de nuevo.');
     } finally {
       setGenerando(false);
     }
@@ -94,7 +94,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
             <Cifra titulo="Horas de evento/servicio" valor={fmtMin(t.minutos_en_evento)} />
             <Cifra titulo="Horas de asignación" valor={fmtMin(t.minutos_asignacion)} />
             <Cifra titulo="Servicios" valor={t.servicios} />
-            <Cifra titulo="Con horas que no cuadran" valor={t.con_horas_dudosas} alerta={t.con_horas_dudosas > 0} />
+            <Cifra titulo="En rojo: horas que no valen" valor={t.con_horas_dudosas} alerta={t.con_horas_dudosas > 0} />
           </div>
 
           <p className="text-xs text-neutral-500">
@@ -153,7 +153,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
                 <tfoot className="bg-neutral-50 border-t border-neutral-200 font-semibold text-neutral-900">
                   <tr>
                     <td className="px-3 py-2">Total</td>
-                    <td className="px-3 py-2">{t.servicios} servicios</td>
+                    <td className="px-3 py-2">{t.servicios} {t.servicios === 1 ? 'servicio' : 'servicios'}</td>
                     <td />
                     <td className="px-3 py-2 font-mono whitespace-nowrap text-right">{fmtMin(t.minutos_en_evento)}</td>
                     <td />
