@@ -4,7 +4,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { diaEnEspana, formatDiaCalendario, formatHora, formatDateTimeShort } from '../../utils/dateUtils.js';
 import {
   cuadriculaMes, sumarMes, diasDeEntrada, entradasDelDia, situacionEntrada, textoPapel,
-  diaAlCambiarDeMes, SITUACIONES,
+  diaAlCambiarDeMes, trabajosDistintos, SITUACIONES, MES_MIN, MES_MAX,
 } from '../../utils/calendario.js';
 
 /**
@@ -53,17 +53,27 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
   const mes = dia.slice(0, 7);
   const [entradas, setEntradas] = useState([]);
   const [cargando, setCargando] = useState(true);
+  // Un fallo (sin cobertura, casi siempre) se dice como fallo: con la lista
+  // vacía el panel decía «Este mes no tienes trabajos», y no era verdad
+  const [error,    setError]    = useState(false);
+  const [intento,  setIntento]  = useState(0);
 
   useEffect(() => {
     // Si se pasa de mes rápido, solo vale la respuesta del último pedido
     let vigente = true;
     setCargando(true);
+    setError(false);
     trabajosService.miCalendario({ year: Number(mes.slice(0, 4)), month: Number(mes.slice(5, 7)) })
       .then(data => { if (vigente) setEntradas(data || []); })
-      .catch(() => { if (vigente) { setEntradas([]); notify.error('Error al cargar el calendario'); } })
+      .catch(() => {
+        if (!vigente) return;
+        setEntradas([]);
+        setError(true);
+        notify.error('Error al cargar el calendario');
+      })
       .finally(() => { if (vigente) setCargando(false); });
     return () => { vigente = false; };
-  }, [mes]);
+  }, [mes, intento]);
 
   const hoy    = diaEnEspana(new Date());
   const delDia = cargando ? [] : entradasDelDia(entradas, dia);
@@ -76,7 +86,8 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
       <div className="space-y-3 w-full max-w-md">
         {/* Mes */}
         <div className="flex items-center justify-between gap-2">
-          <button onClick={() => irAMes(-1)} className="btn-ghost btn-icon" aria-label="Mes anterior">‹</button>
+          <button onClick={() => irAMes(-1)} disabled={mes <= MES_MIN}
+            className="btn-ghost btn-icon" aria-label="Mes anterior">‹</button>
           <div className="flex items-center gap-2">
             <h2 className="font-semibold text-neutral-900">
               {conMayuscula(formatDiaCalendario(`${mes}-01`, 'MMMM yyyy'))}
@@ -87,7 +98,8 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
               </button>
             )}
           </div>
-          <button onClick={() => irAMes(1)} className="btn-ghost btn-icon" aria-label="Mes siguiente">›</button>
+          <button onClick={() => irAMes(1)} disabled={mes >= MES_MAX}
+            className="btn-ghost btn-icon" aria-label="Mes siguiente">›</button>
         </div>
 
         {/* Cuadrícula: se pinta ya, y los puntos llegan con los datos */}
@@ -99,6 +111,7 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
             {cuadriculaMes(mes).map((d, i) => {
               if (!d) return <div key={`hueco-${i}`} />;
               const suyas   = cargando ? [] : entradasDelDia(entradas, d);
+              const nTrab   = trabajosDistintos(suyas);
               const elegido = d === dia;
               const esHoy   = d === hoy;
               return (
@@ -106,7 +119,7 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
                   key={d}
                   onClick={() => onCambiarDia(d)}
                   aria-pressed={elegido}
-                  aria-label={`${formatDiaCalendario(d, "d 'de' MMMM")}${suyas.length ? `, ${suyas.length} ${suyas.length === 1 ? 'trabajo' : 'trabajos'}` : ''}`}
+                  aria-label={`${formatDiaCalendario(d, "d 'de' MMMM")}${nTrab ? `, ${nTrab} ${nTrab === 1 ? 'trabajo' : 'trabajos'}` : ''}`}
                   className={`h-12 flex flex-col items-center justify-center gap-1 rounded-lg text-[13px] transition-colors
                     ${elegido ? 'bg-neutral-900 text-white font-semibold'
                       : esHoy ? 'ring-1 ring-primary-500 text-primary-700 font-semibold'
@@ -141,7 +154,14 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
         <p className="text-[13px] font-semibold text-neutral-700">
           {conMayuscula(formatDiaCalendario(dia, "EEEE, d 'de' MMMM"))}
         </p>
-        {cargando ? null : delDia.length > 0 ? (
+        {cargando ? null : error ? (
+          <div className="flex items-center gap-3">
+            <p role="alert" className="text-[13px] text-bad-600">No se pudo cargar el calendario</p>
+            <button onClick={() => setIntento(n => n + 1)} className="btn-secondary">
+              Reintentar
+            </button>
+          </div>
+        ) : delDia.length > 0 ? (
           delDia.map(e => <Entrada key={`${e.trabajo_id}-${e.asignacion_id}`} e={e} onAbrir={onAbrir} />)
         ) : (
           <p className="text-[13px] text-neutral-400">

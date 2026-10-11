@@ -235,11 +235,35 @@ describe('MisTrabajos', () => {
       });
     });
 
-    it('si falla la carga, avisa y no se queda cargando', async () => {
-      trabajosService.miCalendario.mockRejectedValue(new Error('sin red'));
+    it('si falla la carga lo dice como fallo (no «no tienes trabajos») y deja reintentar', async () => {
+      const user = userEvent.setup();
+      trabajosService.miCalendario.mockRejectedValueOnce(new Error('sin red'));
       montar('/mis-trabajos?vista=calendario&dia=2026-09-03');
       expect(await screen.findByText('Error al cargar el calendario')).toBeInTheDocument();
-      expect(screen.getByText('Este mes no tienes trabajos')).toBeInTheDocument();
+      expect(screen.getByText('No se pudo cargar el calendario')).toBeInTheDocument();
+      expect(screen.queryByText('Este mes no tienes trabajos')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+      await ultimaCarga();
+      expect(trabajosService.miCalendario).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText('No se pudo cargar el calendario')).not.toBeInTheDocument();
+      expect(screen.getAllByTestId('entrada-calendario')).toHaveLength(2);
+    });
+
+    it('dos ambulancias del mismo trabajo: el día dice «1 trabajo», no 2', async () => {
+      trabajosService.miCalendario.mockResolvedValue([
+        { ...ENTRADAS[0] },
+        { ...ENTRADAS[0], asignacion_id: 12, vehiculo: 'SVB-2', mi_papel: 'equipo' },
+      ]);
+      await montarCalendario('/mis-trabajos?vista=calendario&dia=2026-09-03');
+      expect(screen.getByRole('button', { name: '3 de septiembre, 1 trabajo' })).toBeInTheDocument();
+      expect(screen.getAllByTestId('entrada-calendario')).toHaveLength(2);
+    });
+
+    it('no se navega fuera de lo que acepta la API', async () => {
+      await montarCalendario('/mis-trabajos?vista=calendario&dia=2020-01-15');
+      expect(screen.getByRole('button', { name: 'Mes anterior' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Mes siguiente' })).toBeEnabled();
     });
   });
 });

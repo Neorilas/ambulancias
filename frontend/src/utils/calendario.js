@@ -88,9 +88,26 @@ export function textoPapel(e) {
   }
 }
 
-/** El día a abrir: el de la URL si vale; si no, hoy en España. */
+/**
+ * Los meses que la API acepta (`year` entre 2020 y 2100 en
+ * `GET /trabajos/mi-calendario`): fuera de ahí contesta 400, así que ni se
+ * navega ni se abre desde la URL.
+ */
+export const MES_MIN = '2020-01';
+export const MES_MAX = '2100-12';
+const mesEnRango = (mes) => mes >= MES_MIN && mes <= MES_MAX;
+
+/** El día a abrir: el de la URL si vale y cae en rango; si no, hoy en España. */
 export function diaInicial(diaUrl, hoy = diaEnEspana(new Date())) {
-  return esDiaValido(diaUrl) ? diaUrl : hoy;
+  return esDiaValido(diaUrl) && mesEnRango(diaUrl.slice(0, 7)) ? diaUrl : hoy;
+}
+
+/**
+ * Cuántos TRABAJOS distintos hay entre unas entradas: quien va en dos
+ * ambulancias del mismo trabajo tiene dos entradas, pero un solo trabajo.
+ */
+export function trabajosDistintos(entradas) {
+  return new Set(entradas.map(e => e.trabajo_id)).size;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   esDiaValido, sumarMes, cuadriculaMes, diasDeEntrada, entradasDelDia,
-  situacionEntrada, textoPapel, diaInicial, diaAlCambiarDeMes, SITUACIONES,
+  situacionEntrada, textoPapel, diaInicial, diaAlCambiarDeMes, trabajosDistintos, SITUACIONES,
 } from '../../../utils/calendario.js';
 
 describe('calendario', () => {
@@ -121,10 +121,24 @@ describe('calendario', () => {
       expect(diaInicial(null)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
+    it('un día fuera de lo que acepta la API (2020-2100) no se abre: hoy', () => {
+      expect(diaInicial('2019-12-31', '2026-10-11')).toBe('2026-10-11');
+      expect(diaInicial('2101-01-01', '2026-10-11')).toBe('2026-10-11');
+      expect(diaInicial('2020-01-01', '2026-10-11')).toBe('2020-01-01');
+      expect(diaInicial('2100-12-31', '2026-10-11')).toBe('2100-12-31');
+    });
+
     it('al cambiar de mes: hoy si es el mes en curso, si no el día 1', () => {
       expect(diaAlCambiarDeMes('2026-10', '2026-10-11')).toBe('2026-10-11');
       expect(diaAlCambiarDeMes('2026-11', '2026-10-11')).toBe('2026-11-01');
       expect(diaAlCambiarDeMes('2026-11')).toMatch(/^2026-11-01$|^2026-11-\d{2}$/);
+    });
+  });
+
+  describe('trabajosDistintos', () => {
+    it('dos ambulancias del mismo trabajo cuentan como un trabajo', () => {
+      expect(trabajosDistintos([{ trabajo_id: 1 }, { trabajo_id: 1 }, { trabajo_id: 2 }])).toBe(2);
+      expect(trabajosDistintos([])).toBe(0);
     });
   });
 });
