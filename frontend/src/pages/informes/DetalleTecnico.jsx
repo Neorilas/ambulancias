@@ -6,20 +6,22 @@
  * cuadra (sin iniciar, sin finalizar, sin inicio o sin fin de evento, fin del
  * evento pulsado en base…). Las sumas son las de la tabla del informe.
  * «Descargar PDF» genera lo mismo en el navegador (utils/pdfInformeTecnico.js).
- * Cada fila lleva a lo suyo (`rutaAsignacion`, utils/enlaceAsignacion.js): a su
- * trabajo con la ambulancia señalada o, si es del modelo antiguo sin trabajo, al
- * detalle de la asignación. «Atrás» vuelve aquí con el panel abierto.
+ * Pulsar un servicio abre su detalle (`AsignacionDetalle`, el mismo panel del
+ * listado y del trabajo) ENCIMA, sin salir de Informes: vale igual para el
+ * modelo antiguo y para una ambulancia de un trabajo, que enseña el trabajo y
+ * enlaza a él. Va en `?ver=<id>` con push: «atrás» o «Cerrar» lo quitan y el
+ * informe sigue donde estaba (scroll, pestaña, este panel), porque nunca se
+ * desmonta. Navegar a otra pantalla lo remontaba y se perdía la posición.
  *
  * Datos: GET /informes/tecnico/:userId?mes (informes.service → detalleTecnico).
  */
 
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../../components/common/Modal.jsx';
+import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
 import { informesService } from '../../services/informes.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { useFeatures } from '../../context/FeaturesContext.jsx';
-import { rutaAsignacion, enlazaAlTrabajo } from '../../utils/enlaceAsignacion.js';
+import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 import { formatDate } from '../../utils/dateUtils.js';
 import {
   nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, horasDudosas, ROL_SERVICIO,
@@ -37,32 +39,41 @@ function Cifra({ titulo, valor, alerta }) {
   );
 }
 
-export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
+const sinCerrar = () => {};
+
+/**
+ * `onCambios`: se llama al cerrar un servicio abierto encima, por si desde él
+ * se corrigió algo — Informes recarga sus cifras sin el spinner.
+ */
+export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios }) {
   const { notify } = useNotification();
-  const navigate = useNavigate();
-  const { isFeatureEnabled } = useFeatures();
-  const trabajosVisibles = isFeatureEnabled('menu_trabajos');
-  // A dónde lleva una fila; null si quien mira no tiene ese destino (un
-  // enlace que ProtectedRoute rebota es peor que ninguno, como en EnlaceAsignacion)
-  const destino = (s) => {
-    const a = { id: s.asignacion_id, trabajo_id: s.trabajo_id };
-    if (!enlazaAlTrabajo(a, trabajosVisibles) && !isFeatureEnabled('menu_asignaciones')) return null;
-    return rutaAsignacion(a, trabajosVisibles);
-  };
+  // El detalle de un servicio, encima de este panel. Al cerrarse se recargan
+  // las horas: desde el detalle la oficina puede corregir algo
+  const [recarga, setRecarga] = useState(0);
+  const [verId, abrirVer, cerrarVer] = usePanelEnUrl('ver', {
+    alCerrar: () => { setRecarga(n => n + 1); onCambios?.(); },
+  });
+  // Con un servicio encima, nada cierra este panel (ni Escape ni su «Cerrar»,
+  // que sigue alcanzable con Tab): cerrarían los dos y «atrás» retrocedería
+  // dos veces o dejaría `?ver` huérfano en la URL
+  const cerrarTecnico = verId ? sinCerrar : onClose;
+  // Lo que ya está pintado: una recarga del mismo técnico y mes no vacía la
+  // tabla (no salta el scroll); otro técnico u otro mes, sí
+  const cargado = useRef(null);
   const [detalle, setDetalle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
 
   useEffect(() => {
     let vivo = true;
-    setLoading(true);
-    setDetalle(null);
+    const clave = `${userId}|${mes}`;
+    if (cargado.current !== clave) { setLoading(true); setDetalle(null); }
     informesService.getDetalleTecnico(userId, mes)
-      .then(d => { if (vivo) setDetalle(d); })
+      .then(d => { if (vivo) { setDetalle(d); cargado.current = clave; } })
       .catch(() => { if (vivo) notify.error('No se pudo cargar el detalle del técnico'); })
       .finally(() => { if (vivo) setLoading(false); });
     return () => { vivo = false; };
-  }, [userId, mes, notify]);
+  }, [userId, mes, notify, recarga]);
 
   const descargar = async () => {
     setGenerando(true);
@@ -80,16 +91,17 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
   const t = totalesDetalle(servicios);
 
   return (
+    <>
     <Modal
       isOpen
-      onClose={onClose}
+      onClose={cerrarTecnico}
       size="full"
       title={`Horas de ${detalle?.nombre || nombre || 'técnico'}`}
       footer={(
         <>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cerrar</button>
+          <button type="button" className="btn-secondary" onClick={cerrarTecnico} disabled={!!verId}>Cerrar</button>
           <button type="button" className="btn-primary" onClick={descargar}
-            disabled={!detalle || generando}>
+            disabled={!detalle || generando || !!verId}>
             {generando ? 'Generando…' : 'Descargar PDF'}
           </button>
         </>
@@ -116,7 +128,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
           <p className="text-xs text-neutral-500">
             Solo suma lo cerrado. <span className="text-bad-600 font-medium">En rojo</span>, servicios cuyas horas
             no suman o no son reales; <span className="text-warn-700 font-medium">en ámbar</span>, los que suman
-            pero no cuadran con lo previsto. Pulsa un servicio para abrir su trabajo o su asignación.
+            pero no cuadran con lo previsto. Pulsa un servicio para ver su detalle.
             {detalle.archivado && ' Este mes ya está archivado: parte de sus servicios puede haberse purgado y el detalle quedar incompleto.'}
           </p>
 
@@ -139,19 +151,21 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
                 <tbody className="divide-y divide-neutral-100">
                   {servicios.map(s => {
                     const nivel = horasDudosas(s) ? 'grave' : s.avisos?.length ? 'aviso' : null;
-                    const ruta = destino(s);
                     const titulo = s.trabajo || `Asignación #${s.asignacion_id}`;
+                    const abrir = () => {
+                      // Quien selecciona texto para copiarlo no quiere abrir nada
+                      if (window.getSelection?.()?.toString()) return;
+                      abrirVer(s.asignacion_id);
+                    };
                     return (
-                      <tr key={s.asignacion_id} onClick={ruta ? () => navigate(ruta) : undefined}
-                        className={`${nivel ? FONDO_FILA[nivel] : ''} ${ruta ? 'cursor-pointer hover:brightness-95' : ''}`}>
+                      <tr key={s.asignacion_id} onClick={abrir}
+                        className={`${nivel ? FONDO_FILA[nivel] : ''} cursor-pointer hover:brightness-95`}>
                         <td className="px-3 py-2 font-mono whitespace-nowrap align-top">{formatDate(s.fecha_inicio, 'dd/MM HH:mm')}</td>
                         <td className="px-3 py-2 align-top min-w-[11rem]">
-                          {ruta ? (
-                            <Link to={ruta} onClick={(e) => e.stopPropagation()}
-                              className="font-medium text-primary-700 hover:underline">
-                              {titulo}
-                            </Link>
-                          ) : <div className="text-neutral-900">{titulo}</div>}
+                          <button type="button" className="font-medium text-primary-700 hover:underline text-left"
+                            onClick={(e) => { e.stopPropagation(); abrirVer(s.asignacion_id); }}>
+                            {titulo}
+                          </button>
                           <div className="whitespace-nowrap text-xs text-neutral-500">
                             {s.alias}{s.matricula && <span className="font-mono"> · {s.matricula}</span>}
                           </div>
@@ -191,5 +205,10 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose }) {
         </div>
       )}
     </Modal>
+
+    {/* Hermano del Modal y no hijo: el panel del Modal lleva transform (la
+        animación) y un `fixed` dentro quedaría encerrado en él */}
+    {verId && <AsignacionDetalle id={Number(verId)} onClose={cerrarVer} />}
+    </>
   );
 }

@@ -6,11 +6,14 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', f
     if (!isOpen) return;
     const handler = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', handler);
-    // Prevenir scroll del body
+    // Prevenir scroll del body. Al cerrar se deja como estaba, no a '': un
+    // modal abierto encima de otro (un formulario dentro de un panel) lo
+    // desbloqueaba con el de debajo aún abierto
+    const antes = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', handler);
-      document.body.style.overflow = '';
+      document.body.style.overflow = antes;
     };
   }, [isOpen, onClose]);
 

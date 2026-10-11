@@ -214,12 +214,14 @@ export default function Informes() {
   // El detalle de un técnico es un panel encima: «atrás» lo cierra
   const [detalleId, abrirDetalle, cerrarDetalle] = usePanelEnUrl('detalle');
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  // `silencioso`: refrescar las cifras sin el spinner, que desmontaría la
+  // tabla y movería la página (al volver de un servicio abierto encima)
+  const cargar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     try {
       setDatos(await informesService.getMensual(mes));
     } catch {
-      setDatos(null);
+      if (!silencioso) setDatos(null);   // un refresco fallido deja lo que había
       notify.error('No se pudo cargar el informe');
     } finally {
       setLoading(false);
@@ -227,6 +229,7 @@ export default function Informes() {
   }, [mes, notify]);
 
   useEffect(() => { cargar(); }, [cargar]);
+  const recargarCifras = useCallback(() => cargar(true), [cargar]);
 
   const actual = datos?.actual;
   const r = actual?.resumen;
@@ -390,6 +393,7 @@ export default function Informes() {
           mes={mes}
           nombre={filasTecnico.find(t => String(t.user_id) === detalleId)?.nombre}
           onClose={cerrarDetalle}
+          onCambios={recargarCifras}
         />
       )}
     </div>
