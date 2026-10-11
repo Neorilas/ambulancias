@@ -308,24 +308,24 @@ describe('avisosAsignacion.service', () => {
       expect(avisos.urlParaMiembros(ASIGNACION)).toBe('/mis-asignaciones');
     });
 
-    it('pendiente de cierre: solo al coordinador, con la ficha del trabajo', async () => {
-      await avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'Maratón', coordinador_user_id: 5 });
+    it('pendiente de cierre: solo a sus coordinadores (todos), con la ficha del trabajo', async () => {
+      await avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'Maratón', coordinador_user_id: 5, coordinadores: [5, 6] });
       expect(push.notificarAdmins).not.toHaveBeenCalled();
-      expect(push.notificarUsuarios).toHaveBeenCalledWith([5], expect.objectContaining({
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([5, 6], expect.objectContaining({
         url: '/trabajos/40', tag: 'trab-40-pendiente-cierre',
       }));
       expect(push.notificarUsuarios.mock.calls[0][1].titulo).toContain('Maratón');
     });
 
     it('pendiente de cierre de un trabajo sin coordinador (anterior a v33): a gestión', async () => {
-      await avisos.avisarTrabajoPendienteCierre({ id: 41, nombre: 'Viejo', coordinador_user_id: null });
+      await avisos.avisarTrabajoPendienteCierre({ id: 41, nombre: 'Viejo', coordinador_user_id: null, coordinadores: [] });
       expect(push.notificarUsuarios).not.toHaveBeenCalled();
       expect(push.notificarAdmins).toHaveBeenCalledWith(expect.objectContaining({ url: '/trabajos/41' }));
     });
 
     it('un fallo del servicio de push no se propaga', async () => {
       push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
-      await expect(avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'M', coordinador_user_id: 5 }))
+      await expect(avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'M', coordinadores: [5] }))
         .resolves.toBeDefined();
     });
   });
@@ -371,14 +371,21 @@ describe('avisosAsignacion.service', () => {
         url: '/trabajos/40', tag: 'trab-40-coordinador',
       }));
       const [, aviso] = push.notificarUsuarios.mock.calls[0];
-      expect(aviso.titulo).toBe('Maratón · eres el coordinador');
+      expect(aviso.titulo).toBe('Maratón · eres coordinador');
       expect(aviso.cuerpo).toContain('08:00');
+    });
+
+    it('a varios de una vez (v35), sin repetir y sin quien los pone', async () => {
+      await avisos.avisarCoordinadorTrabajo({ id: 40, nombre: 'Maratón' }, [50, '51', 50, 9], { asignadoPor: 9 });
+      expect(push.notificarUsuarios).toHaveBeenCalledTimes(1);
+      expect(push.notificarUsuarios.mock.calls[0][0]).toEqual([50, 51]);
     });
 
     it.each([
       ['quien lo pone se nombra a sí mismo', 9],
       ['sin coordinador', null],
       ['id inválido', 'abc'],
+      ['lista vacía', []],
     ])('no avisa: %s', async (_caso, coordinador) => {
       await avisos.avisarCoordinadorTrabajo({ id: 40, nombre: 'M' }, coordinador, { asignadoPor: 9 });
       expect(push.notificarUsuarios).not.toHaveBeenCalled();

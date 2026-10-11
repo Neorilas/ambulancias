@@ -117,12 +117,14 @@ describe('estadoTrabajo.service', () => {
   });
 
   describe('avisarSiPendienteCierre', () => {
-    it('avisa al coordinador solo si ESTA llamada dejó el trabajo pendiente de cierre', async () => {
-      query.mockResolvedValue([[{ id: 40, nombre: 'Maratón', coordinador_user_id: 5 }]]);
+    it('avisa a sus coordinadores solo si ESTA llamada dejó el trabajo pendiente de cierre', async () => {
+      query.mockImplementation(async (sql) => (sql.includes('FROM trabajo_coordinadores')
+        ? [[{ user_id: 5 }, { user_id: 6 }]]
+        : [[{ id: 40, nombre: 'Maratón', coordinador_user_id: 5 }]]));
 
       await avisarSiPendienteCierre(40, { estado: 'pendiente_cierre', cambia: true });
       expect(avisos.avisarTrabajoPendienteCierre).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 40, coordinador_user_id: 5 }));
+        expect.objectContaining({ id: 40, coordinadores: [5, 6] }));
 
       avisos.avisarTrabajoPendienteCierre.mockClear();
       await avisarSiPendienteCierre(40, { estado: 'pendiente_cierre', cambia: false });

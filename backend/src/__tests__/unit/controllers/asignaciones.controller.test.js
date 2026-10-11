@@ -2299,6 +2299,8 @@ describe('asignación dentro de un trabajo (v33)', () => {
   function bd(reglas = [], { asig = fila(), evidencias = [], estadosTrabajo = ['programada'] } = {}) {
     const porDefecto = [
       ['trabajo_coordinador_apellidos', [[asig]]],
+      ['FROM trabajo_coordinadores tc\n     JOIN users u', [[{ id: 5, nombre: 'Carla', apellidos: 'Ruiz' },
+                                                     { id: 6, nombre: 'Pablo', apellidos: 'Gil' }]]],
       ['SELECT au.user_id, au.rol, au.orden', [[{ user_id: asig.user_id, rol: 'responsable', orden: 0, nombre: 'Tec', username: 'tec' }]]],
       ['created_at AS uploaded_at', [evidencias]],
       ['SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id', [evidencias]],
@@ -2340,6 +2342,7 @@ describe('asignación dentro de un trabajo (v33)', () => {
       expect(asig.trabajo).toEqual(expect.objectContaining({
         id: 40, nombre: 'Maratón', descripcion: 'Cobertura', ubicacion: 'Retiro',
         coordinador: { id: 5, nombre: 'Carla', apellidos: 'Ruiz' },
+        coordinadores: [{ id: 5, nombre: 'Carla', apellidos: 'Ruiz' }, { id: 6, nombre: 'Pablo', apellidos: 'Gil' }],
       }));
       expect(asig).not.toHaveProperty('trabajo_nombre');
       expect(asig.trabajo_id).toBe(40);
@@ -2363,12 +2366,21 @@ describe('asignación dentro de un trabajo (v33)', () => {
       expect(res2.status).toHaveBeenCalledWith(403);
     });
 
+    it('cualquier coordinador del trabajo la ve, no solo el principal (v35)', async () => {
+      bd();
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: { ...COORD, id: 6 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
     it('ser coordinador no deja operarla: activar sigue pidiendo ser responsable', async () => {
       bd();
       const res = mockRes();
       await activarAsignacion(mockReq({ params: { id: '10' }, user: COORD }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(esCoordinador({ trabajo: { coordinador: { id: 5 } } }, 5)).toBe(true);
+      expect(esCoordinador({ trabajo: { coordinadores: [{ id: 5 }, { id: 6 }] } }, 6)).toBe(true);
+      // Lo que manda es la lista, no el principal suelto
+      expect(esCoordinador({ trabajo: { coordinador: { id: 5 }, coordinadores: [] } }, 5)).toBe(false);
       expect(esCoordinador({ trabajo: null }, 5)).toBe(false);
     });
 

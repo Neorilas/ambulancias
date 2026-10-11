@@ -64,6 +64,16 @@ const validarAmbulanciasAlta = [
   body('asignaciones.*.notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
 ];
 
+// Coordinadores (v35): `coordinadores: [ids]`, 1..N, todos con las mismas
+// funciones. `coordinador_user_id` suelto es el formato de la PWA sin
+// actualizar y sigue valiendo (el controlador lo trata, coordinadores.service).
+const validarCoordinadores = [
+  body('coordinadores').optional().isArray({ min: 1, max: 10 })
+    .withMessage('El trabajo necesita al menos un coordinador'),
+  body('coordinadores.*').isInt({ min: 1 }),
+  body('coordinador_user_id').optional().isInt({ min: 1 }),
+];
+
 // GET /trabajos/mis-trabajos  (para personal operacional)
 router.get('/mis-trabajos', ctrl.misTrab);
 
@@ -105,11 +115,11 @@ router.post('/',
     body('tipo').notEmpty().isIn(Object.values(TRABAJO_TIPOS)).withMessage(`tipo inválido. Valores válidos: ${Object.values(TRABAJO_TIPOS).join(', ')}`),
     body('fecha_inicio').notEmpty().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
-    // D1: cualquier usuario activo; no hace falta que vaya en una ambulancia
-    // Sin `vehiculos`: el formulario viejo lo manda y no trae coordinador; así
-    // le llega el «recárgala» del controlador y no un «falta el coordinador»
-    body('coordinador_user_id').if(body('vehiculos').not().exists())
-      .notEmpty().withMessage('Falta el coordinador del trabajo').isInt({ min: 1 }),
+    // D1: cualquier usuario activo; no hace falta que vaya en una ambulancia.
+    // Que venga al menos uno (en `coordinadores` o suelto) lo mira el
+    // controlador: el formulario viejo del v25 manda `vehiculos` y no trae
+    // coordinador, y tiene que recibir el «recárgala», no un «falta el coordinador»
+    ...validarCoordinadores,
     ...validarCamposTrabajo,
     ...validarAmbulanciasAlta,
   ],
@@ -126,8 +136,8 @@ router.put('/:id',
     body('tipo').optional().isIn(Object.values(TRABAJO_TIPOS)),
     body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
-    // Se puede cambiar, no quitar: todo trabajo nuevo tiene quien lo cierre
-    body('coordinador_user_id').optional().isInt({ min: 1 }),
+    // Se pueden cambiar, no quitar todos: todo trabajo nuevo tiene quien lo cierre
+    ...validarCoordinadores,
     ...validarCamposTrabajo,
   ],
   handleValidation,
@@ -142,7 +152,7 @@ router.delete('/:id',
   ctrl.deleteTrabajo
 );
 
-// POST /trabajos/:id/cerrar — D3: lo cierra su coordinador (o gestión) con
+// POST /trabajos/:id/cerrar — D3: lo cierra cualquiera de sus coordinadores (o gestión) con
 // todas sus ambulancias finalizadas. Quién puede lo decide el controlador,
 // porque depende del trabajo concreto (es SU coordinador).
 router.post('/:id/cerrar',

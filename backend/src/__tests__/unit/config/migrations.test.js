@@ -856,7 +856,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v34_trabajo_ubicacion_url']);
+    expect(aplicadas[0]).toBe('v34_trabajo_ubicacion_url');
     const col = ejecutadas.find(q => q.includes('ADD COLUMN ubicacion_url'));
     expect(col).toContain('ALTER TABLE trabajos');
     expect(col).toContain('VARCHAR(500) NULL DEFAULT NULL');
@@ -871,5 +871,20 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
 
     expect(fallida).toBeNull();
     expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
+  });
+
+  it('v35 crea los coordinadores del trabajo y rellena el que ya tenía como principal', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v34_trabajo_ubicacion_url') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v35_trabajo_coordinadores']);
+    const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS trabajo_coordinadores'));
+    // La misma persona no figura dos veces como coordinador del mismo trabajo
+    expect(tabla).toContain('PRIMARY KEY (trabajo_id, user_id)');
+    expect(tabla).toContain('ON DELETE CASCADE');
+    const relleno = ejecutadas.find(q => q.includes('INSERT IGNORE INTO trabajo_coordinadores'));
+    expect(relleno).toContain('coordinador_user_id, 0');
+    expect(relleno).toContain('coordinador_user_id IS NOT NULL');
   });
 });

@@ -197,7 +197,9 @@ export default function TrabajoList() {
                           <p className="text-xs text-neutral-500 mt-0.5 data">{t.identificador}</p>
                           <p className="text-xs text-neutral-400 mt-0.5">
                             {t.num_vehiculos} ambulancia(s) · {t.num_usuarios} persona(s)
-                            {t.coordinador_nombre && <> · Coordina {t.coordinador_nombre}</>}
+                            {t.coordinadores_nombres && (
+                              <> · {t.coordinadores_nombres.includes(', ') ? 'Coordinan' : 'Coordina'} {t.coordinadores_nombres}</>
+                            )}
                           </p>
                         </div>
                         {canDeleteAny() && (

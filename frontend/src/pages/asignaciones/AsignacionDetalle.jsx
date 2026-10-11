@@ -19,6 +19,7 @@ import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
 import { errorMotivo } from '../../utils/motivo.js';
+import { coordinadoresDe, esCoordinadorDe, nombresDe } from '../../utils/trabajos.js';
 import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 
 const TIPO_INC_OPTS = [
@@ -353,9 +354,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   const miRol          = rolEnAsignacion(asig, user?.id);
   const soyResponsable = miRol === 'responsable' || canManageTrabajos();
   const soloPersonal   = miRol === 'personal' && !canManageTrabajos();
-  // El coordinador del trabajo la ve entera pero no la opera (D2)
-  const soloCoordina   = !miRol && !canManageTrabajos()
-                         && !!asig?.trabajo?.coordinador && asig.trabajo.coordinador.id === user?.id;
+  // Cualquier coordinador del trabajo la ve entera pero no la opera (D2)
+  const soloCoordina   = !miRol && !canManageTrabajos() && esCoordinadorDe(asig?.trabajo, user?.id);
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
@@ -433,8 +433,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 {asig.trabajo.descripcion && (
                   <p className="text-sm text-neutral-700 whitespace-pre-line">{asig.trabajo.descripcion}</p>
                 )}
-                {asig.trabajo.coordinador && (
-                  <p className="text-xs text-neutral-500">Coordina {nombreMiembro(asig.trabajo.coordinador)}</p>
+                {coordinadoresDe(asig.trabajo).length > 0 && (
+                  <p className="text-xs text-neutral-500">
+                    {coordinadoresDe(asig.trabajo).length > 1 ? 'Coordinan' : 'Coordina'}{' '}
+                    {nombresDe(coordinadoresDe(asig.trabajo))}
+                  </p>
                 )}
               </div>
             )}

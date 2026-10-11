@@ -10,7 +10,7 @@
  * Todos van a los administradores salvo `avisarAsignacionNueva` y
  * `avisarCambioVehiculo`, que van a los miembros de la asignación,
  * `avisarEquipoTrabajo`, al equipo del trabajo, y `avisarCoordinadorTrabajo` y
- * `avisarTrabajoPendienteCierre`, al coordinador del trabajo. Los de administradores excluyen al
+ * `avisarTrabajoPendienteCierre`, a los coordinadores del trabajo. Los de administradores excluyen al
  * responsable de la asignación: quien acaba de pulsar el
  * botón no necesita que su propio teléfono le avise de lo que acaba de hacer.
  * También el de «sin iniciar», aunque ahí el responsable sea justo quien no ha
@@ -295,9 +295,10 @@ function avisarCambioVehiculo(asig, ids = [], { anterior = null, cambiadoPor = n
 }
 
 /**
- * Todas las ambulancias del trabajo han finalizado: falta que el coordinador
- * lo cierre (D3). Va SOLO al coordinador, que es quien lo cierra; un trabajo
- * de antes de v33 no tiene, y entonces va a gestión.
+ * Todas las ambulancias del trabajo han finalizado: falta que un coordinador
+ * lo cierre (D3). Va SOLO a sus coordinadores (`trabajo.coordinadores`, ids;
+ * todos, v35), que son quienes lo cierran; un trabajo de antes de v33 no
+ * tiene, y entonces va a gestión.
  *
  * Lo dispara `estadoTrabajo.avisarSiPendienteCierre` tras ver el salto a
  * `pendiente_cierre` en el UPDATE (que lleva `estado <> ?`): dos cierres de
@@ -311,8 +312,9 @@ function avisarTrabajoPendienteCierre(trabajo) {
       url:    `/trabajos/${trabajo.id}`,
       tag:    `trab-${trabajo.id}-pendiente-cierre`,
     };
-    return disparar(trabajo.coordinador_user_id
-      ? push.notificarUsuarios([trabajo.coordinador_user_id], aviso)
+    const ids = (trabajo.coordinadores || []).map(Number);
+    return disparar(ids.length
+      ? push.notificarUsuarios(ids, aviso)
       : push.notificarAdmins(aviso));
   } catch (err) {
     logger.error(`Aviso de trabajo pendiente de cierre no enviado: ${err?.message || err}`);
@@ -346,19 +348,22 @@ function avisarEquipoTrabajo(trabajo, ids = [], { asignadoPor = null } = {}) {
 
 /**
  * Te han puesto de coordinador de un trabajo (2026-10-11): al crearlo o al
- * cambiarlo. Puede ser cualquier usuario activo (D1), también un técnico que no
- * va en ninguna ambulancia, y sin esto no se enteraba hasta el «listo para
- * cerrar». No a quien lo pone, que suele ser el admin que se nombra a sí mismo.
+ * editarlo, a quien ENTRA (puede haber varios, v35; acepta un id o una lista).
+ * Puede ser cualquier usuario activo (D1), también un técnico que no va en
+ * ninguna ambulancia, y sin esto no se enteraba hasta el «listo para cerrar».
+ * No a quien lo pone, que suele ser el admin que se nombra a sí mismo.
  * Tag propio: quien además va en una ambulancia recibe también el «nuevo
  * servicio», que es otra cosa (qué ambulancia lleva).
  */
-function avisarCoordinadorTrabajo(trabajo, coordinadorId, { asignadoPor = null } = {}) {
+function avisarCoordinadorTrabajo(trabajo, coordinadores, { asignadoPor = null } = {}) {
   try {
-    const id = Number(coordinadorId);
-    if (!Number.isInteger(id) || id < 1 || id === Number(asignadoPor)) return Promise.resolve(null);
+    const lista = Array.isArray(coordinadores) ? coordinadores : [coordinadores];
+    const avisar = [...new Set(lista.map(Number))]
+      .filter(id => Number.isInteger(id) && id > 0 && id !== Number(asignadoPor));
+    if (!avisar.length) return Promise.resolve(null);
     const inicio = trabajo?.fecha_inicio ? diaYHoraEnEspana(instanteUtc(trabajo.fecha_inicio)) : null;
-    return disparar(push.notificarUsuarios([id], {
-      titulo: `${trabajo.nombre} · eres el coordinador`,
+    return disparar(push.notificarUsuarios(avisar, {
+      titulo: `${trabajo.nombre} · eres coordinador`,
       cuerpo: 'Te han puesto de coordinador del trabajo: ves todas sus ambulancias y lo cierras cuando terminen.'
             + (inicio ? ` Empieza el ${inicio}.` : ''),
       url:    `/trabajos/${trabajo.id}`,

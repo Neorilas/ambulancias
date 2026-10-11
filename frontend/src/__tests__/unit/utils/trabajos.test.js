@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   estaCerrado, formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
-  asociadosDeTrabajo, asociadosDeFormulario,
+  asociadosDeTrabajo, asociadosDeFormulario, coordinadoresDe, esCoordinadorDe,
   accionesVehiculo, vehiculosConAcciones,
 } from '../../../utils/trabajos.js';
 
@@ -12,7 +12,7 @@ const formValido = (extra = {}) => ({
   nombre: 'Maratón',
   fecha_inicio: '2026-10-15T08:00',
   fecha_fin: '2026-10-15T20:00',
-  coordinador_user_id: 50,
+  coordinadores: [50],
   asignaciones: [{ ...ambulanciaVacia(), vehicle_id: '7', responsables: [20] }],
   ...extra,
 });
@@ -29,7 +29,7 @@ describe('utils/trabajos', () => {
     it('el alta arranca sin ambulancias ni equipo: las dos cosas son opcionales (2026-10-10)', () => {
       expect(formularioInicial(null)).toEqual({
         nombre: '', descripcion: '', ubicacion: '', ubicacion_url: '', tipo: 'traslado',
-        fecha_inicio: '', fecha_fin: '', coordinador_user_id: '',
+        fecha_inicio: '', fecha_fin: '', coordinadores: [''],
         usuarios: [], asignaciones: [],
       });
     });
@@ -38,13 +38,18 @@ describe('utils/trabajos', () => {
       expect(formularioInicial({ usuarios: [{ user_id: 30 }, { user_id: 31 }] }).usuarios).toEqual([30, 31]);
     });
 
-    it('al editar, los datos y el coordinador; las ambulancias se cambian en la ficha', () => {
+    it('al editar, los datos y los coordinadores; las ambulancias se cambian en la ficha', () => {
       const f = formularioInicial({
         nombre: 'M', descripcion: 'D', ubicacion: 'U', tipo: 'otro', coordinador_user_id: 50,
+        coordinadores: [{ id: 50 }, { id: 51 }],
         asignaciones: [{ id: 1, vehicle_id: 7 }],
       });
-      expect(f).toMatchObject({ nombre: 'M', descripcion: 'D', ubicacion: 'U', tipo: 'otro', coordinador_user_id: 50 });
+      expect(f).toMatchObject({ nombre: 'M', descripcion: 'D', ubicacion: 'U', tipo: 'otro', coordinadores: [50, 51] });
       expect(f.asignaciones).toEqual([]);
+    });
+
+    it('con un backend anterior (solo el principal suelto), ese es el único coordinador', () => {
+      expect(formularioInicial({ coordinador_user_id: 50, coordinador: { id: 50 } }).coordinadores).toEqual([50]);
     });
   });
 
@@ -53,8 +58,10 @@ describe('utils/trabajos', () => {
       expect(validarTrabajo(formValido(), { alta: true })).toEqual({});
     });
 
-    it('el coordinador es obligatorio, también al editar', () => {
-      expect(validarTrabajo(formValido({ coordinador_user_id: '' })).coordinador_user_id).toBeTruthy();
+    it('al menos un coordinador, también al editar; las filas vacías no cuentan', () => {
+      expect(validarTrabajo(formValido({ coordinadores: [''] })).coordinadores).toBeTruthy();
+      expect(validarTrabajo(formValido({ coordinadores: [] })).coordinadores).toBeTruthy();
+      expect(validarTrabajo(formValido({ coordinadores: ['', 51] })).coordinadores).toBeUndefined();
     });
 
     it('al editar no mira las ambulancias', () => {
@@ -101,7 +108,9 @@ describe('utils/trabajos', () => {
                          km_inicio: '1.200', notas: '  ' }],
       }), { alta: true });
 
-      expect(p).toMatchObject({ nombre: 'Maratón', descripcion: null, ubicacion: 'Retiro', coordinador_user_id: 50 });
+      expect(p).toMatchObject({ nombre: 'Maratón', descripcion: null, ubicacion: 'Retiro', coordinadores: [50] });
+      // El formato viejo ya no se manda: con `coordinadores` el backend no lo necesita
+      expect(p).not.toHaveProperty('coordinador_user_id');
       expect(p.ubicacion_url).toBeNull();
       expect(payloadTrabajo(formValido({ ubicacion_url: ' https://maps.app.goo.gl/abc ' })).ubicacion_url)
         .toBe('https://maps.app.goo.gl/abc');
@@ -114,10 +123,10 @@ describe('utils/trabajos', () => {
       expect(p).not.toHaveProperty('vehiculos');
     });
 
-    it('al editar, datos, coordinador y equipo del trabajo; sin ambulancias', () => {
-      const p = payloadTrabajo(formValido({ usuarios: ['30', '', 31] }));
+    it('al editar, datos, coordinadores y equipo del trabajo; sin ambulancias', () => {
+      const p = payloadTrabajo(formValido({ usuarios: ['30', '', 31], coordinadores: ['51', '', 50] }));
       expect(p).not.toHaveProperty('asignaciones');
-      expect(p.coordinador_user_id).toBe(50);
+      expect(p.coordinadores).toEqual([51, 50]);
       expect(p.usuarios).toEqual([30, 31]);
     });
 
@@ -172,22 +181,41 @@ describe('utils/trabajos', () => {
     expect(nombresResponsables(null)).toBe('');
   });
 
+  // v35: varios coordinadores, todos con las mismas funciones
+  describe('coordinadores', () => {
+    it('la lista si viene; si no (backend anterior), el principal suelto; si no, ninguno', () => {
+      expect(coordinadoresDe({ coordinadores: [{ id: 50 }, { id: 51 }], coordinador: { id: 50 } }))
+        .toEqual([{ id: 50 }, { id: 51 }]);
+      expect(coordinadoresDe({ coordinador: { id: 50 } })).toEqual([{ id: 50 }]);
+      expect(coordinadoresDe({ coordinador: null })).toEqual([]);
+      expect(coordinadoresDe(null)).toEqual([]);
+    });
+
+    it('cualquiera de ellos es coordinador, no solo el principal', () => {
+      const t = { coordinadores: [{ id: 50 }, { id: 51 }] };
+      expect(esCoordinadorDe(t, 51)).toBe(true);
+      expect(esCoordinadorDe(t, 52)).toBe(false);
+      expect(esCoordinadorDe(t, undefined)).toBe(false);
+      expect(esCoordinadorDe(null, 50)).toBe(false);
+    });
+  });
+
   // Quién sale arriba, en «Asociados al trabajo», al elegir quién va en una ambulancia
   describe('asociados al trabajo', () => {
-    it('de un trabajo: su equipo, su coordinador y quien va en sus ambulancias (no las canceladas)', () => {
+    it('de un trabajo: su equipo, sus coordinadores y quien va en sus ambulancias (no las canceladas)', () => {
       const t = {
-        usuarios: [{ user_id: 30 }], coordinador_user_id: 50,
+        usuarios: [{ user_id: 30 }], coordinador_user_id: 50, coordinadores: [{ id: 50 }, { id: 51 }],
         asignaciones: [
           { estado: 'activa', responsables: [{ id: 20 }], personal: [{ id: 31 }] },
           { estado: 'cancelada', responsables: [{ id: 99 }], personal: [] },
         ],
       };
-      expect([...asociadosDeTrabajo(t)].sort()).toEqual([20, 30, 31, 50]);
+      expect([...asociadosDeTrabajo(t)].sort()).toEqual([20, 30, 31, 50, 51]);
       expect(asociadosDeTrabajo(null).size).toBe(0);
     });
 
     it('del formulario de alta: lo que ya se ha rellenado, sin filas vacías', () => {
-      const f = { ...formValido(), usuarios: ['30', ''], coordinador_user_id: 50,
+      const f = { ...formValido(), usuarios: ['30', ''], coordinadores: [50, ''],
         asignaciones: [{ ...ambulanciaVacia(), responsables: [20, ''], personal: ['31'] }] };
       expect([...asociadosDeFormulario(f)].sort()).toEqual([20, 30, 31, 50]);
     });
