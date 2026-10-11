@@ -633,6 +633,26 @@ describe('trabajos.controller', () => {
       expect(res._json.data[0].mi_asignacion).toMatchObject({ mi_rol: 'equipo', responsables_nombres: 'Ana García' });
     });
 
+    it('sin «finalizados» solo salen los abiertos (el inicio del operativo los cuenta)', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+      await misTrab(mockReq({ query: {}, user: resp1 }), mockRes(), mockNext());
+      const [sqlCount] = query.mock.calls[0];
+      expect(sqlCount).not.toContain("'finalizado'");
+    });
+
+    it('con finalizados=1 salen también los cerrados, detrás de activos y programados', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+      await misTrab(mockReq({ query: { finalizados: '1' }, user: resp1 }), mockRes(), mockNext());
+      const [sqlCount] = query.mock.calls[0];
+      expect(sqlCount).toContain(
+        "t.estado IN ('programado', 'activo', 'pendiente_cierre', 'finalizado', 'finalizado_anticipado')");
+      const [sql] = query.mock.calls[1];
+      // Lo cerrado al final y del más reciente al más antiguo; lo abierto,
+      // en marcha antes que programado y por fecha de inicio
+      expect(sql).toMatch(/ORDER BY t\.estado IN \('finalizado', 'finalizado_anticipado'\),\s+FIELD\(t\.estado, 'activo', 'pendiente_cierre', 'programado'\)/);
+      expect(sql).toContain("IF(t.estado IN ('finalizado', 'finalizado_anticipado'), NULL, t.fecha_inicio) ASC, t.fecha_inicio DESC");
+    });
+
     it('sin trabajos no pregunta por ambulancias', async () => {
       bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
       await misTrab(mockReq({ query: {}, user: resp1 }), mockRes(), mockNext());
