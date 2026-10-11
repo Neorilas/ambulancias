@@ -15,10 +15,14 @@
 
 export const MAX_ENLACE_MAPS = 500;
 
-const DOMINIO_GOOGLE = /^(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?$/;
-const DOMINIO_MAPS   = /^maps\.google\.[a-z]{2,3}(\.[a-z]{2})?$/;
+// Hosts por NOMBRE, no por forma: una regex como `google\.[a-z]{2,3}…`
+// dejaba pasar `maps.google.abc.me` o `google.cc`, dominios que registra
+// cualquiera (revisión del 2026-10-11). Si hace falta otro país, se añade aquí.
+const HOSTS_MAPS   = new Set(['maps.app.goo.gl', 'maps.google.com', 'maps.google.es']);
+const HOSTS_GOOGLE = new Set(['google.com', 'www.google.com', 'google.es', 'www.google.es']);
+const esRutaMaps   = (ruta) => ruta === '/maps' || ruta.startsWith('/maps/');
 
-/** ¿Es un enlace de Google Maps (https, de sus dominios)? */
+/** ¿Es un enlace de Google Maps (https, de sus hosts, por nombre)? */
 export function esEnlaceGoogleMaps(texto) {
   if (typeof texto !== 'string') return false;
   const t = texto.trim();
@@ -28,10 +32,8 @@ export function esEnlaceGoogleMaps(texto) {
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return false;
 
   const host = u.hostname.toLowerCase();
-  if (host === 'maps.app.goo.gl') return true;
-  if (host === 'goo.gl') return u.pathname.startsWith('/maps');
-  if (DOMINIO_MAPS.test(host)) return true;
-  if (DOMINIO_GOOGLE.test(host)) return u.pathname === '/maps' || u.pathname.startsWith('/maps/');
+  if (HOSTS_MAPS.has(host)) return true;
+  if (host === 'goo.gl' || HOSTS_GOOGLE.has(host)) return esRutaMaps(u.pathname);
   return false;
 }
 

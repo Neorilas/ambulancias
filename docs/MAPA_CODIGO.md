@@ -1567,10 +1567,17 @@ quedarse en solo lectura).
   `ubicacion`, el trabajo puede llevar `ubicacion_url`, el enlace que quien lo
   crea pega desde «Compartir» de Google Maps. Opcional, en el alta y al
   editar (vacío lo borra). **Solo se admiten enlaces de Google Maps**
-  (`esEnlaceGoogleMaps`: `https`, sin usuario ni puerto, `maps.app.goo.gl`,
-  `goo.gl/maps`, `maps.google.*` o `google.*/maps`), porque acaba como botón
-  en el móvil de toda la gente del trabajo: sin la lista blanca el campo
-  serviría para repartir cualquier enlace. 422 del validador de
+  (`esEnlaceGoogleMaps`: `https`, sin usuario ni puerto, y hosts **por
+  nombre**: `maps.app.goo.gl`, `goo.gl/maps`, `maps.google.com|es` y
+  `[www.]google.com|es/maps`), porque acaba como botón en el móvil de toda la
+  gente del trabajo: sin la lista blanca el campo serviría para repartir
+  cualquier enlace. **Trampa (revisión 2026-10-11):** la primera versión usaba
+  una regex por forma (`google\.[a-z]{2,3}(\.[a-z]{2})?`) y aceptaba
+  `maps.google.abc.me` o `google.cc`, dominios que registra cualquiera: un
+  botón «Abrir en Google Maps» hacia una web falsa. Otro país se añade por
+  nombre, nunca con un comodín. Lo que no cierra ninguna lista: `maps.app.goo.gl`
+  es un acortador (no se ve adónde va) y `maps.google.*` acepta cualquier
+  ruta; se asume porque solo admin o gestor pegan el enlace. 422 del validador de
   `trabajos.routes`. Lo ve quien ve la ficha, porque es un campo del trabajo
   (`vistaParaUsuario` lo pasa con `...t`): coordinador, equipo del trabajo,
   responsables y equipo de cada ambulancia, gestión. El botón

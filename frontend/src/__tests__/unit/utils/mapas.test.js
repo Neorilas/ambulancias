@@ -9,7 +9,7 @@ describe('utils/mapas', () => {
     'https://www.google.com/maps/place/Parque+del+Retiro/@40.41,-3.68,15z',
     'https://google.es/maps?q=40.4153,-3.6844',
     'https://maps.google.com/?q=Retiro',
-    'https://www.google.co.uk/maps/search/Ifema',
+    'https://WWW.Google.ES/maps/search/Ifema',
   ])('acepta %s', (url) => {
     expect(esEnlaceGoogleMaps(url)).toBe(true);
   });
@@ -20,6 +20,11 @@ describe('utils/mapas', () => {
     'https://maps.app.goo.gl.evil.com/abc',
     'https://www.google.com/search?q=retiro',
     'https://goo.gl/abc',
+    'https://goo.gl/mapsEVIL',
+    'https://maps.google.xyz.me/x',
+    'https://google.abc.me/maps/x',
+    'https://google.cc/maps',
+    'https://google.com.me/maps',
     'https://maps.app.goo.gl:8443/abc',
     'Parque del Retiro',
     '',

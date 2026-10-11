@@ -12,8 +12,7 @@ describe('mapas.utils · esEnlaceGoogleMaps', () => {
     'https://www.google.com/maps',
     'https://maps.google.com/?q=Retiro',
     'https://maps.google.es/maps?q=Ifema',
-    'https://www.google.co.uk/maps/search/Ifema',
-    'https://www.google.com.mx/maps/@19.4,-99.1,12z',
+    'https://WWW.Google.ES/maps/search/Ifema',
   ])('acepta %s', (url) => {
     expect(esEnlaceGoogleMaps(url)).toBe(true);
   });
@@ -26,6 +25,14 @@ describe('mapas.utils · esEnlaceGoogleMaps', () => {
     ['google sin /maps', 'https://www.google.com/search?q=retiro'],
     ['/mapsx no es /maps', 'https://www.google.com/mapsx'],
     ['goo.gl que no es de maps', 'https://goo.gl/abc'],
+    ['goo.gl/mapsX no es /maps', 'https://goo.gl/mapsEVIL'],
+    // Dominios que registra cualquiera y que una regex por forma dejaba pasar
+    ['maps.google bajo otro dominio', 'https://maps.google.xyz.me/x'],
+    ['google bajo otro dominio', 'https://google.abc.me/maps/x'],
+    ['maps.google bajo .io ajeno', 'https://maps.google.abc.io/'],
+    ['google en un TLD cualquiera', 'https://google.cc/maps'],
+    ['google en un TLD de 3 letras', 'https://www.google.xyz/maps'],
+    ['google.com.<país> no listado', 'https://google.com.me/maps'],
     ['con usuario', 'https://user@maps.app.goo.gl/abc'],
     ['con puerto', 'https://maps.app.goo.gl:8443/abc'],
     ['texto suelto', 'Parque del Retiro'],
