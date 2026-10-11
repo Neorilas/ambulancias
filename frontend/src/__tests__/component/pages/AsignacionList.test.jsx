@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { list: vi.fn(), delete: vi.fn(), activar: vi.fn() },
@@ -28,7 +28,13 @@ import AsignacionList           from '../../../pages/asignaciones/AsignacionList
 
 function Url() {
   const { search } = useLocation();
-  return <p data-testid="url">{search}</p>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="url">{search}</p>
+      <button onClick={() => navigate(-1)}>atrás del móvil</button>
+    </>
+  );
 }
 
 function montar(url) {
@@ -74,6 +80,61 @@ describe('AsignacionList · ?id=', () => {
 
 // El número es lo que se dicen por teléfono y lo que sale en el detalle, los
 // avisos y la ficha del vehículo («Asignación #N»): sin él no se cruzan.
+// Página y estado en la URL: el enlace de cada fila lleva a su trabajo y al
+// volver se sigue en la misma página y con el mismo filtro (§8 del mapa)
+describe('AsignacionList · lo que se estaba mirando sobrevive a ir al trabajo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    flags.activos = [];
+    asignacionesService.list.mockResolvedValue({
+      data: [], pagination: { total: 45, totalPages: 3, hasPrev: true, hasNext: true },
+    });
+  });
+
+  it('la página y el estado de la URL se aplican al volver', async () => {
+    montar('/asignaciones?page=2&estado=activa');
+    await waitFor(() => expect(asignacionesService.list).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, estado: 'activa' })));
+    expect(await screen.findByRole('button', { name: 'Activa', pressed: true })).toBeInTheDocument();
+  });
+
+  it('pasar de página la apunta; cambiar de estado vuelve a la 1', async () => {
+    const user = userEvent.setup();
+    montar('/asignaciones?page=2');
+    await user.click(await screen.findByRole('button', { name: 'Siguiente ›' }));
+    expect(screen.getByTestId('url')).toHaveTextContent('?page=3');
+    await user.click(screen.getByRole('button', { name: 'Programada' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\?estado=programada$/);
+  });
+});
+
+// El detalle se abre encima del listado con `?id=` puesto con push: el «atrás»
+// del móvil lo cierra y deja en el listado, en la misma página (§8 del mapa)
+describe('AsignacionList · el «atrás» del móvil cierra el detalle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    flags.activos = [];
+    asignacionesService.list.mockResolvedValue({
+      data: [{ id: 123, estado: 'activa', vehiculo_alias: 'AMB 1', matricula: '1234ABC',
+               responsable_nombre: 'Jose Lopez', responsable_username: 'jlopez',
+               fecha_inicio: '2026-10-03T08:00:00Z', fecha_fin: null }],
+      pagination: { total: 1 },
+    });
+  });
+
+  it('pinchar una fila abre el detalle; «atrás» lo cierra y sigue en la página', async () => {
+    const user = userEvent.setup();
+    montar('/asignaciones?page=2');
+    await user.click(await screen.findByText('#123'));
+    expect(screen.getByText('detalle 123')).toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent('?page=2&id=123');
+
+    await user.click(screen.getByRole('button', { name: 'atrás del móvil' }));
+    expect(screen.queryByText('detalle 123')).not.toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\?page=2$/);
+  });
+});
+
 describe('AsignacionList · número', () => {
   it('cada fila enseña su número', async () => {
     asignacionesService.list.mockResolvedValue({

@@ -15,6 +15,7 @@ import TrabajoForm from './TrabajoForm.jsx';
 import TrabajoV25 from './TrabajoV25.jsx';
 import AsignacionForm from '../asignaciones/AsignacionForm.jsx';
 import AsignacionDetalle from '../asignaciones/AsignacionDetalle.jsx';
+import { useVolver, usePanelEnUrl } from '../../hooks/useNavegacion.js';
 
 /**
  * Ficha de un trabajo (v33, el trabajo padre). La ve todo el que va en
@@ -126,12 +127,19 @@ export default function TrabajoDetail() {
   const location = useLocation();
   const { canManageTrabajos } = useAuth();
   const { notify } = useNotification();
+  // Abierta desde un aviso push o un enlace no hay pantalla anterior: «‹»
+  // lleva al listado de trabajos (gestión) o a la portada
+  const volver = useVolver(canManageTrabajos() ? '/trabajos' : '/');
 
   const [trabajo,        setTrabajo]        = useState(null);
   const [loading,        setLoading]        = useState(true);
   const [showEdit,       setShowEdit]       = useState(false);
   const [nuevaAmbulancia, setNuevaAmbulancia] = useState(false);
-  const [detalleId,      setDetalleId]      = useState(null);
+  // El detalle de una ambulancia se abre encima, con `?ver=<id>` puesto con
+  // push: el «atrás» del móvil lo cierra y deja en el trabajo, en vez de
+  // sacar a la pantalla anterior. Se cierre como se cierre, se recarga
+  const [verUrl, abrirDetalle, cerrarDetalle] = usePanelEnUrl('ver', { alCerrar: () => load() });
+  const detalleId = Number(verUrl) || null;
   const [confirmCerrar,  setConfirmCerrar]  = useState(false);
   const [cerrando,       setCerrando]       = useState(false);
   const [otroTrabajo,    setOtroTrabajo]    = useState(false);
@@ -161,7 +169,7 @@ export default function TrabajoDetail() {
       notify.error(err.response?.status === 403
         ? 'No tienes acceso a este trabajo'
         : 'Error al cargar el trabajo');
-      navigate(-1);
+      volver();
     } finally {
       setLoading(false);
     }
@@ -210,7 +218,7 @@ export default function TrabajoDetail() {
     <div className="space-y-5 animate-fade-in max-w-3xl">
       {/* Cabecera */}
       <div className="flex items-start gap-3">
-        <button onClick={() => navigate(-1)} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
+        <button onClick={volver} className="btn-ghost btn-icon mt-1" aria-label="Volver">‹</button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[19px] font-semibold text-neutral-900">{trabajo.nombre}</h1>
@@ -273,7 +281,7 @@ export default function TrabajoDetail() {
 
       {/* Tu ambulancia (D7): lo primero para quien va en el trabajo */}
       {mias.map(a => (
-        <TuAmbulancia key={a.id} a={a} onAbrir={() => setDetalleId(a.id)} />
+        <TuAmbulancia key={a.id} a={a} onAbrir={() => abrirDetalle(a.id)} />
       ))}
       {soloEquipo && !cerrado && (
         <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600" data-testid="solo-equipo">
@@ -341,7 +349,7 @@ export default function TrabajoDetail() {
         )}
         {ambulancias.map(a => (
           <Ambulancia key={a.id} a={a} resaltada={a.id === resaltada} refResaltada={refResaltada}
-            onAbrir={() => setDetalleId(a.id)} />
+            onAbrir={() => abrirDetalle(a.id)} />
         ))}
       </div>
 
@@ -369,7 +377,7 @@ export default function TrabajoDetail() {
         <AsignacionDetalle
           id={detalleId}
           desdeTrabajo
-          onClose={() => { setDetalleId(null); load(); }}
+          onClose={cerrarDetalle}
         />
       )}
 

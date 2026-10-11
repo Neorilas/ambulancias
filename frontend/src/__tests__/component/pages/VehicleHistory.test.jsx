@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: {
@@ -51,15 +51,32 @@ const VEHICULO = {
   asignaciones: { total: 12, activa: null },
 };
 
-function montar() {
+// Dónde se está y el «atrás» del navegador, para la navegación
+function Donde() {
+  const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="donde">{pathname}{search}</p>
+      <button onClick={() => navigate(-1)}>atrás del navegador</button>
+    </>
+  );
+}
+
+/** `entradas`: el historial; se abre en la última. */
+function montar(entradas = ['/vehiculos/7']) {
   return render(
     <NotificationProvider>
       <AuthProvider>
         <FeaturesProvider>
-          <MemoryRouter initialEntries={['/vehiculos/7']}>
+          <MemoryRouter initialEntries={entradas} initialIndex={entradas.length - 1}>
             <Routes>
+              <Route path="/vehiculos" element={<p>listado de vehículos</p>} />
+              <Route path="/informes" element={<p>informes</p>} />
               <Route path="/vehiculos/:id" element={<VehicleHistory />} />
+              <Route path="/vehiculos/:id/historial" element={<VehicleHistory />} />
             </Routes>
+            <Donde />
           </MemoryRouter>
         </FeaturesProvider>
       </AuthProvider>
@@ -118,6 +135,55 @@ describe('VehicleHistory · peticiones de la ficha', () => {
     expect(vehiclesService.getHistory).toHaveBeenCalledTimes(1);
     expect(vehiclesService.get).toHaveBeenCalledTimes(1);
     expect(usersService.list).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Navegación con continuidad (§8 del mapa): la pestaña sobrevive a ir a un
+// trabajo y volver, y «← Volver» es la pantalla de donde se vino
+describe('VehicleHistory · navegación', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('la pestaña va en la URL, sin dejar rastro en el historial', async () => {
+    const user = userEvent.setup();
+    montar(['/informes', '/vehiculos/7']);
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+
+    await user.click(screen.getByRole('button', { name: 'Revisiones' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent('/vehiculos/7?tab=revisiones');
+    await user.click(screen.getByRole('button', { name: 'Resumen' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/vehiculos\/7$/);
+
+    await user.click(screen.getByRole('button', { name: 'atrás del navegador' }));
+    expect(screen.getByText('informes')).toBeInTheDocument();
+  });
+
+  it('al volver a la ficha se abre en la pestaña en la que se estaba', async () => {
+    montar(['/vehiculos/7?tab=incidencias']);
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    expect(screen.getByRole('button', { name: 'Incidencias' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('«← Volver» vuelve a la pantalla de donde se vino, no siempre al listado', async () => {
+    const user = userEvent.setup();
+    montar(['/informes?mes=2026-08', '/vehiculos/7']);
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: '← Volver' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent('/informes?mes=2026-08');
+  });
+
+  it('sin pantalla anterior (un enlace, un aviso), «← Volver» lleva al listado', async () => {
+    const user = userEvent.setup();
+    montar(['/vehiculos/7']);
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: '← Volver' }));
+    expect(screen.getByText('listado de vehículos')).toBeInTheDocument();
   });
 });
 

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useDebounce } from '../../hooks/useDebounce.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -9,6 +8,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import { formatDate, formatDateTimeShort } from '../../utils/dateUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import VehicleForm from './VehicleForm.jsx';
+import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 
 /**
  * Fecha de próxima revisión con su estado.
@@ -200,36 +200,41 @@ export default function VehicleList() {
 
   const [vehicles,   setVehicles]   = useState([]);
   const [pagination, setPagination] = useState(null);
-  const [page,       setPage]       = useState(1);
-  const [search,     setSearch]     = useState('');
+  // Página, búsqueda y «con incidencias» en la URL: al volver de la ficha de
+  // un vehículo se sigue donde se estaba (en `useState` se perdían)
+  const [url, cambiarUrl] = useEstadoEnUrl({ page: '1', q: '', incidencias: '' });
+  const page            = paginaDeUrl(url.page);
+  const search          = url.q;
+  const soloIncidencias = url.incidencias === 'abiertas';
+  const setPage         = (fn) => cambiarUrl({ page: fn(page) });
+  // El campo escribe en local y la búsqueda llega a la URL ya reposada (sin
+  // eso, una petición por tecla), y en esa misma escritura vuelve a la
+  // página 1: si no, se pide una página que el nuevo filtro ya no tiene y la
+  // lista sale vacía. No con un efecto sobre la búsqueda: también saltaría al
+  // volver y perdería la página
+  const [texto, setTexto] = useBuscadorEnUrl(search, (q) => cambiarUrl({ q, page: 1 }));
   const [loading,    setLoading]    = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [editVeh,    setEditVeh]    = useState(null);
   const [deleteId,   setDeleteId]   = useState(null);
   const [deleting,   setDeleting]   = useState(false);
-  const [soloIncidencias, setSoloIncidencias] = useState(false);
 
-  // Buscar sobre el texto ya reposado: si no, cada tecla era una petición.
-  const busqueda = useDebounce(search, 400);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const resp = await vehiclesService.list({
-        page, search: busqueda || undefined, limit: 25,
+        page, search: search || undefined, limit: 25,
         incidencias: soloIncidencias ? 'abiertas' : undefined,
       });
       setVehicles(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar vehículos'); }
     finally { setLoading(false); }
-  }, [page, busqueda, soloIncidencias]);
+  }, [page, search, soloIncidencias]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Al cambiar la búsqueda hay que volver a la primera página, o se pide una
-  // página que el nuevo filtro ya no tiene y la lista sale vacía.
-  useEffect(() => { setPage(1); }, [busqueda]);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -273,14 +278,14 @@ export default function VehicleList() {
           type="search"
           className="input flex-1"
           placeholder="Buscar por nombre o matrícula…"
-          value={search}
-          onChange={e => { setPage(1); setSearch(e.target.value); }}
+          value={texto}
+          onChange={e => setTexto(e.target.value)}
         />
         {verIncidencias && (
           <button
             type="button"
             aria-pressed={soloIncidencias}
-            onClick={() => { setPage(1); setSoloIncidencias(v => !v); }}
+            onClick={() => cambiarUrl({ incidencias: soloIncidencias ? '' : 'abiertas', page: 1 })}
             className={soloIncidencias ? 'btn-primary whitespace-nowrap' : 'btn-secondary whitespace-nowrap'}
           >
             Solo con incidencias

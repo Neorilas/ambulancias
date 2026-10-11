@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { asignacionesService } from '../../services/asignaciones.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
@@ -13,6 +13,7 @@ import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/
 import AsignacionForm from './AsignacionForm.jsx';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
 import { resumenNombres } from '../../utils/miembrosAsignacion.js';
+import { useEstadoEnUrl, paginaDeUrl, usePanelEnUrl } from '../../hooks/useNavegacion.js';
 
 const ESTADOS = ['', 'programada', 'activa', 'finalizada', 'cancelada'];
 
@@ -29,43 +30,31 @@ export default function AsignacionList() {
 
   const [asignaciones, setAsignaciones] = useState([]);
   const [pagination,   setPagination]   = useState(null);
-  const [page,         setPage]         = useState(1);
-  const [estado,       setEstado]       = useState('');
   const [loading,      setLoading]      = useState(false);
   const [showForm,     setShowForm]     = useState(false);
   const [editItem,     setEditItem]     = useState(null);
   const [deleteId,     setDeleteId]     = useState(null);
   const [deleting,     setDeleting]     = useState(false);
-  const [detalleId,    setDetalleId]    = useState(null);
 
-  // `?id=<n>` abre ese detalle al llegar: es como enlazan a una asignación la
-  // ficha del vehículo, el mapa de flota y la alarma (`rutaAsignacion`). Con
-  // un efecto y no solo en el estado inicial, para que funcione también si ya
-  // se estaba en el listado (la alarma se ve desde cualquier pantalla).
-  const [params, setParams] = useSearchParams();
-  const idPedido = Number(params.get('id')) || null;
+  // `?id=<n>` es el detalle abierto: así enlazan a una asignación la ficha del
+  // vehículo, el mapa de flota y la alarma (`rutaAsignacion`), y así lo abre
+  // pinchar una fila (con push: el «atrás» del móvil lo cierra y deja en el
+  // listado). Sale de la URL y no de un estado, para que funcione también si
+  // ya se estaba en el listado (la alarma se ve desde cualquier pantalla).
+  // Al cerrarlo se quita: si no, recargar volvería a abrirlo y volver a pulsar
+  // el mismo enlace no cambiaría el parámetro y no haría nada.
+  const [idUrl, abrirDetalle, cerrarDetalle] = usePanelEnUrl('id', { alCerrar: () => load() });
+  const detalleId = Number(idUrl) || null;
+  // La página y el estado también van en la URL: al volver del trabajo de una
+  // asignación (su enlace) se sigue en la misma página y con el mismo filtro.
+  const [url, cambiarUrl] = useEstadoEnUrl({ page: '1', estado: '', trabajo_id: '' });
+  const page    = paginaDeUrl(url.page);
+  const estado  = url.estado;
+  const setPage = (fn) => cambiarUrl({ page: fn(page) });
   // `?trabajo_id=N` (o `sin`): las ambulancias de un trabajo, o las del
   // modelo antiguo que no tienen.
-  const trabajoFiltro = params.get('trabajo_id') || '';
-  const quitarFiltroTrabajo = () => {
-    const siguiente = new URLSearchParams(params);
-    siguiente.delete('trabajo_id');
-    setParams(siguiente, { replace: true });
-    setPage(1);
-  };
-  useEffect(() => { if (idPedido) setDetalleId(idPedido); }, [idPedido]);
-
-  const cerrarDetalle = () => {
-    setDetalleId(null);
-    // Se quita de la URL: si no, recargar volvería a abrirlo y volver a pulsar
-    // el mismo enlace no cambiaría el parámetro y no haría nada.
-    if (params.has('id')) {
-      const siguiente = new URLSearchParams(params);
-      siguiente.delete('id');
-      setParams(siguiente, { replace: true });
-    }
-    load();
-  };
+  const trabajoFiltro = url.trabajo_id;
+  const quitarFiltroTrabajo = () => cambiarUrl({ trabajo_id: '', page: 1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +129,8 @@ export default function AsignacionList() {
         {ESTADOS.map(e => (
           <button
             key={e}
-            onClick={() => { setEstado(e); setPage(1); }}
+            onClick={() => cambiarUrl({ estado: e, page: 1 })}
+            aria-pressed={estado === e}
             className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
               ${estado === e
                 ? 'bg-primary-600 text-white border-primary-600'
@@ -174,7 +164,7 @@ export default function AsignacionList() {
                   {asignaciones.length === 0 ? (
                     <tr><td colSpan={trabajosVisibles ? 8 : 7} className="text-center py-8 text-neutral-400">Sin asignaciones</td></tr>
                   ) : asignaciones.map(a => (
-                    <tr key={a.id} className="cursor-pointer" onClick={() => setDetalleId(a.id)}>
+                    <tr key={a.id} className="cursor-pointer" onClick={() => abrirDetalle(a.id)}>
                       <td>
                         <p className="font-medium text-neutral-900">{a.vehiculo_alias}</p>
                         <p className="text-xs text-neutral-500 data">{a.matricula}</p>

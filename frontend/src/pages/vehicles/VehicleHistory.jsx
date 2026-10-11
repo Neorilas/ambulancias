@@ -11,7 +11,7 @@
  * Solo accesible para administradores y gestores.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -22,6 +22,7 @@ import ComentariosIncidencia from '../../components/common/ComentariosIncidencia
 import Modal from '../../components/common/Modal.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import EnlaceAsignacion from '../../components/common/EnlaceAsignacion.jsx';
+import { useVolver } from '../../hooks/useNavegacion.js';
 import { formatDate, formatDateTime, formatDateTimeShort, toInputDate } from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
 import { parseKm } from '../../utils/kmUtils.js';
@@ -1243,14 +1244,25 @@ function useDatosFicha(vehicleId) {
 
 export default function VehicleHistory() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { pathname, search } = useLocation();
+  const [params, setParams] = useSearchParams();
   const { canManageVehicles, isSuperAdmin, isAdmin } = useAuth();
   const { isFeatureEnabled } = useFeatures();
+  // «← Volver» es la pantalla de donde se vino (el listado, Informes, Alertas,
+  // el mapa…), no siempre el listado; sin pantalla anterior, el listado
+  const volver = useVolver('/vehiculos');
 
   // /vehiculos/:id → ficha (resumen);  /vehiculos/:id/historial → fotos;
-  // ?tab=<clave> abre esa pestaña (el aviso de incidencias del listado).
-  const [tab,     setTab]     = useState(() => tabInicial(pathname, search));
+  // ?tab=<clave> abre esa pestaña (el aviso de incidencias del listado). La
+  // pestaña vive en la URL (con `replace`): al volver de un trabajo abierto
+  // desde el historial se vuelve al historial, no al resumen.
+  const tab = tabInicial(pathname, search);
+  const setTab = (t) => {
+    const siguiente = new URLSearchParams(params);
+    if (t === tabInicial(pathname)) siguiente.delete('tab');
+    else siguiente.set('tab', t);
+    setParams(siguiente, { replace: true });
+  };
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -1268,7 +1280,7 @@ export default function VehicleHistory() {
   }, [id]);
 
   const aplicarDestino = (dest) => {
-    if (dest.volver) navigate('/vehiculos');
+    if (dest.volver) volver();
     else setTab(dest.tab);
   };
 
@@ -1327,7 +1339,7 @@ export default function VehicleHistory() {
   if (error) return (
     <div className="p-6 text-center">
       <p className="text-bad-500 mb-4">{error}</p>
-      <button onClick={() => navigate('/vehiculos')} className="btn-secondary">← Volver</button>
+      <button onClick={volver} className="btn-secondary">← Volver</button>
     </div>
   );
 
@@ -1413,6 +1425,7 @@ export default function VehicleHistory() {
           <button
             key={t.key}
             onClick={() => ir({ tab: t.key })}
+            aria-pressed={tab === t.key}
             className={tab === t.key ? 'tab-active' : 'tab'}
           >
             {t.label}

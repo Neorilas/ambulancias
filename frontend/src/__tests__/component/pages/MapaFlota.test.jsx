@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/flota.service.js', () => ({
   flotaService: { getUbicaciones: vi.fn() },
@@ -43,7 +43,18 @@ const DATOS = {
 
 function Destino() {
   const { pathname, search } = useLocation();
-  return <p>destino {pathname}{search}</p>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <p>destino {pathname}{search}</p>
+      <button onClick={() => navigate(-1)}>volver</button>
+    </>
+  );
+}
+
+function Url() {
+  const { pathname, search } = useLocation();
+  return <p data-testid="url">{pathname}{search}</p>;
 }
 
 /**
@@ -60,8 +71,9 @@ async function montar(url) {
     <NotificationProvider>
       <MemoryRouter initialEntries={[url]}>
         <Routes>
-          <Route path="/flota" element={<MapaFlota />} />
+          <Route path="/flota" element={<><MapaFlota /><Url /></>} />
           <Route path="/asignaciones" element={<Destino />} />
+          <Route path="/vehiculos/:id" element={<Destino />} />
         </Routes>
       </MemoryRouter>
     </NotificationProvider>
@@ -89,6 +101,51 @@ describe('MapaFlota · ?vehiculo=', () => {
     await montar('/flota');
 
     expect(screen.getByText('Ambulancia 1')).toBeInTheDocument();
+    expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', '');
+  });
+});
+
+// Filtro, búsqueda y elegida en la URL: la ficha del mapa lleva a la del
+// vehículo y al volver tiene que seguir elegida y filtrada (§8 del mapa)
+describe('MapaFlota · lo elegido sobrevive a ir a la ficha del vehículo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    flags.activos = [];
+    flotaService.getUbicaciones.mockResolvedValue(DATOS);
+  });
+
+  it('elegir y filtrar se apuntan; al volver de la ficha sigue igual', async () => {
+    const user = userEvent.setup();
+    await montar('/flota');
+    await user.click(screen.getByRole('button', { name: /En movimiento/ }));
+    await user.click(screen.getByRole('button', { name: /Ambulancia 2/ }));
+    expect(screen.getByTestId('url')).toHaveTextContent('/flota?filtro=movimiento&vehiculo=2');
+
+    await user.click(screen.getByRole('link', { name: 'Ver ficha del vehículo' }));
+    expect(screen.getByText('destino /vehiculos/2')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'volver' }));
+    await act(() => flotaService.getUbicaciones.mock.results.at(-1).value);
+
+    expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', 'v-2');
+    expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
+    // El filtro sigue puesto: la 1 está apagada y no sale
+    expect(screen.queryByText('Ambulancia 1')).not.toBeInTheDocument();
+  });
+
+  it('buscar filtra al momento y la búsqueda queda en la URL', async () => {
+    const user = userEvent.setup();
+    await montar('/flota');
+    await user.type(screen.getByRole('searchbox'), '2222');
+    expect(screen.getByRole('searchbox')).toHaveValue('2222');
+    expect(screen.queryByText('Ambulancia 1')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('/flota?q=2222'));
+  });
+
+  it('cerrar la ficha la quita de la URL', async () => {
+    const user = userEvent.setup();
+    await montar('/flota?vehiculo=2');
+    await user.click(screen.getByRole('button', { name: 'Cerrar ficha' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/flota$/);
     expect(screen.getByTestId('mapa')).toHaveAttribute('data-seleccionada', '');
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/trabajos.service.js', () => ({
   trabajosService: {
@@ -24,7 +24,12 @@ vi.mock('../../../services/auth.service.js', () => ({
 // La operación de cada ambulancia tiene sus propios tests: aquí solo importa
 // cuál se abre.
 vi.mock('../../../pages/asignaciones/AsignacionDetalle.jsx', () => ({
-  default: ({ id, desdeTrabajo }) => <p>detalle {id}{desdeTrabajo ? ' desde trabajo' : ''}</p>,
+  default: ({ id, desdeTrabajo, onClose }) => (
+    <>
+      <p>detalle {id}{desdeTrabajo ? ' desde trabajo' : ''}</p>
+      <button onClick={onClose}>cerrar el detalle</button>
+    </>
+  ),
 }));
 vi.mock('../../../pages/asignaciones/AsignacionForm.jsx', () => ({
   default: ({ trabajo }) => <p>alta de ambulancia en {trabajo.nombre}</p>,
@@ -76,14 +81,31 @@ function comoUsuario(u) {
 const TECNICO = { id: 20, username: 'ana', roles: ['tecnico'], permissions: [] };
 const GESTOR  = { id: 2, username: 'gestor', roles: ['gestor'], permissions: ['manage_trabajos', 'view_all_trabajos'] };
 
-function montar(url = '/trabajos/1') {
+// Dónde se está y el «atrás» del móvil o del navegador
+function Donde() {
+  const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="donde">{pathname}{search}</p>
+      <button onClick={() => navigate(-1)}>atrás del móvil</button>
+    </>
+  );
+}
+
+/** `url`: dónde se abre; `antes`: lo que hay detrás en el historial. */
+function montar(url = '/trabajos/1', antes = []) {
+  const entradas = [...antes, url];
   return render(
     <NotificationProvider>
       <AuthProvider>
-        <MemoryRouter initialEntries={[url]}>
+        <MemoryRouter initialEntries={entradas} initialIndex={entradas.length - 1}>
           <Routes>
             <Route path="/trabajos/:id" element={<TrabajoDetail />} />
+            <Route path="/mis-trabajos" element={<p>mis trabajos</p>} />
+            <Route path="/" element={<p>portada</p>} />
           </Routes>
+          <Donde />
         </MemoryRouter>
       </AuthProvider>
     </NotificationProvider>
@@ -112,6 +134,42 @@ describe('TrabajoDetail', () => {
     expect(tuya).toHaveTextContent('En camino');
     await user.click(within(tuya).getByRole('button', { name: 'Inicio evento/servicio' }));
     expect(await screen.findByText('detalle 201 desde trabajo')).toBeInTheDocument();
+  });
+
+  // §8 del mapa, «La navegación hacia atrás»: el detalle de la ambulancia se
+  // abre encima, y el «atrás» del móvil lo cierra en vez de sacar del trabajo
+  it('el «atrás» del móvil cierra el detalle de la ambulancia y deja en el trabajo', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos/1', ['/mis-trabajos']);
+    const tuya = await screen.findByTestId('tu-ambulancia');
+    await user.click(within(tuya).getByRole('button', { name: 'Inicio evento/servicio' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent('/trabajos/1?ver=201');
+    expect(screen.getByText('detalle 201 desde trabajo')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'atrás del móvil' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\/1$/);
+    expect(screen.queryByText(/^detalle 201/)).not.toBeInTheDocument();
+    // Se recarga al cerrar, como con su botón: lo hecho dentro se ve fuera
+    await waitFor(() => expect(trabajosService.get).toHaveBeenCalledTimes(2));
+  });
+
+  it('cerrar el detalle con su botón no deja un «atrás» de más', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos/1', ['/mis-trabajos']);
+    const tuya = await screen.findByTestId('tu-ambulancia');
+    await user.click(within(tuya).getByRole('button', { name: 'Inicio evento/servicio' }));
+    await user.click(screen.getByRole('button', { name: 'cerrar el detalle' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\/1$/);
+    await user.click(screen.getByRole('button', { name: 'atrás del móvil' }));
+    expect(screen.getByText('mis trabajos')).toBeInTheDocument();
+  });
+
+  it('abierta sin pantalla anterior (un aviso push), «‹» va a la portada', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos/1');
+    await screen.findByTestId('tu-ambulancia');
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    expect(screen.getByText('portada')).toBeInTheDocument();
   });
 
   it('al equipo: «Lo lleva …» y sin botón de acción', async () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn(), delete: vi.fn() },
@@ -30,15 +30,60 @@ const FLOTA = [
   { id: 3, alias: 'Ambulancia 3', matricula: '3333CCC', incidencias_abiertas: 0, incidencias_gravedad_max: null },
 ];
 
-function montar() {
+function Donde() {
+  const { pathname, search } = useLocation();
+  return <p data-testid="donde">{pathname}{search}</p>;
+}
+
+function montar(ruta = '/vehiculos') {
   return render(
     <NotificationProvider>
       <AuthProvider>
-        <MemoryRouter><VehicleList /></MemoryRouter>
+        <MemoryRouter initialEntries={[ruta]}>
+          <Routes><Route path="/vehiculos" element={<VehicleList />} /></Routes>
+          <Donde />
+        </MemoryRouter>
       </AuthProvider>
     </NotificationProvider>
   );
 }
+
+// Página, búsqueda y «con incidencias» en la URL: al volver de la ficha de un
+// vehículo se sigue donde se estaba (§8 del mapa, «La navegación hacia atrás»)
+describe('VehicleList · lo que se estaba mirando sobrevive a ir a una ficha', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesion(['administrador']);
+    vehiclesService.list.mockResolvedValue({
+      data: FLOTA, pagination: { total: 60, totalPages: 3, hasPrev: true, hasNext: true },
+    });
+  });
+
+  it('la página, la búsqueda y el filtro de la URL se aplican al volver', async () => {
+    montar('/vehiculos?page=2&q=uvi&incidencias=abiertas');
+    await screen.findByRole('table');
+    await waitFor(() => expect(vehiclesService.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 2, search: 'uvi', incidencias: 'abiertas' })));
+    expect(screen.getByRole('searchbox')).toHaveValue('uvi');
+    expect(screen.getByRole('button', { name: /incidencias/i, pressed: true })).toBeInTheDocument();
+  });
+
+  it('pasar de página la apunta; buscar vuelve a la 1', async () => {
+    const user = userEvent.setup();
+    montar('/vehiculos?page=2');
+    await screen.findByRole('table');
+    await user.click(screen.getByRole('button', { name: /Siguiente/ }));
+    expect(screen.getByTestId('donde')).toHaveTextContent('/vehiculos?page=3');
+    await user.type(screen.getByRole('searchbox'), 'ab');
+    // El campo tiene lo tecleado al momento (no espera a la URL, que el router
+    // aplica en una transición) y la búsqueda llega a la URL ya reposada
+    expect(screen.getByRole('searchbox')).toHaveValue('ab');
+    await waitFor(() => expect(screen.getByTestId('donde')).toHaveTextContent(/^\/vehiculos\?q=ab$/));
+    expect(vehiclesService.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, search: 'ab' }));
+    expect(vehiclesService.list).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'a' }));
+  });
+});
 
 describe('VehicleList · incidencias abiertas', () => {
   beforeEach(() => {

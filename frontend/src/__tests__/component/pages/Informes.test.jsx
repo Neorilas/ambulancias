@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 vi.mock('../../../services/informes.service.js', () => ({
   informesService: { getMensual: vi.fn() },
@@ -42,10 +42,15 @@ const DATOS = {
   },
 };
 
-function montar() {
+function Donde() {
+  const { search } = useLocation();
+  return <p data-testid="donde">{search}</p>;
+}
+
+function montar(ruta = '/informes') {
   return render(
     <NotificationProvider>
-      <MemoryRouter><Informes /></MemoryRouter>
+      <MemoryRouter initialEntries={[ruta]}><Informes /><Donde /></MemoryRouter>
     </NotificationProvider>
   );
 }
@@ -123,5 +128,37 @@ describe('Informes', () => {
     informesService.getMensual.mockRejectedValue(new Error('403'));
     montar();
     expect(await screen.findByText('Sin informe')).toBeInTheDocument();
+  });
+});
+
+// Mes y pestaña en la URL: el informe enlaza a la ficha de cada vehículo y al
+// volver tiene que seguir en el mismo mes (§8 del mapa)
+describe('Informes · lo que se estaba mirando sobrevive a ir a una ficha', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    informesService.getMensual.mockResolvedValue(DATOS);
+  });
+
+  it('el mes y la pestaña de la URL se aplican al volver', async () => {
+    montar('/informes?mes=2026-05&tecnico=evento');
+    await screen.findByText('Ana Ruiz');
+    expect(informesService.getMensual).toHaveBeenCalledWith('2026-05');
+    expect(screen.getByLabelText('Mes del informe')).toHaveValue('2026-05');
+    expect(screen.getByRole('tab', { selected: true })).toHaveTextContent(/evento/i);
+  });
+
+  it('cambiar el mes o la pestaña lo apunta en la URL', async () => {
+    montar();
+    await screen.findByText('Ana Ruiz');
+    fireEvent.change(screen.getByLabelText('Mes del informe'), { target: { value: '2026-05' } });
+    expect(screen.getByTestId('donde')).toHaveTextContent('?mes=2026-05');
+    fireEvent.click((await screen.findAllByRole('tab'))[1]);
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\?mes=2026-05&tecnico=\w+$/);
+  });
+
+  it('un mes mal formado o futuro en la URL se ignora: el actual', async () => {
+    montar('/informes?mes=2999-01');
+    await screen.findByText('Ana Ruiz');
+    expect(informesService.getMensual).not.toHaveBeenCalledWith('2999-01');
   });
 });
