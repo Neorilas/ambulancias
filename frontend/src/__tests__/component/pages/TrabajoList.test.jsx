@@ -231,24 +231,26 @@ describe('TrabajoList: ambulancias «A revisar»', () => {
     });
   });
 
-  it('marca cada trabajo con cuántas ambulancias hay que revisar', async () => {
+  it('marca los trabajos con «Tiempos que no cuadran», con cuántas ambulancias en el title', async () => {
     montar('/trabajos');
     await screen.findByText('Trabajo 1');
-    const marcas = screen.getAllByTestId('trabajo-a-revisar').map(m => m.textContent);
-    expect(marcas).toEqual(['A revisar: 2 ambulancias', 'A revisar: 1 ambulancia']);
+    const marcas = screen.getAllByTestId('trabajo-a-revisar');
+    expect(marcas.map(m => m.textContent)).toEqual(['Tiempos que no cuadran', 'Tiempos que no cuadran']);
+    expect(marcas[0].title).toMatch(/^2 ambulancias en las que/);
+    expect(marcas[1].title).toMatch(/^1 ambulancia en las que/);
   });
 
-  it('el botón «A revisar» filtra, va en la URL y vuelve a la página 1', async () => {
+  it('el botón «Tiempos que no cuadran» filtra, va en la URL y vuelve a la página 1', async () => {
     const user = userEvent.setup();
     montar('/trabajos?page=2&estado=finalizado');
     await screen.findByText('Trabajo 1');
-    await user.click(screen.getByRole('button', { name: 'A revisar' }));
+    await user.click(screen.getByRole('button', { name: 'Tiempos que no cuadran' }));
     expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\?estado=finalizado&revisar=fin_evento$/);
     expect(trabajosService.list).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 1, estado: 'finalizado', revisar: 'fin_evento' }));
-    expect(screen.getByRole('button', { name: 'A revisar' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Tiempos que no cuadran' })).toHaveAttribute('aria-pressed', 'true');
 
-    await user.click(screen.getByRole('button', { name: 'A revisar' }));
+    await user.click(screen.getByRole('button', { name: 'Tiempos que no cuadran' }));
     expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ revisar: undefined }));
   });
 });
