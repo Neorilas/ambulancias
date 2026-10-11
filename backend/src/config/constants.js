@@ -79,11 +79,16 @@ module.exports = {
   FOTOS_INICIO_TARDE_MINUTOS: 30,
   // «Fin evento/servicio» pulsado a estos minutos o menos de «Finalizar
   // asignación»: casi seguro que se pulsó ya en base, al cerrar, y no al
-  // terminar en el sitio. Se marca para revisión de gestión, sin bloquear nada
-  // y sin que lo vean quienes van en la ambulancia ni quienes coordinan su
-  // trabajo. Decisión del usuario (2026-10-11). Lo calcula el backend; el
+  // terminar en el sitio. Se marca para revisión (también si no se pulsó),
+  // sin bloquear nada. Solo lo ven administradores, gestores y superadmin, y
+  // nunca un coordinador ni quien va en la ambulancia. Decisión del usuario (2026-10-11). Lo calcula el backend; el
   // frontend pinta el `umbral_min` que le llega.
   FIN_EVENTO_EN_BASE_MINUTOS: 15,
+  // Desde cuándo se exige «Fin evento/servicio»: el botón llegó a PRO el
+  // 2026-10-02 a las 19:33 (b8c1b33). Una asignación iniciada antes no lo
+  // tenía y no se marca por no llevarlo. Corte: 3 de octubre a las 00:00 en
+  // hora española, en UTC y con el formato de las columnas DATETIME.
+  FIN_EVENTO_EXIGIDO_DESDE: '2026-10-02 22:00:00',
   // Informes: un servicio se inició tarde si «Inicio de la asignación» se pulsó más
   // de estos minutos después de la hora prevista. El mismo margen decide los
   // cierres tardíos/anticipados frente a `fecha_fin`. Decisión de

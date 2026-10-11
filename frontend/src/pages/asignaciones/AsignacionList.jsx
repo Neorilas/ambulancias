@@ -56,7 +56,9 @@ export default function AsignacionList() {
   const trabajoFiltro = url.trabajo_id;
   const quitarFiltroTrabajo = () => cambiarUrl({ trabajo_id: '', page: 1 });
   // `?revisar=fin_evento`: las marcadas para revisión porque el fin del evento
-  // se pulsó pegado al cierre (backend, `revisar_fin_evento`).
+  // se pulsó pegado al cierre o no se pulsó (backend, `revisar_fin_evento`).
+  // Es para administradores, gestores y superadmin, los mismos que abren esta
+  // pantalla (`allowedRoles` en App.jsx); el backend vuelve a mirar el rol.
   const revisarFinEvento = url.revisar === 'fin_evento';
 
   const load = useCallback(async () => {
@@ -148,7 +150,7 @@ export default function AsignacionList() {
         <button
           onClick={() => cambiarUrl({ revisar: revisarFinEvento ? '' : 'fin_evento', page: 1 })}
           aria-pressed={revisarFinEvento}
-          title="Fin del evento/servicio pulsado justo antes de finalizar la asignación: probablemente ya en base"
+          title="Fin del evento/servicio sin pulsar, o pulsado justo antes de finalizar la asignación (probablemente ya en base)"
           className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
             ${revisarFinEvento
               ? 'bg-bad-600 text-white border-bad-600'
@@ -228,14 +230,17 @@ export default function AsignacionList() {
                             </span>
                           </div>
                         )}
-                        {/* Fin del evento pegado al cierre (backend,
-                            `revisar_fin_evento`: minutos o null). Solo llega
-                            a gestión que no va en ella ni coordina su trabajo. */}
-                        {a.revisar_fin_evento != null && (
+                        {/* Fin del evento pegado al cierre o sin pulsar
+                            (backend, `revisar_fin_evento`: 'pegado', 'sin_fin'
+                            o null). Solo llega a la oficina que no va en ella
+                            ni coordina su trabajo. */}
+                        {a.revisar_fin_evento && (
                           <div className="mt-1">
                             <span className="badge-red whitespace-nowrap"
-                                  title={`Fin del evento/servicio pulsado ${a.revisar_fin_evento} min antes de finalizar la asignación: probablemente ya en base`}>
-                              A revisar: fin evento
+                                  title={a.revisar_fin_evento === 'sin_fin'
+                                    ? 'Finalizada sin pulsar «Fin evento/servicio»'
+                                    : 'Fin del evento/servicio pulsado justo antes de finalizar la asignación: probablemente ya en base'}>
+                              {a.revisar_fin_evento === 'sin_fin' ? 'A revisar: sin fin evento' : 'A revisar: fin evento'}
                             </span>
                           </div>
                         )}

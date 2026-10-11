@@ -516,19 +516,28 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                         </span>
                       )}
                     </p>
-                    {/* Fin del evento pegado al cierre: probablemente se pulsó
-                        ya en base. Solo llega del backend a gestión que no va
-                        en la ambulancia ni coordina el trabajo
-                        (`revisar_fin_evento`); aquí no se filtra nada más. */}
+                    {/* Fin del evento pegado al cierre (probablemente pulsado
+                        ya en base) o sin pulsar. Solo llega del backend a
+                        administradores, gestores y superadmin que no van en la
+                        ambulancia ni coordinan el trabajo (`revisar_fin_evento`);
+                        aquí no se filtra nada más. */}
                     {asig.revisar_fin_evento && (
                       <div className="mt-1 rounded-lg border border-bad-200 bg-bad-50 px-3 py-2 text-xs text-bad-600"
                            data-testid="aviso-revisar-fin-evento">
                         <p className="font-semibold">A revisar</p>
-                        <p>
-                          Se pulsó {asig.revisar_fin_evento.minutos} min antes de finalizar la asignación
-                          (umbral: {asig.revisar_fin_evento.umbral_min} min). Probablemente ya en base:
-                          la hora de fin del evento puede no ser la real.
-                        </p>
+                        {asig.revisar_fin_evento.motivo === 'sin_fin' ? (
+                          <p>
+                            Se finalizó la asignación sin pulsar «Fin evento/servicio»
+                            {!asig.llegada_servicio_at && ' (tampoco consta el inicio del evento/servicio)'}.
+                            No hay hora real de fin del evento.
+                          </p>
+                        ) : (
+                          <p>
+                            Se pulsó {asig.revisar_fin_evento.minutos} min antes de finalizar la asignación
+                            (umbral: {asig.revisar_fin_evento.umbral_min} min). Probablemente ya en base:
+                            la hora de fin del evento puede no ser la real.
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

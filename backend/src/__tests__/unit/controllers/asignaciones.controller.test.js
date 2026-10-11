@@ -281,9 +281,10 @@ describe('asignaciones.controller', () => {
       });
     });
 
-    // Fin del evento pegado al cierre (2026-10-11): para revisión de gestión,
-    // sin que lo vea quien va en la ambulancia ni quien coordina su trabajo.
-    describe('fin del evento pegado al cierre', () => {
+    // Fin del evento pegado al cierre o sin pulsar (2026-10-11): para que lo
+    // revise la oficina (admin, gestor, superadmin), nunca un coordinador ni
+    // quien va en la ambulancia.
+    describe('revisión del fin del evento', () => {
       const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
       const FIN = new Date('2026-10-11T18:00:00Z');
       const cierreA = (min, seg = 0) => new Date(FIN.getTime() + min * 60000 + seg * 1000);
@@ -297,10 +298,10 @@ describe('asignaciones.controller', () => {
 
       it('marca un cierre a 15 min o menos del fin del evento', async () => {
         expect((await leer({ finalizado_at: cierreA(4) })).revisar_fin_evento)
-          .toEqual({ minutos: 4, umbral_min: 15 });
+          .toEqual({ motivo: 'pegado', minutos: 4, umbral_min: 15 });
         // 15 justos todavía es «15 min máximo»
         expect((await leer({ finalizado_at: cierreA(15) })).revisar_fin_evento)
-          .toEqual({ minutos: 15, umbral_min: 15 });
+          .toEqual({ motivo: 'pegado', minutos: 15, umbral_min: 15 });
       });
 
       it('15 min y unos segundos ya no (mismo corte que el listado)', async () => {
@@ -308,17 +309,41 @@ describe('asignaciones.controller', () => {
         expect((await leer({ finalizado_at: cierreA(50) })).revisar_fin_evento).toBeNull();
       });
 
-      it('sin fin del evento o sin cierre no hay nada que comparar', async () => {
-        expect((await leer({ fin_servicio_at: null, finalizado_at: cierreA(2) })).revisar_fin_evento).toBeNull();
+      it('marca la finalizada sin «Fin evento/servicio»', async () => {
+        const data = await leer({ fin_servicio_at: null, inicio_real_at: new Date('2026-10-11T08:00:00Z'), finalizado_at: cierreA(2) });
+        expect(data.revisar_fin_evento).toEqual({ motivo: 'sin_fin', umbral_min: 15 });
+        // Sin inicio real cuenta la hora del cierre
+        expect((await leer({ fin_servicio_at: null, finalizado_at: cierreA(2) })).revisar_fin_evento)
+          .toEqual({ motivo: 'sin_fin', umbral_min: 15 });
+      });
+
+      it('no exige el botón a las iniciadas antes de que existiera (3-oct, hora española)', async () => {
+        const antes = await leer({ fin_servicio_at: null,
+          inicio_real_at: '2026-10-02 21:59:00', finalizado_at: '2026-10-03 06:00:00' });
+        expect(antes.revisar_fin_evento).toBeNull();
+        const desde = await leer({ fin_servicio_at: null,
+          inicio_real_at: '2026-10-02 22:00:00', finalizado_at: '2026-10-03 06:00:00' });
+        expect(desde.revisar_fin_evento.motivo).toBe('sin_fin');
+      });
+
+      it('sin cerrar no hay nada que revisar', async () => {
         expect((await leer({ estado: 'activa', finalizado_at: null })).revisar_fin_evento).toBeNull();
+        expect((await leer({ estado: 'activa', fin_servicio_at: null, finalizado_at: null })).revisar_fin_evento).toBeNull();
       });
 
       it('lee las horas de BD como UTC aunque lleguen en texto', async () => {
         const data = await leer({ fin_servicio_at: '2026-10-11 18:00:00', finalizado_at: '2026-10-11 18:09:00' });
-        expect(data.revisar_fin_evento).toEqual({ minutos: 9, umbral_min: 15 });
+        expect(data.revisar_fin_evento).toEqual({ motivo: 'pegado', minutos: 9, umbral_min: 15 });
       });
 
-      it('no llega a quien va en la ambulancia, aunque gestione', async () => {
+      it('la ven gestor y superadmin', async () => {
+        for (const roles of [['gestor'], ['superadmin']]) {
+          const data = await leer({ finalizado_at: cierreA(3) }, { id: 1, roles, permissions: ['manage_trabajos'] });
+          expect(data.revisar_fin_evento.motivo).toBe('pegado');
+        }
+      });
+
+      it('no llega a quien va en la ambulancia, aunque sea admin', async () => {
         const data = await leer({
           user_id: 2, finalizado_at: cierreA(3),
           miembros: [{ user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 1, rol: 'personal', orden: 1 }],
@@ -329,6 +354,12 @@ describe('asignaciones.controller', () => {
       it('no llega al técnico responsable', async () => {
         const data = await leer({ user_id: 2, finalizado_at: cierreA(3) },
           { id: 2, roles: ['tecnico'], permissions: [] });
+        expect(data).not.toHaveProperty('revisar_fin_evento');
+      });
+
+      it('va por rol, no por permiso: MANAGE_TRABAJOS sin rol de oficina no la ve', async () => {
+        const data = await leer({ finalizado_at: cierreA(3) },
+          { id: 1, roles: ['tecnico'], permissions: ['manage_trabajos'] });
         expect(data).not.toHaveProperty('revisar_fin_evento');
       });
     });
@@ -2074,24 +2105,26 @@ describe('asignaciones.controller', () => {
       expect(query.mock.calls[0][1]).toEqual([7, 7]);
     });
 
-    it('el listado de gestión marca y filtra las de fin del evento pegado al cierre', async () => {
+    it('el listado de la oficina marca y filtra las de fin del evento a revisar', async () => {
       const gestor = { id: 3, roles: ['gestor'], permissions: ['manage_trabajos'] };
       query.mockResolvedValueOnce([[{ total: 1 }]]);
-      query.mockResolvedValueOnce([[{ id: 1, revisar_fin_evento: 4 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, revisar_fin_evento: 'pegado' }]]);
       const res = mockRes();
       await listAsignaciones(mockReq({ query: { revisar: 'fin_evento' }, user: gestor }), res, mockNext());
       const [sqlCount, paramsCount] = query.mock.calls[0];
       const [sql, params] = query.mock.calls[1];
-      // Mismo corte que la ficha: «15 min o menos», y fuera quien va o coordina
+      // Mismos cortes que la ficha, y fuera quien va o coordina
       expect(sql).toContain('al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE');
+      expect(sql).toContain("COALESCE(al.inicio_real_at, al.finalizado_at) >= ? THEN 'sin_fin'");
       expect(sql).toContain('FROM trabajo_coordinadores rc');
       expect(sql).toMatch(/END AS revisar_fin_evento/);
-      // SELECT: mi_rol, fotos, y umbral + tres veces el usuario; luego el WHERE
-      expect(params.slice(0, 6)).toEqual([3, 30, 15, 3, 3, 3]);
-      expect(params.slice(6, 10)).toEqual([15, 3, 3, 3]);
+      // SELECT: mi_rol, fotos, tres veces el usuario, corte y umbral; luego el WHERE
+      const revisar = [3, 3, 3, '2026-10-02 22:00:00', 15];
+      expect(params.slice(0, 7)).toEqual([3, 30, ...revisar]);
+      expect(params.slice(7, 12)).toEqual(revisar);
       expect(sqlCount).toContain('IS NOT NULL');
-      expect(paramsCount).toEqual([15, 3, 3, 3]);
-      expect(res._json.data[0].revisar_fin_evento).toBe(4);
+      expect(paramsCount).toEqual(revisar);
+      expect(res._json.data[0].revisar_fin_evento).toBe('pegado');
     });
 
     it('crea con varios responsables y personal; el principal es el primero', async () => {
@@ -2427,7 +2460,7 @@ describe('asignación dentro de un trabajo (v33)', () => {
       // Y a gestión ajena al trabajo sí
       const res2 = mockRes();
       await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res2, mockNext());
-      expect(res2._json.data.revisar_fin_evento).toEqual({ minutos: 5, umbral_min: 15 });
+      expect(res2._json.data.revisar_fin_evento).toEqual({ motivo: 'pegado', minutos: 5, umbral_min: 15 });
     });
 
     it('la ficha trae el trabajo como objeto, sin las columnas sueltas del JOIN', async () => {
