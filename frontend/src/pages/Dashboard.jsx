@@ -11,6 +11,7 @@ import { formatDate, formatDateTime, diaEnEspana, sumarDias, formatDiaCalendario
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import { useNotification } from '../context/NotificationContext.jsx';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../utils/constants.js';
+import { reportarFalloDeCarga } from '../utils/reporteErrores.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,8 @@ function diferenciaHoras(fechaInicio) {
 
 // ── Componentes comunes ───────────────────────────────────────────────────────
 
+// `value` null = no se pudo cargar: guion y el motivo, nunca un 0 que parece
+// un dato
 function StatCard({ label, value, to, tone = 'text-neutral-900' }) {
   const inner = (
     <div className="card hover:border-neutral-300 transition-colors h-full">
@@ -27,6 +30,7 @@ function StatCard({ label, value, to, tone = 'text-neutral-900' }) {
       <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${tone}`}>
         {value ?? '–'}
       </p>
+      {value == null && <p className="text-[12px] text-bad-600">No se pudo cargar</p>}
     </div>
   );
   return to ? <Link to={to} className="block h-full">{inner}</Link> : inner;
@@ -393,10 +397,19 @@ function DashboardOperacional({ user }) {
 function DashboardAdmin({ user }) {
   const [stats,   setStats]   = useState(null);
   const [recent,  setRecent]  = useState([]);
+  const [recentError, setRecentError] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Cada contador por su cuenta: con `Promise.all` un fallo dejaba sin
+  // ninguno, «Sin trabajos» en el panel y una promesa sin capturar en consola
+  // (2026-10-11). Un contador que falla queda en null (StatCard lo dice).
   useEffect(() => {
-    Promise.all([
+    const total = (r, que) => {
+      if (r.status === 'fulfilled') return r.value.pagination?.total || 0;
+      reportarFalloDeCarga(r.reason, `Inicio (${que})`);
+      return null;
+    };
+    Promise.allSettled([
       usersService.list({ limit: 1 }),
       vehiclesService.list({ limit: 1 }),
       trabajosService.list({ limit: 1, estado: 'activo' }),
@@ -404,11 +417,15 @@ function DashboardAdmin({ user }) {
     ])
       .then(([usersResp, vehResp, activosResp, recentsResp]) => {
         setStats({
-          usuarios:  usersResp.pagination?.total  || 0,
-          vehiculos: vehResp.pagination?.total    || 0,
-          activos:   activosResp.pagination?.total || 0,
+          usuarios:  total(usersResp,   'usuarios'),
+          vehiculos: total(vehResp,     'vehículos'),
+          activos:   total(activosResp, 'trabajos activos'),
         });
-        setRecent(recentsResp.data || []);
+        if (recentsResp.status === 'fulfilled') setRecent(recentsResp.value.data || []);
+        else {
+          setRecentError(true);
+          reportarFalloDeCarga(recentsResp.reason, 'Inicio (próximos trabajos)');
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -448,8 +465,9 @@ function DashboardAdmin({ user }) {
               <p className={`data text-[25px] font-semibold leading-tight mt-0.5 ${
                 stats.activos > 0 ? 'text-ok-600' : 'text-neutral-900'
               }`}>
-                {stats.activos}
+                {stats.activos ?? '–'}
               </p>
+              {stats.activos == null && <p className="text-[12px] text-bad-600">No se pudo cargar</p>}
             </div>
           </Link>
           <StatCard label="Vehículos" value={stats.vehiculos} to="/vehiculos" />
@@ -484,7 +502,9 @@ function DashboardAdmin({ user }) {
           <h2 className="font-semibold text-neutral-900">Próximos trabajos</h2>
           <Link to="/trabajos" className="text-primary-600 text-sm font-medium hover:underline">Ver todos</Link>
         </div>
-        {recent.length === 0 ? (
+        {recentError ? (
+          <p role="alert" className="text-bad-600 text-sm py-4 text-center">No se pudieron cargar los trabajos</p>
+        ) : recent.length === 0 ? (
           <p className="text-neutral-400 text-sm py-4 text-center">Sin trabajos</p>
         ) : (
           <div className="space-y-2">

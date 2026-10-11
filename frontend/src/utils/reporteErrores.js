@@ -12,6 +12,8 @@
  *   ruido; lo que importa es la acción del técnico que no ha salido.
  * - 502/503/504 de cualquier método: es el proxy, el backend no llegó a verlo.
  * - Errores de JS y promesas rechazadas sin capturar (no las de axios).
+ * - Un GET sin respuesta que deja una pantalla en «no se pudo cargar», solo
+ *   donde la pantalla lo pide (`reportarFalloDeCarga`).
  *
  * Cómo:
  * - Cola en localStorage (con el prefijo del entorno): sin red no se puede
@@ -193,6 +195,33 @@ export function reportarErrorDePeticion(error) {
   if (status === 502 || status === 503 || status === 504) {
     registrarError({ tipo: 'http', mensaje: `HTTP ${status} (no llegó al backend)`, metodo, url, status });
   }
+}
+
+/**
+ * Una pantalla que se ha quedado en «no se pudo cargar» por un GET sin
+ * respuesta. El interceptor calla los GET sin respuesta (el sondeo de alarmas
+ * llenaría el panel), así que este caso lo apunta la propia pantalla, a mano y
+ * solo donde una carga fallida deja la pantalla inútil: así el panel ve que
+ * alguien se quedó sin poder trabajar, no cada GET perdido por cobertura.
+ *
+ * Nació del 2026-10-11: /vehiculos decía «Todavía no hay vehículos» porque el
+ * GET moría en el service worker, y el panel seguía a 0 porque era un GET.
+ * Lo demás (no-GET, 502/503/504) ya lo ha apuntado el interceptor.
+ */
+export function reportarFalloDeCarga(error, pantalla) {
+  const config = error?.config;
+  if (!config || config._sinReporteDeError) return;
+  if (error.code === 'ERR_CANCELED' || error.response) return;
+  if ((config.method || 'get').toUpperCase() !== 'GET') return;
+
+  const sinConexion = typeof navigator !== 'undefined' && navigator.onLine === false;
+  registrarError({
+    tipo:    error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' ? 'timeout' : 'red',
+    mensaje: `${pantalla} no se pudo cargar: ${error.message || 'Sin respuesta'}`
+      + (sinConexion ? ' (el dispositivo dice que no tiene conexión)' : ''),
+    metodo:  'GET',
+    url:     sinQuery(config.url),
+  });
 }
 
 let instalado = false;

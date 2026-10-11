@@ -167,6 +167,36 @@ describe('VehicleList · asignación en curso o programada', () => {
   });
 });
 
+// Una carga fallida no es una flota vacía: decía «0 en flota / Todavía no hay
+// vehículos registrados» con 4 en la BD (2026-10-11)
+describe('VehicleList · la carga falla', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesion(['administrador']);
+  });
+
+  it('enseña el error y no «Sin vehículos»; Reintentar vuelve a pedir', async () => {
+    const user = userEvent.setup();
+    vehiclesService.list.mockReset()
+      .mockRejectedValueOnce(Object.assign(new Error('Network Error'), { config: { method: 'get', url: '/vehicles' } }))
+      .mockResolvedValue({ data: FLOTA, pagination: { total: 3, totalPages: 1 } });
+    montar();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los vehículos');
+    expect(screen.queryByText('Sin vehículos')).not.toBeInTheDocument();
+    expect(screen.getByText(/— en flota/)).toBeInTheDocument();
+    // El fallo de red va al panel de errores (cola de utils/reporteErrores.js)
+    expect(JSON.parse(localStorage.getItem(PREFIJO + 'erroresPendientes'))).toEqual([
+      expect.objectContaining({ metodo: 'GET', url: '/vehicles', pagina: expect.any(String) }),
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await screen.findByRole('table');
+    expect(screen.getByText(/3 en flota/)).toBeInTheDocument();
+  });
+});
+
 describe('VehicleHistory · tabInicial', () => {
   it('abre la pestaña que pide ?tab=', () => {
     expect(tabInicial('/vehiculos/1', '?tab=incidencias')).toBe('incidencias');
