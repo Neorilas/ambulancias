@@ -25,8 +25,13 @@ export default function TrabajoList() {
   // filtros. También es lo que hace funcionar `/trabajos?estado=activo` del
   // Dashboard, que antes se ignoraba
   const [url, cambiarUrl] = useEstadoEnUrl({
-    vista: 'lista', mes: '', dia: '', page: '1', search: '', estado: '', tipo: '',
+    vista: 'lista', mes: '', dia: '', page: '1', search: '', estado: '', tipo: '', revisar: '',
   });
+  // `?revisar=fin_evento`: solo los trabajos con alguna ambulancia «A revisar»
+  // por el fin del evento (backend, `asignaciones_a_revisar`). Es para la
+  // oficina, los mismos que abren esta pantalla; el backend vuelve a mirar el
+  // rol y no cuenta los trabajos que coordina quien pregunta.
+  const revisarFinEvento = url.revisar === 'fin_evento';
   const page    = paginaDeUrl(url.page);
   const filters = { search: url.search, estado: url.estado, tipo: url.tipo };
   // El buscador escribe en local y llega a la URL ya reposado (hook)
@@ -48,12 +53,13 @@ export default function TrabajoList() {
         search: filters.search || undefined,
         estado: filters.estado || undefined,
         tipo:   filters.tipo   || undefined,
+        revisar: revisarFinEvento ? 'fin_evento' : undefined,
       });
       setTrabajos(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar trabajos'); }
     finally { setLoading(false); }
-  }, [page, url.search, url.estado, url.tipo]);
+  }, [page, url.search, url.estado, url.tipo, revisarFinEvento]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -148,6 +154,19 @@ export default function TrabajoList() {
               <option value="cobertura_evento">Cobertura evento</option>
               <option value="otro">Otro</option>
             </select>
+            <button
+              type="button"
+              onClick={() => cambiarUrl({ revisar: revisarFinEvento ? '' : 'fin_evento', page: 1 })}
+              aria-pressed={revisarFinEvento}
+              title="Trabajos con alguna ambulancia en la que «Fin evento/servicio» no se pulsó, o se pulsó justo antes de finalizar (probablemente ya en base)"
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
+                ${revisarFinEvento
+                  ? 'bg-bad-600 text-white border-bad-600'
+                  : 'bg-white text-neutral-600 border-neutral-300 hover:border-bad-500'
+                }`}
+            >
+              A revisar
+            </button>
           </div>
 
           {loading ? <PageLoading /> : (
@@ -183,6 +202,15 @@ export default function TrabajoList() {
                             <span className="font-semibold text-neutral-900">{t.nombre}</span>
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
+                            {/* Ambulancias con el fin del evento a revisar
+                                (backend; null a quien no le toca verlo) */}
+                            {Number(t.asignaciones_a_revisar) > 0 && (
+                              <span className="badge-red whitespace-nowrap" data-testid="trabajo-a-revisar"
+                                    title="Ambulancias en las que «Fin evento/servicio» no se pulsó, o se pulsó justo antes de finalizar (probablemente ya en base). El detalle, dentro de cada ambulancia">
+                                A revisar: {Number(t.asignaciones_a_revisar) === 1
+                                  ? '1 ambulancia' : `${t.asignaciones_a_revisar} ambulancias`}
+                              </span>
+                            )}
                           </div>
                           {/* Las fechas destacan (2026-10-10): el listado va
                               ordenado por ellas y es lo primero que se busca.

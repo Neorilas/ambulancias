@@ -213,3 +213,42 @@ describe('TrabajoList: quién coordina', () => {
     expect(await screen.findByText(texto)).toBeInTheDocument();
   });
 });
+
+// «A revisar» por el fin del evento (2026-10-11): la oficina lo ve en el
+// listado sin entrar en el trabajo. El backend manda el recuento (o null a
+// quien no le toca) y filtra con `revisar=fin_evento`.
+describe('TrabajoList: ambulancias «A revisar»', () => {
+  const fila = (id, asignaciones_a_revisar) => ({
+    id, nombre: `Trabajo ${id}`, estado: 'finalizado', tipo: 'traslado', identificador: `T-${id}`,
+    fecha_inicio: '2026-10-11T08:00:00Z', fecha_fin: '2026-10-11T10:00:00Z',
+    num_vehiculos: 2, num_usuarios: 3, asignaciones_a_revisar,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    trabajosService.list.mockResolvedValue({
+      data: [fila(1, 2), fila(2, 1), fila(3, 0), fila(4, null)], pagination: { total: 4, totalPages: 1 },
+    });
+  });
+
+  it('marca cada trabajo con cuántas ambulancias hay que revisar', async () => {
+    montar('/trabajos');
+    await screen.findByText('Trabajo 1');
+    const marcas = screen.getAllByTestId('trabajo-a-revisar').map(m => m.textContent);
+    expect(marcas).toEqual(['A revisar: 2 ambulancias', 'A revisar: 1 ambulancia']);
+  });
+
+  it('el botón «A revisar» filtra, va en la URL y vuelve a la página 1', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos?page=2&estado=finalizado');
+    await screen.findByText('Trabajo 1');
+    await user.click(screen.getByRole('button', { name: 'A revisar' }));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\?estado=finalizado&revisar=fin_evento$/);
+    expect(trabajosService.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, estado: 'finalizado', revisar: 'fin_evento' }));
+    expect(screen.getByRole('button', { name: 'A revisar' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'A revisar' }));
+    expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ revisar: undefined }));
+  });
+});

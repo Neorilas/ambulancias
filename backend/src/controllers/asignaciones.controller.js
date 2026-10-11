@@ -144,7 +144,8 @@ function veRevisionFinEvento(user, asig) {
  * va en ella o coordina su trabajo). El coordinador se mira sobre
  * `al.trabajo_id` y no con el JOIN a `trabajos`: el COUNT(*) del listado no lo
  * tiene y el filtro va en su WHERE. Parámetros: `paramsRevisarFinEvento`.
- * Solo se usa con `esDeRevision`.
+ * Solo se usa con `esDeRevision`. También lo usa `listTrabajos` (recuento por
+ * trabajo), dentro de una subconsulta que llama `al` a la asignación.
  */
 const SQL_REVISAR_FIN_EVENTO = `
   CASE WHEN al.estado = 'finalizada' AND al.finalizado_at IS NOT NULL
@@ -1659,6 +1660,10 @@ module.exports = {
   leerMiembros,
   marcarFinEventoEnBase,
   veRevisionFinEvento,
+  // El listado de trabajos cuenta sus ambulancias «A revisar» con la misma regla
+  esDeRevision,
+  SQL_REVISAR_FIN_EVENTO,
+  paramsRevisarFinEvento,
   // Para el alta de un trabajo con su primera ambulancia (trabajos.controller)
   usuariosNoValidos,
   insertarAsignacion,

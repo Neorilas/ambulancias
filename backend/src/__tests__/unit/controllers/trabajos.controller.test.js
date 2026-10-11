@@ -518,6 +518,52 @@ describe('trabajos.controller', () => {
         '%Retiro%', '%Retiro%', '%Retiro%']);
     });
 
+    // «A revisar» por el fin del evento (2026-10-11): la oficina lo ve en el
+    // listado, con la misma regla que el de asignaciones.
+    describe('ambulancias «A revisar»', () => {
+      const REVISAR = [1, 1, 1, '2026-10-02 22:00:00', 15];
+
+      it('la oficina recibe el recuento por trabajo, con sus ? antes que los del WHERE', async () => {
+        bd([['COUNT(*) AS total', [[{ total: 1 }]]], ['AS num_vehiculos', [[{ id: 4, asignaciones_a_revisar: 2 }]]]]);
+        const res = mockRes();
+        await listTrabajos(mockReq({ query: { estado: 'finalizado' }, user: admin }), res, mockNext());
+        const [sqlCount, paramsCount] = query.mock.calls[0];
+        const [sql, params] = query.mock.calls[1];
+        expect(sql).toMatch(/WHERE al\.trabajo_id = t\.id[\s\S]*AS asignaciones_a_revisar/);
+        // Excluye a quien va en la ambulancia o coordina su trabajo
+        expect(sql).toContain('FROM trabajo_coordinadores rc');
+        expect(params.slice(0, 6)).toEqual([...REVISAR, 'finalizado']);
+        // Sin el filtro, el COUNT no lleva el recuento
+        expect(sqlCount).not.toMatch(/asignaciones_libres al\s/);
+        expect(paramsCount).toEqual(['finalizado']);
+        expect(res._json.data[0].asignaciones_a_revisar).toBe(2);
+      });
+
+      it('?revisar=fin_evento deja solo los trabajos que tienen alguna', async () => {
+        bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+        await listTrabajos(mockReq({ query: { revisar: 'fin_evento' }, user: admin }), mockRes(), mockNext());
+        const [sqlCount, paramsCount] = query.mock.calls[0];
+        const [, params] = query.mock.calls[1];
+        expect(sqlCount).toMatch(/IS NOT NULL\)\s*> 0/);
+        expect(paramsCount).toEqual(REVISAR);
+        expect(params.slice(0, 10)).toEqual([...REVISAR, ...REVISAR]);
+      });
+
+      it('a quien no es de la oficina no le llega ni le filtra, aunque tenga MANAGE_TRABAJOS', async () => {
+        const conPermiso = { id: 7, roles: ['tecnico'], permissions: ['manage_trabajos', 'view_all_trabajos'] };
+        for (const user of [resp1, conPermiso]) {
+          query.mockReset();
+          bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+          await listTrabajos(mockReq({ query: { revisar: 'fin_evento' }, user }), mockRes(), mockNext());
+          const [sqlCount] = query.mock.calls[0];
+          const [sql] = query.mock.calls[1];
+          expect(sql).toContain('NULL AS asignaciones_a_revisar');
+          expect(sql).not.toContain('trabajo_coordinadores rc');
+          expect(sqlCount).not.toMatch(/asignaciones_libres al\s/);
+        }
+      });
+    });
+
     // Antes era `fecha_inicio DESC` suelto: el más lejano arriba y los de hoy
     // enterrados. Solo se puede mirar el SQL, pero eso basta para que no vuelva.
     it('ordena por fecha: abiertos del más próximo al más lejano, cerrados al final', async () => {
