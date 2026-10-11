@@ -1309,6 +1309,41 @@ después de `inicio_real_at`, **se marca para gestión, sin bloquear nada**:
 - El frontend no tiene espejo de la constante: pinta el `umbral_min` que le
   llega. El `title` del badge del listado no lleva la cifra por eso mismo.
 
+**Fin del evento pegado al cierre: «A revisar» (2026-10-11).** Pedido por el
+usuario para pillar a quien se olvida de «Fin evento/servicio» en el sitio y lo
+pulsa ya en base, justo antes de «Finalizar asignación»: entonces
+`fin_servicio_at` no es la hora real y las horas «en el evento» de Informes
+(§2.7) salen infladas con la vuelta. Si entre `fin_servicio_at` y
+`finalizado_at` hay **`FIN_EVENTO_EN_BASE_MINUTOS` (15) o menos**, se marca.
+No bloquea nada ni avisa a nadie: es una marca para revisar.
+- **Quién la ve (decisión del usuario): gestión, pero ni quien va en la
+  ambulancia ni quien coordina su trabajo**, tenga el rol que tenga (los roles
+  no son excluyentes: un gestor puede ir de técnico o coordinar). La regla es
+  `veRevisionFinEvento`: `MANAGE_TRABAJOS` y no ser responsable, personal,
+  `al.user_id` ni coordinador. **Se filtra en el backend, no en la pantalla**,
+  a diferencia de las fotos tarde: a quien no debe verla no le llega el campo.
+- Ficha: `marcarFinEventoEnBase` → `revisar_fin_evento` = `{minutos,
+  umbral_min}` o null. **Se añade en `getAsignacion`, no en
+  `getAsignacionCompleta`**, porque esa la devuelven también las acciones del
+  técnico (activar, fotos, fin del evento, cierre) y le llegaría la marca.
+  `AsignacionDetalle` pinta el aviso «A revisar» bajo «Fin evento/servicio».
+- Listado: columna `revisar_fin_evento` (minutos o NULL; `NULL` literal sin
+  `MANAGE_TRABAJOS`) con `SQL_REVISAR_FIN_EVENTO`, y filtro
+  `?revisar=fin_evento` (solo gestión; a un técnico se le ignora). En
+  `AsignacionList`, badge rojo «A revisar: fin evento» y chip «A revisar»
+  junto a los de estado, que **se suma** al estado elegido (va en la URL,
+  `revisar`). Ojo con `revisar_fin_evento` = 0: se mira `!= null`, no su verdad.
+- **Mismo corte en ficha y listado**: «N min o menos» en milisegundos y
+  `finalizado_at <= fin_servicio_at + INTERVAL N MINUTE`; 15 min y 20 s ya no
+  es. El coordinador se mira con `trabajo_coordinadores` sobre
+  `al.trabajo_id`, sin el JOIN a `trabajos`, porque el `COUNT(*)` del
+  listado no lo tiene y el filtro va en su `WHERE`.
+- Se calcula al leer: vale para el pasado y un cambio de umbral también lo
+  reescribe. Sin «Fin evento/servicio» (es opcional) **no se marca**: olvidarlo
+  del todo no es este caso y no se pidió. La lista de un trabajo
+  (`trabajos.controller`) y `MisAsignaciones` no la llevan: las ven
+  coordinadores y técnicos.
+
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
 `responsables`/`personal` sin condición (mismo `requirePermission(MANAGE_TRABAJOS)`
@@ -1876,6 +1911,7 @@ solo actúa en el navegador no es un control de acceso.
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`). **Trampa:** la clave React de cada tarjeta de la pestaña Fotos sale de `claveGrupo`, que repite la del backend (`t<id>`, `a<id>`, `sin_asignar`). Hasta 2026-10-03 era `trabajo_id ?? 'sin_trabajo'`: todas las asignaciones (sin `trabajo_id`) compartían clave y React avisaba de hijos duplicados. Sin prefijo, el trabajo 5 chocaría con la asignación 5. Si el backend cambia cómo agrupa, cambiar las dos |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
 | Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de la asignación», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Inicio evento/servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin evento/servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del evento/servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio de la asignación» y «Fin de la asignación» en pareja (se llamaron «Inicio/Fin real de servicio» hasta el 2026-10-03: el usuario reserva «evento/servicio» para lo que pasa en el sitio —llegada y fin— y llama asignación a lo que va de las fotos de inicio a las de cierre) y debajo «Inicio evento/servicio» con lo que tardó desde el inicio (`duration`) y «Fin evento/servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y «Fin evento/servicio» en la tarjeta. Reglas de ambos en §6.1 |
+| La marca «A revisar» del fin del evento (umbral, quién la ve) | `FIN_EVENTO_EN_BASE_MINUTOS` en backend `config/constants.js` → `asignaciones.controller`: `marcarFinEventoEnBase` + `veRevisionFinEvento` (ficha, solo en `getAsignacion`) y `SQL_REVISAR_FIN_EVENTO` (listado y su filtro `?revisar=fin_evento`); el corte tiene que ser el mismo en los dos → `AsignacionDetalle` (aviso) y `AsignacionList` (badge + chip). §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura) y `VehicleHistory` (día+hora y badge de momento) |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10. **Si es `denegada` y no es para gestor o más, va también en `NIVEL`** (`administrador` o `superadmin`): el test prueba que el escalón de abajo recibe 403 y que el que debe entrar no, y que un token de «Ver como» no abre nada de superadmin |

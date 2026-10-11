@@ -9,7 +9,7 @@ const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS,
-  INICIO_ANTICIPADO_MAX_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS } =
+  INICIO_ANTICIPADO_MAX_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EN_BASE_MINUTOS } =
   require('../config/constants');
 const { hasPermission, isAdmin } = require('../middleware/roles.middleware');
 const logger                     = require('../utils/logger.utils');
@@ -85,6 +85,60 @@ function marcarFotosInicioTarde(asig, evidencias) {
     ? { fotos: tardias, max_retraso_min: maxRetraso, umbral_min: FOTOS_INICIO_TARDE_MINUTOS }
     : null;
 }
+
+/**
+ * «Fin evento/servicio» pulsado a FIN_EVENTO_EN_BASE_MINUTOS o menos de
+ * «Finalizar asignación»: lo normal es que entre uno y otro vaya la vuelta a
+ * base, así que un fin pegado al cierre delata que se pulsó ya en base, al
+ * cerrar, porque se olvidó en el sitio. Devuelve `{ minutos, umbral_min }` o
+ * null. Sin una de las dos horas no hay nada que comparar.
+ *
+ * Se calcula al leer, como las fotos de inicio tarde, y el corte es «N minutos
+ * o menos» en milisegundos, igual que el `<= fin_servicio_at + INTERVAL N
+ * MINUTE` del listado (`SQL_REVISAR_FIN_EVENTO`): tienen que decir lo mismo.
+ * Quién lo puede ver lo decide `veRevisionFinEvento`, no esta función.
+ */
+function marcarFinEventoEnBase(asig) {
+  if (!asig.fin_servicio_at || !asig.finalizado_at) return null;
+  const diffMs = instanteUtc(asig.finalizado_at).getTime() - instanteUtc(asig.fin_servicio_at).getTime();
+  if (diffMs > FIN_EVENTO_EN_BASE_MINUTOS * 60000) return null;
+  return { minutos: Math.max(0, Math.floor(diffMs / 60000)), umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
+}
+
+/**
+ * La marca de `marcarFinEventoEnBase` es para que gestión revise a quien se
+ * olvida del botón (decisión del usuario, 2026-10-11): no la ven quienes van
+ * en la ambulancia ni quienes coordinan su trabajo, tengan el rol que tengan
+ * (los roles no son excluyentes: un gestor puede ir de técnico). Por eso no se
+ * pone en `getAsignacionCompleta`, que también devuelven las acciones del
+ * técnico (activar, fotos, cierre): solo la añade `getAsignacion`.
+ * `al.user_id` cuenta como miembro, igual que el respaldo de rolEnAsignacion.
+ */
+function veRevisionFinEvento(user, asig) {
+  return hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS)
+    && !rolEnAsignacion(asig, user.id)
+    && asig.user_id !== user.id
+    && !esCoordinador(asig, user.id);
+}
+
+/**
+ * Lo mismo que `marcarFinEventoEnBase` + `veRevisionFinEvento` en SQL, para el
+ * listado: los minutos del fin del evento al cierre, o NULL si no hay que
+ * revisarla o quien pregunta va en ella o coordina su trabajo. Parámetros
+ * (`paramsRevisarFinEvento`): el umbral y tres veces el id de quien pregunta. Solo se usa con
+ * MANAGE_TRABAJOS (el listado de un técnico ya solo trae las suyas).
+ */
+const SQL_REVISAR_FIN_EVENTO = `
+  CASE WHEN al.fin_servicio_at IS NOT NULL AND al.finalizado_at IS NOT NULL
+        AND al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE
+        AND al.user_id <> ?
+        AND NOT EXISTS (SELECT 1 FROM asignacion_usuarios rv
+                         WHERE rv.asignacion_id = al.id AND rv.user_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM trabajo_coordinadores rc
+                         WHERE rc.trabajo_id = al.trabajo_id AND rc.user_id = ?)
+       THEN GREATEST(0, TIMESTAMPDIFF(MINUTE, al.fin_servicio_at, al.finalizado_at))
+  END`;
+const paramsRevisarFinEvento = (userId) => [FIN_EVENTO_EN_BASE_MINUTOS, userId, userId, userId];
 
 /**
  * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la
@@ -538,6 +592,13 @@ async function listAsignaciones(req, res, next) {
       params.push(estado);
     }
 
+    // `?revisar=fin_evento`: solo las marcadas para revisión (fin del evento
+    // pegado al cierre). Es de gestión; a un técnico no le filtra nada.
+    if (canManage && req.query.revisar === 'fin_evento') {
+      whereParts.push(`(${SQL_REVISAR_FIN_EVENTO}) IS NOT NULL`);
+      params.push(...paramsRevisarFinEvento(req.user.id));
+    }
+
     // Filtro por trabajo (D9): `?trabajo_id=N`, o `sin` para las del modelo
     // antiguo, que no tienen.
     const trabajoFiltro = req.query.trabajo_id;
@@ -578,7 +639,10 @@ async function listAsignaciones(req, res, next) {
               (SELECT COUNT(*) FROM vehicle_images ti
                 WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'
                   AND al.inicio_real_at IS NOT NULL
-                  AND ti.created_at > al.inicio_real_at + INTERVAL ? MINUTE) AS fotos_inicio_tarde
+                  AND ti.created_at > al.inicio_real_at + INTERVAL ? MINUTE) AS fotos_inicio_tarde,
+              -- Minutos del fin del evento al cierre si hay que revisarla
+              -- (marcarFinEventoEnBase); NULL para quien no gestiona.
+              ${canManage ? SQL_REVISAR_FIN_EVENTO : 'NULL'} AS revisar_fin_evento
        FROM asignaciones_libres al
        JOIN vehicles v ON al.vehicle_id = v.id
        JOIN users u    ON al.user_id    = u.id
@@ -586,7 +650,8 @@ async function listAsignaciones(req, res, next) {
        ${where}
        ORDER BY ${ORDEN_LISTADO}
        LIMIT ? OFFSET ?`,
-      [req.user.id, FOTOS_INICIO_TARDE_MINUTOS, ...params, limit, offset]
+      [req.user.id, FOTOS_INICIO_TARDE_MINUTOS,
+       ...(canManage ? paramsRevisarFinEvento(req.user.id) : []), ...params, limit, offset]
     );
 
     return paginated(res, { data: rows, total, page, limit });
@@ -627,6 +692,8 @@ async function getAsignacion(req, res, next) {
     if (!canManage && !rolEnAsignacion(asig, req.user.id) && !esCoordinador(asig, req.user.id)) {
       return forbidden(res, 'No tienes acceso a esta asignación');
     }
+
+    if (veRevisionFinEvento(req.user, asig)) asig.revisar_fin_evento = marcarFinEventoEnBase(asig);
 
     return success(res, asig);
   } catch (err) {
@@ -1567,6 +1634,8 @@ module.exports = {
   rolEnAsignacion,
   esCoordinador,
   leerMiembros,
+  marcarFinEventoEnBase,
+  veRevisionFinEvento,
   // Para el alta de un trabajo con su primera ambulancia (trabajos.controller)
   usuariosNoValidos,
   insertarAsignacion,

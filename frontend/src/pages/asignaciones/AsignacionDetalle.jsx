@@ -516,6 +516,21 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                         </span>
                       )}
                     </p>
+                    {/* Fin del evento pegado al cierre: probablemente se pulsó
+                        ya en base. Solo llega del backend a gestión que no va
+                        en la ambulancia ni coordina el trabajo
+                        (`revisar_fin_evento`); aquí no se filtra nada más. */}
+                    {asig.revisar_fin_evento && (
+                      <div className="mt-1 rounded-lg border border-bad-200 bg-bad-50 px-3 py-2 text-xs text-bad-600"
+                           data-testid="aviso-revisar-fin-evento">
+                        <p className="font-semibold">A revisar</p>
+                        <p>
+                          Se pulsó {asig.revisar_fin_evento.minutos} min antes de finalizar la asignación
+                          (umbral: {asig.revisar_fin_evento.umbral_min} min). Probablemente ya en base:
+                          la hora de fin del evento puede no ser la real.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

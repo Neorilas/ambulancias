@@ -77,6 +77,13 @@ module.exports = {
   // marca como tardía para los administradores. No bloquea nada. Lo calcula el
   // backend (`asignaciones.controller`); el frontend solo pinta lo que recibe.
   FOTOS_INICIO_TARDE_MINUTOS: 30,
+  // «Fin evento/servicio» pulsado a estos minutos o menos de «Finalizar
+  // asignación»: casi seguro que se pulsó ya en base, al cerrar, y no al
+  // terminar en el sitio. Se marca para revisión de gestión, sin bloquear nada
+  // y sin que lo vean quienes van en la ambulancia ni quienes coordinan su
+  // trabajo. Decisión del usuario (2026-10-11). Lo calcula el backend; el
+  // frontend pinta el `umbral_min` que le llega.
+  FIN_EVENTO_EN_BASE_MINUTOS: 15,
   // Informes: un servicio se inició tarde si «Inicio de la asignación» se pulsó más
   // de estos minutos después de la hora prevista. El mismo margen decide los
   // cierres tardíos/anticipados frente a `fecha_fin`. Decisión de

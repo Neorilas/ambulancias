@@ -281,6 +281,58 @@ describe('asignaciones.controller', () => {
       });
     });
 
+    // Fin del evento pegado al cierre (2026-10-11): para revisión de gestión,
+    // sin que lo vea quien va en la ambulancia ni quien coordina su trabajo.
+    describe('fin del evento pegado al cierre', () => {
+      const ADMIN = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+      const FIN = new Date('2026-10-11T18:00:00Z');
+      const cierreA = (min, seg = 0) => new Date(FIN.getTime() + min * 60000 + seg * 1000);
+
+      async function leer(overrides, user = ADMIN) {
+        mockAsignacionCompleta({ estado: 'finalizada', fin_servicio_at: FIN, ...overrides });
+        const res = mockRes();
+        await getAsignacion(mockReq({ params: { id: '1' }, user }), res, mockNext());
+        return res._json.data;
+      }
+
+      it('marca un cierre a 15 min o menos del fin del evento', async () => {
+        expect((await leer({ finalizado_at: cierreA(4) })).revisar_fin_evento)
+          .toEqual({ minutos: 4, umbral_min: 15 });
+        // 15 justos todavía es «15 min máximo»
+        expect((await leer({ finalizado_at: cierreA(15) })).revisar_fin_evento)
+          .toEqual({ minutos: 15, umbral_min: 15 });
+      });
+
+      it('15 min y unos segundos ya no (mismo corte que el listado)', async () => {
+        expect((await leer({ finalizado_at: cierreA(15, 20) })).revisar_fin_evento).toBeNull();
+        expect((await leer({ finalizado_at: cierreA(50) })).revisar_fin_evento).toBeNull();
+      });
+
+      it('sin fin del evento o sin cierre no hay nada que comparar', async () => {
+        expect((await leer({ fin_servicio_at: null, finalizado_at: cierreA(2) })).revisar_fin_evento).toBeNull();
+        expect((await leer({ estado: 'activa', finalizado_at: null })).revisar_fin_evento).toBeNull();
+      });
+
+      it('lee las horas de BD como UTC aunque lleguen en texto', async () => {
+        const data = await leer({ fin_servicio_at: '2026-10-11 18:00:00', finalizado_at: '2026-10-11 18:09:00' });
+        expect(data.revisar_fin_evento).toEqual({ minutos: 9, umbral_min: 15 });
+      });
+
+      it('no llega a quien va en la ambulancia, aunque gestione', async () => {
+        const data = await leer({
+          user_id: 2, finalizado_at: cierreA(3),
+          miembros: [{ user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 1, rol: 'personal', orden: 1 }],
+        });
+        expect(data).not.toHaveProperty('revisar_fin_evento');
+      });
+
+      it('no llega al técnico responsable', async () => {
+        const data = await leer({ user_id: 2, finalizado_at: cierreA(3) },
+          { id: 2, roles: ['tecnico'], permissions: [] });
+        expect(data).not.toHaveProperty('revisar_fin_evento');
+      });
+    });
+
     it('incluye las incidencias registradas en la asignación', async () => {
       query.mockResolvedValueOnce([[{
         id: 1, vehicle_id: 3, user_id: 9, estado: 'activa',
@@ -2010,6 +2062,38 @@ describe('asignaciones.controller', () => {
       expect(params.slice(0, 4)).toEqual([7, 30, 7, 7]);
     });
 
+    it('el listado no manda la marca de revisión del fin del evento al operacional', async () => {
+      query.mockResolvedValueOnce([[{ total: 0 }]]);
+      query.mockResolvedValueOnce([[]]);
+      await listAsignaciones(mockReq({ query: { revisar: 'fin_evento' }, user: personal }), mockRes(), mockNext());
+      const [sql, params] = query.mock.calls[1];
+      expect(sql).toContain('NULL AS revisar_fin_evento');
+      expect(sql).not.toContain('trabajo_coordinadores rc');
+      // Ni filtro: mi_rol, umbral de fotos y los dos de pertenencia
+      expect(params.slice(0, 4)).toEqual([7, 30, 7, 7]);
+      expect(query.mock.calls[0][1]).toEqual([7, 7]);
+    });
+
+    it('el listado de gestión marca y filtra las de fin del evento pegado al cierre', async () => {
+      const gestor = { id: 3, roles: ['gestor'], permissions: ['manage_trabajos'] };
+      query.mockResolvedValueOnce([[{ total: 1 }]]);
+      query.mockResolvedValueOnce([[{ id: 1, revisar_fin_evento: 4 }]]);
+      const res = mockRes();
+      await listAsignaciones(mockReq({ query: { revisar: 'fin_evento' }, user: gestor }), res, mockNext());
+      const [sqlCount, paramsCount] = query.mock.calls[0];
+      const [sql, params] = query.mock.calls[1];
+      // Mismo corte que la ficha: «15 min o menos», y fuera quien va o coordina
+      expect(sql).toContain('al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE');
+      expect(sql).toContain('FROM trabajo_coordinadores rc');
+      expect(sql).toMatch(/END AS revisar_fin_evento/);
+      // SELECT: mi_rol, fotos, y umbral + tres veces el usuario; luego el WHERE
+      expect(params.slice(0, 6)).toEqual([3, 30, 15, 3, 3, 3]);
+      expect(params.slice(6, 10)).toEqual([15, 3, 3, 3]);
+      expect(sqlCount).toContain('IS NOT NULL');
+      expect(paramsCount).toEqual([15, 3, 3, 3]);
+      expect(res._json.data[0].revisar_fin_evento).toBe(4);
+    });
+
     it('crea con varios responsables y personal; el principal es el primero', async () => {
       query.mockResolvedValueOnce([[{ id: 1 }]]);                     // vehículo
       query.mockResolvedValueOnce([[{ id: 2 }, { id: 3 }, { id: 7 }]]); // usuarios
@@ -2333,6 +2417,19 @@ describe('asignación dentro de un trabajo (v33)', () => {
   });
 
   describe('ver', () => {
+    it('la marca de fin del evento pegado al cierre no llega a un coordinador, aunque gestione', async () => {
+      const fin = new Date('2026-10-11T18:00:00Z');
+      bd([], { asig: fila({ estado: 'finalizada', fin_servicio_at: fin, finalizado_at: new Date(fin.getTime() + 5 * 60000) }) });
+      const coordGestor = { id: 6, roles: ['gestor'], permissions: ['manage_trabajos'] };
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: coordGestor }), res, mockNext());
+      expect(res._json.data).not.toHaveProperty('revisar_fin_evento');
+      // Y a gestión ajena al trabajo sí
+      const res2 = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res2, mockNext());
+      expect(res2._json.data.revisar_fin_evento).toEqual({ minutos: 5, umbral_min: 15 });
+    });
+
     it('la ficha trae el trabajo como objeto, sin las columnas sueltas del JOIN', async () => {
       bd();
       const res = mockRes();

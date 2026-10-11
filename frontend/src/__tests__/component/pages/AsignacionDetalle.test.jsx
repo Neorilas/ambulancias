@@ -429,6 +429,37 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
   });
 });
 
+// El backend solo manda `revisar_fin_evento` a gestión que no va en la
+// ambulancia ni coordina su trabajo: la ficha pinta lo que llega.
+describe('AsignacionDetalle — fin del evento pegado al cierre', () => {
+  const CON_MARCA = {
+    ...BASE,
+    llegada_servicio_at: '2026-09-21T08:00:00.000Z', fin_servicio_at: '2026-09-21T14:19:00.000Z',
+    revisar_fin_evento: { minutos: 4, umbral_min: 15 },
+  };
+
+  it('enseña el aviso bajo el fin del evento', async () => {
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] }));
+    asignacionesService.get.mockResolvedValue(CON_MARCA);
+    montar();
+
+    const aviso = await screen.findByTestId('aviso-revisar-fin-evento');
+    expect(aviso).toHaveTextContent('A revisar');
+    expect(aviso).toHaveTextContent('Se pulsó 4 min antes de finalizar la asignación');
+    expect(aviso).toHaveTextContent('umbral: 15 min');
+  });
+
+  it('sin la marca no hay aviso', async () => {
+    asignacionesService.get.mockResolvedValue({ ...CON_MARCA, revisar_fin_evento: undefined });
+    montar();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByTestId('aviso-revisar-fin-evento')).not.toBeInTheDocument();
+  });
+});
+
 // ── v33: la asignación dentro de su trabajo ──────────────────
 describe('AsignacionDetalle — su trabajo', () => {
   const TRABAJO = {
