@@ -27,7 +27,7 @@ export default function TrabajoList() {
   const [url, cambiarUrl] = useEstadoEnUrl({
     vista: 'lista', mes: '', dia: '', page: '1', search: '', estado: '', tipo: '', revisar: '',
   });
-  // `?revisar=fin_evento`: solo los trabajos con alguna ambulancia «A revisar»
+  // `?revisar=fin_evento`: solo los trabajos con «Tiempos que no cuadran»
   // por el fin del evento (backend, `asignaciones_a_revisar`). Es para la
   // oficina, los mismos que abren esta pantalla; el backend vuelve a mirar el
   // rol y no cuenta los trabajos que coordina quien pregunta.
@@ -165,7 +165,7 @@ export default function TrabajoList() {
                   : 'bg-white text-neutral-600 border-neutral-300 hover:border-bad-500'
                 }`}
             >
-              A revisar
+              Tiempos que no cuadran
             </button>
           </div>
 
@@ -203,12 +203,13 @@ export default function TrabajoList() {
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
                             {/* Ambulancias con el fin del evento a revisar
-                                (backend; null a quien no le toca verlo) */}
+                                (backend; null a quien no le toca verlo). El
+                                texto lo eligió el usuario (2026-10-11); el
+                                número de ambulancias va en el `title` */}
                             {Number(t.asignaciones_a_revisar) > 0 && (
                               <span className="badge-red whitespace-nowrap" data-testid="trabajo-a-revisar"
-                                    title="Ambulancias en las que «Fin evento/servicio» no se pulsó, o se pulsó justo antes de finalizar (probablemente ya en base). El detalle, dentro de cada ambulancia">
-                                A revisar: {Number(t.asignaciones_a_revisar) === 1
-                                  ? '1 ambulancia' : `${t.asignaciones_a_revisar} ambulancias`}
+                                    title={`${Number(t.asignaciones_a_revisar) === 1 ? '1 ambulancia' : `${t.asignaciones_a_revisar} ambulancias`} en las que «Fin evento/servicio» no se pulsó, o se pulsó justo antes de finalizar (probablemente ya en base). El detalle, dentro de cada ambulancia`}>
+                                Tiempos que no cuadran
                               </span>
                             )}
                           </div>
