@@ -309,7 +309,7 @@ describe('avisosAsignacion.service', () => {
     });
 
     it('pendiente de cierre: solo a sus coordinadores (todos), con la ficha del trabajo', async () => {
-      await avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'Maratón', coordinador_user_id: 5, coordinadores: [5, 6] });
+      await avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'Maratón', coordinador_user_id: 5, coordinadores_ids: [5, 6] });
       expect(push.notificarAdmins).not.toHaveBeenCalled();
       expect(push.notificarUsuarios).toHaveBeenCalledWith([5, 6], expect.objectContaining({
         url: '/trabajos/40', tag: 'trab-40-pendiente-cierre',
@@ -318,14 +318,14 @@ describe('avisosAsignacion.service', () => {
     });
 
     it('pendiente de cierre de un trabajo sin coordinador (anterior a v33): a gestión', async () => {
-      await avisos.avisarTrabajoPendienteCierre({ id: 41, nombre: 'Viejo', coordinador_user_id: null, coordinadores: [] });
+      await avisos.avisarTrabajoPendienteCierre({ id: 41, nombre: 'Viejo', coordinador_user_id: null, coordinadores_ids: [] });
       expect(push.notificarUsuarios).not.toHaveBeenCalled();
       expect(push.notificarAdmins).toHaveBeenCalledWith(expect.objectContaining({ url: '/trabajos/41' }));
     });
 
     it('un fallo del servicio de push no se propaga', async () => {
       push.notificarUsuarios.mockRejectedValueOnce(new Error('se cayó'));
-      await expect(avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'M', coordinadores: [5] }))
+      await expect(avisos.avisarTrabajoPendienteCierre({ id: 40, nombre: 'M', coordinadores_ids: [5] }))
         .resolves.toBeDefined();
     });
   });

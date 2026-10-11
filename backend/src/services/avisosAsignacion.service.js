@@ -296,7 +296,7 @@ function avisarCambioVehiculo(asig, ids = [], { anterior = null, cambiadoPor = n
 
 /**
  * Todas las ambulancias del trabajo han finalizado: falta que un coordinador
- * lo cierre (D3). Va SOLO a sus coordinadores (`trabajo.coordinadores`, ids;
+ * lo cierre (D3). Va SOLO a sus coordinadores (`trabajo.coordinadores_ids`;
  * todos, v35), que son quienes lo cierran; un trabajo de antes de v33 no
  * tiene, y entonces va a gestión.
  *
@@ -312,7 +312,7 @@ function avisarTrabajoPendienteCierre(trabajo) {
       url:    `/trabajos/${trabajo.id}`,
       tag:    `trab-${trabajo.id}-pendiente-cierre`,
     };
-    const ids = (trabajo.coordinadores || []).map(Number);
+    const ids = (trabajo.coordinadores_ids || []).map(Number);
     return disparar(ids.length
       ? push.notificarUsuarios(ids, aviso)
       : push.notificarAdmins(aviso));

@@ -198,7 +198,7 @@ export default function TrabajoList() {
                           <p className="text-xs text-neutral-400 mt-0.5">
                             {t.num_vehiculos} ambulancia(s) · {t.num_usuarios} persona(s)
                             {t.coordinadores_nombres && (
-                              <> · {t.coordinadores_nombres.includes(', ') ? 'Coordinan' : 'Coordina'} {t.coordinadores_nombres}</>
+                              <> · {Number(t.num_coordinadores) > 1 ? 'Coordinan' : 'Coordina'} {t.coordinadores_nombres}</>
                             )}
                           </p>
                         </div>

@@ -136,6 +136,8 @@ function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
       if (sql.includes('FROM asignaciones_libres WHERE trabajo_id')) {
         return [asignaciones.map(e => ({ estado: e, borrada: 0 }))];
       }
+      // Lecturas dentro de la transacción: las mismas reglas de bd()
+      if (sql.includes('SELECT user_id FROM trabajo_coordinadores')) return (await query(sql, params)) || [[]];
       // Sin AUTO_INCREMENT, MySQL devuelve insertId 0
       if (sql.startsWith('INSERT INTO trabajo_coordinadores')) return [{ insertId: 0, affectedRows: 1 }];
       if (sql.startsWith('INSERT')) return [{ insertId: insertId++ }];
@@ -1107,6 +1109,37 @@ describe('trabajos.controller', () => {
       expect(query.mock.calls.some(([sql, params]) =>
         sql.includes('FROM users') && params.includes(51) && params.includes(52))).toBe(true);
       expect(avisos.avisarCoordinadorTrabajo).toHaveBeenCalledWith(expect.anything(), [52, 51], { asignadoPor: 1 });
+      // Con el trabajo bloqueado, y queda en la auditoría
+      expect(ejecutadas.some(e => e.sql.includes('FOR UPDATE'))).toBe(true);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'update_trabajo',
+        details: expect.objectContaining({ coordinadores_antes: [50], coordinadores: [52, 51] }),
+      }));
+    });
+
+    it('la lista que manda es la releída dentro de la transacción, no la de antes', async () => {
+      // Antes de bloquear había [50, 52]; dentro, otra edición ya ha quitado al 52
+      let lecturas = 0;
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }),
+          ['SELECT user_id FROM trabajo_coordinadores', () => [(++lecturas === 1 ? [50, 52] : [50])
+            .map(user_id => ({ user_id }))]],
+          usuariosOk, ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinador_user_id: 51 }, user: admin }),
+        mockRes(), mockNext());
+      // Formato viejo: solo cambia el principal, sobre lo que hay AHORA (sin resucitar al 52)
+      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_coordinadores')).params).toEqual([1, 51, 0]);
+    });
+
+    it('mandar la misma lista no reescribe nada ni lo apunta como cambio', async () => {
+      bd([existente('activo', { coordinador_user_id: 50, num_asignaciones: 2 }), coordsActuales(50, 51),
+          usuariosOk, ...trabajoDosVehiculos()]);
+      const { ejecutadas } = conexion();
+      await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinadores: [50, 51], nombre: 'X' }, user: admin }),
+        mockRes(), mockNext());
+      expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_coordinadores'))).toBe(false);
+      expect(avisos.avisarCoordinadorTrabajo).not.toHaveBeenCalled();
+      expect(logAudit.mock.calls[0][0].details).not.toHaveProperty('coordinadores');
     });
 
     it('añadir un coordinador solo avisa al que entra, no a quien ya lo era', async () => {

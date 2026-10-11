@@ -124,7 +124,7 @@ describe('estadoTrabajo.service', () => {
 
       await avisarSiPendienteCierre(40, { estado: 'pendiente_cierre', cambia: true });
       expect(avisos.avisarTrabajoPendienteCierre).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 40, coordinadores: [5, 6] }));
+        expect.objectContaining({ id: 40, coordinadores_ids: [5, 6] }));
 
       avisos.avisarTrabajoPendienteCierre.mockClear();
       await avisarSiPendienteCierre(40, { estado: 'pendiente_cierre', cambia: false });

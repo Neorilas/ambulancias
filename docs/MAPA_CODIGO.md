@@ -1602,7 +1602,19 @@ quedarse en solo lectura).
   sale), y ningún coordinador recibe además «nuevo trabajo». Los que ya lo
   eran no bloquean una edición aunque estén de baja (`usuariosNoValidos` con
   `yaMiembros`). La auditoría de `create_trabajo` guarda `coordinadores`; la de
-  `close_trabajo`, `por_gestion` = no era coordinador.
+  `update_trabajo`, `coordinadores_antes`/`coordinadores` si cambiaron; la de
+  `close_trabajo`, `por_gestion` = no era coordinador. **Al editar, la lista
+  que manda se relee dentro de la transacción con `SELECT … FOR UPDATE`
+  sobre el trabajo** (la lectura de antes solo sirve para validar): dos
+  ediciones cruzadas, sobre todo con el formato viejo, que mezcla lo que
+  había con el principal nuevo, resucitaban a un coordinador recién quitado
+  (lo vio la revisión de código del 2026-10-11). Si la lista no cambia, no se
+  reescribe ni se audita como cambio. El listado trae `coordinadores_nombres`
+  y `num_coordinadores` (el plural «Coordinan» sale del contador, no de
+  buscar comas en los nombres) y **sigue trayendo `coordinador_nombre`** (el
+  principal) para la PWA sin actualizar. Al aviso de «listo para cerrar» le
+  llegan los ids como `coordinadores_ids`, para no confundirlos con
+  `coordinadores`, que en la ficha es la lista de personas.
 
 - `/:id/activar` y `/:id/finalize` (trabajo v25 sin vehículos) dan 400 a un
   trabajo del modelo nuevo (`motivoNoManual`: con coordinador o que haya tenido

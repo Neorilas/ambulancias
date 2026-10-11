@@ -132,7 +132,7 @@ async function avisarSiPendienteCierre(trabajoId, resultado) {
       [trabajoId]
     );
     if (rows.length) {
-      await avisos.avisarTrabajoPendienteCierre({ ...rows[0], coordinadores: await idsCoordinadores(trabajoId) });
+      await avisos.avisarTrabajoPendienteCierre({ ...rows[0], coordinadores_ids: await idsCoordinadores(trabajoId) });
     }
   } catch (err) {
     logger.error(`Aviso de trabajo pendiente de cierre no enviado: ${err?.message || err}`);

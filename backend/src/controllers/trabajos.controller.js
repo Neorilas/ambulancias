@@ -553,6 +553,9 @@ async function listTrabajos(req, res, next) {
               t.fecha_inicio, t.fecha_fin, t.created_at, t.coordinador_user_id,
               u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos,
               ${NOMBRES_COORDINADORES} AS coordinadores_nombres,
+              (SELECT COUNT(*) FROM trabajo_coordinadores cc WHERE cc.trabajo_id = t.id) AS num_coordinadores,
+              -- El principal suelto: lo lee la PWA sin actualizar
+              CONCAT(co.nombre, ' ', co.apellidos) AS coordinador_nombre,
               -- Ambulancias: las asignaciones vivas (v33) o los vehículos (v25)
               (SELECT COUNT(*) FROM asignaciones_libres a
                 WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada')
@@ -567,6 +570,7 @@ async function listTrabajos(req, res, next) {
                                      WHERE tu2.trabajo_id = t.id AND tu2.user_id = au.user_id)) AS num_usuarios
        FROM trabajos t
        JOIN users u ON t.created_by = u.id
+       LEFT JOIN users co ON co.id = t.coordinador_user_id
        ${where}
        ORDER BY ${ORDEN_LISTADO_TRABAJOS}
        LIMIT ? OFFSET ?`,
@@ -921,13 +925,19 @@ async function updateTrabajo(req, res, next) {
       return error(res, 'Las ambulancias de este trabajo y quién va en ellas se cambian en cada una de ellas', 400);
     }
     // Coordinadores (v35): la lista entera, o el formato viejo
-    // (`coordinador_user_id` suelto), que solo cambia el principal
+    // (`coordinador_user_id` suelto), que solo cambia el principal. Esta
+    // lectura es para validar; la que manda se repite dentro de la
+    // transacción, con el trabajo bloqueado (ver más abajo).
     const pedidoCoord = coordinadores.leerCoordinadores(req.body);
     if (pedidoCoord.error) return error(res, pedidoCoord.error, 400);
-    const coordActuales = await coordinadores.idsCoordinadores(id);
-    const coordNuevos = pedidoCoord.coordinadores && (pedidoCoord.soloPrincipal
-      ? coordinadores.cambiarPrincipal(coordActuales, pedidoCoord.coordinadores[0])
+    const listaPedida = (antes) => pedidoCoord.coordinadores && (pedidoCoord.soloPrincipal
+      ? coordinadores.cambiarPrincipal(antes, pedidoCoord.coordinadores[0])
       : pedidoCoord.coordinadores);
+    const coordActuales = await coordinadores.idsCoordinadores(id);
+    const coordNuevos = listaPedida(coordActuales);
+    // Lo que de verdad había y lo que se ha guardado (null si no cambia)
+    let coordAntes = coordActuales;
+    let coordGuardados = null;
 
     const { nombre, tipo, fecha_inicio, fecha_fin, usuarios } = req.body;
     const descripcion = textoOpcional(req.body.descripcion);
@@ -1008,8 +1018,20 @@ async function updateTrabajo(req, res, next) {
       if (updates.length) {
         await conn.execute(`UPDATE trabajos SET ${updates.join(', ')} WHERE id = ?`, [...vals, id]);
       }
-      // La lista y el principal (`coordinador_user_id`) cambian juntos
-      if (coordNuevos) await coordinadores.guardarCoordinadores(conn, id, coordNuevos);
+      // La lista y el principal (`coordinador_user_id`) cambian juntos. Con
+      // el trabajo bloqueado y releyendo la lista: dos ediciones cruzadas
+      // (sobre todo con el formato viejo, que mezcla lo que había con el
+      // principal nuevo) resucitarían a un coordinador recién quitado. Si
+      // no cambia nada no se reescribe.
+      if (pedidoCoord.coordinadores) {
+        await conn.execute('SELECT id FROM trabajos WHERE id = ? FOR UPDATE', [id]);
+        coordAntes = await coordinadores.idsCoordinadores(id, (sql, p) => conn.execute(sql, p));
+        const lista = listaPedida(coordAntes);
+        if (!coordinadores.mismaLista(lista, coordAntes)) {
+          await coordinadores.guardarCoordinadores(conn, id, lista);
+          coordGuardados = lista;
+        }
+      }
 
       if (vehiculos !== undefined) {
         const porVehiculo = new Map(actuales.map(a => [a.vehicle_id, a]));
@@ -1048,7 +1070,7 @@ async function updateTrabajo(req, res, next) {
     const t = await getTrabajoCompleto(id);
     // Coordinadores que ENTRAN: se les avisa a ellos; ni a quien ya lo era ni
     // a quien deja de serlo
-    const entranCoord = (coordNuevos || []).filter(c => !coordActuales.includes(c));
+    const entranCoord = (coordGuardados || []).filter(c => !coordAntes.includes(c));
     if (entranCoord.length) avisos.avisarCoordinadorTrabajo(t, entranCoord, { asignadoPor: req.user.id });
     // «Nuevo trabajo» solo a quien ENTRA en el equipo; quien ya iba no tiene
     // nada nuevo que saber, y el coordinador nuevo ya tiene el suyo. Solo en
@@ -1064,7 +1086,9 @@ async function updateTrabajo(req, res, next) {
       userInfo: req.user.username,
       action:   'update_trabajo',
       entityType: 'trabajo', entityId: id,
-      details:  { nombre: t.nombre, estado: t.estado },
+      // Quién coordina decide quién ve y cierra el trabajo: queda dicho
+      details:  { nombre: t.nombre, estado: t.estado,
+                  ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }) },
       ip: req.ip,
     });
     return success(res, t, 'Trabajo actualizado');

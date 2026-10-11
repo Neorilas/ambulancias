@@ -72,6 +72,11 @@ function cambiarPrincipal(actuales, nuevo) {
   return [nuevo, ...actuales.slice(1).filter(id => id !== nuevo)];
 }
 
+/** ¿Las dos listas de ids son la misma, en el mismo orden? (el orden decide el principal) */
+function mismaLista(a, b) {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 /** Ids de los coordinadores de un trabajo, el principal primero. */
 async function idsCoordinadores(trabajoId, db = query) {
   const [rows] = await db(
@@ -113,6 +118,7 @@ module.exports = {
   NOMBRES_COORDINADORES,
   leerCoordinadores,
   cambiarPrincipal,
+  mismaLista,
   idsCoordinadores,
   coordinadoresDe,
   guardarCoordinadores,

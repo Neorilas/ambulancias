@@ -199,6 +199,7 @@ describe('TrabajoList: quién coordina', () => {
     id: 7, nombre: 'Maratón', estado: 'activo', tipo: 'traslado', identificador: 'T-7',
     fecha_inicio: '2026-10-11T08:00:00Z', fecha_fin: '2026-10-11T10:00:00Z',
     num_vehiculos: 1, num_usuarios: 2, coordinadores_nombres,
+    num_coordinadores: coordinadores_nombres.split(', ').length,
   });
 
   beforeEach(() => vi.clearAllMocks());
