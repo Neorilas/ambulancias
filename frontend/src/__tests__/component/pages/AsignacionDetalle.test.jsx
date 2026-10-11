@@ -429,6 +429,49 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
   });
 });
 
+// El backend solo manda `revisar_fin_evento` a admin, gestor y superadmin que
+// no van en la ambulancia ni coordinan su trabajo: la ficha pinta lo que llega.
+describe('AsignacionDetalle — revisión del fin del evento', () => {
+  const CON_MARCA = {
+    ...BASE,
+    llegada_servicio_at: '2026-09-21T08:00:00.000Z', fin_servicio_at: '2026-09-21T14:19:00.000Z',
+    revisar_fin_evento: { motivo: 'pegado', minutos: 4, umbral_min: 15 },
+  };
+
+  it('enseña el aviso bajo el fin del evento', async () => {
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] }));
+    asignacionesService.get.mockResolvedValue(CON_MARCA);
+    montar();
+
+    const aviso = await screen.findByTestId('aviso-revisar-fin-evento');
+    expect(aviso).toHaveTextContent('A revisar');
+    expect(aviso).toHaveTextContent('Se pulsó 4 min antes de finalizar la asignación');
+    expect(aviso).toHaveTextContent('umbral: 15 min');
+  });
+
+  it('sin «Fin evento/servicio» lo dice, y si tampoco hubo llegada también', async () => {
+    asignacionesService.get.mockResolvedValue({
+      ...CON_MARCA, llegada_servicio_at: null, fin_servicio_at: null,
+      revisar_fin_evento: { motivo: 'sin_fin', umbral_min: 15 },
+    });
+    montar();
+
+    const aviso = await screen.findByTestId('aviso-revisar-fin-evento');
+    expect(aviso).toHaveTextContent('Se finalizó la asignación sin pulsar «Fin evento/servicio»');
+    expect(aviso).toHaveTextContent('tampoco consta el inicio del evento/servicio');
+  });
+
+  it('sin la marca no hay aviso', async () => {
+    asignacionesService.get.mockResolvedValue({ ...CON_MARCA, revisar_fin_evento: undefined });
+    montar();
+
+    await screen.findByText('Fin previsto');
+    expect(screen.queryByTestId('aviso-revisar-fin-evento')).not.toBeInTheDocument();
+  });
+});
+
 // ── v33: la asignación dentro de su trabajo ──────────────────
 describe('AsignacionDetalle — su trabajo', () => {
   const TRABAJO = {

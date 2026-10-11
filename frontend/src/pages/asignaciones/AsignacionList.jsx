@@ -47,7 +47,7 @@ export default function AsignacionList() {
   const detalleId = Number(idUrl) || null;
   // La página y el estado también van en la URL: al volver del trabajo de una
   // asignación (su enlace) se sigue en la misma página y con el mismo filtro.
-  const [url, cambiarUrl] = useEstadoEnUrl({ page: '1', estado: '', trabajo_id: '' });
+  const [url, cambiarUrl] = useEstadoEnUrl({ page: '1', estado: '', trabajo_id: '', revisar: '' });
   const page    = paginaDeUrl(url.page);
   const estado  = url.estado;
   const setPage = (fn) => cambiarUrl({ page: fn(page) });
@@ -55,6 +55,11 @@ export default function AsignacionList() {
   // modelo antiguo que no tienen.
   const trabajoFiltro = url.trabajo_id;
   const quitarFiltroTrabajo = () => cambiarUrl({ trabajo_id: '', page: 1 });
+  // `?revisar=fin_evento`: las marcadas para revisión porque el fin del evento
+  // se pulsó pegado al cierre o no se pulsó (backend, `revisar_fin_evento`).
+  // Es para administradores, gestores y superadmin, los mismos que abren esta
+  // pantalla (`allowedRoles` en App.jsx); el backend vuelve a mirar el rol.
+  const revisarFinEvento = url.revisar === 'fin_evento';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +67,7 @@ export default function AsignacionList() {
       const params = { page, limit: 20 };
       if (estado) params.estado = estado;
       if (trabajoFiltro) params.trabajo_id = trabajoFiltro;
+      if (revisarFinEvento) params.revisar = 'fin_evento';
       const resp = await asignacionesService.list(params);
       setAsignaciones(resp.data || []);
       setPagination(resp.pagination);
@@ -70,7 +76,7 @@ export default function AsignacionList() {
     } finally {
       setLoading(false);
     }
-  }, [page, estado, trabajoFiltro]);
+  }, [page, estado, trabajoFiltro, revisarFinEvento]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -140,6 +146,19 @@ export default function AsignacionList() {
             {e ? ASIGNACION_ESTADO_LABELS[e] : 'Todas'}
           </button>
         ))}
+        {/* Se suma al filtro de estado, no lo sustituye */}
+        <button
+          onClick={() => cambiarUrl({ revisar: revisarFinEvento ? '' : 'fin_evento', page: 1 })}
+          aria-pressed={revisarFinEvento}
+          title="Fin del evento/servicio sin pulsar, o pulsado justo antes de finalizar la asignación (probablemente ya en base)"
+          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
+            ${revisarFinEvento
+              ? 'bg-bad-600 text-white border-bad-600'
+              : 'bg-white text-neutral-600 border-neutral-300 hover:border-bad-500'
+            }`}
+        >
+          A revisar
+        </button>
       </div>
 
       {/* Tabla */}
@@ -208,6 +227,20 @@ export default function AsignacionList() {
                             <span className="badge-yellow whitespace-nowrap"
                                   title="Fotos de inicio subidas tarde respecto al inicio de la asignación. En el detalle, cuáles y cuánto">
                               Fotos inicio tarde
+                            </span>
+                          </div>
+                        )}
+                        {/* Fin del evento pegado al cierre o sin pulsar
+                            (backend, `revisar_fin_evento`: 'pegado', 'sin_fin'
+                            o null). Solo llega a la oficina que no va en ella
+                            ni coordina su trabajo. */}
+                        {a.revisar_fin_evento && (
+                          <div className="mt-1">
+                            <span className="badge-red whitespace-nowrap"
+                                  title={a.revisar_fin_evento === 'sin_fin'
+                                    ? 'Finalizada sin pulsar «Fin evento/servicio»'
+                                    : 'Fin del evento/servicio pulsado justo antes de finalizar la asignación: probablemente ya en base'}>
+                              {a.revisar_fin_evento === 'sin_fin' ? 'A revisar: sin fin evento' : 'A revisar: fin evento'}
                             </span>
                           </div>
                         )}
