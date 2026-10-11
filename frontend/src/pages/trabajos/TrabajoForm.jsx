@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../../components/common/Modal.jsx';
-import ListaMiembros, { UserCombobox } from '../../components/common/ListaMiembros.jsx';
+import ListaMiembros from '../../components/common/ListaMiembros.jsx';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
@@ -14,7 +14,7 @@ import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../u
 /**
  * Alta y edición de un trabajo (v33, el trabajo padre).
  *
- * Se rellena el trabajo, quién lo coordina y su EQUIPO (la gente asignada al
+ * Se rellena el trabajo, quién lo coordina (1..N, v35) y su EQUIPO (la gente asignada al
  * trabajo, vaya o no en una ambulancia). En el ALTA se pueden poner ya las
  * ambulancias que se sepan, o ninguna (2026-10-10): cada una es una
  * asignación, con sus responsables y su equipo, elegidos del equipo del
@@ -42,9 +42,9 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     setErrors(er => ({ ...er, [field]: '' }));
   };
 
-  const setCoordinador = (id) => {
-    setForm(f => ({ ...f, coordinador_user_id: id }));
-    setErrors(er => ({ ...er, coordinador_user_id: '' }));
+  const setCoordinadores = (lista) => {
+    setForm(f => ({ ...f, coordinadores: lista }));
+    setErrors(er => ({ ...er, coordinadores: '' }));
   };
 
   const setAmbulancia = (i, campo, valor) => {
@@ -206,20 +206,24 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           </div>
         </div>
 
-        {/* Coordinador (D1: cualquier usuario activo; no hace falta que vaya) */}
+        {/* Coordinadores (D1: cualquier usuario activo; no hace falta que vaya).
+            Uno o varios (v35), todos con las mismas funciones */}
         <div>
-          <label className="label">Coordinador <span className="text-bad-500">*</span></label>
-          <UserCombobox
-            users={users.filter(u => u.activo !== false && u.activo !== 0)}
-            value={form.coordinador_user_id}
-            onChange={setCoordinador}
-            error={!!errors.coordinador_user_id}
+          <label className="label">Coordinadores <span className="text-bad-500">*</span></label>
+          <ListaMiembros
+            users={users}
+            lista={form.coordinadores}
+            ocupados={form.coordinadores}
+            onChange={setCoordinadores}
+            minimo={1}
+            textoAnadir="Añadir otro coordinador"
+            error={!!errors.coordinadores}
           />
           <p className="text-xs text-neutral-500 mt-1">
-            Ve todas las ambulancias del trabajo y lo cierra cuando todas han terminado.
-            No hace falta que vaya en ninguna.
+            Ven todas las ambulancias del trabajo y cualquiera de ellos lo cierra cuando
+            todas han terminado. No hace falta que vayan en ninguna.
           </p>
-          {errors.coordinador_user_id && <p className="field-error">{errors.coordinador_user_id}</p>}
+          {errors.coordinadores && <p className="field-error">{errors.coordinadores}</p>}
         </div>
 
         {/* Equipo del trabajo: la gente asignada, vaya o no en una ambulancia */}

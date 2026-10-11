@@ -161,7 +161,8 @@ function Opcion({ u, elegido, onElegir }) {
 // Una fila por persona, con «Añadir…» debajo. Cada combobox ofrece solo a
 // quien no esté ya en `ocupados`: la misma persona no puede figurar dos veces
 // (el backend lo rechaza igualmente). La usan AsignacionForm (responsables y
-// personal) y TrabajoForm (responsables de cada vehículo).
+// personal) y TrabajoForm (coordinadores, equipo del trabajo y, en el alta,
+// responsables y equipo de cada ambulancia).
 export default function ListaMiembros({ users, lista, ocupados, onChange, minimo, textoAnadir, error, destacados = null }) {
   const cambiar = (i, id) => onChange(lista.map((v, j) => (j === i ? id : v)));
   const quitar  = i => onChange(lista.filter((_, j) => j !== i));

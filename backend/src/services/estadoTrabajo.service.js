@@ -23,6 +23,7 @@ const { query }           = require('../config/database');
 const { TRABAJO_ESTADOS } = require('../config/constants');
 const logger              = require('../utils/logger.utils');
 const avisos              = require('./avisosAsignacion.service');
+const { idsCoordinadores } = require('./coordinadores.service');
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -118,7 +119,7 @@ async function sincronizarEstadoTrabajo(conn, trabajoId) {
 
 /**
  * Tras confirmar la transacción: si el trabajo acaba de quedar pendiente de
- * cierre, avisa al coordinador. Va fuera de la transacción a propósito: si se
+ * cierre, avisa a sus coordinadores (todos, v35). Va fuera de la transacción a propósito: si se
  * deshiciera, el aviso habría anunciado algo que no pasó.
  *
  * Se llama sin await y nunca lanza (como todos los avisos).
@@ -130,7 +131,9 @@ async function avisarSiPendienteCierre(trabajoId, resultado) {
       'SELECT id, identificador, nombre, coordinador_user_id FROM trabajos WHERE id = ?',
       [trabajoId]
     );
-    if (rows.length) await avisos.avisarTrabajoPendienteCierre(rows[0]);
+    if (rows.length) {
+      await avisos.avisarTrabajoPendienteCierre({ ...rows[0], coordinadores_ids: await idsCoordinadores(trabajoId) });
+    }
   } catch (err) {
     logger.error(`Aviso de trabajo pendiente de cierre no enviado: ${err?.message || err}`);
   }

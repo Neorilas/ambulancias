@@ -193,3 +193,23 @@ describe('TrabajoList: la lista sobrevive a abrir un trabajo', () => {
     expect(screen.getByDisplayValue('Activo')).toBeInTheDocument();
   });
 });
+
+describe('TrabajoList: quién coordina', () => {
+  const fila = (coordinadores_nombres) => ({
+    id: 7, nombre: 'Maratón', estado: 'activo', tipo: 'traslado', identificador: 'T-7',
+    fecha_inicio: '2026-10-11T08:00:00Z', fecha_fin: '2026-10-11T10:00:00Z',
+    num_vehiculos: 1, num_usuarios: 2, coordinadores_nombres,
+    num_coordinadores: coordinadores_nombres.split(', ').length,
+  });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ['uno', 'Carla Ruiz', /Coordina Carla Ruiz/],
+    ['varios (v35)', 'Carla Ruiz, Pablo Gil', /Coordinan Carla Ruiz, Pablo Gil/],
+  ])('con %s, los nombra', async (_n, nombres, texto) => {
+    trabajosService.list.mockResolvedValue({ data: [fila(nombres)], pagination: { total: 1, totalPages: 1 } });
+    montar('/trabajos');
+    expect(await screen.findByText(texto)).toBeInTheDocument();
+  });
+});

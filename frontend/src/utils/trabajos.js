@@ -44,7 +44,9 @@ export function formularioInicial(trabajo) {
     tipo:         trabajo?.tipo        || 'traslado',
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
-    coordinador_user_id: trabajo?.coordinador_user_id || '',
+    // 1..N coordinadores (v35), el principal primero; sin ninguno (el alta),
+    // una fila vacía para elegirlo
+    coordinadores: coordinadoresDe(trabajo).length ? coordinadoresDe(trabajo).map(c => c.id) : [''],
     usuarios:     (trabajo?.usuarios || []).map(u => u.user_id),
     asignaciones: [],
   };
@@ -63,8 +65,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
   if ((form.ubicacion_url || '').trim() && !esEnlaceGoogleMaps(form.ubicacion_url)) {
     e.ubicacion_url = 'Tiene que ser un enlace de Google Maps (el de «Compartir»)';
   }
-  if (!idsElegidos([form.coordinador_user_id]).length) {
-    e.coordinador_user_id = 'Elige quién coordina el trabajo';
+  if (!idsElegidos(form.coordinadores).length) {
+    e.coordinadores = 'Elige quién coordina el trabajo';
   }
   if (!alta) return e;
 
@@ -87,7 +89,7 @@ export function validarTrabajo(form, { alta = false } = {}) {
 }
 
 /**
- * Lo que se manda al backend: los datos, el coordinador y el equipo del
+ * Lo que se manda al backend: los datos, los coordinadores y el equipo del
  * trabajo (`usuarios`); en el alta, además, sus ambulancias. Nunca
  * `vehiculos`: es el formato del modelo anterior y el backend daría 400.
  */
@@ -100,7 +102,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     tipo:         form.tipo,
     fecha_inicio: toUtcIso(form.fecha_inicio),
     fecha_fin:    toUtcIso(form.fecha_fin),
-    coordinador_user_id: parseInt(form.coordinador_user_id, 10),
+    coordinadores: idsElegidos(form.coordinadores),
     usuarios:     idsElegidos(form.usuarios),
   };
   if (!alta) return datos;
@@ -160,14 +162,29 @@ export function textoEstadoAmbulancia(a) {
 }
 
 /**
- * La gente ya asociada a un trabajo: su equipo, su coordinador y quien va en
+ * Los coordinadores de un trabajo (v35: 1..N, todos con las mismas
+ * funciones), el principal primero. Un backend anterior solo manda el
+ * principal suelto (`coordinador`).
+ */
+export function coordinadoresDe(trabajo) {
+  if (trabajo?.coordinadores) return trabajo.coordinadores;
+  return trabajo?.coordinador ? [trabajo.coordinador] : [];
+}
+
+/** ¿Es este usuario uno de los coordinadores del trabajo? */
+export function esCoordinadorDe(trabajo, userId) {
+  return userId != null && coordinadoresDe(trabajo).some(c => c.id === userId);
+}
+
+/**
+ * La gente ya asociada a un trabajo: su equipo, sus coordinadores y quien va en
  * alguna de sus ambulancias (las canceladas no cuentan). Es lo que sale
  * arriba, en «Asociados al trabajo», al elegir quién va en una ambulancia.
  */
-function juntarAsociados(equipo, coordinador, ambulancias) {
+function juntarAsociados(equipo, coordinadores, ambulancias) {
   return new Set(idsElegidos([
     ...(equipo || []),
-    coordinador,
+    ...(coordinadores || []),
     ...(ambulancias || []).flatMap(a => [...(a.responsables || []), ...(a.personal || [])]),
   ]));
 }
@@ -178,7 +195,7 @@ export function asociadosDeTrabajo(trabajo) {
   const ids = lista => (lista || []).map(m => m.id);
   return juntarAsociados(
     (trabajo.usuarios || []).map(u => u.user_id),
-    trabajo.coordinador_user_id,
+    coordinadoresDe(trabajo).map(c => c.id),
     (trabajo.asignaciones || [])
       .filter(a => a.estado !== 'cancelada')
       .map(a => ({ responsables: ids(a.responsables), personal: ids(a.personal) })),
@@ -187,7 +204,7 @@ export function asociadosDeTrabajo(trabajo) {
 
 /** Desde el formulario de alta: lo que ya se ha rellenado en él. */
 export function asociadosDeFormulario(form) {
-  return juntarAsociados(form?.usuarios, form?.coordinador_user_id, form?.asignaciones);
+  return juntarAsociados(form?.usuarios, form?.coordinadores, form?.asignaciones);
 }
 
 /** Nombres de una lista de personas: «Ana Ruiz, Luis Gil». */

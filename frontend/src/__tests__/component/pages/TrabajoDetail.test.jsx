@@ -239,6 +239,16 @@ describe('TrabajoDetail', () => {
     expect(screen.queryByRole('button', { name: 'Cerrar trabajo' })).not.toBeInTheDocument();
   });
 
+  it('con varios coordinadores (v35): cualquiera puede cerrarlo, y se nombra a todos', async () => {
+    trabajosService.get.mockResolvedValue({ ...TRABAJO, estado: 'pendiente_cierre', puede_cerrar: false,
+      coordinadores: [{ id: 50, nombre: 'Carla', apellidos: 'Ruiz' }, { id: 51, nombre: 'Pablo', apellidos: 'Gil' }] });
+    montar();
+    expect(await screen.findByText('Falta que lo cierre uno de sus coordinadores (Carla Ruiz, Pablo Gil).'))
+      .toBeInTheDocument();
+    expect(screen.getByText('Coordinan')).toBeInTheDocument();
+    expect(screen.getByText('Carla Ruiz, Pablo Gil')).toBeInTheDocument();
+  });
+
   it('gestión añade ambulancias desde aquí (D9)', async () => {
     const user = userEvent.setup();
     comoUsuario(GESTOR);

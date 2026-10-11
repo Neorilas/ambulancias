@@ -20,6 +20,7 @@ const { errorMotivo }            = require('../utils/motivo.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 const vigilancia                 = require('../services/vigilancia.service');
 const estadoTrabajo              = require('../services/estadoTrabajo.service');
+const coordinadores              = require('../services/coordinadores.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -89,7 +90,9 @@ function marcarFotosInicioTarde(asig, evidencias) {
  * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la
  * asignación es del modelo antiguo). Lo que ve todo el que va en la ambulancia
  * (decisión 1 del plan del trabajo padre): título, descripción, ubicación,
- * fechas y quién lo coordina. `trabajo_id` se queda en la fila.
+ * fechas y quién lo coordina. `trabajo_id` se queda en la fila. `coordinador`
+ * es el principal; la lista entera (`coordinadores`, v35) la añade
+ * `getAsignacionCompleta` con su propia consulta.
  */
 function trabajoAparte(fila) {
   const {
@@ -142,6 +145,8 @@ async function getAsignacionCompleta(id) {
   if (!rows.length) return null;
 
   const asig = trabajoAparte(rows[0]);
+  // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera
+  if (asig.trabajo) asig.trabajo.coordinadores = await coordinadores.coordinadoresDe(asig.trabajo_id);
 
   // Quién va en la asignación: responsables (activan, evidencian y cierran) y
   // personal (solo la ven). Ver v23 en migrations.js.
@@ -264,12 +269,13 @@ function rolEnAsignacion(asig, userId) {
 }
 
 /**
- * ¿Es el coordinador del trabajo de esta asignación? Ve la asignación entera
- * (D2), pero serlo no le deja operarla: activar, fotos y cierre siguen
- * pidiendo ser responsable o gestionar trabajos.
+ * ¿Es uno de los coordinadores del trabajo de esta asignación (v35: todos
+ * cuentan, no solo el principal)? Ve la asignación entera (D2), pero serlo
+ * no le deja operarla: activar, fotos y cierre siguen pidiendo ser
+ * responsable o gestionar trabajos.
  */
 function esCoordinador(asig, userId) {
-  return !!asig?.trabajo?.coordinador && asig.trabajo.coordinador.id === userId;
+  return (asig?.trabajo?.coordinadores || []).some(c => c.id === userId);
 }
 
 // ============================================================
@@ -617,7 +623,7 @@ async function getAsignacion(req, res, next) {
     if (!asig) return notFound(res, 'Asignación');
 
     // Operacionales solo ven aquellas en las que van (responsable o personal),
-    // y el coordinador de su trabajo las ve todas (D2).
+    // y cualquier coordinador de su trabajo las ve todas (D2).
     if (!canManage && !rolEnAsignacion(asig, req.user.id) && !esCoordinador(asig, req.user.id)) {
       return forbidden(res, 'No tienes acceso a esta asignación');
     }

@@ -504,6 +504,17 @@ describe('AsignacionDetalle — su trabajo', () => {
     expect(await screen.findByText(/Coordinas este trabajo/)).toBeInTheDocument();
   });
 
+  it('con varios coordinadores (v35): los nombra a todos y el segundo también la ve como coordinador', async () => {
+    comoUsuario({ id: 10, username: 'pablo', roles: [], permissions: [] });
+    asignacionesService.get.mockResolvedValue(conTrabajo({ trabajo: { ...TRABAJO,
+      coordinadores: [{ id: 9, nombre: 'Carla', apellidos: 'Ruiz' }, { id: 10, nombre: 'Pablo', apellidos: 'Gil' }] } }));
+    montarEnRouter();
+
+    const bloque = await screen.findByTestId('trabajo-de-asignacion');
+    expect(bloque).toHaveTextContent('Coordinan Carla Ruiz, Pablo Gil');
+    expect(screen.getByText(/Coordinas este trabajo/)).toBeInTheDocument();
+  });
+
   it('una asignación sin trabajo no pinta el bloque', async () => {
     comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
     asignacionesService.get.mockResolvedValue({ ...BASE, trabajo: null });

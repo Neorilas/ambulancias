@@ -10,7 +10,7 @@ import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ESTADO_LABELS } from '../../utils/constants.js';
 import {
-  estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe,
+  estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, coordinadoresDe,
 } from '../../utils/trabajos.js';
 import TrabajoForm from './TrabajoForm.jsx';
 import TrabajoV25 from './TrabajoV25.jsx';
@@ -195,7 +195,8 @@ export default function TrabajoDetail() {
   const gestion      = canManageTrabajos();
   const ambulancias  = trabajo.asignaciones || [];
   const mias         = misAmbulancias(trabajo);
-  const coordinador  = nombresDe(trabajo.coordinador ? [trabajo.coordinador] : []);
+  const coordinan    = coordinadoresDe(trabajo);
+  const coordinador  = nombresDe(coordinan);
   const equipo       = trabajo.usuarios || [];
   // En el equipo del trabajo pero en ninguna ambulancia (todavía, o nunca)
   const soloEquipo   = trabajo.mi_rol === 'equipo' && !mias.length;
@@ -257,7 +258,8 @@ export default function TrabajoDetail() {
             </>
           ) : (
             <p className="text-sm text-warn-700">
-              Falta que lo cierre {coordinador || 'el coordinador'}.
+              Falta que lo cierre {coordinan.length > 1
+                ? `uno de sus coordinadores (${coordinador})` : coordinador || 'el coordinador'}.
             </p>
           )}
         </div>
@@ -316,7 +318,7 @@ export default function TrabajoDetail() {
             <p className="font-medium">{duration(trabajo.fecha_inicio, trabajo.fecha_fin)}</p>
           </div>
           <div>
-            <p className="text-neutral-500 text-xs">Coordina</p>
+            <p className="text-neutral-500 text-xs">{coordinan.length > 1 ? 'Coordinan' : 'Coordina'}</p>
             <p className="font-medium">{coordinador || '—'}</p>
           </div>
         </div>

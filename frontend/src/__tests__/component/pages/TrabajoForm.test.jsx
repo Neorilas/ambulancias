@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../../../services/trabajos.service.js', () => ({
@@ -57,6 +57,50 @@ describe('TrabajoForm · ubicación en Google Maps (v34)', () => {
     await user.click(screen.getByRole('button', { name: 'Crear trabajo' }));
     expect(screen.getByText('Tiene que ser un enlace de Google Maps (el de «Compartir»)')).toBeInTheDocument();
     const { trabajosService } = await import('../../../services/trabajos.service.js');
+    expect(trabajosService.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('TrabajoForm · varios coordinadores (v35)', () => {
+  const USERS = [
+    { id: 50, nombre: 'Carla', apellidos: 'Ruiz', username: 'carla', activo: 1 },
+    { id: 51, nombre: 'Pablo', apellidos: 'Gil',  username: 'pablo', activo: 1 },
+  ];
+  const TRABAJO = {
+    id: 7, nombre: 'Maratón', fecha_inicio: '2026-10-15T08:00:00Z', fecha_fin: '2026-10-15T20:00:00Z',
+    usuarios: [], coordinador_user_id: 50, coordinadores: [{ id: 50, nombre: 'Carla', apellidos: 'Ruiz' }],
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('al editar carga los que hay, deja añadir otro y manda la lista entera', async () => {
+    const { usersService } = await import('../../../services/users.service.js');
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    usersService.list.mockResolvedValueOnce({ data: USERS });
+    const user = userEvent.setup();
+    montar(TRABAJO);
+
+    expect(await screen.findByDisplayValue('Carla Ruiz')).toBeInTheDocument();
+    // Con uno solo no se puede quitar: el trabajo siempre tiene quien lo cierre
+    expect(screen.queryByRole('button', { name: 'Quitar' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '+ Añadir otro coordinador' }));
+    const [, nuevo] = screen.getAllByPlaceholderText('Buscar por nombre o usuario…');
+    await user.click(nuevo);
+    // Quien ya coordina no se ofrece otra vez
+    expect(screen.queryByText('Carla Ruiz')).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('Pablo Gil'));
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(trabajosService.update).toHaveBeenCalledWith(7, expect.objectContaining({ coordinadores: [50, 51] }));
+  });
+
+  it('en el alta, sin ningún coordinador no deja guardar', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    const user = userEvent.setup();
+    montar();
+    await user.click(screen.getByRole('button', { name: 'Crear trabajo' }));
+    expect(screen.getByText('Elige quién coordina el trabajo')).toBeInTheDocument();
     expect(trabajosService.create).not.toHaveBeenCalled();
   });
 });

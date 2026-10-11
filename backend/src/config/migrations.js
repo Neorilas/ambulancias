@@ -1187,6 +1187,41 @@ const MIGRATIONS = [
            COMMENT 'Enlace de Google Maps al sitio del trabajo' AFTER ubicacion`);
     },
   },
+
+  {
+    name: 'v35_trabajo_coordinadores',
+    description: 'Varios coordinadores por trabajo, todos con las mismas funciones',
+    async run() {
+      // Un trabajo pasa de tener UN coordinador (trabajos.coordinador_user_id)
+      // a tener 1..N, como los responsables de una asignación (v23). Todos
+      // pueden lo mismo: ver todas las ambulancias y cerrar el trabajo.
+      //
+      // `trabajos.coordinador_user_id` se queda: es el coordinador PRINCIPAL
+      // (el `orden` 0) y el controlador lo mantiene sincronizado. Hace falta
+      // porque «tiene coordinador» es lo que separa el modelo nuevo del v25
+      // (`esV25`, `motivoNoManual`, el cron de server.js) y porque una PWA sin
+      // actualizar sigue mandando y leyendo el coordinador suelto.
+      await query(`CREATE TABLE IF NOT EXISTS trabajo_coordinadores (
+        trabajo_id INT UNSIGNED NOT NULL,
+        user_id    INT UNSIGNED NOT NULL,
+        orden      SMALLINT UNSIGNED NOT NULL DEFAULT 0
+                   COMMENT 'El 0 es el principal (trabajos.coordinador_user_id)',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (trabajo_id, user_id),
+        INDEX idx_tc_user (user_id),
+        CONSTRAINT fk_tc_trabajo FOREIGN KEY (trabajo_id)
+          REFERENCES trabajos(id) ON DELETE CASCADE,
+        CONSTRAINT fk_tc_user FOREIGN KEY (user_id)
+          REFERENCES users(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Relleno: cada trabajo con coordinador lo conserva como único (y
+      // principal). INSERT IGNORE para que un rearranque no duplique nada.
+      await query(`INSERT IGNORE INTO trabajo_coordinadores (trabajo_id, user_id, orden)
+                   SELECT id, coordinador_user_id, 0 FROM trabajos
+                    WHERE coordinador_user_id IS NOT NULL`);
+    },
+  },
 ];
 
 // ============================================================

@@ -34,10 +34,12 @@ const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana, instanteUtc } =
 const { errorMotivo }                 = require('../utils/motivo.utils');
 const estadoTrabajo                   = require('../services/estadoTrabajo.service');
 const avisos                          = require('../services/avisosAsignacion.service');
+const coordinadores                   = require('../services/coordinadores.service');
 const asignaciones                    = require('./asignaciones.controller');
 const logger                          = require('../utils/logger.utils');
 
 const { CERRADOS } = estadoTrabajo;
+const { ES_COORDINADOR, NOMBRES_COORDINADORES } = coordinadores;
 const { sincronizarEstadoTrabajo } = estadoTrabajo;
 
 // ============================================================
@@ -70,13 +72,13 @@ function esV25({ num_vehiculos_v25, coordinador_user_id, num_asignaciones }) {
 }
 
 /**
- * «Es mío»: lo coordino, o voy en alguna de sus ambulancias (responsable o
+ * «Es mío»: soy uno de sus coordinadores (v35), o voy en alguna de sus ambulancias (responsable o
  * equipo de una asignación viva: la cancelada ya no lleva a nadie). Y los del
  * modelo v25: en su equipo o responsable de alguno de sus vehículos. Lleva
  * CUATRO parámetros, todos el id del usuario (`propios(uid)`).
  */
 const FILTRO_PROPIOS = `(
-  t.coordinador_user_id = ?
+  ${ES_COORDINADOR}
   OR EXISTS (SELECT 1 FROM asignaciones_libres alp
                JOIN asignacion_usuarios aup ON aup.asignacion_id = alp.id
               WHERE alp.trabajo_id = t.id AND alp.deleted_at IS NULL
@@ -274,6 +276,9 @@ async function getTrabajoCompleto(id) {
   if (!trows.length) return null;
 
   const { coordinador_nombre, coordinador_apellidos, num_asignaciones, ...t } = trows[0];
+  // Todos los coordinadores (v35), con las mismas funciones; `coordinador` es
+  // solo el principal, para la PWA sin actualizar que aún lo lee
+  t.coordinadores = await coordinadores.coordinadoresDe(id);
   t.coordinador = t.coordinador_user_id
     ? { id: t.coordinador_user_id, nombre: coordinador_nombre, apellidos: coordinador_apellidos }
     : null;
@@ -392,7 +397,8 @@ function ambulanciaAjena(a) {
  * Lo que este usuario puede ver del trabajo, o null si no puede verlo.
  *
  * Modelo nuevo (asignaciones, v33):
- *  - Gestión (ver todo) y el coordinador: todas las ambulancias, con detalle (D2).
+ *  - Gestión (ver todo) y cualquiera de sus coordinadores: todas las
+ *    ambulancias, con detalle (D2).
  *  - Quien va en una ambulancia (responsable o equipo): la suya entera; de las
  *    demás, `ambulanciaAjena`. Las canceladas no se le enseñan.
  * Cada ambulancia sale con `mi_rol` ('responsable' | 'equipo' | null) y
@@ -407,7 +413,8 @@ function ambulanciaAjena(a) {
  */
 function vistaParaUsuario(t, user) {
   const todo     = veTodo(user);
-  const coordina = !!t.coordinador_user_id && t.coordinador_user_id === user.id;
+  // Cualquiera de ellos (v35), no solo el principal de `coordinador_user_id`
+  const coordina = (t.coordinadores || []).some(c => c.id === user.id);
   const enEquipo = t.usuarios.some(u => u.user_id === user.id);
 
   const rolEn = (a) => (a.responsables.some(r => r.id === user.id) ? 'responsable'
@@ -449,7 +456,7 @@ function vistaParaUsuario(t, user) {
     mi_rol: todo ? 'gestion'
       : coordina ? 'coordinador'
       : (soyResponsable || rolNuevo === 'responsable') ? 'responsable' : 'equipo',
-    // D3: lo cierra el coordinador o gestión, con la misma regla que
+    // D3: lo cierra cualquier coordinador o gestión, con la misma regla que
     // cerrarTrabajo (motivoNoSeCierra), que es quien manda.
     puede_cerrar: (coordina || gestiona(user)) && !motivoNoSeCierra(
       { ...t, v25 }, (t.asignaciones || []).map(a => a.estado)),
@@ -545,6 +552,9 @@ async function listTrabajos(req, res, next) {
       `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
               t.fecha_inicio, t.fecha_fin, t.created_at, t.coordinador_user_id,
               u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos,
+              ${NOMBRES_COORDINADORES} AS coordinadores_nombres,
+              (SELECT COUNT(*) FROM trabajo_coordinadores cc WHERE cc.trabajo_id = t.id) AS num_coordinadores,
+              -- El principal suelto: lo lee la PWA sin actualizar
               CONCAT(co.nombre, ' ', co.apellidos) AS coordinador_nombre,
               -- Ambulancias: las asignaciones vivas (v33) o los vehículos (v25)
               (SELECT COUNT(*) FROM asignaciones_libres a
@@ -653,7 +663,7 @@ async function miCalendario(req, res, next) {
     const [sinAmbulancia] = await query(
       `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.ubicacion_url, t.estado AS trabajo_estado,
               t.fecha_inicio, t.fecha_fin,
-              t.coordinador_user_id = ? AS soy_coordinador,
+              ${ES_COORDINADOR} AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te
                        WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo
        FROM trabajos t
@@ -763,7 +773,7 @@ function leerAmbulancias(lista, trabajo) {
 
 // ============================================================
 // POST /trabajos  (admin o gestor)
-// El trabajo, su coordinador, su equipo (la gente asignada al trabajo,
+// El trabajo, sus coordinadores (1..N, v35), su equipo (la gente asignada al trabajo,
 // `usuarios` → trabajo_usuarios) y las ambulancias que ya se sepan, en una
 // sola transacción. Puede nacer sin ambulancias (2026-10-10; deshace la D6):
 // se añaden después desde su ficha con POST /asignaciones y trabajo_id, y su
@@ -782,7 +792,11 @@ async function createTrabajo(req, res, next) {
       return error(res, 'Esta versión de la app ya no puede crear trabajos: recárgala para actualizarla', 400);
     }
 
-    const coordinadorId = Number(req.body.coordinador_user_id);
+    // 1..N coordinadores, todos con las mismas funciones (v35); el primero es
+    // el principal. La PWA sin actualizar manda uno suelto y vale igual.
+    const { coordinadores: coordIds, error: errCoord } = coordinadores.leerCoordinadores(req.body);
+    if (errCoord) return error(res, errCoord, 400);
+    if (!coordIds) return error(res, 'Falta el coordinador del trabajo', 400);
     const { ambulancias, error: errAmb } = leerAmbulancias(req.body.asignaciones, { fecha_inicio, fecha_fin });
     if (errAmb) return error(res, errAmb, 400);
 
@@ -801,7 +815,7 @@ async function createTrabajo(req, res, next) {
       if (vehs.length !== vehiculoIds.length) return notFound(res, 'Vehículo');
     }
 
-    const personas = [coordinadorId, ...equipo, ...ambulancias.flatMap(a => [...a.responsables, ...a.personal])];
+    const personas = [...coordIds, ...equipo, ...ambulancias.flatMap(a => [...a.responsables, ...a.personal])];
     const malos = await asignaciones.usuariosNoValidos([...new Set(personas)]);
     if (malos.length) {
       return error(res, `Usuarios inexistentes o dados de baja: ${malos.join(', ')}`, 400);
@@ -817,9 +831,10 @@ async function createTrabajo(req, res, next) {
         [identificador, nombre, textoOpcional(req.body.descripcion) ?? null,
          textoOpcional(req.body.ubicacion) ?? null, textoOpcional(req.body.ubicacion_url) ?? null,
          tipo, fecha_inicio, fecha_fin,
-         coordinadorId, req.user.id]
+         coordIds[0], req.user.id]
       );
       const nuevoId = result.insertId;
+      await coordinadores.guardarCoordinadores(conn, nuevoId, coordIds);
       for (const userId of equipo) {
         await conn.execute(
           'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)', [nuevoId, userId]);
@@ -856,13 +871,13 @@ async function createTrabajo(req, res, next) {
     }
 
     t = await getTrabajoCompleto(trabajoId);
-    // Al coordinador, el suyo (puede ser cualquier usuario activo, también un
-    // técnico, y si no se le avisa no se entera hasta el «listo para cerrar»).
-    avisos.avisarCoordinadorTrabajo(t, coordinadorId, { asignadoPor: req.user.id });
+    // A cada coordinador, el suyo (puede ser cualquier usuario activo, también
+    // un técnico, y si no se le avisa no se entera hasta el «listo para cerrar»).
+    avisos.avisarCoordinadorTrabajo(t, coordIds, { asignadoPor: req.user.id });
     // Al equipo del trabajo, «nuevo trabajo»; quien va en una ambulancia ya
-    // ha recibido el «nuevo servicio» de arriba, y el coordinador, el suyo.
+    // ha recibido el «nuevo servicio» de arriba, y los coordinadores, el suyo.
     const enAmbulancias = new Set(ambulancias.flatMap(a => [...a.responsables, ...a.personal]));
-    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id) && id !== coordinadorId),
+    avisos.avisarEquipoTrabajo(t, equipo.filter(id => !enAmbulancias.has(id) && !coordIds.includes(id)),
       { asignadoPor: req.user.id });
     } catch (err) {
       logger.error(`Trabajo ${trabajoId} creado, pero falló lo de después (avisos/lectura): ${err.message}`);
@@ -873,7 +888,7 @@ async function createTrabajo(req, res, next) {
       action:   'create_trabajo',
       entityType: 'trabajo', entityId: trabajoId,
       details:  { identificador: t?.identificador, nombre, tipo,
-                  coordinador_user_id: coordinadorId, ambulancias: ambulancias.length,
+                  coordinadores: coordIds, ambulancias: ambulancias.length,
                   equipo: equipo.length },
       ip: req.ip,
     });
@@ -909,8 +924,20 @@ async function updateTrabajo(req, res, next) {
     if (modeloNuevo && req.body.vehiculos !== undefined) {
       return error(res, 'Las ambulancias de este trabajo y quién va en ellas se cambian en cada una de ellas', 400);
     }
-    const coordinador = req.body.coordinador_user_id !== undefined
-      ? Number(req.body.coordinador_user_id) : undefined;
+    // Coordinadores (v35): la lista entera, o el formato viejo
+    // (`coordinador_user_id` suelto), que solo cambia el principal. Esta
+    // lectura es para validar; la que manda se repite dentro de la
+    // transacción, con el trabajo bloqueado (ver más abajo).
+    const pedidoCoord = coordinadores.leerCoordinadores(req.body);
+    if (pedidoCoord.error) return error(res, pedidoCoord.error, 400);
+    const listaPedida = (antes) => pedidoCoord.coordinadores && (pedidoCoord.soloPrincipal
+      ? coordinadores.cambiarPrincipal(antes, pedidoCoord.coordinadores[0])
+      : pedidoCoord.coordinadores);
+    const coordActuales = await coordinadores.idsCoordinadores(id);
+    const coordNuevos = listaPedida(coordActuales);
+    // Lo que de verdad había y lo que se ha guardado (null si no cambia)
+    let coordAntes = coordActuales;
+    let coordGuardados = null;
 
     const { nombre, tipo, fecha_inicio, fecha_fin, usuarios } = req.body;
     const descripcion = textoOpcional(req.body.descripcion);
@@ -943,9 +970,8 @@ async function updateTrabajo(req, res, next) {
       [id, id]
     );
     const malos = await usuariosNoValidos(
-      [...(equipo || []), ...(vehiculos || []).flatMap(v => v.responsables),
-       ...(coordinador !== undefined ? [coordinador] : [])],
-      [...miembros.map(m => m.user_id), actual.coordinador_user_id].filter(Boolean)
+      [...(equipo || []), ...(vehiculos || []).flatMap(v => v.responsables), ...(coordNuevos || [])],
+      [...miembros.map(m => m.user_id), ...coordActuales, actual.coordinador_user_id].filter(Boolean)
     );
     if (malos.length) {
       return error(res, `Usuarios inexistentes o dados de baja: ${malos.join(', ')}`, 400);
@@ -988,10 +1014,23 @@ async function updateTrabajo(req, res, next) {
       if (tipo         !== undefined) { updates.push('tipo = ?');         vals.push(tipo); }
       if (fecha_inicio !== undefined) { updates.push('fecha_inicio = ?'); vals.push(fecha_inicio); }
       if (fecha_fin    !== undefined) { updates.push('fecha_fin = ?');    vals.push(fecha_fin); }
-      if (coordinador  !== undefined) { updates.push('coordinador_user_id = ?'); vals.push(coordinador); }
 
       if (updates.length) {
         await conn.execute(`UPDATE trabajos SET ${updates.join(', ')} WHERE id = ?`, [...vals, id]);
+      }
+      // La lista y el principal (`coordinador_user_id`) cambian juntos. Con
+      // el trabajo bloqueado y releyendo la lista: dos ediciones cruzadas
+      // (sobre todo con el formato viejo, que mezcla lo que había con el
+      // principal nuevo) resucitarían a un coordinador recién quitado. Si
+      // no cambia nada no se reescribe.
+      if (pedidoCoord.coordinadores) {
+        await conn.execute('SELECT id FROM trabajos WHERE id = ? FOR UPDATE', [id]);
+        coordAntes = await coordinadores.idsCoordinadores(id, (sql, p) => conn.execute(sql, p));
+        const lista = listaPedida(coordAntes);
+        if (!coordinadores.mismaLista(lista, coordAntes)) {
+          await coordinadores.guardarCoordinadores(conn, id, lista);
+          coordGuardados = lista;
+        }
       }
 
       if (vehiculos !== undefined) {
@@ -1029,16 +1068,17 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
-    // Coordinador nuevo: se le avisa a él, no al que deja de serlo
-    const cambiaCoordinador = coordinador !== undefined && coordinador !== Number(actual.coordinador_user_id);
-    if (cambiaCoordinador) avisos.avisarCoordinadorTrabajo(t, coordinador, { asignadoPor: req.user.id });
+    // Coordinadores que ENTRAN: se les avisa a ellos; ni a quien ya lo era ni
+    // a quien deja de serlo
+    const entranCoord = (coordGuardados || []).filter(c => !coordAntes.includes(c));
+    if (entranCoord.length) avisos.avisarCoordinadorTrabajo(t, entranCoord, { asignadoPor: req.user.id });
     // «Nuevo trabajo» solo a quien ENTRA en el equipo; quien ya iba no tiene
     // nada nuevo que saber, y el coordinador nuevo ya tiene el suyo. Solo en
     // el modelo nuevo: el v25 nunca avisó.
-    if (equipo !== undefined && (modeloNuevo || coordinador !== undefined)) {
+    if (equipo !== undefined && (modeloNuevo || coordNuevos)) {
       const yaIban = new Set(miembros.map(m => m.user_id));
       avisos.avisarEquipoTrabajo(t,
-        equipo.filter(id => !yaIban.has(id) && !(cambiaCoordinador && id === coordinador)),
+        equipo.filter(id => !yaIban.has(id) && !entranCoord.includes(id)),
         { asignadoPor: req.user.id });
     }
     logAudit({
@@ -1046,7 +1086,9 @@ async function updateTrabajo(req, res, next) {
       userInfo: req.user.username,
       action:   'update_trabajo',
       entityType: 'trabajo', entityId: id,
-      details:  { nombre: t.nombre, estado: t.estado },
+      // Quién coordina decide quién ve y cierra el trabajo: queda dicho
+      details:  { nombre: t.nombre, estado: t.estado,
+                  ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }) },
       ip: req.ip,
     });
     return success(res, t, 'Trabajo actualizado');
@@ -1372,7 +1414,7 @@ async function finalizeTrabajo(req, res, next) {
 
 // ============================================================
 // POST /trabajos/:id/cerrar
-// D3: lo cierra su coordinador (o gestión) cuando TODAS sus ambulancias han
+// D3: lo cierra cualquiera de sus coordinadores (o gestión) cuando TODAS sus ambulancias han
 // finalizado. Es el único estado del trabajo que no se deriva: el resto lo
 // pone estadoTrabajo.service a partir de las asignaciones.
 // ============================================================
@@ -1381,16 +1423,19 @@ async function cerrarTrabajo(req, res, next) {
     const id = parseInt(req.params.id);
     const [rows] = await query(
       `SELECT t.id, t.identificador, t.nombre, t.estado, t.fecha_inicio, t.coordinador_user_id,
+              ${ES_COORDINADOR} AS soy_coordinador,
               (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos_v25,
               (SELECT COUNT(*) FROM asignaciones_libres a WHERE a.trabajo_id = t.id) AS num_asignaciones
        FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
-      [id]
+      [req.user.id, id]
     );
     if (!rows.length) return notFound(res, 'Trabajo');
     const trabajo = rows[0];
+    // Cualquiera de sus coordinadores (v35), no solo el principal
+    const soyCoordinador = !!Number(trabajo.soy_coordinador);
 
-    if (!gestiona(req.user) && trabajo.coordinador_user_id !== req.user.id) {
-      return forbidden(res, 'Solo el coordinador del trabajo puede cerrarlo');
+    if (!gestiona(req.user) && !soyCoordinador) {
+      return forbidden(res, 'Solo un coordinador del trabajo puede cerrarlo');
     }
 
     // Se mira en las asignaciones y no en el estado guardado: es la regla, y
@@ -1430,7 +1475,7 @@ async function cerrarTrabajo(req, res, next) {
         entityType: 'trabajo', entityId: id,
         details:  { identificador: trabajo.identificador, nombre: trabajo.nombre,
                     coordinador_user_id: trabajo.coordinador_user_id,
-                    por_gestion: trabajo.coordinador_user_id !== req.user.id },
+                    por_gestion: !soyCoordinador },
         ip: req.ip,
       });
     }
@@ -1583,7 +1628,7 @@ async function misTrab(req, res, next) {
     const [rows] = await query(
       `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion, t.ubicacion_url,
               t.fecha_inicio, t.fecha_fin, t.coordinador_user_id,
-              t.coordinador_user_id = ? AS soy_coordinador,
+              ${ES_COORDINADOR} AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te
                        WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo,
               (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR ', ')
