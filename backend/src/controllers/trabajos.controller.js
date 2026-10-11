@@ -543,6 +543,22 @@ async function listTrabajos(req, res, next) {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
+    // Ambulancias «A revisar» por el fin del evento (pegado al cierre o sin
+    // pulsar), con la regla de asignaciones.controller: solo administradores,
+    // gestores y superadmin, y sin contar aquellas en las que va quien
+    // pregunta ni las de los trabajos que coordina (salen a 0). Lo pidió el
+    // usuario el 2026-10-11: la oficina lo tiene que ver en el listado, sin
+    // entrar en el trabajo. `?revisar=fin_evento` deja solo los que tienen.
+    const revision = asignaciones.esDeRevision(req.user);
+    const A_REVISAR = `(SELECT COUNT(*) FROM asignaciones_libres al
+                         WHERE al.trabajo_id = t.id AND al.deleted_at IS NULL
+                           AND (${asignaciones.SQL_REVISAR_FIN_EVENTO}) IS NOT NULL)`;
+    const paramsRevisar = revision ? asignaciones.paramsRevisarFinEvento(req.user.id) : [];
+    if (revision && req.query.revisar === 'fin_evento') {
+      where += ` AND ${A_REVISAR} > 0`;
+      params.push(...paramsRevisar);
+    }
+
     const [countRows] = await query(
       `SELECT COUNT(*) AS total FROM trabajos t ${where}`, params
     );
@@ -567,14 +583,16 @@ async function listTrabajos(req, res, next) {
                    JOIN asignaciones_libres a ON a.id = au.asignacion_id
                   WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada'
                     AND NOT EXISTS (SELECT 1 FROM trabajo_usuarios tu2
-                                     WHERE tu2.trabajo_id = t.id AND tu2.user_id = au.user_id)) AS num_usuarios
+                                     WHERE tu2.trabajo_id = t.id AND tu2.user_id = au.user_id)) AS num_usuarios,
+              ${revision ? A_REVISAR : 'NULL'} AS asignaciones_a_revisar
        FROM trabajos t
        JOIN users u ON t.created_by = u.id
        LEFT JOIN users co ON co.id = t.coordinador_user_id
        ${where}
        ORDER BY ${ORDEN_LISTADO_TRABAJOS}
        LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      // Los ? del SELECT (el recuento) van antes que los del WHERE
+      [...paramsRevisar, ...params, limit, offset]
     );
 
     return paginated(res, { data: rows, total, page, limit });
