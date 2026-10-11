@@ -28,7 +28,7 @@ describe('utils/trabajos', () => {
   describe('formularioInicial', () => {
     it('el alta arranca sin ambulancias ni equipo: las dos cosas son opcionales (2026-10-10)', () => {
       expect(formularioInicial(null)).toEqual({
-        nombre: '', descripcion: '', ubicacion: '', tipo: 'traslado',
+        nombre: '', descripcion: '', ubicacion: '', ubicacion_url: '', tipo: 'traslado',
         fecha_inicio: '', fecha_fin: '', coordinador_user_id: '',
         usuarios: [], asignaciones: [],
       });
@@ -84,6 +84,13 @@ describe('utils/trabajos', () => {
       const e = validarTrabajo(formValido({ nombre: ' ', fecha_fin: '2026-10-15T07:00', ubicacion: 'x'.repeat(256) }));
       expect(Object.keys(e).sort()).toEqual(['fecha_fin', 'nombre', 'ubicacion']);
     });
+
+    it('el enlace de Maps es opcional, pero si se pone tiene que ser de Google Maps', () => {
+      expect(validarTrabajo(formValido({ ubicacion_url: '' })).ubicacion_url).toBeUndefined();
+      expect(validarTrabajo(formValido({ ubicacion_url: 'https://maps.app.goo.gl/abc' })).ubicacion_url).toBeUndefined();
+      expect(validarTrabajo(formValido({ ubicacion_url: 'https://ejemplo.com/maps' })).ubicacion_url)
+        .toContain('Google Maps');
+    });
   });
 
   describe('payloadTrabajo', () => {
@@ -95,6 +102,9 @@ describe('utils/trabajos', () => {
       }), { alta: true });
 
       expect(p).toMatchObject({ nombre: 'Maratón', descripcion: null, ubicacion: 'Retiro', coordinador_user_id: 50 });
+      expect(p.ubicacion_url).toBeNull();
+      expect(payloadTrabajo(formValido({ ubicacion_url: ' https://maps.app.goo.gl/abc ' })).ubicacion_url)
+        .toBe('https://maps.app.goo.gl/abc');
       expect(p.asignaciones).toEqual([{
         vehicle_id: 7, responsables: [20], personal: [30], km_inicio: 1200, notas: null,
       }]);

@@ -635,7 +635,7 @@ async function miCalendario(req, res, next) {
     // `fecha_fin > desde`, no `>=`: lo que acaba justo a la medianoche del día
     // 1 es del mes anterior (la pantalla lo pinta igual, `diasDeEntrada`)
     const [ambulancias] = await query(
-      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.estado AS trabajo_estado,
+      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.ubicacion_url, t.estado AS trabajo_estado,
               a.id AS asignacion_id, a.estado AS asignacion_estado, a.fecha_inicio, a.fecha_fin,
               COALESCE(v.alias, v.matricula) AS vehiculo, au.rol
        FROM asignaciones_libres a
@@ -651,7 +651,7 @@ async function miCalendario(req, res, next) {
     // fechas: si su ambulancia cae en otro mes, este mes no trabaja en él
     // aunque el trabajo sí lo pise.
     const [sinAmbulancia] = await query(
-      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.estado AS trabajo_estado,
+      `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.ubicacion_url, t.estado AS trabajo_estado,
               t.fecha_inicio, t.fecha_fin,
               t.coordinador_user_id = ? AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te
@@ -811,11 +811,12 @@ async function createTrabajo(req, res, next) {
 
     const { trabajoId, asignacionIds } = await transaction(async (conn) => {
       const [result] = await conn.execute(
-        `INSERT INTO trabajos (identificador, nombre, descripcion, ubicacion, tipo,
+        `INSERT INTO trabajos (identificador, nombre, descripcion, ubicacion, ubicacion_url, tipo,
                                fecha_inicio, fecha_fin, coordinador_user_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [identificador, nombre, textoOpcional(req.body.descripcion) ?? null,
-         textoOpcional(req.body.ubicacion) ?? null, tipo, fecha_inicio, fecha_fin,
+         textoOpcional(req.body.ubicacion) ?? null, textoOpcional(req.body.ubicacion_url) ?? null,
+         tipo, fecha_inicio, fecha_fin,
          coordinadorId, req.user.id]
       );
       const nuevoId = result.insertId;
@@ -914,6 +915,7 @@ async function updateTrabajo(req, res, next) {
     const { nombre, tipo, fecha_inicio, fecha_fin, usuarios } = req.body;
     const descripcion = textoOpcional(req.body.descripcion);
     const ubicacion   = textoOpcional(req.body.ubicacion);
+    const ubicacionUrl = textoOpcional(req.body.ubicacion_url);
 
     const inicio = fecha_inicio !== undefined ? fecha_inicio : actual.fecha_inicio;
     const fin    = fecha_fin    !== undefined ? fecha_fin    : actual.fecha_fin;
@@ -982,6 +984,7 @@ async function updateTrabajo(req, res, next) {
       if (nombre       !== undefined) { updates.push('nombre = ?');       vals.push(nombre); }
       if (descripcion  !== undefined) { updates.push('descripcion = ?');  vals.push(descripcion); }
       if (ubicacion    !== undefined) { updates.push('ubicacion = ?');    vals.push(ubicacion); }
+      if (ubicacionUrl !== undefined) { updates.push('ubicacion_url = ?'); vals.push(ubicacionUrl); }
       if (tipo         !== undefined) { updates.push('tipo = ?');         vals.push(tipo); }
       if (fecha_inicio !== undefined) { updates.push('fecha_inicio = ?'); vals.push(fecha_inicio); }
       if (fecha_fin    !== undefined) { updates.push('fecha_fin = ?');    vals.push(fecha_fin); }
@@ -1567,7 +1570,7 @@ async function misTrab(req, res, next) {
     );
 
     const [rows] = await query(
-      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
+      `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion, t.ubicacion_url,
               t.fecha_inicio, t.fecha_fin, t.coordinador_user_id,
               t.coordinador_user_id = ? AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te

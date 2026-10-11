@@ -1174,6 +1174,19 @@ const MIGRATIONS = [
       }
     },
   },
+
+  {
+    name: 'v34_trabajo_ubicacion_url',
+    description: 'Trabajos: enlace de Google Maps opcional junto a la ubicación en texto',
+    async run() {
+      // El texto libre de `ubicacion` sigue siendo lo que se lee; el enlace es
+      // el punto exacto que quien crea el trabajo pega desde «Compartir» de
+      // Google Maps. Solo se aceptan enlaces de Google Maps (validarEnlaceMaps).
+      await ensureColumn('trabajos', 'ubicacion_url',
+        `ALTER TABLE trabajos ADD COLUMN ubicacion_url VARCHAR(500) NULL DEFAULT NULL
+           COMMENT 'Enlace de Google Maps al sitio del trabajo' AFTER ubicacion`);
+    },
+  },
 ];
 
 // ============================================================

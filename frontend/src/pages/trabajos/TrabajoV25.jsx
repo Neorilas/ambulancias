@@ -3,6 +3,7 @@ import { trabajosService } from '../../services/trabajos.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { EstadoBadge, TipoBadge, RolBadge } from '../../components/common/StatusBadge.jsx';
+import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
 import {
   estaCerrado, accionesVehiculo, vehiculosConAcciones, nombresResponsables,
@@ -317,10 +318,11 @@ export default function TrabajoV25({ trabajo, onRecargar }) {
           <p className="text-sm text-neutral-700 whitespace-pre-line">{trabajo.descripcion}</p>
         )}
         <div className="grid grid-cols-2 gap-4 text-sm">
-          {trabajo.ubicacion && (
+          {(trabajo.ubicacion || trabajo.ubicacion_url) && (
             <div className="col-span-2">
               <p className="text-neutral-500 text-xs">Ubicación</p>
-              <p className="font-medium">{trabajo.ubicacion}</p>
+              {trabajo.ubicacion && <p className="font-medium">{trabajo.ubicacion}</p>}
+              <EnlaceMaps trabajo={trabajo} className="mt-1.5" />
             </div>
           )}
           <div>

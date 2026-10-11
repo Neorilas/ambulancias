@@ -697,7 +697,9 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
       aplicadas: hasta('v24_liberar_email_borrados'),
       columnas: ['trabajos.descripcion', 'trabajos.ubicacion', 'trabajo_vehiculos.estado',
                  'trabajo_vehiculos.inicio_real_at', 'trabajo_vehiculos.finalizado_at',
-                 'trabajo_vehiculos.motivo_finalizacion_anticipada'],
+                 'trabajo_vehiculos.motivo_finalizacion_anticipada',
+                 // la de v34, que también corre y cae en el mismo patrón
+                 'trabajos.ubicacion_url'],
     });
     const { fallida } = await runMigrations();
 
@@ -815,7 +817,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v33_trabajo_padre']);
+    expect(aplicadas[0]).toBe('v33_trabajo_padre');
 
     // NULL-able: las asignaciones de antes se quedan sin trabajo. Y sin
     // CASCADE: borrar un trabajo no puede llevarse sus asignaciones.
@@ -841,7 +843,29 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { ejecutadas } = mockDb({
       aplicadas: hasta('v32_facturas'),
       columnas: ['asignaciones_libres.trabajo_id', 'trabajos.coordinador_user_id',
-                 'trabajos.cerrado_at', 'trabajos.cerrado_por'],
+                 'trabajos.cerrado_at', 'trabajos.cerrado_por', 'trabajos.ubicacion_url'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
+  });
+
+  it('v34 añade el enlace de Google Maps al trabajo, opcional', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v33_trabajo_padre') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v34_trabajo_ubicacion_url']);
+    const col = ejecutadas.find(q => q.includes('ADD COLUMN ubicacion_url'));
+    expect(col).toContain('ALTER TABLE trabajos');
+    expect(col).toContain('VARCHAR(500) NULL DEFAULT NULL');
+  });
+
+  it('v34 no repite la columna si ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v33_trabajo_padre'),
+      columnas: ['trabajos.ubicacion_url'],
     });
     const { fallida } = await runMigrations();
 

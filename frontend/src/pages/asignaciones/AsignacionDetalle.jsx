@@ -13,6 +13,7 @@ import {
   IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN,
 } from '../../utils/constants.js';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
+import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
@@ -428,6 +429,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 {asig.trabajo.ubicacion && (
                   <p className="text-xs text-neutral-600">{asig.trabajo.ubicacion}</p>
                 )}
+                <EnlaceMaps trabajo={asig.trabajo} />
                 {asig.trabajo.descripcion && (
                   <p className="text-sm text-neutral-700 whitespace-pre-line">{asig.trabajo.descripcion}</p>
                 )}

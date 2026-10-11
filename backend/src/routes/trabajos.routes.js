@@ -16,6 +16,7 @@ const { uploadLimiter }            = require('../middleware/rateLimiter.middlewa
 const { requireTrabajoEvidenciaAccess } = require('../middleware/ownership.middleware');
 const { TRABAJO_TIPOS, IMAGEN_TIPOS, PERMISSIONS } = require('../config/constants');
 const { limpiarMilesKm } = require('../utils/km.utils');
+const { esEnlaceGoogleMaps } = require('../utils/mapas.utils');
 
 const router = express.Router();
 router.use(authenticate);
@@ -27,6 +28,10 @@ const validarCamposTrabajo = [
   body('descripcion').optional({ nullable: true }).isString().isLength({ max: 5000 }),
   body('ubicacion').optional({ nullable: true }).isString().isLength({ max: 255 })
     .withMessage('La ubicación no puede pasar de 255 caracteres'),
+  // Vacío (o solo espacios) o null lo borra; si trae algo, solo un enlace de Google Maps (v34)
+  body('ubicacion_url').optional({ nullable: true })
+    .custom(v => (typeof v === 'string' && v.trim() === '') || esEnlaceGoogleMaps(v))
+    .withMessage('El enlace de la ubicación tiene que ser de Google Maps (el de «Compartir»)'),
   body('vehiculos').optional().isArray(),
   body('vehiculos.*.vehicle_id').optional().isInt({ min: 1 }),
   body('vehiculos.*.responsables').optional().isArray({ min: 1 })

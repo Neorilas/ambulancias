@@ -14,6 +14,7 @@ import { TRABAJO_ESTADOS } from './constants.js';
 import { toInputDatetime, toUtcIso, formatDateTimeShort } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
+import { esEnlaceGoogleMaps } from './mapas.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -39,6 +40,7 @@ export function formularioInicial(trabajo) {
     nombre:       trabajo?.nombre      || '',
     descripcion:  trabajo?.descripcion || '',
     ubicacion:    trabajo?.ubicacion   || '',
+    ubicacion_url: trabajo?.ubicacion_url || '',
     tipo:         trabajo?.tipo        || 'traslado',
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
@@ -58,6 +60,9 @@ export function validarTrabajo(form, { alta = false } = {}) {
     e.fecha_fin = 'Fecha fin debe ser posterior a fecha inicio';
   }
   if (form.ubicacion.length > 255) e.ubicacion = 'Máximo 255 caracteres';
+  if ((form.ubicacion_url || '').trim() && !esEnlaceGoogleMaps(form.ubicacion_url)) {
+    e.ubicacion_url = 'Tiene que ser un enlace de Google Maps (el de «Compartir»)';
+  }
   if (!idsElegidos([form.coordinador_user_id]).length) {
     e.coordinador_user_id = 'Elige quién coordina el trabajo';
   }
@@ -91,6 +96,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     nombre:       form.nombre.trim(),
     descripcion:  form.descripcion.trim() || null,
     ubicacion:    form.ubicacion.trim()   || null,
+    ubicacion_url: (form.ubicacion_url || '').trim() || null,
     tipo:         form.tipo,
     fecha_inicio: toUtcIso(form.fecha_inicio),
     fecha_fin:    toUtcIso(form.fecha_fin),
