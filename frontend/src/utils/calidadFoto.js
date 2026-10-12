@@ -275,7 +275,7 @@ export function evaluarCalidad(m, tipoKey) {
       titulo: 'La foto está muy oscura',
       consejo: perfil === 'cuadro'
         ? 'No se distingue el cuadro. Pon el contacto para que se encienda o acerca una linterna.'
-        : 'Busca más luz o pulsa «Flash» arriba, si te sale el botón.',
+        : 'Busca más luz o, al repetirla, pulsa «Flash» arriba si te sale el botón.',
     });
   } else if (m.quemados > UMBRALES.luz[perfil].quemados) {
     avisos.push({

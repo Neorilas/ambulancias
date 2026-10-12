@@ -87,4 +87,27 @@ describe('useCameraStream — flash (linterna)', () => {
     expect(estado()).toBe('true|true|true');
     expect(torchAplicado(tracks.at(-1)).at(-1)).toBe(true);
   });
+  it('si el móvil no enciende la luz, el botón vuelve a «apagado»', async () => {
+    render(<Harness />);
+    await act(async () => {});
+    tracks[0].applyConstraints.mockRejectedValueOnce(new Error('no'));
+    await act(async () => { fireEvent.click(screen.getByText('flash')); });
+    expect(estado()).toBe('true|true|false');
+  });
+
+  it('una cámara que responde tras pausar se para y no enciende nada', async () => {
+    let soltar;
+    navigator.mediaDevices.getUserMedia = vi.fn(({ video }) => new Promise((res) => {
+      soltar = () => {
+        const t = crearTrack({ torch: conTorch(video.facingMode) });
+        tracks.push(t);
+        res({ getTracks: () => [t], getVideoTracks: () => [t] });
+      };
+    }));
+    const { rerender } = render(<Harness />);
+    await act(async () => { rerender(<Harness pause />); });
+    await act(async () => { soltar(); });
+    expect(tracks[0].stop).toHaveBeenCalled();
+    expect(estado()).toBe('false|false|false');
+  });
 });

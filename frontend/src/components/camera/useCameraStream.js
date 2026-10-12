@@ -13,6 +13,10 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   const videoRef  = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  // Cada arranque/parada lo incrementa: un getUserMedia que responde cuando ya
+  // se ha pausado, girado o cerrado la cámara se descarta (si no, la cámara —y
+  // la linterna— se quedaban encendidas con la previsualización puesta).
+  const arranqueRef = useRef(0);
 
   const [cameraReady, setCameraReady] = useState(false);
   const [error,       setError]       = useState(null);
@@ -63,6 +67,7 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
 
   // ── Arrancar cámara ──────────────────────────────────────────
   const startCamera = useCallback(async (facing) => {
+    const id = ++arranqueRef.current;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
     }
@@ -82,15 +87,20 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
         },
         audio: false,
       });
+      if (id !== arranqueRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
       streamRef.current = stream;
       const track = stream.getVideoTracks?.()[0];
       setFlashDisponible(!!track?.getCapabilities?.()?.torch);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
-        setCameraReady(true);
+        if (id === arranqueRef.current) setCameraReady(true);
       }
     } catch (err) {
+      if (id !== arranqueRef.current) return;
       if (err.name === 'NotAllowedError')
         setError('Permiso de cámara denegado. Permite el acceso en la configuración del navegador.');
       else if (err.name === 'NotFoundError')
@@ -103,23 +113,33 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   // ── Controlar cámara según pause y facingMode ─────────────────
   useEffect(() => {
     if (pause) {
+      arranqueRef.current++;
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
       setCameraReady(false);
       return;
     }
     startCamera(facingMode);
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
+    return () => {
+      arranqueRef.current++;
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
   }, [pause, facingMode, startCamera]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Flash (linterna) ─────────────────────────────────────────
   // Se reaplica cada vez que la cámara arranca: el stream se para durante la
   // previsualización y al girar de cámara, y al parar el track la linterna se
   // apaga sola. Así el flash sigue puesto de una foto a la siguiente.
+  // `advanced` es «lo que se pueda»: no rechaza si el móvil no lo aplica. Si
+  // la luz no se ha encendido de verdad, el botón vuelve a «apagado» en vez de
+  // mentir.
   useEffect(() => {
     if (!cameraReady || !flashDisponible) return;
     const track = streamRef.current?.getVideoTracks?.()[0];
-    track?.applyConstraints({ advanced: [{ torch: flash }] }).catch(() => {});
+    if (!track) return;
+    track.applyConstraints({ advanced: [{ torch: flash }] })
+      .then(() => { if (flash && track.getSettings?.().torch === false) setFlash(false); })
+      .catch(() => { if (flash) setFlash(false); });
   }, [cameraReady, flashDisponible, flash]);
 
   const toggleFlash = useCallback(() => setFlash(f => !f), []);
@@ -182,5 +202,5 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   );
 
   return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, areaVideo, toggleCamera, captureBlob,
-           flash, flashDisponible, toggleFlash };
+           flash, flashDisponible: flashDisponible && cameraReady, toggleFlash };
 }

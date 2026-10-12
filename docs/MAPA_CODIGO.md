@@ -964,7 +964,12 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
   (2) el stream se para en la previsualización y al girar de cámara, y al
   parar el track la linterna se apaga sola: `useCameraStream` la **reaplica
   cada vez que la cámara arranca**, así sigue puesta de una foto a la
-  siguiente; (3) con la cámara abierta por la app, Android no deja encender
+  siguiente. `arranqueRef` descarta un `getUserMedia` que responde cuando ya
+  se ha pausado, girado o cerrado (antes esa cámara se quedaba abierta y, con
+  flash, encendida bajo la previsualización); y como `advanced` no rechaza
+  aunque el móvil no aplique la luz, si `getSettings().torch` sale `false` o
+  `applyConstraints` falla, el botón vuelve a «apagado» en vez de mentir;
+  (3) con la cámara abierta por la app, Android no deja encender
   la linterna del sistema, por eso el aviso de foto *oscura* ya no dice
   «enciende la linterna del móvil» sino «pulsa Flash». Se descartó
   `ImageCapture.takePhoto({ fillLightMode: 'flash' })` (destello real):

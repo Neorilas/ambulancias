@@ -364,9 +364,10 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                     <div className="flex items-center gap-2">
                       {flashDisponible && (
                         <button
+                          type="button"
                           onClick={toggleFlash}
                           aria-pressed={flash}
-                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium ${
+                          className={`px-3 py-2.5 rounded-md text-xs font-medium ${
                             flash ? 'bg-warn-500 text-black' : 'bg-black/40 text-white'}`}
                         >
                           Flash
