@@ -8,12 +8,11 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { formatDateTime, formatHora, duration, formatMinutos } from '../../utils/dateUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
-import {
-  ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS,
-  IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN,
-} from '../../utils/constants.js';
+import { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
+import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
+import { estadoVisible } from '../../utils/pasosAsignacion.js';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
@@ -383,8 +382,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
           <div>
             <h2 className="font-semibold text-neutral-900">Detalle de asignación #{id}</h2>
             {asig && (
-              <span className={`text-xs ${ASIGNACION_ESTADO_COLORS[asig.estado]}`}>
-                {ASIGNACION_ESTADO_LABELS[asig.estado]}
+              <span className={`text-xs ${estadoVisible(asig).clase}`}>
+                {estadoVisible(asig).texto}
               </span>
             )}
           </div>
@@ -411,6 +410,119 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
           <div className="flex-1 flex items-center justify-center text-neutral-400">No encontrado</div>
         ) : (
           <div className="flex-1 p-5 space-y-6">
+            {/* Lo primero, qué está hecho y qué toca: la barra de pasos y, debajo,
+                la acción del momento. Antes la acción iba tras una docena de
+                datos y en el móvil había que bajar a buscarla. */}
+            <PasosAsignacion asig={asig} />
+
+            {/* Quien va en el equipo ve la asignación, pero no la mueve */}
+            {soloPersonal && !finalizada && (
+              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
+                Vas en el <strong>equipo</strong> de esta ambulancia. Solo los
+                responsables pueden iniciarla, documentar el vehículo y finalizarla.
+              </div>
+            )}
+            {soloCoordina && !finalizada && (
+              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
+                Coordinas este trabajo: ves la ambulancia, pero la operan sus responsables.
+              </div>
+            )}
+
+            {/* Lo que toca: el inicio. Sin pulsar todavía, el asistente empieza
+                por el botón «Inicio de la asignación»; pulsado, solo quedan fotos. */}
+            {puedeInicio && (
+              <div className="card bg-warn-50 border-warn-200 border-2 space-y-2">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="font-semibold text-warn-700 text-sm">
+                      {asig.inicio_real_at ? 'Faltan fotos de inicio' : 'Inicio de la asignación'}
+                    </p>
+                    <p className="text-xs text-warn-700 mt-0.5">
+                      {asig.inicio_real_at
+                        ? 'Antes de poder finalizar, documenta el estado del vehículo al recibirlo'
+                        : 'En base, al recoger la ambulancia: márcalo y documenta su estado con las fotos'}
+                      {' '}({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}).
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => abrirPaso('inicio')}
+                    className="btn-primary text-xs whitespace-nowrap"
+                  >
+                    {asig.inicio_real_at ? 'Subir ahora' : 'Empezar'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Fotos de inicio hechas: al llegar al punto del servicio */}
+            {faltaLlegada && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has llegado al evento/servicio?</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Púlsalo al llegar al lugar donde se interviene: se guarda la hora real a la
+                    que empieza el servicio en el sitio. No es el inicio de la asignación, que
+                    ya se marcó en base con las fotos.
+                  </p>
+                </div>
+                <button
+                  onClick={handleLlegada}
+                  disabled={registrandoLlegada}
+                  className="btn-primary w-full"
+                >
+                  {registrandoLlegada ? 'Registrando…' : 'Inicio evento/servicio'}
+                </button>
+              </div>
+            )}
+
+            {/* Tras la llegada: al terminar en el sitio, antes de volver a base */}
+            {faltaFinServicio && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento/servicio?</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Púlsalo al abandonar el lugar donde se interviene, antes de volver a base.
+                    No es el fin de la asignación: esa se cierra después, en base, con las
+                    fotos de fin.
+                  </p>
+                </div>
+                {finAnticipado && (
+                  <div>
+                    <p className="text-xs text-warn-600 mb-1">
+                      Estaba previsto hasta el {formatDateTime(asig.fecha_fin)}. Terminas antes de esa hora.
+                    </p>
+                    <label className="label">Motivo <span className="text-bad-500">*</span></label>
+                    <textarea
+                      className="input resize-none" rows={3}
+                      placeholder="Explica por qué terminas antes de lo previsto"
+                      value={motivoFin} onChange={e => { setMotivoFin(e.target.value); setAvisoMotivoFin(null); }}
+                    />
+                    {avisoMotivoFin && <p className="text-xs text-bad-500 mt-1">{avisoMotivoFin}</p>}
+                  </div>
+                )}
+                <button
+                  onClick={handleFinServicio}
+                  disabled={registrandoFinServicio || (finAnticipado && !motivoFin.trim())}
+                  className="btn-primary w-full"
+                >
+                  {registrandoFinServicio ? 'Registrando…' : 'Fin evento/servicio'}
+                </button>
+              </div>
+            )}
+
+            {/* Un solo botón principal cada vez: mientras esté por marcar el
+                evento/servicio, ese es el azul y «Finalizar» queda en secundario.
+                Sigue ahí porque el evento es opcional (§6.1): quien lo olvidó
+                tiene que poder cerrar igual. */}
+            {puedeFin && (
+              <div className="flex gap-2">
+                <button onClick={() => abrirPaso('fin')}
+                  className={`${faltaLlegada || faltaFinServicio ? 'btn-secondary' : 'btn-primary'} flex-1`}>
+                  Finalizar asignación
+                </button>
+              </div>
+            )}
+
             {/* Su trabajo (v33): lo ve todo el que va en la ambulancia */}
             {asig.trabajo && (
               <div className="card bg-neutral-50 border-neutral-200 space-y-1" data-testid="trabajo-de-asignacion">
@@ -471,11 +583,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </div>
               )}
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto en base</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto en base</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_fin)}</p>
               </div>
               {/* Las dos horas reales van en pareja, debajo de las previstas, para
@@ -484,11 +596,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               {(asig.inicio_real_at || asig.finalizado_at) && (
                 <>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Inicio de la asignación</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio en base</p>
                     <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin de la asignación</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin en base</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
@@ -570,105 +682,6 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </div>
               )}
             </div>
-
-            {/* Quien va en el equipo ve la asignación, pero no la mueve */}
-            {soloPersonal && !finalizada && (
-              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
-                Vas en el <strong>equipo</strong> de esta ambulancia. Solo los
-                responsables pueden iniciarla, documentar el vehículo y finalizarla.
-              </div>
-            )}
-            {soloCoordina && !finalizada && (
-              <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
-                Coordinas este trabajo: ves la ambulancia, pero la operan sus responsables.
-              </div>
-            )}
-
-            {/* Aviso persistente: falta inicio */}
-            {puedeInicio && (
-              <div className="card bg-warn-50 border-warn-200 border-2 space-y-2">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <p className="font-semibold text-warn-700 text-sm">Faltan fotos de inicio</p>
-                    <p className="text-xs text-warn-700 mt-0.5">
-                      Antes de poder finalizar, documenta el estado del vehículo al recibirlo
-                      ({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}).
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => abrirPaso('inicio')}
-                    className="btn-primary text-xs whitespace-nowrap"
-                  >
-                    Subir ahora
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Fotos de inicio hechas: al llegar al punto del servicio */}
-            {faltaLlegada && (
-              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
-                <div>
-                  <p className="font-semibold text-primary-800 text-sm">¿Has llegado al evento/servicio?</p>
-                  <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al llegar al lugar donde se interviene: se guarda la hora real a la
-                    que empieza el servicio en el sitio. No es el inicio de la asignación, que
-                    ya se marcó en base con las fotos.
-                  </p>
-                </div>
-                <button
-                  onClick={handleLlegada}
-                  disabled={registrandoLlegada}
-                  className="btn-primary w-full"
-                >
-                  {registrandoLlegada ? 'Registrando…' : 'Inicio evento/servicio'}
-                </button>
-              </div>
-            )}
-
-            {/* Tras la llegada: al terminar en el sitio, antes de volver a base */}
-            {faltaFinServicio && (
-              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3">
-                <div>
-                  <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento/servicio?</p>
-                  <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al abandonar el lugar donde se interviene, antes de volver a base.
-                    No es el fin de la asignación: esa se cierra después, en base, con las
-                    fotos de fin.
-                  </p>
-                </div>
-                {finAnticipado && (
-                  <div>
-                    <p className="text-xs text-warn-600 mb-1">
-                      Estaba previsto hasta el {formatDateTime(asig.fecha_fin)}. Terminas antes de esa hora.
-                    </p>
-                    <label className="label">Motivo <span className="text-bad-500">*</span></label>
-                    <textarea
-                      className="input resize-none" rows={3}
-                      placeholder="Explica por qué terminas antes de lo previsto"
-                      value={motivoFin} onChange={e => { setMotivoFin(e.target.value); setAvisoMotivoFin(null); }}
-                    />
-                    {avisoMotivoFin && <p className="text-xs text-bad-500 mt-1">{avisoMotivoFin}</p>}
-                  </div>
-                )}
-                <button
-                  onClick={handleFinServicio}
-                  disabled={registrandoFinServicio || (finAnticipado && !motivoFin.trim())}
-                  className="btn-primary w-full"
-                >
-                  {registrandoFinServicio ? 'Registrando…' : 'Fin evento/servicio'}
-                </button>
-              </div>
-            )}
-
-            {/* Botones de acción */}
-            {puedeFin && (
-              <div className="flex gap-2">
-                <button onClick={() => abrirPaso('fin')} className="btn-primary flex-1">
-                  Finalizar asignación
-                </button>
-              </div>
-            )}
 
             {/* ── Incidencias de la asignación ───────────────────── */}
             {(incidencias.length > 0 || evGeneral.length > 0 || puedeGestionar) && (

@@ -225,11 +225,11 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-neutral-500 text-sm">Inicio previsto</span>
+            <span className="text-neutral-500 text-sm">Inicio previsto en base</span>
             <span className="text-neutral-700 text-sm">{formatDateTime(asignacion.fecha_inicio)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-neutral-500 text-sm">Fin previsto</span>
+            <span className="text-neutral-500 text-sm">Fin previsto en base</span>
             <span className="text-neutral-700 text-sm">{formatDateTime(asignacion.fecha_fin)}</span>
           </div>
         </div>

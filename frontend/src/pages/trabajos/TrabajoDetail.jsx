@@ -8,7 +8,9 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
-import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ESTADO_LABELS } from '../../utils/constants.js';
+import { ESTADO_LABELS } from '../../utils/constants.js';
+import { estadoVisible } from '../../utils/pasosAsignacion.js';
+import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
 import {
   estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, coordinadoresDe,
 } from '../../utils/trabajos.js';
@@ -48,11 +50,14 @@ function TuAmbulancia({ a, onAbrir }) {
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <span className="veh-name">{nombreVehiculo(a)}</span>
         <span className="data text-[13px] text-neutral-500">{a.matricula}</span>
-        <span className={ASIGNACION_ESTADO_COLORS[a.estado] || 'badge-gray'}>
-          {ASIGNACION_ESTADO_LABELS[a.estado] || a.estado}
-        </span>
+        <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
       </div>
-      <p className="text-sm text-neutral-700">{textoEstadoAmbulancia(a)}</p>
+      {/* «Sin iniciar» ya lo dice la etiqueta: no repetirlo debajo */}
+      {textoEstadoAmbulancia(a) !== estadoVisible(a).texto && (
+        <p className="text-sm text-neutral-700">{textoEstadoAmbulancia(a)}</p>
+      )}
+      {/* Los mismos pasos que arriba de su ficha, para ver qué toca sin abrirla */}
+      {a.detalle && <div className="pt-1"><PasosAsignacion asig={a} /></div>}
       {a.mi_rol === 'equipo' && (
         // El equipo ve lo mismo sin botón de acción, para que no parezca que
         // falla: la operan sus responsables (§5 del plan).
@@ -90,14 +95,12 @@ function Ambulancia({ a, resaltada, onAbrir, refResaltada }) {
           )}
         </div>
         {a.detalle && (
-          <span className={ASIGNACION_ESTADO_COLORS[a.estado] || 'badge-gray'}>
-            {ASIGNACION_ESTADO_LABELS[a.estado] || a.estado}
-          </span>
+          <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
         )}
       </div>
       {a.detalle && (
         <div className="text-xs text-neutral-500 flex flex-wrap gap-x-4 gap-y-0.5">
-          <span>{textoEstadoAmbulancia(a)}</span>
+          {textoEstadoAmbulancia(a) !== estadoVisible(a).texto && <span>{textoEstadoAmbulancia(a)}</span>}
           <span className="data">{formatDateTimeShort(a.fecha_inicio)} → {formatDateTimeShort(a.fecha_fin)}</span>
           {pi && <span>Fotos inicio {pi.completado}/{pi.total}</span>}
           {pf && a.estado !== 'programada' && <span>Fotos fin {pf.completado}/{pf.total}</span>}

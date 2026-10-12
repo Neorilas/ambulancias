@@ -9,7 +9,8 @@ import {
   formatDateTime, formatDateTimeShort, inicioServicioPermitidoDesde, esProntoParaIniciar,
 } from '../../utils/dateUtils.js';
 import useAhora from '../../hooks/useAhora.js';
-import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
+import { ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
+import { estadoVisible } from '../../utils/pasosAsignacion.js';
 import AsignacionForm from './AsignacionForm.jsx';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
 import { resumenNombres } from '../../utils/miembrosAsignacion.js';
@@ -217,9 +218,9 @@ export default function AsignacionList() {
                       <td className="text-sm text-neutral-600 whitespace-nowrap">{formatDateTime(a.fecha_fin)}</td>
                       <td className="text-sm text-neutral-600 data whitespace-nowrap">#{a.id}</td>
                       <td>
-                        <span className={ASIGNACION_ESTADO_COLORS[a.estado] || 'badge-gray'}>
-                          {ASIGNACION_ESTADO_LABELS[a.estado] || a.estado}
-                        </span>
+                        {/* «Sin iniciar» / «En curso» en vez de «Activa», que no
+                            distinguía lo que más importa aquí (pasosAsignacion.js) */}
+                        <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
                         {/* Fotos de inicio subidas más de N min tarde (backend,
                             `fotos_inicio_tarde`). El detalle dice cuáles y cuánto. */}
                         {a.fotos_inicio_tarde > 0 && (

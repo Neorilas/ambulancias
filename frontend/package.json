@@ -1,6 +1,6 @@
 {
   "name": "ambulancia-frontend",
-  "version": "3.16.1",
+  "version": "3.17.2",
   "description": "PWA - Sistema de Gestión de Ambulancias",
   "type": "module",
   "scripts": {
