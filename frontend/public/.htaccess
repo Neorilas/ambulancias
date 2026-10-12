@@ -34,19 +34,20 @@ AddType text/javascript            .js
   # rastrearla, no ve este noindex y puede seguir listando la URL.
   Header always set X-Robots-Tag "noindex, nofollow"
 
-  # CSP en modo SOLO AVISO: no bloquea nada. Las violaciones llegan a
-  # POST /csp-report de la API y salen en su log como «CSP (report-only)».
-  # Cuando pase una temporada sin avisos (o solo con los que se hayan
-  # corregido aquí), cambiar el nombre de la cabecera a
-  # Content-Security-Policy para que sea obligatoria. Qué necesita cada
-  # directiva:
+  # CSP OBLIGATORIA desde el 2026-10-12: lo que no esté aquí NO carga.
+  # Estuvo en Report-Only del 26-sep al 12-oct sin un solo aviso de un
+  # navegador real. Cada bloqueo llega a POST /csp-report de la API y sale en
+  # su log como «CSP: … bloqueado». Un origen externo nuevo (API, CDN, fuentes,
+  # teselas) hay que añadirlo aquí ANTES de subirlo. Marcha atrás si algo deja
+  # de cargar: volver a poner el nombre Content-Security-Policy-Report-Only.
+  # Qué necesita cada directiva:
   #   style-src   'unsafe-inline': atributos style de React y de Leaflet;
   #               fonts.googleapis.com: el @import de index.css.
   #   img-src     la API (fotos de /uploads), teselas de OpenStreetMap, y
   #               data:/blob: de las vistas previas de la cámara.
   #   connect-src la API; el service worker también pide las fotos a la API.
   #   worker-src  el service worker (self) y blob: por si TensorFlow lo usa.
-  Header always set Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: __API_ORIGIN__ https://*.tile.openstreetmap.org; connect-src 'self' __API_ORIGIN__; media-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri __API_URL__/csp-report"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: __API_ORIGIN__ https://*.tile.openstreetmap.org; connect-src 'self' __API_ORIGIN__; media-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri __API_URL__/csp-report"
 
   # ── ORDEN IMPORTANTE ──────────────────────────────────────────────────────
   # Apache aplica los FilesMatch en el orden del fichero y `Header set`

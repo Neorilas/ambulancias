@@ -80,16 +80,17 @@ async function unsubscribe(req, res, next) {
 }
 
 // ============================================================
-// POST /push/estado  (y GET, solo para PWAs aún sin actualizar)
+// POST /push/estado
 // ============================================================
 // El endpoint va en el body: en la query string acababa escrito en el log de
-// peticiones, y es la credencial de entrega del dispositivo.
+// peticiones, y es la credencial de entrega del dispositivo. El GET con
+// `?endpoint=` se retiró el 2026-10-12 (último uso en PRO, el 22-sep).
 // Responde si ESTE navegador (por su endpoint) está dado de alta. El frontend
 // no puede deducirlo solo: el navegador puede conservar una PushSubscription
 // que el servidor ya borró por caducada.
 async function estado(req, res, next) {
   try {
-    const endpoint = req.body?.endpoint || req.query?.endpoint;
+    const endpoint = req.body?.endpoint;
     const registrado = endpoint
       ? await push.tieneSuscripcion({ userId: req.user.id, endpoint })
       : false;

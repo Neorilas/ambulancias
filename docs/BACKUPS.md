@@ -1,9 +1,11 @@
 # Backups
 
-> Estado a 2026-09-30: **los scripts están en el repo, sin instalar en el
-> servidor, y la retención (§8) está apagada.** Hasta que se instalen, ambulancia no tiene ninguna copia: ni de
-> la BD ni de las fotos. Lo que hay en el cron del Hetzner
-> (`maraya-pg-backup`) es de otro proyecto y no la toca.
+> Estado a 2026-10-12: **instalado y en verde en PRO desde el 2026-10-01**
+> (cron a las 02:00 UTC; la primera pasada subió 639 fotos y el dump). **La
+> retención (§8) sigue apagada.** Falta: el aviso de healthchecks.io (§3),
+> encender la retención y la descarga semanal del dump al PC (§2.1). Lo que hay
+> en el cron del Hetzner con nombre `maraya-pg-backup` es de otro proyecto y no
+> toca ambulancia.
 >
 > **El destino es Google Drive, cifrado con rclone**, desde el 2026-09-30. El
 > plan original era un Storage Box de Hetzner, descartado porque no se puede

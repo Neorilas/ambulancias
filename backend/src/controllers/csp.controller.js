@@ -2,10 +2,11 @@
  * controllers/csp.controller.js
  * Recoge los informes de violación de la Content-Security-Policy del frontend.
  *
- * La CSP de la PWA (frontend/public/.htaccess) arranca en modo
- * `Report-Only`: no bloquea nada, solo avisa. Sin este endpoint los avisos se
- * quedarían en la consola de cada móvil y nadie sabría si la política está
- * lista para pasar a obligatoria. Aquí se resumen en el log (`logger.warn`).
+ * La CSP de la PWA (frontend/public/.htaccess) es obligatoria desde el
+ * 2026-10-12 (antes, `Report-Only`): cada informe es algo que el navegador
+ * HA BLOQUEADO. Sin este endpoint se quedaría en la consola de cada móvil y
+ * nadie sabría que una pantalla dejó de cargar algo. Aquí se resumen en el
+ * log (`logger.warn`).
  *
  * Es un endpoint público (el navegador no manda token): no se guarda nada en
  * BD, se recortan las URL a origen + ruta (la query puede llevar datos) y cada
@@ -74,7 +75,7 @@ function recibirInforme(req, res) {
       const directiva = String(inf.directiva || '-').slice(0, 60);
       const bloqueado = recortarUri(inf.bloqueado);
       if (yaVisto(`${directiva}|${bloqueado}`, ahoraMs)) continue;
-      logger.warn(`CSP (report-only): ${directiva} bloquearía ${bloqueado} en ${recortarUri(inf.documento)}`
+      logger.warn(`CSP: ${directiva} ha bloqueado ${bloqueado} en ${recortarUri(inf.documento)}`
         + (inf.fuente ? ` [origen: ${recortarUri(inf.fuente)}]` : ''));
     }
   } catch {

@@ -11,6 +11,7 @@ vi.mock('../../../services/vehicles.service.js', () => ({
     listIncidencias: vi.fn(),
     listRevisiones:  vi.fn(),
     createRevision:  vi.fn(),
+    deleteRevision:  vi.fn(),
   },
 }));
 
@@ -717,6 +718,28 @@ describe('VehicleHistory · facturas de mantenimiento', () => {
     facturasService.descargar.mockResolvedValue();
     await user.click(screen.getByRole('button', { name: 'Descargar' }));
     expect(facturasService.descargar).toHaveBeenCalledWith(FACTURA, 'Factura_Taller_Pepe_TP-77.pdf');
+  });
+
+  // Con el diálogo de la app, no con window.confirm; y avisa de que la
+  // factura se queda en el vehículo
+  it('borrar una revisión pide confirmación en un diálogo y luego la borra', async () => {
+    sesionConPermiso();
+    vehiclesService.deleteRevision.mockResolvedValue();
+    const confirmar = vi.spyOn(window, 'confirm');
+    const user = userEvent.setup();
+    montar(['/vehiculos/7?tab=revisiones']);
+
+    await user.click(await screen.findByRole('button', { name: 'Eliminar' }));
+    expect(confirmar).not.toHaveBeenCalled();
+    expect(screen.getByText('¿Eliminar esta revisión?')).toBeInTheDocument();
+    expect(screen.getByText(/Su factura no se borra/)).toBeInTheDocument();
+    expect(vehiclesService.deleteRevision).not.toHaveBeenCalled();
+
+    const botones = screen.getAllByRole('button', { name: 'Eliminar' });
+    await user.click(botones[botones.length - 1]);
+    await waitFor(() => expect(vehiclesService.deleteRevision).toHaveBeenCalledWith('7', 9));
+    await waitFor(() => expect(screen.queryByText('¿Eliminar esta revisión?')).not.toBeInTheDocument());
+    confirmar.mockRestore();
   });
 
   it('quien no es administración no ve ni pide facturas', async () => {

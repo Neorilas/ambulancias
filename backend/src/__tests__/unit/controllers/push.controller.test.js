@@ -145,7 +145,7 @@ describe('push.controller', () => {
     });
   });
 
-  // ── POST/GET /push/estado ────────────────────────────────
+  // ── POST /push/estado ────────────────────────────────────
   describe('estado', () => {
     it('lee el endpoint del body (POST)', async () => {
       push.tieneSuscripcion.mockResolvedValue(true);
@@ -161,10 +161,19 @@ describe('push.controller', () => {
       push.tieneSuscripcion.mockResolvedValue(true);
 
       const res = mockRes();
-      await estado(mockReq({ user: ADMIN, query: { endpoint: 'e' } }), res, mockNext());
+      await estado(mockReq({ user: ADMIN, body: { endpoint: 'e' } }), res, mockNext());
 
       expect(push.tieneSuscripcion).toHaveBeenCalledWith({ userId: 3, endpoint: 'e' });
       expect(res.json.mock.calls[0][0].data).toEqual({ configurado: true, registrado: true });
+    });
+
+    // El GET viejo lo mandaba en la query y acababa en el log de peticiones
+    it('ya no lee el endpoint de la query string', async () => {
+      const res = mockRes();
+      await estado(mockReq({ user: ADMIN, body: {}, query: { endpoint: 'e' } }), res, mockNext());
+
+      expect(push.tieneSuscripcion).not.toHaveBeenCalled();
+      expect(res.json.mock.calls[0][0].data.registrado).toBe(false);
     });
 
     it('sin endpoint no consulta nada y responde registrado:false', async () => {

@@ -12,7 +12,7 @@
 'use strict';
 
 const express = require('express');
-const { body, query: q } = require('express-validator');
+const { body } = require('express-validator');
 
 const ctrl                  = require('../controllers/push.controller');
 const { authenticate }      = require('../middleware/auth.middleware');
@@ -40,15 +40,6 @@ router.get('/vapid-public-key', ctrl.getClavePublica);
 // POST /push/estado  { endpoint }
 router.post('/estado',
   [body('endpoint').optional().isString().isLength({ max: 512 })],
-  handleValidation,
-  ctrl.estado
-);
-
-// GET /push/estado?endpoint=...  — OBSOLETO: lo siguen usando las PWAs que aún
-// no se han actualizado. Retirar cuando todas lleven el POST (el endpoint en la
-// query string acaba en el log de peticiones).
-router.get('/estado',
-  [q('endpoint').optional().isString().isLength({ max: 512 })],
   handleValidation,
   ctrl.estado
 );
