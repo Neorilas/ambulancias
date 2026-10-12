@@ -149,3 +149,21 @@ describe('AlertsPage · horizonte de más de 60 días', () => {
     expect(screen.queryByText('5555EEE')).not.toBeInTheDocument();
   });
 });
+
+describe('AlertsPage · filtro «> 60 días» sin su horizonte', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vehiclesService.listAlertas.mockResolvedValue(ALERTAS);
+  });
+
+  // Su casilla solo se pinta con un horizonte mayor (que no va en la URL): con
+  // el filtro puesto y 60 días, la lista salía vacía sin forma de quitarlo
+  it('un enlace o una recarga con ?umbral=lejana vuelve a «todos»', async () => {
+    montar('/alertas?umbral=lejana');
+    await ultimaCarga();
+
+    expect(screen.getByTestId('url')).not.toHaveTextContent('umbral=lejana');
+    expect(screen.getAllByText('5555EEE').length).toBeGreaterThan(0);
+  });
+});

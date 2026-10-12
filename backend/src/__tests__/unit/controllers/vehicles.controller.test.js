@@ -1352,6 +1352,23 @@ describe('vehicles.controller', () => {
       expect(logAudit.mock.calls[0][0].details).toEqual({ revision_id: 8, tipo: 'itv', campos: ['descripcion'] });
     });
 
+    it('la auditoría solo guarda nombres de campos conocidos y el tipo de antes si cambia', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' },
+        body: { tipo: 'itv', ['x'.repeat(500)]: 1 },
+        user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      expect(logAudit.mock.calls[0][0].details).toEqual({
+        revision_id: 8, tipo: 'itv', campos: ['tipo'], tipo_antes: 'mantenimiento',
+      });
+    });
+
 
     it('rechaza un próximo por debajo de los km de la revisión', async () => {
       query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
@@ -1401,6 +1418,17 @@ describe('vehicles.controller', () => {
         details: { revision_id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 20300 },
       }));
     });
+
+    it('la fecha que llega de MySQL como Date queda en la auditoría como día', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'itv', fecha_revision: new Date('2026-10-12T00:00:00Z'), km: null, km_proximo: null }]]);
+      query.mockResolvedValueOnce([]);
+
+      await deleteRevision(mockReq({ params: { vehicleId: '1', revId: '8' }, user: { id: 1, username: 'admin' } }), mockRes(), mockNext());
+
+      expect(logAudit.mock.calls[0][0].details).toEqual({ revision_id: 8, tipo: 'itv', fecha_revision: '2026-10-12' });
+    });
+
 
 
     it('returns 404 when not found', async () => {

@@ -1044,6 +1044,10 @@ async function listRevisiones(req, res, next) {
 
 const numOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 
+// Los campos que acepta el PUT de una revisión (lo demás se ignora)
+const CAMPOS_REVISION = ['tipo', 'fecha_revision', 'fecha_proxima', 'resultado', 'descripcion',
+                         'coste', 'realizado_por', 'km', 'km_proximo'];
+
 const MSG_PROXIMO_POR_DEBAJO = 'El próximo mantenimiento tiene que ser a más km que esta revisión';
 
 /**
@@ -1213,7 +1217,11 @@ async function updateRevision(req, res, next) {
       action:   'update_revision',
       entityType: 'vehicle', entityId: vehicleId,
       details:  {
-        revision_id: revId, tipo: tipoFinal, campos: Object.keys(req.body),
+        // Solo los nombres de campos que existen: el cuerpo puede traer claves
+        // de cualquier tamaño y no hay que guardarlas en audit_logs
+        revision_id: revId, tipo: tipoFinal,
+        campos: Object.keys(req.body).filter(k => CAMPOS_REVISION.includes(k)),
+        ...(tipoFinal !== antes.tipo && { tipo_antes: antes.tipo }),
         ...(movioVehiculo && { km_proximo_mantenimiento: kmProximo }),
       },
       ip: req.ip,
@@ -1253,7 +1261,10 @@ async function deleteRevision(req, res, next) {
       action:   'delete_revision',
       entityType: 'vehicle', entityId: vehicleId,
       details:  {
-        revision_id: revId, tipo: r.tipo, fecha_revision: r.fecha_revision,
+        // mysql2 la devuelve como Date (medianoche UTC): en la auditoría, el día
+        revision_id: revId, tipo: r.tipo,
+        fecha_revision: r.fecha_revision instanceof Date
+          ? r.fecha_revision.toISOString().slice(0, 10) : r.fecha_revision,
         ...(r.km_proximo != null && { km: r.km, km_proximo: r.km_proximo }),
       },
       ip: req.ip,

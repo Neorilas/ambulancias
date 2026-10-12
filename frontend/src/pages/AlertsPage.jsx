@@ -101,6 +101,15 @@ export default function AlertsPage() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // «> 60 días» solo existe con un horizonte mayor (que no va en la URL). Con
+  // `?umbral=lejana` y el horizonte en 60 —al volver a 60, o al recargar o
+  // abrir un enlace con el filtro—, su casilla no se pinta y la lista salía
+  // vacía sin forma visible de quitar el filtro.
+  useEffect(() => {
+    if (horizonte <= 60 && filtroUmbral === 'lejana') setFiltroUmbral('todos');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horizonte, filtroUmbral]);
+
   // Todas las alertas con umbral calculado
   const conThreshold = useMemo(() => withThresholds(alertas, horizonte), [alertas, horizonte]);
 

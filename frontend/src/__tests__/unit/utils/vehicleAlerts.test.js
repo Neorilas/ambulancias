@@ -308,7 +308,18 @@ describe('vehicleAlerts', () => {
       expect(localStorage.getItem('vapss:produccion:accessToken')).toBe('xxx');
     });
 
+    // Quien poda es la tarjeta flotante, que mira 60 días: los de «lejana»
+    // solo los crea /alertas con un horizonte mayor y nunca los vería vivos
+    it('pruneDismissals respeta los descartes de más de 60 días', () => {
+      markDismissed({ vehicle_id: 9, tipo: 'its', threshold: 'lejana' });
+
+      pruneDismissals([]);
+
+      expect(listDismissals()).toEqual(['alert_dismissed:9:its:lejana']);
+    });
+
     it('pruneDismissals borra los descartes sin alerta viva detrás', () => {
+
       markDismissed(alerta);
       markDismissed({ vehicle_id: 8, tipo: 'its', threshold: 60 });
       localStorage.setItem('vapss:produccion:user', '{}');

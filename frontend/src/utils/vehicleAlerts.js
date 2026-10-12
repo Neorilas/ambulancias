@@ -186,7 +186,12 @@ export function pruneDismissals(alertasActivas) {
     const aBorrar = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(KEY_PREFIX) && !vivas.has(k)) aBorrar.push(k);
+      // Los de «lejana» (más de 60 días) solo los crea /alertas con un
+      // horizonte mayor; quien poda es la tarjeta flotante, que mira 60 días y
+      // nunca los vería vivos: se borraban y la alerta descartada volvía. Se
+      // quedan hasta «Restaurar descartadas».
+      if (k && k.startsWith(KEY_PREFIX) && !k.endsWith(':lejana') && !vivas.has(k)) aBorrar.push(k);
+
     }
     for (const k of aBorrar) localStorage.removeItem(k);
   } catch { /* ignore */ }
