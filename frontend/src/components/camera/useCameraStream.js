@@ -17,6 +17,13 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   const [cameraReady, setCameraReady] = useState(false);
   const [error,       setError]       = useState(null);
   const [facingMode,  setFacingMode]  = useState('environment');
+  // Flash = la linterna de la cámara encendida (constraint `torch`). La foto
+  // es un fotograma del vídeo, no una foto de la app de cámara: no hay
+  // destello en el disparo, así que la luz tiene que estar puesta al encuadrar.
+  // Solo se ofrece si la cámara lo anuncia en getCapabilities(); en la frontal
+  // y en los navegadores sin soporte (iPhone, según versión) no sale el botón.
+  const [flashDisponible, setFlashDisponible] = useState(false);
+  const [flash,           setFlash]           = useState(false);
 
   // Orientación física: screen.orientation.type es el método más fiable;
   // refleja el ángulo real del dispositivo aunque el viewport esté bloqueado.
@@ -61,6 +68,7 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     }
     setError(null);
     setCameraReady(false);
+    setFlashDisponible(false);
     try {
       // 4:3, el formato nativo del sensor (el de la app de cámara del móvil).
       // Pedir 16:9 (1920×1080) recorta el sensor: en vertical se pierde una
@@ -75,6 +83,8 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
         audio: false,
       });
       streamRef.current = stream;
+      const track = stream.getVideoTracks?.()[0];
+      setFlashDisponible(!!track?.getCapabilities?.()?.torch);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -101,6 +111,18 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     startCamera(facingMode);
     return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
   }, [pause, facingMode, startCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Flash (linterna) ─────────────────────────────────────────
+  // Se reaplica cada vez que la cámara arranca: el stream se para durante la
+  // previsualización y al girar de cámara, y al parar el track la linterna se
+  // apaga sola. Así el flash sigue puesto de una foto a la siguiente.
+  useEffect(() => {
+    if (!cameraReady || !flashDisponible) return;
+    const track = streamRef.current?.getVideoTracks?.()[0];
+    track?.applyConstraints({ advanced: [{ torch: flash }] }).catch(() => {});
+  }, [cameraReady, flashDisponible, flash]);
+
+  const toggleFlash = useCallback(() => setFlash(f => !f), []);
 
   // ── Captura: devuelve una Promise<Blob> ──────────────────────
   const captureBlob = useCallback(() => new Promise((resolve, reject) => {
@@ -159,5 +181,6 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     []
   );
 
-  return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, areaVideo, toggleCamera, captureBlob };
+  return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, areaVideo, toggleCamera, captureBlob,
+           flash, flashDisponible, toggleFlash };
 }

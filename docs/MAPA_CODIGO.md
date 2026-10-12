@@ -871,7 +871,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `hooks/useNavegacion.js` | Que «atrás» vuelva a donde se estaba, como se estaba: `useEstadoEnUrl` (estado de pantalla en la URL, con `replace`), `useVolver(alternativa)` (el «‹ Volver»), `usePanelEnUrl` (panel encima que el atrás del móvil cierra), `useBuscadorEnUrl` (buscador con el texto en local y la URL reposada), `hayAtrasEnLaApp`, `paginaDeUrl`. Reglas y trampas en §8 «La navegación hacia atrás» |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` (stream, orientación, flash/linterna) + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
@@ -953,6 +953,23 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 
 **Los porqués y las trampas:**
 
+- **Flash = linterna (2026-10-12).** La foto es un fotograma del `<video>`
+  (`captureBlob` pinta el vídeo en un canvas), no una foto de la app de
+  cámara: no hay destello en el disparo. El botón «Flash» de la barra
+  superior enciende la linterna de la cámara (`applyConstraints({ advanced:
+  [{ torch }] })`) y queda puesta mientras se encuadra, que además es lo útil
+  para niveles y cuadro de noche. Trampas: (1) **solo aparece si el track
+  anuncia `torch` en `getCapabilities()`** — Chrome Android sí; la frontal y
+  los navegadores sin soporte (iPhone según versión) no enseñan el botón;
+  (2) el stream se para en la previsualización y al girar de cámara, y al
+  parar el track la linterna se apaga sola: `useCameraStream` la **reaplica
+  cada vez que la cámara arranca**, así sigue puesta de una foto a la
+  siguiente; (3) con la cámara abierta por la app, Android no deja encender
+  la linterna del sistema, por eso el aviso de foto *oscura* ya no dice
+  «enciende la linterna del móvil» sino «pulsa Flash». Se descartó
+  `ImageCapture.takePhoto({ fillLightMode: 'flash' })` (destello real):
+  solo Chrome Android, otra resolución y orientación distinta a lo que se ve
+  en el visor. Test: `unit/hooks/useCameraStream.flash.test.jsx`.
 - **El visor «con zoom» (2026-10-06).** Los técnicos tenían que alejarse 3-4 m
   más de lo normal para encuadrar la ambulancia. Dos recortes que se sumaban:
   (1) `useCameraStream` pedía 1920×1080 (16:9) y el sensor del móvil es 4:3:

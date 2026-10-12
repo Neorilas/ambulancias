@@ -103,7 +103,8 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   const previewRef = useRef(preview);
   previewRef.current = preview;
 
-  const { videoRef, canvasRef, cameraReady, error, isLandscape, areaVideo, toggleCamera, captureBlob } =
+  const { videoRef, canvasRef, cameraReady, error, isLandscape, areaVideo, toggleCamera, captureBlob,
+          flash, flashDisponible, toggleFlash } =
     useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
 
   // El detector de encuadre tarda en cargar la primera vez: se empieza a
@@ -360,7 +361,19 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                       )}
                     </div>
 
-                    <button onClick={toggleCamera} className="px-2.5 py-1.5 rounded-md bg-black/40 text-white text-xs font-medium">Girar</button>
+                    <div className="flex items-center gap-2">
+                      {flashDisponible && (
+                        <button
+                          onClick={toggleFlash}
+                          aria-pressed={flash}
+                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium ${
+                            flash ? 'bg-warn-500 text-black' : 'bg-black/40 text-white'}`}
+                        >
+                          Flash
+                        </button>
+                      )}
+                      <button onClick={toggleCamera} className="px-2.5 py-1.5 rounded-md bg-black/40 text-white text-xs font-medium">Girar</button>
+                    </div>
                   </div>
 
                   {botonSaltar && <div className="flex justify-center pb-2">{botonSaltar}</div>}
