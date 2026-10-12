@@ -88,7 +88,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 | `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado) y GET `/tecnico/:userId?mes=YYYY-MM` (los servicios de un técnico con sus horas y lo que no cuadra). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
-| `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF) · POST `/leer` (multipart `fichero`: paso 1 de la subida, lee el PDF y devuelve los datos **sin guardar**; `uploadLimiter` + `subirPdf`) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id` · GET `/buzon` (estado del buzón) · POST `/buzon/revisar` (revisa ya; 409 si no está configurado). **Solo administrador y superadmin, y oculta para el resto: 404 como una ruta inexistente** (`ocultarSalvoRoles`, antes de multer). El flag `menu_facturas` solo se le da a administración (§2.8) |
+| `/facturas` | `facturas.routes.js` | `facturas.controller.js` | GET `/` (todas, sin el PDF, con su vehículo y revisión si son de mantenimiento; `?vehicle_id=N` solo las de ese vehículo) · POST `/leer` (multipart `fichero`: paso 1 de la subida, lee el PDF y devuelve los datos **sin guardar**; `uploadLimiter` + `subirPdf`) · POST `/` (multipart `fichero` + `proveedor`, `numero`, `fecha_emision`, `importe?`, `notas?`, `vehicle_id?`, `revision_id?` —factura de mantenimiento, §2.8—; `uploadLimiter` + `subirPdf`) · GET `/:id/descarga` · DELETE `/:id` · GET `/buzon` (estado del buzón) · POST `/buzon/revisar` (revisa ya; 409 si no está configurado). **Solo administrador y superadmin, y oculta para el resto: 404 como una ruta inexistente** (`ocultarSalvoRoles`, antes de multer). El flag `menu_facturas` solo se le da a administración (§2.8) |
 
 Funciones internas útiles: `asignaciones.controller` → `getProgreso`,
 `getAsignacionCompleta` (devuelve `responsables[]` y `personal[]`),
@@ -463,7 +463,7 @@ vivo. Trampas:
   `informe_mensual` sigue vacía en todos los entornos. Para volver a medirlo
   habría que obligar a anotar el cuentakilómetros al iniciar el servicio.
 
-### 2.8 Facturas de proveedores (2026-10-04)
+### 2.8 Facturas de proveedores y de mantenimiento (2026-10-04, 2026-10-12)
 
 Pantalla `/facturas` (`pages/facturas/Facturas.jsx`) ← `services/facturas.service.js`
 ← `/facturas` (`facturas.controller.js`). Las facturas de Google Ads (y de
@@ -662,6 +662,51 @@ pequeñas (~100 KB al mes); el tope de subida es el de siempre, 10 MB
   (MEDIUMBLOB son 16). Un multipart roto devuelve un mensaje de PDF, no de foto
   (`multipartRoto = 'pdf'`).
 
+**Facturas de mantenimiento de vehículos (2026-10-12, petición del usuario).**
+Las facturas del taller (revisiones, ITV, reparaciones) se suben desde la
+**ficha del vehículo, pestaña Revisiones** (`VehicleHistory` → `TabRevisiones`)
+y aparecen además en `/facturas`, apartado **«Mantenimiento vehículos»**.
+- **Misma tabla, no una nueva** (v36): `facturas.vehicle_id` (NULL = de
+  proveedor) y `facturas.revision_id` (opcional: de qué revisión). Así heredan
+  todo lo de arriba sin repetirlo: PDF en la BD, lector en dos pasos, UNIQUE
+  (proveedor, número), auditoría, descarga con token. La pantalla separa los
+  apartados por `vehicle_id`; el de Proveedores ya no enseña las de
+  mantenimiento.
+- **Solo administración, también en la ficha.** El gestor gestiona revisiones
+  pero **no ve nada de facturas** en la ficha (ni el botón, ni las filas, ni
+  pide la lista): la sección sigue oculta para él, como decidió el usuario el
+  2026-10-04. La ficha lo decide por rol (`isAdmin() || isSuperAdmin()`), no por
+  el flag `menu_facturas`, igual que el backend; el flag solo pone el enlace
+  «Ver las facturas de este vehículo en Facturas →», porque sin él la ruta
+  `/facturas` redirige a la portada.
+- **Reglas del backend** (`errorMantenimiento`): `revision_id` exige
+  `vehicle_id`; el vehículo tiene que existir y no estar borrado; la revisión
+  tiene que ser **de ese vehículo** (si no, 422). Los ids se validan como texto
+  (`idOpcional`) antes de tocar la BD.
+- **FK:** el vehículo con `RESTRICT` (el borrado de vehículos es lógico y una
+  factura no debe quedarse huérfana ni pasar a «de proveedor»); la revisión con
+  `SET NULL`: borrar una revisión mal anotada deja la factura en el vehículo,
+  «Otras facturas de mantenimiento», y el aviso de borrado lo dice.
+- **Vehículo dado de baja:** el listado quita el sufijo `__del_<id>` de la
+  matrícula (`SUBSTRING_INDEX`) y marca `vehiculo_borrado`; la pantalla pone
+  «dado de baja». No se puede subir una factura nueva a un vehículo borrado.
+- **El popup es el mismo** (`components/facturas/SubirFactura.jsx`, sacado de
+  `Facturas.jsx`): con `vehiculo` dice de qué ambulancia es, añade el selector
+  «Revisión que factura» (preseleccionada si se abrió desde una revisión) y no
+  sugiere «Google Ads». **Desde la ficha se carga con `lazy()`** y su chunk
+  (`SubirFactura-*.js`) está en `globIgnores`, como `Facturas-*.js`: el resto
+  de la plantilla no se lo baja al móvil. Lo que comparten la pantalla, el
+  popup y la ficha (`fmtEuros`, `fmtTamano`, `nombreDescarga`,
+  `TIPO_REVISION_LABELS`) está en `utils/facturas.js`.
+- **Trampa:** la ficha carga las facturas en **su propio efecto**. Dentro del
+  efecto que carga vehículo, incidencias y revisiones, el cambio de
+  `veFacturas` al terminar de cargar la sesión volvía a pedir la ficha entera
+  (lo pilló el test «guarda los cambios»).
+- Desde la ficha no se borra ni se edita: se descarga. Borrar, en `/facturas`.
+- El apartado y los filtros de `/facturas` van en la URL (`?apartado=mantenimiento&vehiculo=<id>&anio=&proveedor=`,
+  `useEstadoEnUrl`): desde la tabla se salta a la ficha del vehículo y «atrás»
+  vuelve igual.
+
 ## 3. Frontend
 
 ### 3.1 Arranque
@@ -754,13 +799,13 @@ asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 | `AsignacionDetalle` → «Fin evento/servicio» | `asignaciones.service.registrarFinServicio` | `POST /asignaciones/:id/fin-servicio` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
 | `VehicleList`, `VehicleForm` | `vehicles.service` | `/vehicles` |
-| `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes | `/vehicles/:id/*` |
+| `VehicleHistory` (+ `ComentariosIncidencia`) | `vehicles.service` → `get`, `getHistory`, `update` (edición en línea del Resumen), incidencias, revisiones, imágenes; `facturas.service` → `list(vehicleId)`, `descargar` y, por `SubirFactura` (lazy), `leer`/`subir` — solo administración (§2.8) | `/vehicles/:id/*`, `/facturas?vehicle_id=` |
 | `AlertsPage`, `VehicleExpirationAlerts` | `vehicles.service.listAlertas / listTarjetaTransporteProximas` + `utils/vehicleAlerts.js` | `/vehicles/alertas`, `/vehicles/tarjeta-transporte/proximas` |
 | `UserList`, `UserForm`, `ResetPasswordModal` | `users.service` | `/users` |
 | `MapaFlota` (+ `components/flota/MapaLeaflet`) | `flota.service` + `utils/flota.js` | `GET /flota/ubicaciones` |
 | `AdminPanel` | `admin.service` + `features.service` | `/admin/*`, `/features` |
 | `Informes` | `informes.service` + `utils/informes.js` + `utils/pdfInformeTecnico.js` | `GET /informes/mensual`, `GET /informes/tecnico/:id` |
-| `Facturas` | `facturas.service` (`leer` y `subir`, los dos pasos de la subida, §2.8; `subir` con el timeout de las fotos, `SUBIDA_FOTO_TIMEOUT_MS`; `descargar` como blob) | `/facturas` |
+| `Facturas` (+ `components/facturas/SubirFactura`) | `facturas.service` (`leer` y `subir`, los dos pasos de la subida, §2.8; `subir` con el timeout de las fotos, `SUBIDA_FOTO_TIMEOUT_MS`; `descargar` como blob) | `/facturas` |
 | `Login`, `AuthContext` | `auth.service` | `/auth/*` |
 | `Perfil` → `AvisosPush` (todos; hasta 2026-09-25 solo `MANAGE_TRABAJOS`) | `push.service` + `utils/push.js` | `/push/*` |
 | `FeaturesContext` | `features.service.getActive` | `GET /features/active` |
@@ -871,7 +916,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `hooks/useNavegacion.js` | Que «atrás» vuelva a donde se estaba, como se estaba: `useEstadoEnUrl` (estado de pantalla en la URL, con `replace`), `useVolver(alternativa)` (el «‹ Volver»), `usePanelEnUrl` (panel encima que el atrás del móvil cierra), `useBuscadorEnUrl` (buscador con el texto en local y la URL reposada), `hayAtrasEnLaApp`, `paginaDeUrl`. Reglas y trampas en §8 «La navegación hacia atrás» |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` (stream, orientación, flash/linterna) + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
@@ -953,6 +998,28 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
 
 **Los porqués y las trampas:**
 
+- **Flash = linterna (2026-10-12).** La foto es un fotograma del `<video>`
+  (`captureBlob` pinta el vídeo en un canvas), no una foto de la app de
+  cámara: no hay destello en el disparo. El botón «Flash» de la barra
+  superior enciende la linterna de la cámara (`applyConstraints({ advanced:
+  [{ torch }] })`) y queda puesta mientras se encuadra, que además es lo útil
+  para niveles y cuadro de noche. Trampas: (1) **solo aparece si el track
+  anuncia `torch` en `getCapabilities()`** — Chrome Android sí; la frontal y
+  los navegadores sin soporte (iPhone según versión) no enseñan el botón;
+  (2) el stream se para en la previsualización y al girar de cámara, y al
+  parar el track la linterna se apaga sola: `useCameraStream` la **reaplica
+  cada vez que la cámara arranca**, así sigue puesta de una foto a la
+  siguiente. `arranqueRef` descarta un `getUserMedia` que responde cuando ya
+  se ha pausado, girado o cerrado (antes esa cámara se quedaba abierta y, con
+  flash, encendida bajo la previsualización); y como `advanced` no rechaza
+  aunque el móvil no aplique la luz, si `getSettings().torch` sale `false` o
+  `applyConstraints` falla, el botón vuelve a «apagado» en vez de mentir;
+  (3) con la cámara abierta por la app, Android no deja encender
+  la linterna del sistema, por eso el aviso de foto *oscura* ya no dice
+  «enciende la linterna del móvil» sino «pulsa Flash». Se descartó
+  `ImageCapture.takePhoto({ fillLightMode: 'flash' })` (destello real):
+  solo Chrome Android, otra resolución y orientación distinta a lo que se ve
+  en el visor. Test: `unit/hooks/useCameraStream.flash.test.jsx`.
 - **El visor «con zoom» (2026-10-06).** Los técnicos tenían que alejarse 3-4 m
   más de lo normal para encuadrar la ambulancia. Dos recortes que se sumaban:
   (1) `useCameraStream` pedía 1920×1080 (16:9) y el sensor del móvil es 4:3:
@@ -1080,7 +1147,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1096,6 +1163,7 @@ asignaciones_libres N:M users (asignacion_usuarios: rol responsable|personal, or
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
 vehicles 1─N vehicle_revisiones
+vehicles 1─N facturas (vehicle_id, v36: de mantenimiento; NULL = de proveedor) ─N:1 vehicle_revisiones (revision_id, opcional)
 users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
 trabajos N:M vehicles (trabajo_vehiculos: estado, inicio_real_at, finalizado_at, km, motivo)
 trabajo_vehiculos N:M users (trabajo_vehiculo_responsables: orden; 0 = responsable_user_id)
@@ -1157,7 +1225,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v35_trabajo_coordinadores**. (En alguna BD local puede
+Última migración: **v36_facturas_mantenimiento**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -2036,6 +2104,7 @@ solo actúa en el navegador no es un control de acceso.
 |---|---|
 | La versión que enseña la app | `frontend/package.json` → `version` (se sube a mano con cada cambio: mayor/menor/parche, regla en `CLAUDE.md` → «Versión») → `vite.config.js` la inyecta como `__APP_VERSION__` → `utils/version.js` (`VERSION_APP`, «desarrollo» fuera de Vite) → pie de `components/Layout/Sidebar.jsx`. El backend no la tiene: su `/health` da `commit`, y su `version` es siempre 1.0.0 (`npm_package_version` no existe con `node server.js`). |
 | Colores grises o un fondo de panel | Si debe seguir el tema oscuro: variables de `index.css` (`:root` y `html[data-tema="oscuro"]`) + escalas de `tailwind.config.js`; paneles con `bg-superficie`. Reiniciar `npm run dev` tras tocar la config (§3.4 «Tema oscuro») |
+| Las facturas (un campo, quién las ve, el popup de subida) | Backend: `facturas.controller` (`COLUMNAS` + `DESDE`, nunca `SELECT *`) y `facturas.routes` (`ocultarSalvoRoles`). Frontend: `components/facturas/SubirFactura.jsx` lo usan **dos sitios**, la pantalla `Facturas` (proveedores) y la ficha del vehículo (`TabRevisiones`, mantenimiento, cargado con `lazy()`); lo compartido en `utils/facturas.js`. Quién las ve en la ficha va por rol (`veFacturas` en `VehicleHistory`), igual que el backend. Un chunk nuevo solo de administración, a `globIgnores` de `vite.config.js` (§2.8) |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
 | Un campo nuevo del trabajo que deba ver quien va en una ambulancia | La ficha (`getTrabajoCompleto`, `SELECT t.*`) lo lleva sola, pero la tarjeta del trabajo dentro de la ambulancia NO: `getAsignacionCompleta` (`t.<campo> AS trabajo_<campo>`) **y** `trabajoAparte` en `asignaciones.controller`. Listados con columnas a mano: `listTrabajos`, `misTrab`, `miCalendario`, `listTrabajosCalendario`. Formulario: `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`. Ejemplo: `ubicacion_url` (v34, §6.2) |

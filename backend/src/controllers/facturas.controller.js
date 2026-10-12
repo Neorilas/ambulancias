@@ -10,6 +10,11 @@
  * Hoy entran a mano (origen 'manual'). La columna `origen` y el UNIQUE
  * (proveedor, numero) están pensados para que un día lleguen solas desde el
  * buzón de facturas sin duplicar las subidas a mano.
+ *
+ * Facturas de mantenimiento (v36): las que se suben desde la ficha de un
+ * vehículo llevan `vehicle_id` y, si son de una revisión concreta,
+ * `revision_id`. Son la misma tabla y las mismas reglas; la pantalla de
+ * Facturas las enseña aparte, en «Mantenimiento vehículos».
  */
 
 'use strict';
@@ -27,7 +32,19 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const COLUMNAS = `f.id, f.proveedor, f.numero,
   DATE_FORMAT(f.fecha_emision, '%Y-%m-%d') AS fecha_emision,
   f.importe, f.notas, f.nombre_fichero, f.tamano, f.origen, f.created_at,
-  f.subido_por, TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS subido_por_nombre`;
+  f.subido_por, TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidos, ''))) AS subido_por_nombre,
+  f.vehicle_id, v.alias AS vehiculo_alias,
+  SUBSTRING_INDEX(v.matricula, '__del_', 1) AS vehiculo_matricula,
+  (v.deleted_at IS NOT NULL) AS vehiculo_borrado,
+  f.revision_id, r.tipo AS revision_tipo,
+  DATE_FORMAT(r.fecha_revision, '%Y-%m-%d') AS revision_fecha`;
+
+// Los JOIN que pide COLUMNAS. La matrícula de un vehículo borrado lleva el
+// sufijo `__del_<id>` (deleteVehicle): se quita para pintarla.
+const DESDE = `facturas f
+  LEFT JOIN users u ON u.id = f.subido_por
+  LEFT JOIN vehicles v ON v.id = f.vehicle_id
+  LEFT JOIN vehicle_revisiones r ON r.id = f.revision_id`;
 
 /** Texto recortado, o null si viene vacío. */
 function texto(v) {
@@ -58,6 +75,22 @@ function importeValido(v) {
   return Number(s);
 }
 
+/** Id positivo; null si no viene, NaN si viene y no lo es. */
+function idOpcional(v) {
+  const t = texto(v);
+  if (t === null) return null;
+  return /^[1-9]\d{0,9}$/.test(t) ? Number(t) : NaN;
+}
+
+/** La fila como la quiere la pantalla: el importe como número y el borrado como booleano. */
+function fila(f) {
+  return {
+    ...f,
+    importe: f.importe === null || f.importe === undefined ? null : Number(f.importe),
+    vehiculo_borrado: Boolean(f.vehiculo_borrado),
+  };
+}
+
 /** El fichero empieza por `%PDF-`. El mimetype del navegador no prueba nada. */
 function esPdf(buffer) {
   return Buffer.isBuffer(buffer) && buffer.length >= 5 && buffer.subarray(0, 5).toString('latin1') === '%PDF-';
@@ -70,25 +103,51 @@ function nombreDescarga(f) {
   return `Factura_${limpio(f.proveedor) || 'proveedor'}_${limpio(f.numero) || f.id}.pdf`;
 }
 
-/** GET /facturas — todas, la más reciente primero (son pocas: una al mes por proveedor). */
+/**
+ * GET /facturas — todas, la más reciente primero (son pocas: una al mes por
+ * proveedor). `?vehicle_id=N` deja solo las de mantenimiento de ese vehículo,
+ * para su ficha.
+ */
 async function listFacturas(req, res, next) {
   try {
+    const vehiculo = idOpcional(req.query?.vehicle_id);
+    if (Number.isNaN(vehiculo)) return error(res, 'Vehículo no válido', 400);
     const [filas] = await query(
       `SELECT ${COLUMNAS}
-         FROM facturas f
-         LEFT JOIN users u ON u.id = f.subido_por
-        ORDER BY f.fecha_emision DESC, f.id DESC`
+         FROM ${DESDE}
+        ${vehiculo ? 'WHERE f.vehicle_id = ?' : ''}
+        ORDER BY f.fecha_emision DESC, f.id DESC`,
+      vehiculo ? [vehiculo] : []
     );
-    return success(res, filas.map(f => ({
-      ...f,
-      importe: f.importe === null ? null : Number(f.importe),
-    })));
+    return success(res, filas.map(fila));
   } catch (err) {
     next(err);
   }
 }
 
-/** POST /facturas (multipart: `fichero` + proveedor, numero, fecha_emision, importe?, notas?) */
+/**
+ * Comprueba el vehículo y la revisión de una factura de mantenimiento.
+ * Devuelve el error para el 422, o null si vale o si no es de mantenimiento.
+ */
+async function errorMantenimiento(vehiculo, revision) {
+  if (Number.isNaN(vehiculo)) return { campo: 'vehicle_id', msg: 'Vehículo no válido' };
+  if (Number.isNaN(revision)) return { campo: 'revision_id', msg: 'Revisión no válida' };
+  if (revision && !vehiculo) return { campo: 'vehicle_id', msg: 'Una factura de revisión tiene que ir con su vehículo' };
+  if (!vehiculo) return null;
+  const [v] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehiculo]);
+  if (!v.length) return { campo: 'vehicle_id', msg: 'El vehículo no existe' };
+  if (revision) {
+    const [r] = await query('SELECT id FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?', [revision, vehiculo]);
+    if (!r.length) return { campo: 'revision_id', msg: 'La revisión no es de este vehículo' };
+  }
+  return null;
+}
+
+/**
+ * POST /facturas (multipart: `fichero` + proveedor, numero, fecha_emision,
+ * importe?, notas?, vehicle_id?, revision_id?). Con `vehicle_id` es una
+ * factura de mantenimiento de ese vehículo; con `revision_id`, de esa revisión.
+ */
 async function createFactura(req, res, next) {
   try {
     const fichero = req.file;
@@ -100,6 +159,8 @@ async function createFactura(req, res, next) {
     const fecha     = fechaValida(req.body?.fecha_emision);
     const importe   = importeValido(req.body?.importe);
     const notas     = texto(req.body?.notas);
+    const vehiculo  = idOpcional(req.body?.vehicle_id);
+    const revision  = idOpcional(req.body?.revision_id);
 
     const errores = [];
     if (!proveedor || proveedor.length > MAX.proveedor) errores.push({ campo: 'proveedor', msg: `Indica el proveedor (máx. ${MAX.proveedor} caracteres)` });
@@ -109,6 +170,8 @@ async function createFactura(req, res, next) {
     if (Number.isNaN(importe))                           errores.push({ campo: 'importe', msg: 'Importe no válido' });
     if (notas && notas.length > MAX.notas)               errores.push({ campo: 'notas', msg: `Las notas no pueden pasar de ${MAX.notas} caracteres` });
     if (errores.length) return error(res, errores[0].msg, 422, errores);
+    const errorVehiculo = await errorMantenimiento(vehiculo, revision);
+    if (errorVehiculo) return error(res, errorVehiculo.msg, 422, [errorVehiculo]);
 
     const nombre = (texto(fichero.originalname) || 'factura.pdf').slice(0, MAX.nombre);
 
@@ -116,9 +179,11 @@ async function createFactura(req, res, next) {
     try {
       [resultado] = await query(
         `INSERT INTO facturas
-           (proveedor, numero, fecha_emision, importe, notas, nombre_fichero, tamano, contenido, origen, subido_por, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)`,
-        [proveedor, numero, fecha, importe ?? null, notas, nombre, fichero.size, fichero.buffer, req.user.id, ahora()]
+           (proveedor, numero, fecha_emision, importe, notas, nombre_fichero, tamano, contenido, origen, subido_por, created_at,
+            vehicle_id, revision_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)`,
+        [proveedor, numero, fecha, importe ?? null, notas, nombre, fichero.size, fichero.buffer, req.user.id, ahora(),
+         vehiculo, revision]
       );
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') {
@@ -133,17 +198,14 @@ async function createFactura(req, res, next) {
       action:     'create_factura',
       entityType: 'factura',
       entityId:   resultado.insertId,
-      details:    { proveedor, numero, fecha_emision: fecha, importe: importe ?? null, tamano: fichero.size },
+      details:    { proveedor, numero, fecha_emision: fecha, importe: importe ?? null, tamano: fichero.size,
+                    ...(vehiculo && { vehicle_id: vehiculo, revision_id: revision }) },
       ip:         req.ip,
       userAgent:  req.headers['user-agent'],
     });
 
-    const [filas] = await query(
-      `SELECT ${COLUMNAS} FROM facturas f LEFT JOIN users u ON u.id = f.subido_por WHERE f.id = ?`,
-      [resultado.insertId]
-    );
-    const factura = filas[0];
-    return created(res, factura && { ...factura, importe: factura.importe === null ? null : Number(factura.importe) }, 'Factura guardada');
+    const [filas] = await query(`SELECT ${COLUMNAS} FROM ${DESDE} WHERE f.id = ?`, [resultado.insertId]);
+    return created(res, filas[0] && fila(filas[0]), 'Factura guardada');
   } catch (err) {
     next(err);
   }
@@ -215,7 +277,8 @@ async function deleteFactura(req, res, next) {
     if (!Number.isInteger(id) || id < 1) return error(res, 'Factura no válida', 400);
 
     const [filas] = await query(
-      `SELECT id, proveedor, numero, DATE_FORMAT(fecha_emision, '%Y-%m-%d') AS fecha_emision, importe, origen
+      `SELECT id, proveedor, numero, DATE_FORMAT(fecha_emision, '%Y-%m-%d') AS fecha_emision, importe, origen,
+              vehicle_id, revision_id
          FROM facturas WHERE id = ?`, [id]
     );
     const f = filas[0];
@@ -230,7 +293,8 @@ async function deleteFactura(req, res, next) {
       entityType: 'factura',
       entityId:   id,
       details:    { proveedor: f.proveedor, numero: f.numero, fecha_emision: f.fecha_emision,
-                    importe: f.importe === null ? null : Number(f.importe), origen: f.origen },
+                    importe: f.importe === null ? null : Number(f.importe), origen: f.origen,
+                    ...(f.vehicle_id && { vehicle_id: f.vehicle_id, revision_id: f.revision_id }) },
       ip:         req.ip,
       userAgent:  req.headers['user-agent'],
     });
@@ -262,5 +326,5 @@ async function revisarBuzon(req, res) {
 module.exports = {
   listFacturas, createFactura, leerFactura, downloadFactura, deleteFactura, getBuzon, revisarBuzon,
   // para los tests
-  importeValido, fechaValida, esPdf, nombreDescarga,
+  importeValido, fechaValida, esPdf, nombreDescarga, idOpcional,
 };
