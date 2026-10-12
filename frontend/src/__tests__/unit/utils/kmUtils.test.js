@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseKm } from '../../../utils/kmUtils.js';
+import { parseKm, formatKm } from '../../../utils/kmUtils.js';
 
 // El "." se usa como separador de miles en español: si no se quita antes de
 // parsear, `parseInt("45.000")` corta en el punto y da 45 en vez de 45000.
@@ -31,5 +31,19 @@ describe('parseKm', () => {
     expect(parseKm('4.5')).toBeNull();
     expect(parseKm('45.00')).toBe(45);   // 45.00 SÍ es entero (45), no es el caso a rechazar
     expect(parseKm('45.5')).toBeNull();
+  });
+});
+
+describe('formatKm', () => {
+  it('agrupa también los de cuatro cifras, que toLocaleString(es-ES) deja sin punto', () => {
+    expect(formatKm(5650)).toBe('5.650 km');
+    expect(formatKm(90000)).toBe('90.000 km');
+    expect(formatKm(1234567)).toBe('1.234.567 km');
+    expect(formatKm(800)).toBe('800 km');
+    expect(formatKm(-300)).toBe('-300 km');
+  });
+
+  it('sin número, nada', () => {
+    expect(formatKm('abc')).toBe('');
   });
 });

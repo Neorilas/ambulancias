@@ -89,6 +89,11 @@ export const IMAGEN_TIPOS_GENERAL = [DANOS];
 // backend/src/config/constants.js, que es quien manda.
 export const INICIO_ANTICIPADO_MAX_MINUTOS = 30;
 
+// Mantenimiento cada 15.000 km desde el último realizado; se avisa con 2.000
+// km o menos por delante. Espejo de backend/src/config/constants.js.
+export const MANTENIMIENTO_INTERVALO_KM = 15000;
+export const MANTENIMIENTO_AVISO_KM     = 2000;
+
 // Fotos opcionales fuera del flujo principal
 export const IMAGEN_TIPOS_OPCIONALES = [DANOS];
 

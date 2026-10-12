@@ -18,6 +18,7 @@ const { deleteFile }             = require('../middleware/upload.middleware');
 const { logAudit }               = require('./admin.controller');
 const { ahora, fechaEnEspana, diaYHoraEnEspana, instanteUtc } = require('../utils/fecha.utils');
 const { errorMotivo }            = require('../utils/motivo.utils');
+const { SQL_FIJAR_PROXIMO_MANTENIMIENTO } = require('../utils/mantenimiento.utils');
 const avisos                     = require('../services/avisosAsignacion.service');
 const vigilancia                 = require('../services/vigilancia.service');
 const estadoTrabajo              = require('../services/estadoTrabajo.service');
@@ -1424,8 +1425,10 @@ async function finalizarAsignacion(req, res, next) {
       // ya había.
       if (km_fin != null) {
         await conn.execute(
+          // Sin referencia de mantenimiento, la toma de esta lectura (v37)
           `UPDATE vehicles SET kilometros_actuales   = ?,
-                               fecha_ultimo_servicio = ?
+                               fecha_ultimo_servicio = ?,
+                               ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
            WHERE id = ? AND kilometros_actuales < ?`,
           [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
         );

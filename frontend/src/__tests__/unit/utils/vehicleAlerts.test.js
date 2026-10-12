@@ -15,6 +15,10 @@ import {
   listDismissals,
   clearAllDismissals,
   withThresholds,
+  thresholdForKm,
+  tituloAlerta,
+  venceAlerta,
+  margenAlerta,
 } from '../../../utils/vehicleAlerts';
 
 /** Fecha local, para que la zona horaria del runner no mueva el día. */
@@ -182,11 +186,66 @@ describe('vehicleAlerts', () => {
     });
   });
 
-  it('TIPO_LABEL cubre los tres documentos que caducan', () => {
+  it('TIPO_LABEL cubre los tres documentos que caducan y el mantenimiento por km', () => {
     expect(TIPO_LABEL).toEqual({
       itv: 'ITV', its: 'ITS', tarjeta_transporte: 'Tarjeta de transporte',
+      mantenimiento: 'Mantenimiento',
     });
   });
+
+  // Mantenimiento cada 15.000 km (v37): avisa por km, no por días
+  describe('mantenimiento por km', () => {
+    it('umbrales: toca ya / 500 / 1.000 / 2.000, y nada más allá', () => {
+      expect(thresholdForKm(-300)).toBe('vencida');
+      expect(thresholdForKm(0)).toBe('vencida');
+      expect(thresholdForKm(400)).toBe('km500');
+      expect(thresholdForKm(800)).toBe('km1000');
+      expect(thresholdForKm(2000)).toBe('km2000');
+      expect(thresholdForKm(2001)).toBeNull();
+      expect(thresholdForKm(null)).toBeNull();
+    });
+
+    it('withThresholds mira los km del mantenimiento, no sus días (que llegan nulos)', () => {
+      const out = withThresholds([
+        { tipo: 'mantenimiento', km_restantes: 800, dias_restantes: null },
+        { tipo: 'itv', dias_restantes: 10 },
+      ]);
+      expect(out.map(a => a.threshold)).toEqual(['km1000', 15]);
+    });
+
+    it('los umbrales de km tienen color propio', () => {
+      expect(thresholdStyle('km500').badge).toBe('badge-yellow');
+      expect(thresholdStyle('km2000').badge).toBe('badge-blue');
+    });
+
+    const mant = (km_restantes, extra) => ({
+      tipo: 'mantenimiento', km_objetivo: 45000, km_actuales: 45000 - km_restantes,
+      km_restantes, threshold: thresholdForKm(km_restantes), ...extra,
+    });
+
+    it('textos de una alerta por km', () => {
+      expect(tituloAlerta(mant(800))).toBe(`Mantenimiento en ${(800).toLocaleString('es-ES')} km`);
+      expect(tituloAlerta(mant(-300))).toBe(`Mantenimiento PASADO (${(300).toLocaleString('es-ES')} km)`);
+      expect(tituloAlerta(mant(0))).toBe('Mantenimiento PASADO');
+      expect(margenAlerta(mant(-300))).toBe('Pasado 300 km');
+      expect(margenAlerta(mant(0))).toBe('Toca ya');
+      expect(venceAlerta(mant(800), () => 'x')).toBe(
+        `a los ${(45000).toLocaleString('es-ES')} km (lleva ${(44200).toLocaleString('es-ES')} km)`);
+      expect(venceAlerta(mant(800, { km_actuales: null }), () => 'x')).toBe(
+        `a los ${(45000).toLocaleString('es-ES')} km`);
+    });
+
+    it('textos de una alerta por fecha', () => {
+      const itv = { tipo: 'itv', dias_restantes: 12, threshold: 15, fecha_caducidad: '2026-10-24' };
+      expect(tituloAlerta(itv)).toBe('ITV caduca en 12d');
+      expect(margenAlerta(itv)).toBe('12d');
+      expect(venceAlerta(itv, (f) => `F:${f}`)).toBe('F:2026-10-24');
+      const vencida = { ...itv, dias_restantes: -3, threshold: 'vencida' };
+      expect(tituloAlerta(vencida)).toBe('ITV VENCIDA');
+      expect(margenAlerta(vencida)).toBe('Vencida hace 3d');
+    });
+  });
+
 
   describe('descartes en localStorage', () => {
     const alerta = { vehicle_id: 7, tipo: 'itv', threshold: 30 };

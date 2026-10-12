@@ -19,6 +19,8 @@ const { normalizarMatricula, esMatricula, MENSAJE_FORMATO } = require('../utils/
 const { deleteFile }               = require('../middleware/upload.middleware');
 const { logAudit }                 = require('./admin.controller');
 const { ahora, fechaEnEspana, diaCalendarioEnEspana } = require('../utils/fecha.utils');
+const { siguienteMultiplo, SQL_FIJAR_PROXIMO_MANTENIMIENTO } = require('../utils/mantenimiento.utils');
+const { MANTENIMIENTO_INTERVALO_KM, MANTENIMIENTO_AVISO_KM } = require('../config/constants');
 
 // ── Orden de la flota: por nombre de la ambulancia ────────────
 // Alfabético simple dejaría "Ambulancia 10" antes que "Ambulancia 2", que es
@@ -165,7 +167,7 @@ async function listVehicles(req, res, next) {
     const total = countRows[0].total;
 
     const [rows] = await query(
-      `SELECT v.id, v.matricula, v.alias, v.kilometros_actuales,
+      `SELECT v.id, v.matricula, v.alias, v.kilometros_actuales, v.km_proximo_mantenimiento,
               v.fecha_matriculacion, v.fecha_itv, v.fecha_its,
               v.fecha_tarjeta_transporte,
               v.fecha_ultima_revision, v.fecha_ultimo_servicio,
@@ -198,7 +200,7 @@ async function getVehicle(req, res, next) {
     }
 
     const [rows] = await query(
-      `SELECT id, matricula, alias, kilometros_actuales,
+      `SELECT id, matricula, alias, kilometros_actuales, km_proximo_mantenimiento,
               fecha_matriculacion, fecha_itv, fecha_its,
               fecha_tarjeta_transporte,
               fecha_ultima_revision, fecha_ultimo_servicio, created_at, updated_at
@@ -271,7 +273,7 @@ async function getVehicle(req, res, next) {
 // ============================================================
 async function createVehicle(req, res, next) {
   try {
-    const { matricula, alias, kilometros_actuales = 0,
+    const { matricula, alias, kilometros_actuales = 0, km_proximo_mantenimiento,
             fecha_matriculacion, fecha_itv, fecha_its,
             fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
@@ -288,12 +290,15 @@ async function createVehicle(req, res, next) {
 
     const [result] = await query(
       `INSERT INTO vehicles
-         (matricula, alias, kilometros_actuales,
+         (matricula, alias, kilometros_actuales, km_proximo_mantenimiento,
           fecha_matriculacion, fecha_itv, fecha_its,
           fecha_tarjeta_transporte,
           fecha_ultima_revision, fecha_ultimo_servicio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      // Sin próximo mantenimiento anotado, el siguiente múltiplo de 15.000
+      // por encima de los km con que llega (ninguno si llega sin km)
       [matriculaNorm, alias.trim(), kilometros_actuales,
+       km_proximo_mantenimiento || siguienteMultiplo(kilometros_actuales),
        fecha_matriculacion || null, fecha_itv || null, fecha_its || null,
        fecha_tarjeta_transporte || null,
        fecha_ultima_revision || null, fecha_ultimo_servicio || null]
@@ -325,7 +330,7 @@ async function updateVehicle(req, res, next) {
     );
     if (!existing.length) return notFound(res, 'Vehículo');
 
-    const { matricula, alias, kilometros_actuales,
+    const { matricula, alias, kilometros_actuales, km_proximo_mantenimiento,
             fecha_matriculacion, fecha_itv, fecha_its,
             fecha_tarjeta_transporte,
             fecha_ultima_revision, fecha_ultimo_servicio } = req.body;
@@ -356,6 +361,12 @@ async function updateVehicle(req, res, next) {
     if (fecha_tarjeta_transporte !== undefined) { updates.push('fecha_tarjeta_transporte = ?'); vals.push(fecha_tarjeta_transporte || null); }
     if (fecha_ultima_revision    !== undefined) { updates.push('fecha_ultima_revision = ?');    vals.push(fecha_ultima_revision || null); }
     if (fecha_ultimo_servicio    !== undefined) { updates.push('fecha_ultimo_servicio = ?');    vals.push(fecha_ultimo_servicio || null); }
+    // El próximo mantenimiento a mano (p. ej. el taller dice «vuelva en
+    // 5.000»). En blanco (null) = sin referencia, y si en el mismo guardado
+    // viajan los km, la línea de abajo la recalcula con ellos: vaciar el campo
+    // es «recalcular». Tiene que ir ANTES que esa línea.
+    if (km_proximo_mantenimiento !== undefined) { updates.push('km_proximo_mantenimiento = ?'); vals.push(km_proximo_mantenimiento || null); }
+    if (kilometros_actuales      !== undefined) { updates.push(SQL_FIJAR_PROXIMO_MANTENIMIENTO); }
 
     if (!updates.length) return error(res, 'No hay campos para actualizar', 400);
 
@@ -1028,6 +1039,47 @@ async function listRevisiones(req, res, next) {
 }
 
 // ============================================================
+// Mantenimiento por km (v37)
+// ============================================================
+
+const numOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+
+const MSG_PROXIMO_POR_DEBAJO = 'El próximo mantenimiento tiene que ser a más km que esta revisión';
+
+/**
+ * Km de una revisión de mantenimiento y a cuántos toca la siguiente. Los km
+ * de la revisión, si no se anotan, son los que tiene ahora el vehículo; la
+ * siguiente, si el taller no dice otra cosa, a esos km + 15.000. Devuelve
+ * `{ error }` si la siguiente no queda por encima de esta.
+ */
+function kmDeMantenimiento(km, kmProximo, kmVehiculo) {
+  const kmRev = km ?? (kmVehiculo > 0 ? kmVehiculo : null);
+  const prox  = kmProximo ?? (kmRev != null ? kmRev + MANTENIMIENTO_INTERVALO_KM : null);
+  if (kmRev != null && prox != null && prox <= kmRev) {
+    return { error: MSG_PROXIMO_POR_DEBAJO };
+  }
+  return { km: kmRev, kmProximo: prox };
+}
+
+/**
+ * La revisión de mantenimiento pasa su «próximo» al vehículo, que es lo que
+ * miran las alertas. Solo la MÁS RECIENTE: anotar a posteriori uno del año
+ * pasado no puede mover la referencia hacia atrás.
+ */
+async function aplicarProximoMantenimiento(vehicleId, revId, fechaRevision, kmProximo) {
+  if (kmProximo == null) return;
+  const [posterior] = await query(
+    `SELECT id FROM vehicle_revisiones
+      WHERE vehicle_id = ? AND tipo = 'mantenimiento' AND id <> ?
+        AND (fecha_revision > ? OR (fecha_revision = ? AND id > ?))
+      LIMIT 1`,
+    [vehicleId, revId, fechaRevision, fechaRevision, revId]
+  );
+  if (posterior.length) return;
+  await query('UPDATE vehicles SET km_proximo_mantenimiento = ? WHERE id = ?', [kmProximo, vehicleId]);
+}
+
+// ============================================================
 // POST /vehicles/:id/revisiones  (admin o gestor)
 // ============================================================
 async function createRevision(req, res, next) {
@@ -1038,15 +1090,26 @@ async function createRevision(req, res, next) {
     if (!tipo || !fecha_revision) return error(res, 'tipo y fecha_revision son obligatorios', 400);
 
     const [vrow] = await query(
-      'SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
+      'SELECT id, kilometros_actuales FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicleId]
     );
     if (!vrow.length) return notFound(res, 'Vehículo');
 
+    // Los km solo cuentan en el mantenimiento: es lo único que se cita por km
+    let km = null;
+    let kmProximo = null;
+    if (tipo === 'mantenimiento') {
+      const r = kmDeMantenimiento(numOrNull(req.body.km), numOrNull(req.body.km_proximo),
+                                  vrow[0].kilometros_actuales);
+      if (r.error) return error(res, r.error, 400);
+      ({ km, kmProximo } = r);
+    }
+
     const [result] = await query(
       `INSERT INTO vehicle_revisiones
-         (vehicle_id, tipo, fecha_revision, fecha_proxima, resultado, descripcion, coste, realizado_por, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [vehicleId, tipo, fecha_revision, fecha_proxima || null,
+         (vehicle_id, tipo, fecha_revision, fecha_proxima, km, km_proximo,
+          resultado, descripcion, coste, realizado_por, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [vehicleId, tipo, fecha_revision, fecha_proxima || null, km, kmProximo,
        resultado || 'realizado', descripcion || null,
        coste || null, realizado_por || null, req.user.id]
     );
@@ -1059,6 +1122,9 @@ async function createRevision(req, res, next) {
     } else if (['mantenimiento','revision_preventiva','reparacion'].includes(tipo)) {
       await query('UPDATE vehicles SET fecha_ultima_revision = ? WHERE id = ?', [fecha_revision, vehicleId]);
     }
+    if (tipo === 'mantenimiento') {
+      await aplicarProximoMantenimiento(vehicleId, result.insertId, fecha_revision, kmProximo);
+    }
 
     const [newRow] = await query(
       'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',
@@ -1069,7 +1135,7 @@ async function createRevision(req, res, next) {
       userInfo: req.user.username,
       action:   'create_revision',
       entityType: 'vehicle', entityId: vehicleId,
-      details:  { tipo, fecha_revision, resultado },
+      details:  { tipo, fecha_revision, resultado, ...(tipo === 'mantenimiento' && { km, km_proximo: kmProximo }) },
       ip: req.ip,
     });
     return created(res, newRow[0], 'Revisión registrada');
@@ -1087,10 +1153,11 @@ async function updateRevision(req, res, next) {
     const revId     = parseInt(req.params.revId);
 
     const [existing] = await query(
-      'SELECT id FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
+      'SELECT id, tipo, fecha_revision, km, km_proximo FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
       [revId, vehicleId]
     );
     if (!existing.length) return notFound(res, 'Revisión');
+    const antes = existing[0];
 
     const { tipo, fecha_revision, fecha_proxima, resultado, descripcion, coste, realizado_por } = req.body;
     const updates = [];
@@ -1104,9 +1171,30 @@ async function updateRevision(req, res, next) {
     if (coste          !== undefined) { updates.push('coste = ?');           vals.push(coste || null); }
     if (realizado_por  !== undefined) { updates.push('realizado_por = ?');   vals.push(realizado_por || null); }
 
+    // Km: solo en un mantenimiento. Lo que no viaja se queda como estaba; si
+    // deja de ser mantenimiento se vacían, o la ficha los pintaría en una ITV.
+    const tipoFinal = tipo ?? antes.tipo;
+    let kmProximo = null;
+    if (tipoFinal === 'mantenimiento') {
+      const km = req.body.km         !== undefined ? numOrNull(req.body.km)         : antes.km;
+      kmProximo = req.body.km_proximo !== undefined ? numOrNull(req.body.km_proximo) : antes.km_proximo;
+      if (km != null && kmProximo != null && kmProximo <= km) {
+        return error(res, MSG_PROXIMO_POR_DEBAJO, 400);
+      }
+      if (req.body.km         !== undefined) { updates.push('km = ?');         vals.push(km); }
+      if (req.body.km_proximo !== undefined) { updates.push('km_proximo = ?'); vals.push(kmProximo); }
+    } else if (antes.km != null || antes.km_proximo != null) {
+      updates.push('km = NULL', 'km_proximo = NULL');
+    }
+
     if (!updates.length) return error(res, 'Sin campos para actualizar', 400);
 
     await query(`UPDATE vehicle_revisiones SET ${updates.join(', ')} WHERE id = ?`, [...vals, revId]);
+
+    // Corregir el «próximo» de la última revisión corrige el del vehículo
+    if (tipoFinal === 'mantenimiento') {
+      await aplicarProximoMantenimiento(vehicleId, revId, fecha_revision ?? antes.fecha_revision, kmProximo);
+    }
 
     const [updated] = await query(
       'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',
@@ -1149,6 +1237,9 @@ async function deleteRevision(req, res, next) {
 //   - ≥ 5 años  → semestral
 // ITS: anual (12 meses desde la última)
 // Tarjeta de transporte: la fecha almacenada ES la caducidad.
+// Mantenimiento (v37): por km, no por fecha. Sale cuando faltan
+// MANTENIMIENTO_AVISO_KM o menos para `km_proximo_mantenimiento`, sin mirar
+// el horizonte en días; lleva `km_restantes` y `dias_restantes` nulo.
 //
 // Solo se devuelven entradas con `dias_restantes <= umbralMax`
 // (default 60) o que ya estén vencidas.
@@ -1159,12 +1250,14 @@ async function listAlertasVehiculos(req, res, next) {
 
     const [vehicles] = await query(
       `SELECT id, matricula, alias, fecha_matriculacion,
-              fecha_itv, fecha_its, fecha_tarjeta_transporte
+              fecha_itv, fecha_its, fecha_tarjeta_transporte,
+              kilometros_actuales, km_proximo_mantenimiento
        FROM vehicles
        WHERE deleted_at IS NULL
          AND (fecha_itv IS NOT NULL
            OR fecha_its IS NOT NULL
-           OR fecha_tarjeta_transporte IS NOT NULL)`
+           OR fecha_tarjeta_transporte IS NOT NULL
+           OR km_proximo_mantenimiento IS NOT NULL)`
     );
 
     const MS_DAY = 1000 * 60 * 60 * 24;
@@ -1239,10 +1332,35 @@ async function listAlertasVehiculos(req, res, next) {
           });
         }
       }
+
+      // ── Mantenimiento por km ────────────────────────────────
+      if (v.km_proximo_mantenimiento != null) {
+        const restantes = v.km_proximo_mantenimiento - (v.kilometros_actuales || 0);
+        if (restantes <= MANTENIMIENTO_AVISO_KM) {
+          alertas.push({
+            vehicle_id: v.id,
+            matricula:  v.matricula,
+            alias:      v.alias,
+            tipo:       'mantenimiento',
+            km_objetivo:  v.km_proximo_mantenimiento,
+            km_actuales:  v.kilometros_actuales,
+            km_restantes: restantes,
+            fecha_caducidad: null,
+            dias_restantes:  null,
+          });
+        }
+      }
     }
 
-    // Orden: primero vencidas (dias negativos), luego por días ascendente
-    alertas.sort((a, b) => a.dias_restantes - b.dias_restantes);
+    // Orden: primero las vencidas (días negativos o km ya pasados), luego las
+    // de fecha por días ascendente y al final las de km por km ascendente. Km
+    // y días no se pueden comparar entre sí.
+    const vencida = (a) => (a.km_restantes != null ? a.km_restantes <= 0 : a.dias_restantes < 0);
+    const porKm   = (a) => a.km_restantes != null;
+    alertas.sort((a, b) =>
+      (vencida(b) - vencida(a))
+      || (porKm(a) - porKm(b))
+      || (porKm(a) ? a.km_restantes - b.km_restantes : a.dias_restantes - b.dias_restantes));
 
     return success(res, alertas);
   } catch (err) {

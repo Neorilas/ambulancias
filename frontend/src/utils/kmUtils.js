@@ -18,3 +18,13 @@ export function parseKm(value) {
   const n = Number(limpio);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
+
+// «5.650 km» y no «5650 km»: en es-ES, `toLocaleString` no agrupa los números
+// de cuatro cifras (regla de la CLDR), y junto a un «90.000 km» parecía otro
+// formato. Se agrupa a mano, igual en todos los navegadores.
+export function formatKm(n) {
+  const entero = Math.trunc(Number(n));
+  if (!Number.isFinite(entero)) return '';
+  const signo = entero < 0 ? '-' : '';
+  return `${signo}${String(Math.abs(entero)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} km`;
+}

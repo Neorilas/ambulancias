@@ -23,6 +23,7 @@
 const { query, transaction } = require('./database');
 const logger    = require('../utils/logger.utils');
 const { instanteEnEspana } = require('../utils/fecha.utils');
+const { SQL_FIJAR_PROXIMO_MANTENIMIENTO } = require('../utils/mantenimiento.utils');
 
 // ============================================================
 // Helpers idempotentes
@@ -1250,6 +1251,39 @@ const MIGRATIONS = [
            ADD INDEX idx_factura_revision (revision_id),
            ADD CONSTRAINT fk_factura_revision FOREIGN KEY (revision_id)
              REFERENCES vehicle_revisiones(id) ON DELETE SET NULL`);
+    },
+  },
+
+  {
+    name: 'v37_mantenimiento_km',
+    description: 'Mantenimiento cada 15.000 km: referencia en el vehículo y km en las revisiones',
+    async run() {
+      // A cuántos km le toca el siguiente mantenimiento. NULL = sin referencia
+      // (vehículo sin km anotados). Ver utils/mantenimiento.utils.js.
+      await ensureColumn('vehicles', 'km_proximo_mantenimiento',
+        `ALTER TABLE vehicles
+           ADD COLUMN km_proximo_mantenimiento INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Km a los que toca el siguiente mantenimiento'
+             AFTER kilometros_actuales`);
+      // Km del vehículo en la revisión y a cuántos km se citó la siguiente
+      // (solo los usa el tipo mantenimiento; en el resto quedan NULL).
+      await ensureColumn('vehicle_revisiones', 'km',
+        `ALTER TABLE vehicle_revisiones
+           ADD COLUMN km INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Km del vehículo al hacer la revisión'
+             AFTER fecha_proxima`);
+      await ensureColumn('vehicle_revisiones', 'km_proximo',
+        `ALTER TABLE vehicle_revisiones
+           ADD COLUMN km_proximo INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Km a los que se citó el siguiente mantenimiento'
+             AFTER km`);
+      // Los que ya tienen km: el siguiente múltiplo de 15.000 por encima
+      // (32.000 → 45.000). Sin km, o a 0, se quedan sin referencia hasta la
+      // primera lectura. Mismo cálculo que SQL_FIJAR_PROXIMO_MANTENIMIENTO.
+      await query(
+        `UPDATE vehicles
+            SET ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
+          WHERE km_proximo_mantenimiento IS NULL AND kilometros_actuales > 0`);
     },
   },
 ];

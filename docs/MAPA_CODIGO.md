@@ -707,6 +707,59 @@ y aparecen además en `/facturas`, apartado **«Mantenimiento vehículos»**.
   `useEstadoEnUrl`): desde la tabla se salta a la ficha del vehículo y «atrás»
   vuelve igual.
 
+### 2.9 Mantenimiento cada 15.000 km (2026-10-12)
+
+Petición del usuario: el mantenimiento toca cada 15.000 km, se avisa como la
+ITV/ITS, y si el taller dice «aún no hay nada que hacer, vuelva en 5.000 km»,
+administración/gestión cita el siguiente a 5.000 y **ese pasa a ser la
+referencia** del siguiente (cuenta desde ahí, no desde los múltiplos de 15.000).
+
+- **Una sola referencia: `vehicles.km_proximo_mantenimiento`** (v37): a cuántos
+  km toca el siguiente. Las alertas solo miran esta columna, nunca las
+  revisiones. NULL = sin referencia (vehículo sin km).
+- **Quién la mueve** (`utils/mantenimiento.utils.js`):
+  1. Una **revisión de tipo `mantenimiento`** (`createRevision`/`updateRevision`):
+     guarda `km` (los del vehículo al hacerla; por defecto los actuales) y
+     `km_proximo` (por defecto `km + 15.000`; el formulario pide «dentro de
+     cuántos km», 15.000 de serie) y pasa `km_proximo` al vehículo
+     (`aplicarProximoMantenimiento`). **Solo si es la más reciente** por
+     `fecha_revision` (empate: id mayor): anotar a posteriori uno del año
+     pasado no mueve la referencia hacia atrás. Rechaza un próximo ≤ los km de
+     la revisión (400). Los demás tipos no guardan km, y si una revisión deja de
+     ser mantenimiento se le vacían.
+  2. **A mano**: campo «Próximo mantenimiento (km)» en el Resumen de la ficha y
+     en `VehicleForm`. En blanco viaja como `null`, que con los km en el mismo
+     guardado significa **recalcular** (ver 3).
+  3. **Relleno automático** si está vacía: la primera lectura de km > 0 la fija
+     al siguiente múltiplo de 15.000 por encima (32.000 → 45.000; 45.000 justo →
+     60.000). Lo hace `SQL_FIJAR_PROXIMO_MANTENIMIENTO`, metido en **todo UPDATE
+     que escribe `kilometros_actuales`**: `updateVehicle`,
+     `finalizarAsignacion`, y los dos del v25 en `trabajos.controller`
+     (`insertarVehiculo`, `finalizeVehiculo`); `createVehicle` lo hace en JS con
+     `siguienteMultiplo`. v37 rellenó así los vehículos que ya tenían km.
+- **Trampa del SQL de relleno:** va **después** de `kilometros_actuales = ?` en
+  el mismo `SET` y lee la columna ya cambiada: en un UPDATE de una sola tabla
+  MySQL evalúa las asignaciones de izquierda a derecha. Moverlo delante lee los
+  km viejos. Y en `updateVehicle` el valor a mano va **antes** que el relleno,
+  para que el `COALESCE` vea el `NULL` recién puesto.
+- **Por qué un km 0 no rellena:** `kilometros_actuales` entra a 0 por defecto y
+  casi siempre es «no anotado»; fijar 15.000 a una ambulancia de 230.000 reales
+  avisaría de «pasado 215.000 km» en cuanto se corrigiera.
+- **Alertas** (`listAlertasVehiculos`): tipo `mantenimiento` cuando faltan
+  `MANTENIMIENTO_AVISO_KM` (2.000) o menos, **sin mirar el horizonte en días**.
+  Lleva `km_objetivo`, `km_actuales`, `km_restantes` y `dias_restantes: null`.
+  Orden: vencidas (días < 0 o km ≤ 0) primero, luego las de fecha por días y al
+  final las de km por km (no se comparan entre sí). En el frontend
+  (`vehicleAlerts.js`) los umbrales de km son cadenas (`km500`, `km1000`,
+  `km2000`) para que la clave de descarte no choque con los de días, y los textos
+  salen de `tituloAlerta`/`venceAlerta`/`margenAlerta`, que usan la tarjeta
+  flotante y `/alertas` (KPI «Mantenimiento ≤ 2.000 km», `?umbral=km`, filtro
+  de tipo). Las ve el mismo público que la ITV: administrador y superadmin.
+- Los km se pintan con `formatKm` (`utils/kmUtils.js`): `toLocaleString('es-ES')`
+  no agrupa los de cuatro cifras («5650 km» al lado de «90.000 km»).
+- Guardar una revisión recarga también el vehículo (`recargarVehiculo` en
+  `TabRevisiones`): el Resumen enseñaba la ITV y el mantenimiento de antes.
+
 ## 3. Frontend
 
 ### 3.1 Arranque
@@ -895,7 +948,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 |---|---|
 | `utils/constants.js` | `ROLES`, `PERMISSIONS`, estados/colores/etiquetas, definición de cada tipo de foto (`IMAGEN_TIPOS_INICIO/FIN/GENERAL`, labels, instrucciones). **Espejo de** `backend/src/config/constants.js` |
 | `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
-| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días, ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
+| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días (y `km500`/`km1000`/`km2000` del mantenimiento por km, §2.9), ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/reporteErrores.js` | Errores que ve la app → `POST /errores-cliente`. `instalarReporteDeErrores()` (en `main.jsx`, antes de montar React) engancha `error`/`unhandledrejection`; `reportarErrorDePeticion` lo llama el interceptor de `api.js`; `reportarFalloDeCarga(err, pantalla)` lo llama a mano una pantalla que se queda en «no se pudo cargar» (hoy `VehicleList` y el inicio de admin). Cola en localStorage (`erroresPendientes`), envío a los 3 s, al volver la red o la pestaña. Reglas en §8 «Errores en el panel» |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |
@@ -1147,7 +1200,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1225,7 +1278,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v36_facturas_mantenimiento**. (En alguna BD local puede
+Última migración: **v37_mantenimiento_km**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -2135,7 +2188,9 @@ solo actúa en el navegador no es un control de acceso.
 | Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de la asignación», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Inicio evento/servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin evento/servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del evento/servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio de la asignación» y «Fin de la asignación» en pareja (se llamaron «Inicio/Fin real de servicio» hasta el 2026-10-03: el usuario reserva «evento/servicio» para lo que pasa en el sitio —llegada y fin— y llama asignación a lo que va de las fotos de inicio a las de cierre) y debajo «Inicio evento/servicio» con lo que tardó desde el inicio (`duration`) y «Fin evento/servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y «Fin evento/servicio» en la tarjeta. Reglas de ambos en §6.1 |
 | La marca «A revisar» del fin del evento (umbral, corte de fecha, quién la ve) | `FIN_EVENTO_EN_BASE_MINUTOS` y `FIN_EVENTO_EXIGIDO_DESDE` en backend `config/constants.js` → `asignaciones.controller`: `marcarFinEventoEnBase` + `veRevisionFinEvento` (ficha, solo en `getAsignacion`; por rol admin/gestor/superadmin, nunca coordinador ni miembro) y `SQL_REVISAR_FIN_EVENTO` (listado y su filtro `?revisar=fin_evento`); los cortes tienen que ser los mismos en los dos → `AsignacionDetalle` (aviso) y `AsignacionList` (badge + chip). El recuento por trabajo reutiliza el mismo SQL en `trabajos.controller.listTrabajos` (`asignaciones_a_revisar`, `?revisar=fin_evento`) → `TrabajoList` (badge y botón «Tiempos que no cuadran»). §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura) y `VehicleHistory` (día+hora y badge de momento) |
-| Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts` |
+| Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts`. Una alerta que no sea por fecha (como el mantenimiento por km, §2.9) necesita su umbral en `withThresholds`, su color en `thresholdStyle` y sus textos en `tituloAlerta`/`venceAlerta`/`margenAlerta` |
+| El mantenimiento por km (intervalo, aviso, qué lo mueve) | `MANTENIMIENTO_INTERVALO_KM`/`MANTENIMIENTO_AVISO_KM` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` → `utils/mantenimiento.utils.js` → `vehicles.controller` (`createVehicle`, `updateVehicle`, `createRevision`/`updateRevision` con `aplicarProximoMantenimiento`, `listAlertasVehiculos`). **Un UPDATE nuevo que escriba `kilometros_actuales` tiene que llevar `SQL_FIJAR_PROXIMO_MANTENIMIENTO` detrás del km**, o un vehículo sin referencia se queda sin aviso. Frontend: `TabRevisiones` y Resumen de `VehicleHistory`, `VehicleForm`. §2.9 |
+
 | Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10. **Si es `denegada` y no es para gestor o más, va también en `NIVEL`** (`administrador` o `superadmin`): el test prueba que el escalón de abajo recibe 403 y que el que debe entrar no, y que un token de «Ver como» no abre nada de superadmin |
 | Un rol nuevo **de campo** (sale de servicio con la ambulancia) | Migración que lo da de alta + `ROLES` en `backend/config/constants.js` **y** `frontend/utils/constants.js` + `tieneRolDeCampo` (`roles.middleware.js`) + `isOperacional` (`AuthContext.jsx`) + `ROL_LABELS` y color en `RolBadge`. Crearlo solo desde `/usuarios` deja un rol que el código no reconoce: 403 al subir la evidencia de su propia asignación (§6) |
 | Quién puede gestionar el gestor | `motivoGestor` en `users.controller`: «por debajo de su rol» = sin rol de mando **ni rol con algún permiso**, y vale tanto para los roles que se le dan como para los que **ya tiene** el usuario (hasta 2026-10-04 los actuales solo se miraban «de mando», SEC-20). Un rol propio al que se le den permisos deja a sus usuarios fuera del alcance del gestor |

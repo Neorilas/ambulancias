@@ -10,8 +10,10 @@ vi.mock('../../../services/vehicles.service.js', () => ({
     update:          vi.fn(),
     listIncidencias: vi.fn(),
     listRevisiones:  vi.fn(),
+    createRevision:  vi.fn(),
   },
 }));
+
 vi.mock('../../../services/users.service.js', () => ({
   usersService: { list: vi.fn() },
 }));
@@ -755,5 +757,84 @@ describe('VehicleHistory · facturas de mantenimiento', () => {
     });
     await waitFor(() => expect(facturasService.list).toHaveBeenCalledTimes(2));
     expect(screen.queryByText(/Factura de mantenimiento de/)).not.toBeInTheDocument();
+  });
+});
+
+// Mantenimiento cada 15.000 km (v37)
+describe('VehicleHistory · mantenimiento por km', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sesionConPermiso();
+    const conMant = { ...VEHICULO, km_proximo_mantenimiento: 121000 };
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: conMant, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(conMant);
+    vehiclesService.update.mockResolvedValue(conMant);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    vehiclesService.createRevision.mockResolvedValue({ id: 50 });
+    usersService.list.mockResolvedValue({ data: [] });
+  });
+
+  it('el resumen dice a cuántos km toca y cuántos quedan', async () => {
+    montar();
+    expect(await screen.findByText('Próximo mantenimiento')).toBeInTheDocument();
+    expect(screen.getByText('(quedan 1.000 km)')).toBeInTheDocument();
+  });
+
+  it('se puede cambiar a mano desde el resumen, y en blanco viaja como null', async () => {
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+
+    const campo = screen.getByDisplayValue('121000');
+    await user.clear(campo);
+    await user.type(campo, '125.000');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.update.mock.calls[0][1].km_proximo_mantenimiento).toBe(125000);
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }));
+    await user.clear(screen.getByDisplayValue('121000'));
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await waitFor(() => expect(vehiclesService.update).toHaveBeenCalledTimes(2));
+    expect(vehiclesService.update.mock.calls[1][1].km_proximo_mantenimiento).toBeNull();
+  });
+
+  // El ejemplo del usuario: el taller dice que no hay nada que hacer y que
+  // vuelva en 5.000 km
+  it('una revisión de mantenimiento cita el siguiente a lo que diga el taller y recarga el vehículo', async () => {
+    const user = userEvent.setup();
+    const { container } = montar(['/vehiculos/7?tab=revisiones']);
+    await user.click(await screen.findByRole('button', { name: '+ Nueva revisión' }));
+
+    // Los km del vehículo vienen ya puestos, y por defecto el siguiente a +15.000
+    expect(screen.getByPlaceholderText('Ej: 15.300')).toHaveValue('120000');
+    expect(screen.getByText('Le tocará a los 135.000 km. Si el taller cita antes, cámbialo.')).toBeInTheDocument();
+
+    const dentro = screen.getByPlaceholderText('15000');
+    await user.clear(dentro);
+    await user.type(dentro, '5000');
+    expect(screen.getByText('Le tocará a los 125.000 km. Si el taller cita antes, cámbialo.')).toBeInTheDocument();
+
+    await user.type(container.querySelector('input[type="date"]'), '2026-10-12');
+    const llamadasAntes = vehiclesService.get.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(vehiclesService.createRevision).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.createRevision.mock.calls[0][1]).toMatchObject({
+      tipo: 'mantenimiento', km: 120000, km_proximo: 125000,
+    });
+    await waitFor(() => expect(vehiclesService.get.mock.calls.length).toBeGreaterThan(llamadasAntes));
+  });
+
+  it('en una ITV no se piden km', async () => {
+    const user = userEvent.setup();
+    montar(['/vehiculos/7?tab=revisiones']);
+    await user.click(await screen.findByRole('button', { name: '+ Nueva revisión' }));
+    await user.selectOptions(screen.getByDisplayValue('Mantenimiento'), 'itv');
+
+    expect(screen.queryByPlaceholderText('Ej: 15.300')).not.toBeInTheDocument();
   });
 });
