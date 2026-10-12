@@ -1254,8 +1254,14 @@ propia regla de 24 h en `activarTrabajo`.
 2026-10-03).** Son dos parejas distintas y los textos tienen que dejarlo claro:
 - **Inicio / Fin de la asignación**: lo primero y lo último del día, en base y
   con las fotos. Botones «Inicio de la asignación» (`inicio_real_at`) y
-  «Finalizar asignación» (`finalizado_at`); en la ficha, «Inicio de la
-  asignación» y «Fin de la asignación».
+  «Finalizar asignación» (`finalizado_at`). En la ficha y en las tarjetas los
+  títulos son **«Inicio en base» / «Fin en base»** (las horas reales) e
+  **«Inicio previsto en base» / «Fin previsto en base»** (`fecha_inicio` /
+  `fecha_fin`) — decisión del usuario 2026-10-12, para que la hora prevista se
+  lea como la de salida/vuelta a base y no como la del evento. Los botones
+  conservan su nombre. Hasta entonces: «Inicio/Fin de la asignación» e
+  «Inicio/Fin previsto». Trabajos (`TrabajoDetail`, `TrabajoV25` y la tarjeta
+  de trabajo del `Dashboard`) siguen con «Fin previsto».
 - **Inicio / Fin evento/servicio**: llegar al lugar donde se interviene y
   abandonarlo. Botones «Inicio evento/servicio» (`llegada_servicio_at`) y
   «Fin evento/servicio» (`fin_servicio_at`).

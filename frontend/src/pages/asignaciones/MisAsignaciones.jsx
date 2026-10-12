@@ -116,7 +116,7 @@ export default function MisAsignaciones() {
 
                     <div className="kv-row">
                       <span>
-                        <span className="kv-k">{a.inicio_real_at ? 'Inicio asignación' : 'Inicio previsto'}</span>
+                        <span className="kv-k">{a.inicio_real_at ? 'Inicio en base' : 'Inicio previsto en base'}</span>
                         <span className="kv-v data whitespace-nowrap">
                           {formatDateTime(a.inicio_real_at || a.fecha_inicio)}
                         </span>
@@ -134,7 +134,7 @@ export default function MisAsignaciones() {
                         </span>
                       )}
                       <span>
-                        <span className="kv-k">Fin previsto</span>
+                        <span className="kv-k">Fin previsto en base</span>
                         <span className="kv-v data whitespace-nowrap">{formatDateTime(a.fecha_fin)}</span>
                       </span>
                       {a.km_inicio != null && (

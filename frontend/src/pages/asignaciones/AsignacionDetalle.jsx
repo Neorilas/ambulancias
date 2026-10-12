@@ -583,11 +583,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </div>
               )}
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto en base</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto</p>
+                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto en base</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_fin)}</p>
               </div>
               {/* Las dos horas reales van en pareja, debajo de las previstas, para
@@ -596,11 +596,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               {(asig.inicio_real_at || asig.finalizado_at) && (
                 <>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Inicio de la asignación</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Inicio en base</p>
                     <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin de la asignación</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">Fin en base</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo

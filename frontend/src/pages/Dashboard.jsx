@@ -205,7 +205,7 @@ function ActiveAsignacionCard({ asignacion, onFinalizar }) {
       <div className="text-xs text-neutral-500 space-y-0.5">
         <p>Inicio: {formatDateTime(asignacion.fecha_inicio)}</p>
         <p className={enTiempo ? 'text-neutral-500' : 'text-bad-600 font-medium'}>
-          Fin previsto: {formatDateTime(asignacion.fecha_fin)}
+          Fin previsto en base: {formatDateTime(asignacion.fecha_fin)}
           {!enTiempo && ' · Tiempo superado'}
         </p>
         {asignacion.km_inicio != null && (

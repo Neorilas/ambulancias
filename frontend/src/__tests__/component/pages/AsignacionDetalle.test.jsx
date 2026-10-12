@@ -80,7 +80,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    expect(await screen.findByText('Fin de la asignación')).toBeInTheDocument();
+    expect(await screen.findByText('Fin en base')).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.finalizado_at))).toBeInTheDocument();
     expect(screen.getByText(formatDateTime(BASE.inicio_real_at))).toBeInTheDocument();
   });
@@ -89,7 +89,7 @@ describe('AsignacionDetalle — horas reales', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, estado: 'activa', finalizado_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Fin de la asignación');
+    const etiqueta = await screen.findByText('Fin en base');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 
@@ -99,8 +99,8 @@ describe('AsignacionDetalle — horas reales', () => {
     });
     montar();
 
-    await screen.findByText('Fin previsto');
-    expect(screen.queryByText('Fin de la asignación')).not.toBeInTheDocument();
+    await screen.findByText('Fin previsto en base');
+    expect(screen.queryByText('Fin en base')).not.toBeInTheDocument();
   });
 });
 
@@ -135,7 +135,7 @@ describe('AsignacionDetalle — editar', () => {
     asignacionesService.get.mockResolvedValue(BASE);
     montar();
 
-    await screen.findByText('Fin de la asignación');
+    await screen.findByText('Fin en base');
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 
@@ -144,7 +144,7 @@ describe('AsignacionDetalle — editar', () => {
     asignacionesService.get.mockResolvedValue(ACTIVA_CON_FOTOS);
     montar();
 
-    await screen.findByText('Fin previsto');
+    await screen.findByText('Fin previsto en base');
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 });
@@ -465,7 +465,7 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
     });
     montar();
 
-    await screen.findByText('Fin previsto');
+    await screen.findByText('Fin previsto en base');
     expect(screen.queryByTestId('aviso-fotos-inicio-tarde')).not.toBeInTheDocument();
     expect(screen.queryByText('+1h 35min')).not.toBeInTheDocument();
   });
@@ -475,7 +475,7 @@ describe('AsignacionDetalle — fotos de inicio subidas tarde', () => {
     asignacionesService.get.mockResolvedValue({ ...CON_TARDIA, fotos_inicio_tarde: null });
     montar();
 
-    await screen.findByText('Fin previsto');
+    await screen.findByText('Fin previsto en base');
     expect(screen.queryByTestId('aviso-fotos-inicio-tarde')).not.toBeInTheDocument();
   });
 });
@@ -518,7 +518,7 @@ describe('AsignacionDetalle — revisión del fin del evento', () => {
     asignacionesService.get.mockResolvedValue({ ...CON_MARCA, revisar_fin_evento: undefined });
     montar();
 
-    await screen.findByText('Fin previsto');
+    await screen.findByText('Fin previsto en base');
     expect(screen.queryByTestId('aviso-revisar-fin-evento')).not.toBeInTheDocument();
   });
 });
@@ -614,7 +614,7 @@ describe('AsignacionDetalle — su trabajo', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, trabajo: null });
     montarEnRouter();
 
-    await screen.findByText('Fin previsto');
+    await screen.findByText('Fin previsto en base');
     expect(screen.queryByTestId('trabajo-de-asignacion')).not.toBeInTheDocument();
   });
 });
