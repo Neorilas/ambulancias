@@ -1178,6 +1178,10 @@ async function updateRevision(req, res, next) {
     if (tipoFinal === 'mantenimiento') {
       const km = req.body.km         !== undefined ? numOrNull(req.body.km)         : antes.km;
       kmProximo = req.body.km_proximo !== undefined ? numOrNull(req.body.km_proximo) : antes.km_proximo;
+      // En blanco = el de serie, igual que al crear (con los km de la revisión)
+      if (req.body.km_proximo !== undefined && kmProximo == null && km != null) {
+        kmProximo = km + MANTENIMIENTO_INTERVALO_KM;
+      }
       if (km != null && kmProximo != null && kmProximo <= km) {
         return error(res, MSG_PROXIMO_POR_DEBAJO, 400);
       }
@@ -1191,10 +1195,15 @@ async function updateRevision(req, res, next) {
 
     await query(`UPDATE vehicle_revisiones SET ${updates.join(', ')} WHERE id = ?`, [...vals, revId]);
 
-    // Corregir el «próximo» de la última revisión corrige el del vehículo
-    if (tipoFinal === 'mantenimiento') {
+    // Corregir el «próximo» de la última revisión corrige el del vehículo,
+    // pero SOLO si ese próximo cambia (o la revisión pasa a ser mantenimiento).
+    // El formulario lo reenvía siempre: tocar la descripción o el coste no
+    // puede deshacer un ajuste hecho a mano en la ficha después de la revisión.
+    const cambiaProximo = antes.tipo !== 'mantenimiento' || kmProximo !== antes.km_proximo;
+    if (tipoFinal === 'mantenimiento' && cambiaProximo) {
       await aplicarProximoMantenimiento(vehicleId, revId, fecha_revision ?? antes.fecha_revision, kmProximo);
     }
+
 
     const [updated] = await query(
       'SELECT vr.*, u.nombre AS creado_por_nombre FROM vehicle_revisiones vr JOIN users u ON vr.created_by = u.id WHERE vr.id = ?',

@@ -726,7 +726,14 @@ referencia** del siguiente (cuenta desde ahí, no desde los múltiplos de 15.000
      `fecha_revision` (empate: id mayor): anotar a posteriori uno del año
      pasado no mueve la referencia hacia atrás. Rechaza un próximo ≤ los km de
      la revisión (400). Los demás tipos no guardan km, y si una revisión deja de
-     ser mantenimiento se le vacían.
+     ser mantenimiento se le vacían. **Al editarla, solo vuelve a pasar el
+     próximo al vehículo si ese próximo cambia** (o pasa a ser mantenimiento):
+     el formulario lo reenvía siempre, y tocar la descripción o el coste
+     deshacía el ajuste hecho a mano en la ficha después (lo pilló la revisión
+     de código del 2026-10-12). El próximo en blanco al editar vuelve al de
+     serie (`km + 15.000`), igual que al crear. Borrar la revisión, o que deje de
+     ser mantenimiento, **no** devuelve el vehículo a la anterior: se corrige a
+     mano en la ficha.
   2. **A mano**: campo «Próximo mantenimiento (km)» en el Resumen de la ficha y
      en `VehicleForm`. En blanco viaja como `null`, que con los km en el mismo
      guardado significa **recalcular** (ver 3).
@@ -757,7 +764,15 @@ referencia** del siguiente (cuenta desde ahí, no desde los múltiplos de 15.000
   de tipo). Las ve el mismo público que la ITV: administrador y superadmin.
 - Los km se pintan con `formatKm` (`utils/kmUtils.js`): `toLocaleString('es-ES')`
   no agrupa los de cuatro cifras («5650 km» al lado de «90.000 km»).
-- Guardar una revisión recarga también el vehículo (`recargarVehiculo` en
+- **Al desplegar v37** la referencia sale del múltiplo de 15.000, sin saber
+  cuándo se hizo el último mantenimiento de verdad: una ambulancia con 44.500
+  km avisa «en 500 km» aunque se acabe de revisar. Administración ajusta a mano
+  las que no cuadren (campo del Resumen). `scripts/seed-local.js` repite el
+  cálculo porque siembra después de las migraciones.
+- Los km del mantenimiento llevan tope (`KM_MAX`, 9.999.999 en
+  `vehicles.routes`): por encima del INT UNSIGNED, MySQL daba 500 en vez de 400.
+- Guardar una revisión recarga también el vehículo
+ (`recargarVehiculo` en
   `TabRevisiones`): el Resumen enseñaba la ITV y el mantenimiento de antes.
 
 ## 3. Frontend

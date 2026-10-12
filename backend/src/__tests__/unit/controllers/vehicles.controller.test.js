@@ -1287,6 +1287,39 @@ describe('vehicles.controller', () => {
       expect(query.mock.calls[3]).toEqual([expect.stringContaining('SET km_proximo_mantenimiento = ?'), [20300, 1]]);
     });
 
+    // El formulario reenvía siempre el próximo: editar la descripción no puede
+    // deshacer el ajuste que se hizo a mano en la ficha después de la revisión
+    it('si el próximo no cambia, no se toca el del vehículo', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' },
+        body: { descripcion: 'Cambio de aceite', km: '15300', km_proximo: '30300' },
+        user: { id: 1 },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls.some(c => c[0].includes('SET km_proximo_mantenimiento'))).toBe(false);
+      expect(query).toHaveBeenCalledTimes(3);
+    });
+
+    it('el próximo en blanco al editar vuelve al de serie: los km de la revisión + 15.000', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 20300 }]]);
+      query.mockResolvedValueOnce([]);   // UPDATE revisión
+      query.mockResolvedValueOnce([[]]); // ninguno más reciente
+      query.mockResolvedValueOnce([]);   // UPDATE vehicles
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { km_proximo: '' }, user: { id: 1 },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls[1][1]).toEqual([30300, 8]);
+      expect(query.mock.calls[3][1]).toEqual([30300, 1]);
+    });
+
+
     it('rechaza un próximo por debajo de los km de la revisión', async () => {
       query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
       const res = mockRes();

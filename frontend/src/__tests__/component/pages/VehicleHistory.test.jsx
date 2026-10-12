@@ -829,7 +829,30 @@ describe('VehicleHistory · mantenimiento por km', () => {
     await waitFor(() => expect(vehiclesService.get.mock.calls.length).toBeGreaterThan(llamadasAntes));
   });
 
+  it('«dentro de» a medida sin los km de la revisión no se guarda: no tendría desde dónde contar', async () => {
+    const user = userEvent.setup();
+    const { container } = montar(['/vehiculos/7?tab=revisiones']);
+    await user.click(await screen.findByRole('button', { name: '+ Nueva revisión' }));
+
+    await user.clear(screen.getByPlaceholderText('Ej: 15.300'));
+    const dentro = screen.getByPlaceholderText('15000');
+    await user.clear(dentro);
+    await user.type(dentro, '5000');
+    await user.type(container.querySelector('input[type="date"]'), '2026-10-12');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(vehiclesService.createRevision).not.toHaveBeenCalled();
+
+    // Con los km puestos, sí, y cuenta desde ellos
+    await user.type(screen.getByPlaceholderText('Ej: 15.300'), '15300');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(vehiclesService.createRevision).toHaveBeenCalledTimes(1));
+    expect(vehiclesService.createRevision.mock.calls[0][1]).toMatchObject({ km: 15300, km_proximo: 20300 });
+
+  });
+
   it('en una ITV no se piden km', async () => {
+
     const user = userEvent.setup();
     montar(['/vehiculos/7?tab=revisiones']);
     await user.click(await screen.findByRole('button', { name: '+ Nueva revisión' }));

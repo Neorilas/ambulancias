@@ -609,6 +609,12 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
     if (esMantenimiento && form.dentro !== '' && !kmDentro) {
       notify.error('Indica dentro de cuántos km toca el siguiente mantenimiento'); return;
     }
+    // Sin los km de la revisión, «dentro de» no tiene desde dónde contar y el
+    // backend lo ignoraría (pondría +15.000 sobre los del vehículo)
+    if (esMantenimiento && kmRev == null && form.dentro !== ''
+        && kmDentro !== MANTENIMIENTO_INTERVALO_KM) {
+      notify.error('Indica los km del vehículo en esta revisión'); return;
+    }
     setSaving(true);
     try {
       const payload = {
