@@ -93,6 +93,35 @@ describe('facturas.controller', () => {
       expect(res._json.data.map(f => f.importe)).toEqual([65.23, null]);
     });
 
+    it('trae el vehículo y la revisión de las de mantenimiento, sin el sufijo de borrado', async () => {
+      query.mockResolvedValueOnce([[{ id: 3, importe: '120.00', vehicle_id: 4, vehiculo_borrado: 1, revision_id: 9 }]]);
+      const res = mockRes();
+      await ctrl.listFacturas(mockReq({ user: ADMIN }), res, mockNext());
+
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toMatch(/LEFT JOIN vehicles v ON v\.id = f\.vehicle_id/);
+      expect(sql).toMatch(/LEFT JOIN vehicle_revisiones r ON r\.id = f\.revision_id/);
+      expect(sql).toMatch(/SUBSTRING_INDEX\(v\.matricula, '__del_', 1\)/);
+      expect(sql).not.toMatch(/WHERE/);
+      expect(params).toEqual([]);
+      expect(res._json.data[0]).toEqual(expect.objectContaining({ importe: 120, vehiculo_borrado: true, revision_id: 9 }));
+    });
+
+    it('?vehicle_id=N deja solo las de ese vehículo (la ficha)', async () => {
+      query.mockResolvedValueOnce([[]]);
+      await ctrl.listFacturas(mockReq({ user: ADMIN, query: { vehicle_id: '4' } }), mockRes(), mockNext());
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toMatch(/WHERE f\.vehicle_id = \?/);
+      expect(params).toEqual([4]);
+    });
+
+    it('?vehicle_id que no es un id → 400', async () => {
+      const res = mockRes();
+      await ctrl.listFacturas(mockReq({ user: ADMIN, query: { vehicle_id: '1 OR 1=1' } }), res, mockNext());
+      expect(res.statusCode).toBe(400);
+      expect(query).not.toHaveBeenCalled();
+    });
+
     it('un fallo de BD va al manejador de errores', async () => {
       query.mockRejectedValueOnce(new Error('caída'));
       const next = mockNext();
@@ -176,6 +205,76 @@ describe('facturas.controller', () => {
       const next = mockNext();
       await ctrl.createFactura(subida(), mockRes(), next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
+    });
+    describe('de mantenimiento (vehicle_id, revision_id)', () => {
+      it('comprueba el vehículo y la revisión, y guarda los dos', async () => {
+        query
+          .mockResolvedValueOnce([[{ id: 4 }]])          // el vehículo existe
+          .mockResolvedValueOnce([[{ id: 9 }]])          // la revisión es suya
+          .mockResolvedValueOnce([{ insertId: 11 }])
+          .mockResolvedValueOnce([[{ id: 11, importe: '120.00', vehicle_id: 4, revision_id: 9, vehiculo_borrado: 0 }]]);
+        const res = mockRes();
+        await ctrl.createFactura(subida({ proveedor: 'Taller Pepe', vehicle_id: '4', revision_id: '9' }), res, mockNext());
+
+        expect(res.statusCode).toBe(201);
+        expect(query.mock.calls[0][0]).toMatch(/FROM vehicles WHERE id = \? AND deleted_at IS NULL/);
+        expect(query.mock.calls[1]).toEqual([expect.stringMatching(/vehicle_revisiones WHERE id = \? AND vehicle_id = \?/), [9, 4]]);
+        const [sql, params] = query.mock.calls[2];
+        expect(sql).toMatch(/vehicle_id, revision_id\)/);
+        expect(params.slice(-2)).toEqual([4, 9]);
+        expect(res._json.data.vehiculo_borrado).toBe(false);
+        expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+          details: expect.objectContaining({ vehicle_id: 4, revision_id: 9 }),
+        }));
+      });
+
+      it('sin revisión es del vehículo a secas', async () => {
+        query
+          .mockResolvedValueOnce([[{ id: 4 }]])
+          .mockResolvedValueOnce([{ insertId: 12 }])
+          .mockResolvedValueOnce([[{ id: 12, importe: null }]]);
+        const res = mockRes();
+        await ctrl.createFactura(subida({ vehicle_id: '4' }), res, mockNext());
+        expect(res.statusCode).toBe(201);
+        expect(query.mock.calls[1][1].slice(-2)).toEqual([4, null]);
+      });
+
+      it('una de proveedor no toca vehículos y guarda los dos a NULL', async () => {
+        query.mockResolvedValueOnce([{ insertId: 13 }]).mockResolvedValueOnce([[{ id: 13 }]]);
+        await ctrl.createFactura(subida(), mockRes(), mockNext());
+        expect(query.mock.calls[0][1].slice(-2)).toEqual([null, null]);
+        expect(logAudit.mock.calls[0][0].details).not.toHaveProperty('vehicle_id');
+      });
+
+      it.each([
+        [{ vehicle_id: 'abc' }, 'vehicle_id'],
+        [{ vehicle_id: '4', revision_id: '-1' }, 'revision_id'],
+        [{ revision_id: '9' }, 'vehicle_id'],
+      ])('%j → 422 sin consultar nada', async (campos, campo) => {
+        const res = mockRes();
+        await ctrl.createFactura(subida(campos), res, mockNext());
+        expect(res.statusCode).toBe(422);
+        expect(res._json.errors[0].campo).toBe(campo);
+        expect(query).not.toHaveBeenCalled();
+      });
+
+      it('un vehículo borrado o que no existe → 422 y no se guarda', async () => {
+        query.mockResolvedValueOnce([[]]);
+        const res = mockRes();
+        await ctrl.createFactura(subida({ vehicle_id: '99' }), res, mockNext());
+        expect(res.statusCode).toBe(422);
+        expect(res._json.message).toBe('El vehículo no existe');
+        expect(query).toHaveBeenCalledTimes(1);
+      });
+
+      it('una revisión de otro vehículo → 422 y no se guarda', async () => {
+        query.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[]]);
+        const res = mockRes();
+        await ctrl.createFactura(subida({ vehicle_id: '4', revision_id: '9' }), res, mockNext());
+        expect(res.statusCode).toBe(422);
+        expect(res._json.message).toBe('La revisión no es de este vehículo');
+        expect(query).toHaveBeenCalledTimes(2);
+      });
     });
   });
 

@@ -95,10 +95,12 @@ export default defineConfig(({ mode }) => {
           // cámara para fotos exteriores. Precacheado, lo bajaría TODO el que
           // instala o actualiza la app. Lo cachea src/sw.js en el primer uso.
           // Facturas (lazy en App.jsx) es solo de administración: que no la
-          // baje al móvil el resto de la plantilla. Lo mismo el PDF de
+          // baje al móvil el resto de la plantilla; ni su popup de subida
+          // (`SubirFactura-*`, lazy también desde la ficha del vehículo para
+          // las facturas de mantenimiento). Lo mismo el PDF de
           // Informes (chunks `pdf-*`, ~800 kB con lo que jsPDF carga por su
           // cuenta): solo lo usa quien lo descarga.
-          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js', '**/pdf-*.js', '**/pdfInformeTecnico-*.js'],
+          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js', '**/SubirFactura-*.js', '**/pdf-*.js', '**/pdfInformeTecnico-*.js'],
         },
         devOptions: {
           enabled: true,   // habilitar SW en desarrollo para testing

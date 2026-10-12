@@ -1222,6 +1222,36 @@ const MIGRATIONS = [
                     WHERE coordinador_user_id IS NOT NULL`);
     },
   },
+
+  {
+    name: 'v36_facturas_mantenimiento',
+    description: 'Facturas de mantenimiento: la factura puede ser de un vehículo y de una de sus revisiones',
+    async run() {
+      // Misma tabla que las de proveedores (v32): el PDF sigue dentro de la
+      // BD, el UNIQUE (proveedor, numero) vale igual y la pantalla de
+      // Facturas las separa por `vehicle_id` en «Mantenimiento vehículos».
+      // RESTRICT en el vehículo: el borrado de vehículos es lógico, y una
+      // factura no puede quedarse sin el suyo ni pasar a ser «de proveedor».
+      await ensureColumn('facturas', 'vehicle_id',
+        `ALTER TABLE facturas
+           ADD COLUMN vehicle_id INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Factura de mantenimiento de este vehículo; NULL = de proveedor'
+             AFTER notas,
+           ADD INDEX idx_factura_vehicle (vehicle_id),
+           ADD CONSTRAINT fk_factura_vehicle FOREIGN KEY (vehicle_id)
+             REFERENCES vehicles(id) ON DELETE RESTRICT`);
+      // SET NULL en la revisión: borrar una revisión mal anotada no se lleva
+      // la factura, que sigue en el vehículo.
+      await ensureColumn('facturas', 'revision_id',
+        `ALTER TABLE facturas
+           ADD COLUMN revision_id INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Revisión del vehículo que factura (opcional)'
+             AFTER vehicle_id,
+           ADD INDEX idx_factura_revision (revision_id),
+           ADD CONSTRAINT fk_factura_revision FOREIGN KEY (revision_id)
+             REFERENCES vehicle_revisiones(id) ON DELETE SET NULL`);
+    },
+  },
 ];
 
 // ============================================================

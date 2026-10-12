@@ -10,9 +10,10 @@
  *
  * Solo accesible para administradores y gestores.
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { useParams, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { vehiclesService } from '../../services/vehicles.service.js';
+import { facturasService } from '../../services/facturas.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -29,6 +30,12 @@ import { parseKm } from '../../utils/kmUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
 import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
+import { TIPO_REVISION_LABELS as TIPO_REV_LABELS, fmtEuros, fmtTamano, nombreDescarga } from '../../utils/facturas.js';
+
+// El popup de subida de facturas, como la pantalla de Facturas, solo lo
+// descarga quien lo abre (administración): va fuera del precache de la PWA
+// (vite.config.js, globIgnores). MAPA_CODIGO.md §2.8.
+const SubirFactura = lazy(() => import('../../components/facturas/SubirFactura.jsx'));
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
@@ -63,15 +70,6 @@ const TIPO_INC_LABELS = {
   fluido:        'Fluido',
   electrico:     'Eléctrico',
   otro:          'Otro',
-};
-
-const TIPO_REV_LABELS = {
-  itv:               'ITV',
-  its:               'ITS',
-  mantenimiento:     'Mantenimiento',
-  revision_preventiva: 'Revisión preventiva',
-  reparacion:        'Reparación',
-  otro:              'Otro',
 };
 
 const MOMENTO_LABEL = {
@@ -509,9 +507,55 @@ function TabIncidencias({ vehicleId, incidencias, users, recargar, pedirUsuarios
   );
 }
 
+// ── Facturas de mantenimiento (pestaña Revisiones) ───────────────────────────
+
+/** Una factura de mantenimiento: lo justo para reconocerla y descargarla. */
+function FilaFactura({ f, descargando, onDescargar }) {
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span className="flex-1 min-w-0 truncate">
+        <span className="text-neutral-500">Factura </span>
+        <span className="font-mono text-neutral-800">{f.numero}</span>
+        <span className="text-neutral-500"> · {f.proveedor} · </span>
+        <span className="font-mono text-neutral-800">{fmtEuros(f.importe)}</span>
+      </span>
+      <button
+        className="text-primary-700 hover:underline font-medium disabled:opacity-50 flex-shrink-0"
+        onClick={() => onDescargar(f)}
+        disabled={descargando === f.id}
+        title={`${f.nombre_fichero} · ${fmtTamano(f.tamano)}`}
+      >
+        {descargando === f.id ? 'Descargando…' : 'Descargar'}
+      </button>
+    </li>
+  );
+}
+
 // ── Tab Revisiones ────────────────────────────────────────────────────────────
-function TabRevisiones({ vehicleId, revisiones, recargar }) {
+/**
+ * `facturas` es null para quien no es administración: entonces no se pinta
+ * nada de facturas (el backend le daría 404, la sección está oculta, §2.8).
+ */
+function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, recargarFacturas, enlaceFacturas }) {
   const { notify } = useNotification();
+  const veFacturas = facturas !== null;
+  // undefined = cerrado; null = factura sin revisión; una revisión = de esa
+  const [subirPara,   setSubirPara]   = useState(undefined);
+  const [descargando, setDescargando] = useState(null);
+
+  const descargar = async (f) => {
+    setDescargando(f.id);
+    try {
+      await facturasService.descargar(f, nombreDescarga(f));
+    } catch (err) {
+      notify.error(err.message);
+    } finally {
+      setDescargando(null);
+    }
+  };
+
+  const facturasDe = (revId) => (facturas || []).filter(f => f.revision_id === revId);
+  const sueltas = facturasDe(null);
   const [showForm,   setShowForm]   = useState(false);
   const [editRev,    setEditRev]    = useState(null);
   const [saving,     setSaving]     = useState(false);
@@ -566,12 +610,16 @@ function TabRevisiones({ vehicleId, revisiones, recargar }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('¿Eliminar esta revisión?')) return;
+    const conFactura = facturasDe(id).length > 0;
+    if (!window.confirm(conFactura
+      ? '¿Eliminar esta revisión? Su factura no se borra: se queda en el vehículo, sin revisión.'
+      : '¿Eliminar esta revisión?')) return;
     setDeletingId(id);
     try {
       await vehiclesService.deleteRevision(vehicleId, id);
       notify.success('Revisión eliminada');
       load();
+      if (conFactura) recargarFacturas();
     } catch { notify.error('Error al eliminar'); }
     finally { setDeletingId(null); }
   };
@@ -607,7 +655,10 @@ function TabRevisiones({ vehicleId, revisiones, recargar }) {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {veFacturas && (
+          <button onClick={() => setSubirPara(null)} className="btn-secondary text-sm">Subir factura</button>
+        )}
         <button onClick={openCreate} className="btn-primary text-sm">+ Nueva revisión</button>
       </div>
 
@@ -738,6 +789,21 @@ function TabRevisiones({ vehicleId, revisiones, recargar }) {
                   <p className="text-xs text-neutral-500 border-t pt-2 mt-1">{rev.descripcion}</p>
                 )}
 
+                {veFacturas && (
+                  <div className="border-t pt-2 mt-1 space-y-1">
+                    {facturasDe(rev.id).length > 0 && (
+                      <ul className="space-y-1">
+                        {facturasDe(rev.id).map(f => (
+                          <FilaFactura key={f.id} f={f} descargando={descargando} onDescargar={descargar} />
+                        ))}
+                      </ul>
+                    )}
+                    <button onClick={() => setSubirPara(rev)} className="btn-ghost text-xs text-primary-700 px-0">
+                      + Subir factura de esta revisión
+                    </button>
+                  </div>
+                )}
+
                 <p className="text-[11px] text-neutral-400">
                   Registrado por {rev.creado_por_nombre} · {formatDate(rev.created_at)}
                 </p>
@@ -745,6 +811,46 @@ function TabRevisiones({ vehicleId, revisiones, recargar }) {
             );
           })}
         </div>
+      )}
+
+      {/* Facturas del vehículo que no son de una revisión concreta */}
+      {veFacturas && (sueltas.length > 0 || enlaceFacturas) && (
+        <div className="card space-y-2">
+          {sueltas.length > 0 && (
+            <>
+              <h4 className="font-medium text-sm text-neutral-800">Otras facturas de mantenimiento</h4>
+              <ul className="space-y-1">
+                {sueltas.map(f => (
+                  <FilaFactura key={f.id} f={f} descargando={descargando} onDescargar={descargar} />
+                ))}
+              </ul>
+            </>
+          )}
+          {enlaceFacturas && (
+            <Link to={`/facturas?apartado=mantenimiento&vehiculo=${vehicleId}`}
+              className="inline-block text-xs text-primary-700 font-medium hover:underline">
+              Ver las facturas de este vehículo en Facturas →
+            </Link>
+          )}
+        </div>
+      )}
+
+      {veFacturas && subirPara !== undefined && (
+        <Suspense fallback={null}>
+          <SubirFactura
+            isOpen
+            onClose={() => setSubirPara(undefined)}
+            vehiculo={vehiculo}
+            revisiones={revisiones}
+            revisionInicial={subirPara}
+            facturas={facturas}
+            proveedores={[...new Set([
+              ...facturas.map(f => f.proveedor),
+              ...revisiones.map(r => r.realizado_por).filter(Boolean),
+            ])]}
+            onSubida={() => { setSubirPara(undefined); recargarFacturas(); }}
+          />
+        </Suspense>
       )}
     </div>
   );
@@ -1188,11 +1294,13 @@ export function tabInicial(pathname, search = '') {
  * datos. Cada una se pide por separado y con su propio catch para que un fallo
  * en las incidencias no deje la ficha entera en blanco.
  */
-function useDatosFicha(vehicleId) {
+function useDatosFicha(vehicleId, veFacturas) {
   const { notify } = useNotification();
   const [vehicle,     setVehicle]     = useState(null);
   const [incidencias, setIncidencias] = useState([]);
   const [revisiones,  setRevisiones]  = useState([]);
+  // null = no las ve (solo administración, §2.8); [] = las ve y no hay
+  const [facturas,    setFacturas]    = useState(null);
   const [users,       setUsers]       = useState([]);
   const usuariosPedidos = useRef(false);
 
@@ -1217,6 +1325,13 @@ function useDatosFicha(vehicleId) {
       .catch(() => notify.error('Error al cargar revisiones'))
   ), [vehicleId]);
 
+  const cargarFacturas = useCallback(() => {
+    if (!veFacturas) return Promise.resolve();
+    return facturasService.list(vehicleId)
+      .then(d => setFacturas(d || []))
+      .catch(() => notify.error('Error al cargar las facturas del vehículo'));
+  }, [vehicleId, veFacturas]);
+
   /**
    * Empleados a los que se puede atribuir una incidencia: son 300 registros
    * que sólo usa el selector de la pestaña de incidencias, así que se piden
@@ -1236,9 +1351,13 @@ function useDatosFicha(vehicleId) {
     cargarRevisiones();
   }, [cargarVehiculo, cargarIncidencias, cargarRevisiones]);
 
+  // Aparte: `veFacturas` puede cambiar cuando termina de cargar la sesión, y
+  // en el efecto de arriba eso volvería a pedir la ficha entera.
+  useEffect(() => { cargarFacturas(); }, [cargarFacturas]);
+
   return {
-    vehicle, incidencias, revisiones, users,
-    cargarVehiculo, cargarIncidencias, cargarRevisiones, asegurarUsuarios,
+    vehicle, incidencias, revisiones, users, facturas,
+    cargarVehiculo, cargarIncidencias, cargarRevisiones, cargarFacturas, asegurarUsuarios,
   };
 }
 
@@ -1269,7 +1388,10 @@ export default function VehicleHistory() {
   // A dónde quería ir quien se topó con el aviso de cambios sin guardar.
   const [destino, setDestino] = useState(null);
 
-  const ficha   = useDatosFicha(id);
+  // Facturas de mantenimiento: solo administración, como la sección Facturas
+  // (el backend da 404 al resto, §2.8). Por rol, no por el flag del menú.
+  const veFacturas = isAdmin() || isSuperAdmin();
+  const ficha   = useDatosFicha(id, veFacturas);
   const edicion = useEdicionVehiculo(ficha.vehicle, ficha.cargarVehiculo);
 
   useEffect(() => {
@@ -1475,8 +1597,12 @@ export default function VehicleHistory() {
       {tab === 'revisiones' && (
         <TabRevisiones
           vehicleId={id}
+          vehiculo={vehicle}
           revisiones={ficha.revisiones}
           recargar={ficha.cargarRevisiones}
+          facturas={ficha.facturas}
+          recargarFacturas={ficha.cargarFacturas}
+          enlaceFacturas={isFeatureEnabled('menu_facturas')}
         />
       )}
 

@@ -843,7 +843,9 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { ejecutadas } = mockDb({
       aplicadas: hasta('v32_facturas'),
       columnas: ['asignaciones_libres.trabajo_id', 'trabajos.coordinador_user_id',
-                 'trabajos.cerrado_at', 'trabajos.cerrado_por', 'trabajos.ubicacion_url'],
+                 'trabajos.cerrado_at', 'trabajos.cerrado_por', 'trabajos.ubicacion_url',
+                 // las de v36, que también corre
+                 'facturas.vehicle_id', 'facturas.revision_id'],
     });
     const { fallida } = await runMigrations();
 
@@ -865,7 +867,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
   it('v34 no repite la columna si ya existe', async () => {
     const { ejecutadas } = mockDb({
       aplicadas: hasta('v33_trabajo_padre'),
-      columnas: ['trabajos.ubicacion_url'],
+      columnas: ['trabajos.ubicacion_url', 'facturas.vehicle_id', 'facturas.revision_id'],
     });
     const { fallida } = await runMigrations();
 
@@ -878,7 +880,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v35_trabajo_coordinadores']);
+    expect(aplicadas[0]).toBe('v35_trabajo_coordinadores');
     const tabla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS trabajo_coordinadores'));
     // La misma persona no figura dos veces como coordinador del mismo trabajo
     expect(tabla).toContain('PRIMARY KEY (trabajo_id, user_id)');
@@ -886,5 +888,30 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const relleno = ejecutadas.find(q => q.includes('INSERT IGNORE INTO trabajo_coordinadores'));
     expect(relleno).toContain('coordinador_user_id, 0');
     expect(relleno).toContain('coordinador_user_id IS NOT NULL');
+  });
+
+  it('v36 enlaza la factura al vehículo (RESTRICT) y a la revisión (SET NULL)', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v35_trabajo_coordinadores') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v36_facturas_mantenimiento']);
+    const vehiculo = ejecutadas.find(q => q.includes('ADD COLUMN vehicle_id'));
+    expect(vehiculo).toContain('ALTER TABLE facturas');
+    expect(vehiculo).toContain('NULL DEFAULT NULL');
+    expect(vehiculo).toContain('REFERENCES vehicles(id) ON DELETE RESTRICT');
+    const revision = ejecutadas.find(q => q.includes('ADD COLUMN revision_id'));
+    expect(revision).toContain('REFERENCES vehicle_revisiones(id) ON DELETE SET NULL');
+  });
+
+  it('v36 no repite las columnas si ya existen', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v35_trabajo_coordinadores'),
+      columnas: ['facturas.vehicle_id', 'facturas.revision_id'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ALTER TABLE facturas'))).toBe(false);
   });
 });

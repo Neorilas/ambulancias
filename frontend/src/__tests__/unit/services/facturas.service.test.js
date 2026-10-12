@@ -16,6 +16,12 @@ describe('facturas.service', () => {
     expect(api.get).toHaveBeenCalledWith('/facturas');
   });
 
+  it('list con un vehículo pide solo sus facturas de mantenimiento', async () => {
+    api.get.mockResolvedValueOnce({ data: { data: [] } });
+    await facturasService.list('7');
+    expect(api.get).toHaveBeenCalledWith('/facturas', { params: { vehicle_id: '7' } });
+  });
+
   it('subir manda un multipart sin los campos vacíos y con el timeout de las subidas', async () => {
     api.post.mockResolvedValueOnce({ data: { data: { id: 5 } } });
     const fichero = new File(['%PDF-'], 'f.pdf', { type: 'application/pdf' });

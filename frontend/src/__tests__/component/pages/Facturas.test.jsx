@@ -25,10 +25,10 @@ function Avisos() {
   return toasts.map(t => <p key={t.id}>{t.message}</p>);
 }
 
-function montar() {
+function montar(url = '/facturas') {
   return render(
     <NotificationProvider>
-      <MemoryRouter><Facturas /></MemoryRouter>
+      <MemoryRouter initialEntries={[url]}><Facturas /></MemoryRouter>
       <Avisos />
     </NotificationProvider>
   );
@@ -342,6 +342,59 @@ describe('Facturas', () => {
       fireEvent.click(screen.getByText('Revisar ahora'));
       expect(await screen.findByText('No se pudo revisar el buzón')).toBeInTheDocument();
       expect(facturasService.list).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Las de mantenimiento llevan vehicle_id: se suben desde la ficha del
+  // vehículo y aquí van en su propio apartado.
+  describe('mantenimiento vehículos', () => {
+    const MANTENIMIENTO = [
+      { id: 10, proveedor: 'Taller Pepe', numero: 'TP-77', fecha_emision: '2026-09-12', importe: 120,
+        nombre_fichero: 'tp.pdf', tamano: 5000, origen: 'manual',
+        vehicle_id: 7, vehiculo_alias: 'Ambulancia 3', vehiculo_matricula: '1234BCD', vehiculo_borrado: false,
+        revision_id: 9, revision_tipo: 'mantenimiento', revision_fecha: '2026-09-10' },
+      { id: 11, proveedor: 'Neumáticos Sur', numero: 'NS-1', fecha_emision: '2026-08-01', importe: 300,
+        nombre_fichero: 'ns.pdf', tamano: 5000, origen: 'manual',
+        vehicle_id: 8, vehiculo_alias: 'Ambulancia 5', vehiculo_matricula: '5678FGH', vehiculo_borrado: true,
+        revision_id: null, revision_tipo: null, revision_fecha: null },
+    ];
+
+    beforeEach(() => facturasService.list.mockResolvedValue([...FACTURAS, ...MANTENIMIENTO]));
+
+    it('las de mantenimiento no salen en Proveedores', async () => {
+      montar();
+      expect(await screen.findByText('5705694492')).toBeInTheDocument();
+      expect(screen.queryByText('TP-77')).not.toBeInTheDocument();
+      expect(screen.getByText('3 facturas', { exact: false })).toBeInTheDocument();
+    });
+
+    it('el apartado las lista con su vehículo y su revisión, sin subir desde aquí', async () => {
+      montar();
+      await screen.findByText('5705694492');
+      fireEvent.click(screen.getByRole('button', { name: 'Mantenimiento vehículos' }));
+
+      expect(screen.getByText('TP-77')).toBeInTheDocument();
+      expect(screen.queryByText('5705694492')).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Ambulancia 3' })).toHaveAttribute('href', '/vehiculos/7?tab=revisiones');
+      expect(screen.getByText('Mantenimiento del 10/09/2026')).toBeInTheDocument();
+      expect(screen.getByText('dado de baja')).toBeInTheDocument();
+      expect(screen.getByText('420,00 €')).toBeInTheDocument();
+      expect(screen.queryByText('Subir factura')).not.toBeInTheDocument();
+      expect(screen.queryByText('Revisar ahora')).not.toBeInTheDocument();
+    });
+
+    it('se abre desde la URL y filtra por vehículo (el enlace de la ficha)', async () => {
+      montar('/facturas?apartado=mantenimiento&vehiculo=8');
+      expect(await screen.findByText('NS-1')).toBeInTheDocument();
+      expect(screen.queryByText('TP-77')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Vehículo')).toHaveValue('8');
+    });
+
+    it('sin ninguna dice dónde se suben', async () => {
+      facturasService.list.mockResolvedValue(FACTURAS);
+      montar('/facturas?apartado=mantenimiento');
+      expect(await screen.findByText('Todavía no hay facturas de mantenimiento')).toBeInTheDocument();
+      expect(screen.getByText(/pestaña «Revisiones»/)).toBeInTheDocument();
     });
   });
 });

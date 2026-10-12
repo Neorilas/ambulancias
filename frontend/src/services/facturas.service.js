@@ -17,9 +17,13 @@ async function mensajeDeError(err, porDefecto) {
 }
 
 export const facturasService = {
-  /** Todas, la más reciente primero, sin el PDF. */
-  list() {
-    return api.get('/facturas').then(r => r.data.data);
+  /**
+   * Todas, la más reciente primero, sin el PDF. Con `vehicleId`, solo las de
+   * mantenimiento de ese vehículo (su ficha).
+   */
+  list(vehicleId) {
+    const peticion = vehicleId ? api.get('/facturas', { params: { vehicle_id: vehicleId } }) : api.get('/facturas');
+    return peticion.then(r => r.data.data);
   },
 
   /**
@@ -40,7 +44,10 @@ export const facturasService = {
     }
   },
 
-  /** `datos`: { proveedor, numero, fecha_emision ('YYYY-MM-DD'), importe?, notas?, fichero (File) } */
+  /**
+   * `datos`: { proveedor, numero, fecha_emision ('YYYY-MM-DD'), importe?, notas?, fichero (File),
+   * vehicle_id?, revision_id? } — con vehicle_id es una factura de mantenimiento.
+   */
   async subir(datos) {
     const fd = new FormData();
     for (const [k, v] of Object.entries(datos)) {

@@ -24,8 +24,13 @@ vi.mock('../../../services/auth.service.js', () => ({
 vi.mock('../../../services/features.service.js', () => ({
   featuresService: { getActive: vi.fn().mockResolvedValue([]) },
 }));
+// Facturas de mantenimiento: solo las pide la ficha de un administrador.
+vi.mock('../../../services/facturas.service.js', () => ({
+  facturasService: { list: vi.fn().mockResolvedValue([]), leer: vi.fn(), subir: vi.fn(), descargar: vi.fn() },
+}));
 
 import { vehiclesService } from '../../../services/vehicles.service.js';
+import { facturasService } from '../../../services/facturas.service.js';
 import { featuresService } from '../../../services/features.service.js';
 import { usersService }    from '../../../services/users.service.js';
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
@@ -669,5 +674,86 @@ describe('VehicleHistory · clave de cada grupo de fotos', () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+// Facturas de mantenimiento: en la pestaña Revisiones, solo para administración
+// (la sección Facturas está oculta al resto, MAPA_CODIGO.md §2.8).
+describe('VehicleHistory · facturas de mantenimiento', () => {
+  const REVISION = {
+    id: 9, tipo: 'mantenimiento', fecha_revision: '2026-09-12', resultado: 'realizado',
+    realizado_por: 'Taller Pepe', creado_por_nombre: 'Admin', created_at: '2026-09-12T10:00:00Z',
+  };
+  const FACTURA = {
+    id: 31, proveedor: 'Taller Pepe', numero: 'TP-77', fecha_emision: '2026-09-12', importe: 120,
+    nombre_fichero: 'tp77.pdf', tamano: 5000, vehicle_id: 7, revision_id: 9,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([REVISION]);
+    usersService.list.mockResolvedValue({ data: [] });
+    facturasService.list.mockResolvedValue([FACTURA]);
+  });
+
+  it('un administrador ve la factura dentro de su revisión y la descarga', async () => {
+    sesionConPermiso();
+    const user = userEvent.setup();
+    montar(['/vehiculos/7?tab=revisiones']);
+
+    expect(await screen.findByText('TP-77')).toBeInTheDocument();
+    expect(facturasService.list).toHaveBeenCalledWith('7');
+    expect(facturasService.list).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Subir factura' })).toBeInTheDocument();
+
+    facturasService.descargar.mockResolvedValue();
+    await user.click(screen.getByRole('button', { name: 'Descargar' }));
+    expect(facturasService.descargar).toHaveBeenCalledWith(FACTURA, 'Factura_Taller_Pepe_TP-77.pdf');
+  });
+
+  it('quien no es administración no ve ni pide facturas', async () => {
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({
+      id: 2, username: 'gestor', roles: ['gestor'], permissions: ['manage_vehicles'],
+    }));
+    montar(['/vehiculos/7?tab=revisiones']);
+
+    expect(await screen.findByText('Taller Pepe', { exact: false })).toBeInTheDocument();
+    expect(facturasService.list).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Subir factura' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Subir factura de esta revisión/)).not.toBeInTheDocument();
+  });
+
+  it('sube la factura de una revisión: va con el vehículo y la revisión, y recarga la lista', async () => {
+    sesionConPermiso();
+    facturasService.list.mockResolvedValue([]);
+    facturasService.leer.mockResolvedValue({
+      con_texto: true, duplicada: false,
+      datos: { proveedor: 'Taller Pepe', numero: 'TP-78', fecha_emision: '2026-09-12', importe: 80 },
+    });
+    facturasService.subir.mockResolvedValue({ id: 32 });
+    const user = userEvent.setup();
+    montar(['/vehiculos/7?tab=revisiones']);
+
+    await user.click(await screen.findByRole('button', { name: '+ Subir factura de esta revisión' }));
+    // El popup se carga con lazy(): llega un instante después
+    expect(await screen.findByText(/Factura de mantenimiento de/)).toBeInTheDocument();
+    await user.upload(screen.getByLabelText(/PDF de la factura/), new File(['%PDF-'], 'tp78.pdf', { type: 'application/pdf' }));
+    await user.click(screen.getByRole('button', { name: 'Siguiente' }));
+
+    const revision = await screen.findByLabelText('Revisión que factura');
+    expect(revision).toHaveValue('9');
+    await user.click(screen.getByRole('button', { name: 'Guardar factura' }));
+
+    await waitFor(() => expect(facturasService.subir).toHaveBeenCalledTimes(1));
+    expect(facturasService.subir.mock.calls[0][0]).toMatchObject({
+      proveedor: 'Taller Pepe', numero: 'TP-78', vehicle_id: 7, revision_id: '9',
+    });
+    await waitFor(() => expect(facturasService.list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Factura de mantenimiento de/)).not.toBeInTheDocument();
   });
 });
