@@ -1268,9 +1268,10 @@ usuario, arriba); se añadió:
 - `utils/pasosAsignacion.js` (con tests): `pasosAsignacion(asig)` da los cuatro
   pasos en orden —Inicio de la asignación → Inicio evento/servicio →
   Fin evento/servicio → Finalizar asignación— con su `situacion`
-  (`hecho`/`actual`/`pendiente`/`no_consta`) y su hora. Los dos del evento van
-  marcados como opcionales y en una cerrada sin ellos salen «No consta», no
-  pendientes. El inicio no cuenta como hecho hasta tener las fotos (`progreso`
+  (`hecho`/`actual`/`pendiente`/`no_consta`) y su hora. Los dos del evento
+  llevan `opcional` en los datos, pero la barra **no** pinta «(opcional)»
+  (quitado a petición del usuario el mismo 2026-10-12); en una cerrada sin
+  ellos salen «No consta», no pendientes. El inicio no cuenta como hecho hasta tener las fotos (`progreso`
   de la ficha o `progreso_fotos` de la de un trabajo; sin ninguno, no se le
   pone pega). La pinta `components/common/PasosAsignacion.jsx`, solo informa.
 - **`AsignacionDetalle`**: la barra va lo primero y, justo debajo, la acción del

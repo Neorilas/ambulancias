@@ -18,7 +18,9 @@ function Detalle({ p }) {
   if (p.situacion === 'hecho') return p.hora ? <span className="data">{formatHora(p.hora)}</span> : null;
   if (p.situacion === 'no_consta') return <span>No consta</span>;
   if (p.aviso) return <span className="text-warn-600 font-medium">{p.aviso}</span>;
-  return <span>{p.donde}{p.opcional && <><br />(opcional)</>}</span>;
+  // Sin «(opcional)» debajo: lo quitó el usuario el 2026-10-12. Que el evento
+  // no bloquea lo sigue diciendo «Finalizar», disponible en secundario.
+  return <span>{p.donde}</span>;
 }
 
 export default function PasosAsignacion({ asig }) {
