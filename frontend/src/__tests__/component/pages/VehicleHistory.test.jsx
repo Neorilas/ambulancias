@@ -711,6 +711,8 @@ describe('VehicleHistory · facturas de mantenimiento', () => {
     expect(facturasService.list).toHaveBeenCalledWith('7');
     expect(facturasService.list).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Subir factura' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Eliminar' })).toBeInTheDocument();
+
 
     facturasService.descargar.mockResolvedValue();
     await user.click(screen.getByRole('button', { name: 'Descargar' }));
@@ -728,6 +730,9 @@ describe('VehicleHistory · facturas de mantenimiento', () => {
     expect(facturasService.list).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Subir factura' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Subir factura de esta revisión/)).not.toBeInTheDocument();
+    // Borrar revisiones es solo de administración: al gestor le daba un 403
+    expect(screen.queryByRole('button', { name: 'Eliminar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
   });
 
   it('sube la factura de una revisión: va con el vehículo y la revisión, y recarga la lista', async () => {

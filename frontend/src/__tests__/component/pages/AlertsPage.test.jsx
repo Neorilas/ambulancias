@@ -114,3 +114,38 @@ describe('AlertsPage · mantenimiento por km', () => {
     expect(screen.queryByText('5555EEE')).not.toBeInTheDocument();
   });
 });
+
+// Hasta 2026-10-12 el selector pedía un año al backend y la tabla seguía
+// enseñando lo mismo: todo lo de más de 60 días se descartaba en el cliente
+describe('AlertsPage · horizonte de más de 60 días', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vehiclesService.listAlertas.mockResolvedValue([
+      ...ALERTAS,
+      { vehicle_id: 9, alias: 'Ambulancia 9', matricula: '9999JJJ', tipo: 'its',
+        fecha_caducidad: enDias(200), dias_restantes: 200 },
+    ]);
+  });
+
+  it('con 60 días no sale, ni su casilla', async () => {
+    montar();
+    await ultimaCarga();
+    expect(screen.queryByText('9999JJJ')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /> 60 días/ })).not.toBeInTheDocument();
+  });
+
+  it('con un año sale, con su casilla, que la filtra', async () => {
+    const user = userEvent.setup();
+    montar();
+    await ultimaCarga();
+    await user.selectOptions(screen.getByDisplayValue('60 días'), '365');
+    await ultimaCarga();
+
+    expect(vehiclesService.listAlertas).toHaveBeenLastCalledWith(365);
+    expect(screen.getAllByText('9999JJJ').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: /> 60 días/ }));
+    expect(screen.getByTestId('url')).toHaveTextContent('umbral=lejana');
+    expect(screen.queryByText('5555EEE')).not.toBeInTheDocument();
+  });
+});

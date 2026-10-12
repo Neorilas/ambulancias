@@ -539,7 +539,7 @@ function FilaFactura({ f, descargando, onDescargar }) {
  */
 
 function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehiculo,
-                         facturas, recargarFacturas, enlaceFacturas }) {
+                         facturas, recargarFacturas, enlaceFacturas, puedeBorrar }) {
   const { notify } = useNotification();
   const veFacturas = facturas !== null;
   // undefined = cerrado; null = factura sin revisión; una revisión = de esa
@@ -806,10 +806,14 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button onClick={() => openEdit(rev)} className="btn-ghost text-xs text-neutral-500">Editar</button>
-                    <button onClick={() => handleDelete(rev.id)} disabled={deletingId === rev.id}
-                      className="btn-ghost btn-sm text-bad-600 hover:bg-bad-50">
-                      {deletingId === rev.id ? '…' : 'Eliminar'}
-                    </button>
+                    {/* Borrar es solo de administración (requireAdmin en la
+                        ruta): al gestor el botón le daba un 403 */}
+                    {puedeBorrar && (
+                      <button onClick={() => handleDelete(rev.id)} disabled={deletingId === rev.id}
+                        className="btn-ghost btn-sm text-bad-600 hover:bg-bad-50">
+                        {deletingId === rev.id ? '…' : 'Eliminar'}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1713,8 +1717,9 @@ export default function VehicleHistory() {
           recargar={ficha.cargarRevisiones}
           recargarVehiculo={ficha.cargarVehiculo}
           facturas={ficha.facturas}
-
           recargarFacturas={ficha.cargarFacturas}
+          puedeBorrar={isAdmin() || isSuperAdmin()}
+
           enlaceFacturas={isFeatureEnabled('menu_facturas')}
         />
       )}

@@ -733,7 +733,12 @@ referencia** del siguiente (cuenta desde ahí, no desde los múltiplos de 15.000
      de código del 2026-10-12). El próximo en blanco al editar vuelve al de
      serie (`km + 15.000`), igual que al crear. Borrar la revisión, o que deje de
      ser mantenimiento, **no** devuelve el vehículo a la anterior: se corrige a
-     mano en la ficha.
+     mano en la ficha. Editar y borrar una revisión quedan en la auditoría
+     (`update_revision` con los campos tocados y, si movió el vehículo, su
+     nuevo `km_proximo_mantenimiento`; `delete_revision` con lo que era, porque
+     después ya no se puede consultar). Borrar es solo de administración
+     (`requireAdmin`): la ficha esconde «Eliminar» al gestor (`puedeBorrar`),
+     que antes lo veía y recibía un 403.
   2. **A mano**: campo «Próximo mantenimiento (km)» en el Resumen de la ficha y
      en `VehicleForm`. En blanco viaja como `null`, que con los km en el mismo
      guardado significa **recalcular** (ver 3).
@@ -963,7 +968,8 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 |---|---|
 | `utils/constants.js` | `ROLES`, `PERMISSIONS`, estados/colores/etiquetas, definición de cada tipo de foto (`IMAGEN_TIPOS_INICIO/FIN/GENERAL`, labels, instrucciones). **Espejo de** `backend/src/config/constants.js` |
 | `utils/dateUtils.js` | Formato/zonas: `formatDateTime`, `formatDateTimeShort`, `formatHora`, `toUtcIso`, `toInputDatetime`, `diaEnEspana`, `formatFechaSola`… |
-| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días (y `km500`/`km1000`/`km2000` del mantenimiento por km, §2.9), ITV/ITS, descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
+| `utils/vehicleAlerts.js` | Umbrales 60/45/30/15 días (y `km500`/`km1000`/`km2000` del mantenimiento por km, §2.9; `lejana` = más de 60 días, solo si `/alertas` pide un horizonte mayor: `withThresholds(alertas, horizonte)` — hasta 2026-10-12 el selector «90 días / 6 meses / 1 año» pedía más al backend y la tabla lo tiraba todo), ITV/ITS,
+ descartes en `sessionStorage`. `thresholdFor` **exige un número**: en JS `null <= 15` es cierto, así que un `dias_restantes` nulo pintaba una alerta fantasma de «quedan 15 días» sobre un documento sin fecha. `withThresholds` filtra esas entradas |
 | `utils/sessionStorage.js` | Almacenamiento con prefijo `vapss:<env>:` |
 | `utils/reporteErrores.js` | Errores que ve la app → `POST /errores-cliente`. `instalarReporteDeErrores()` (en `main.jsx`, antes de montar React) engancha `error`/`unhandledrejection`; `reportarErrorDePeticion` lo llama el interceptor de `api.js`; `reportarFalloDeCarga(err, pantalla)` lo llama a mano una pantalla que se queda en «no se pudo cargar» (hoy `VehicleList` y el inicio de admin). Cola en localStorage (`erroresPendientes`), envío a los 3 s, al volver la red o la pestaña. Reglas en §8 «Errores en el panel» |
 | `utils/push.js` | Lo que se le pregunta al NAVEGADOR: si admite push, si está instalada, si es iOS, permiso, suscribir/desuscribir |

@@ -213,7 +213,17 @@ describe('vehicleAlerts', () => {
       expect(out.map(a => a.threshold)).toEqual(['km1000', 15]);
     });
 
+    it('más de 60 días solo con un horizonte mayor: «lejana»', () => {
+      expect(thresholdFor(70)).toBeNull();
+      expect(thresholdFor(70, 90)).toBe('lejana');
+      expect(thresholdFor(200, 90)).toBeNull();
+      expect(withThresholds([{ tipo: 'itv', dias_restantes: 300 }], 365)[0].threshold).toBe('lejana');
+      expect(withThresholds([{ tipo: 'itv', dias_restantes: 300 }])).toEqual([]);
+      expect(thresholdStyle('lejana').badge).toBe('badge-gray');
+    });
+
     it('los umbrales de km tienen color propio', () => {
+
       expect(thresholdStyle('km500').badge).toBe('badge-yellow');
       expect(thresholdStyle('km2000').badge).toBe('badge-blue');
     });
