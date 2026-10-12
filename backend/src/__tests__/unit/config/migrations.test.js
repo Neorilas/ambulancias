@@ -5,6 +5,9 @@ const { runMigrations, MIGRATIONS } = require('../../../config/migrations');
 
 const TODAS = MIGRATIONS.map(m => m.name);
 
+/** Las columnas de v37, para los tests de «no repite» que la ejecutan de paso. */
+const COLUMNAS_V37 = ['vehicles.km_proximo_mantenimiento', 'vehicle_revisiones.km', 'vehicle_revisiones.km_proximo'];
+
 /**
  * Reescrituras de FILA: las de v16 enlazan valores y un id. Las migraciones
  * posteriores pueden lanzar sus propios UPDATE de limpieza (v19), que van sin
@@ -844,8 +847,8 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
       aplicadas: hasta('v32_facturas'),
       columnas: ['asignaciones_libres.trabajo_id', 'trabajos.coordinador_user_id',
                  'trabajos.cerrado_at', 'trabajos.cerrado_por', 'trabajos.ubicacion_url',
-                 // las de v36, que también corre
-                 'facturas.vehicle_id', 'facturas.revision_id'],
+                 // las de v36 y v37, que también corren
+                 'facturas.vehicle_id', 'facturas.revision_id', ...COLUMNAS_V37],
     });
     const { fallida } = await runMigrations();
 
@@ -867,7 +870,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
   it('v34 no repite la columna si ya existe', async () => {
     const { ejecutadas } = mockDb({
       aplicadas: hasta('v33_trabajo_padre'),
-      columnas: ['trabajos.ubicacion_url', 'facturas.vehicle_id', 'facturas.revision_id'],
+      columnas: ['trabajos.ubicacion_url', 'facturas.vehicle_id', 'facturas.revision_id', ...COLUMNAS_V37],
     });
     const { fallida } = await runMigrations();
 
@@ -895,7 +898,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v36_facturas_mantenimiento']);
+    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km']);
     const vehiculo = ejecutadas.find(q => q.includes('ADD COLUMN vehicle_id'));
     expect(vehiculo).toContain('ALTER TABLE facturas');
     expect(vehiculo).toContain('NULL DEFAULT NULL');
@@ -913,5 +916,38 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
 
     expect(fallida).toBeNull();
     expect(ejecutadas.some(q => q.includes('ALTER TABLE facturas'))).toBe(false);
+  });
+
+  it('v37 añade el próximo mantenimiento al vehículo y los km a la revisión', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v36_facturas_mantenimiento') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v37_mantenimiento_km']);
+    const veh = ejecutadas.find(q => q.includes('ADD COLUMN km_proximo_mantenimiento'));
+    expect(veh).toContain('ALTER TABLE vehicles');
+    expect(veh).toContain('INT UNSIGNED NULL DEFAULT NULL');
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN km '))).toContain('ALTER TABLE vehicle_revisiones');
+    expect(ejecutadas.find(q => q.includes('ADD COLUMN km_proximo '))).toContain('ALTER TABLE vehicle_revisiones');
+  });
+
+  it('v37 rellena el siguiente múltiplo de 15.000 solo en los que tienen km y no tienen referencia', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v36_facturas_mantenimiento') });
+    await runMigrations();
+
+    const relleno = ejecutadas.find(q => q.includes('UPDATE vehicles') && q.includes('km_proximo_mantenimiento'));
+    expect(relleno).toContain('(FLOOR(kilometros_actuales / 15000) + 1) * 15000');
+    expect(relleno).toContain('km_proximo_mantenimiento IS NULL AND kilometros_actuales > 0');
+  });
+
+  it('v37 no repite las columnas si ya existen', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v36_facturas_mantenimiento'),
+      columnas: COLUMNAS_V37,
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
   });
 });

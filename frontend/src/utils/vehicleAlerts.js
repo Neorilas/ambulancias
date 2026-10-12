@@ -2,7 +2,9 @@
  * utils/vehicleAlerts.js
  *
  * Utilidades compartidas para el sistema de alertas de caducidad
- * de documentos de vehículos (ITV, ITS, Tarjeta de transporte).
+ * de documentos de vehículos (ITV, ITS, Tarjeta de transporte) y del
+ * mantenimiento por km (este va por kilómetros, no por días: ver
+ * `thresholdForKm`).
  *
  * La lógica de "descartar" vive en localStorage con una clave
  * compuesta por vehicle_id + tipo + threshold. Al cruzar el
@@ -10,7 +12,16 @@
  * vuelve a aparecer aunque hubiera sido descartada antes.
  */
 
+import { formatKm as fmtKm } from './kmUtils.js';
+
 export const UMBRALES = [60, 45, 30, 15];
+
+// El mantenimiento avisa por km que faltan. Los umbrales son cadenas para
+// que nunca coincidan con los de días (la clave de descarte los mezcla).
+export const UMBRALES_KM = ['km2000', 'km1000', 'km500'];
+const TIPOS_POR_KM = new Set(['mantenimiento']);
+
+export const esAlertaPorKm = (a) => TIPOS_POR_KM.has(a?.tipo);
 
 /**
  * Calcula la próxima fecha de ITV según normativa:
@@ -52,6 +63,7 @@ export const TIPO_LABEL = {
   itv:                'ITV',
   its:                'ITS',
   tarjeta_transporte: 'Tarjeta de transporte',
+  mantenimiento:      'Mantenimiento',
 };
 
 /**
@@ -75,6 +87,50 @@ export function thresholdFor(dias) {
 }
 
 /**
+ * Umbral de una alerta de mantenimiento por los km que faltan:
+ *   vencida (ya toca o se ha pasado) | km500 | km1000 | km2000 | null
+ */
+export function thresholdForKm(km) {
+  if (typeof km !== 'number' || !Number.isFinite(km)) return null;
+  if (km <= 0)    return 'vencida';
+  if (km <= 500)  return 'km500';
+  if (km <= 1000) return 'km1000';
+  if (km <= 2000) return 'km2000';
+  return null;
+}
+
+
+/** Lo que dice la alerta en grande: «ITV caduca en 12d», «Mantenimiento en 800 km». */
+export function tituloAlerta(a) {
+  const nombre = TIPO_LABEL[a.tipo] || a.tipo;
+  if (esAlertaPorKm(a)) {
+    return a.threshold === 'vencida'
+      ? `${nombre} PASADO${a.km_restantes < 0 ? ` (${fmtKm(-a.km_restantes)})` : ''}`
+      : `${nombre} en ${fmtKm(a.km_restantes)}`;
+  }
+  return a.threshold === 'vencida' ? `${nombre} VENCIDA` : `${nombre} caduca en ${a.dias_restantes}d`;
+}
+
+/** Cuándo vence: la fecha, o a cuántos km toca el mantenimiento. */
+export function venceAlerta(a, formatFecha) {
+  if (esAlertaPorKm(a)) {
+    return a.km_actuales != null
+      ? `a los ${fmtKm(a.km_objetivo)} (lleva ${fmtKm(a.km_actuales)})`
+      : `a los ${fmtKm(a.km_objetivo)}`;
+  }
+  return formatFecha(a.fecha_caducidad);
+}
+
+/** El margen corto de la pastilla: «12d», «Vencida hace 3d», «800 km», «Pasado 300 km». */
+export function margenAlerta(a) {
+  if (esAlertaPorKm(a)) {
+    if (a.threshold !== 'vencida') return fmtKm(a.km_restantes);
+    return a.km_restantes < 0 ? `Pasado ${fmtKm(-a.km_restantes)}` : 'Toca ya';
+  }
+  return a.threshold === 'vencida' ? `Vencida hace ${Math.abs(a.dias_restantes)}d` : `${a.dias_restantes}d`;
+}
+
+/**
  * Color por umbral, sobre la paleta semántica:
  *   rojo = vencida · ámbar = próxima (15/30 días) · azul = aviso lejano
  * `badge` devuelve directamente la clase de pastilla de index.css.
@@ -86,6 +142,9 @@ export function thresholdStyle(threshold) {
     case 30:        return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-600', badge: 'badge-yellow' };
     case 45:        return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
     case 60:        return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
+    case 'km500':   return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-700', badge: 'badge-yellow' };
+    case 'km1000':  return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-600', badge: 'badge-yellow' };
+    case 'km2000':  return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
     default:        return { bg: 'bg-idle-50 border-idle-200', text: 'text-idle-600', badge: 'badge-gray' };
   }
 }
@@ -149,10 +208,14 @@ export function clearAllDismissals() {
 
 /**
  * Toma el array devuelto por el backend y le añade `threshold`.
- * Filtra las entradas sin umbral activo (días_restantes > 60).
+ * Filtra las entradas sin umbral activo (días_restantes > 60, o más de
+ * 2.000 km por delante en el mantenimiento).
  */
 export function withThresholds(alertas) {
   return (alertas || [])
-    .map(a => ({ ...a, threshold: thresholdFor(a.dias_restantes) }))
+    .map(a => ({
+      ...a,
+      threshold: esAlertaPorKm(a) ? thresholdForKm(a.km_restantes) : thresholdFor(a.dias_restantes),
+    }))
     .filter(a => a.threshold !== null);
 }

@@ -32,6 +32,7 @@ const { logAudit }                    = require('./admin.controller');
 const { ahora, fechaEnEspana, anioMesEnEspana, instanteEnEspana, instanteUtc } =
   require('../utils/fecha.utils');
 const { errorMotivo }                 = require('../utils/motivo.utils');
+const { SQL_FIJAR_PROXIMO_MANTENIMIENTO } = require('../utils/mantenimiento.utils');
 const estadoTrabajo                   = require('../services/estadoTrabajo.service');
 const avisos                          = require('../services/avisosAsignacion.service');
 const coordinadores                   = require('../services/coordinadores.service');
@@ -741,7 +742,8 @@ async function insertarVehiculo(conn, trabajoId, veh) {
   await guardarResponsables(conn, ins.insertId, veh.responsables);
   if (veh.kilometros_inicio) {
     await conn.execute(
-      'UPDATE vehicles SET kilometros_actuales = ? WHERE id = ? AND kilometros_actuales < ?',
+      `UPDATE vehicles SET kilometros_actuales = ?, ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
+        WHERE id = ? AND kilometros_actuales < ?`,
       [veh.kilometros_inicio, veh.vehicle_id, veh.kilometros_inicio]
     );
   }
@@ -1299,7 +1301,8 @@ async function finalizeVehiculo(req, res, next) {
       );
       // El guard `<` queda de red para la carrera entre la validación y aquí
       await conn.execute(
-        `UPDATE vehicles SET kilometros_actuales = ?, fecha_ultimo_servicio = ?
+        `UPDATE vehicles SET kilometros_actuales = ?, fecha_ultimo_servicio = ?,
+                             ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
           WHERE id = ? AND kilometros_actuales < ?`,
         [kmFin, fechaEnEspana(), vehicleId, kmFin]
       );

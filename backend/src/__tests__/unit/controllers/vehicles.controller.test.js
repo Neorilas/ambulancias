@@ -341,6 +341,33 @@ describe('vehicles.controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(query).not.toHaveBeenCalled();
     });
+
+    // Mantenimiento cada 15.000 km (v37): sin referencia anotada, el siguiente
+    // múltiplo por encima de los km con que llega.
+    describe('próximo mantenimiento', () => {
+      const alta = async (body) => {
+        query.mockResolvedValueOnce([[]]);
+        query.mockResolvedValueOnce([{ insertId: 5 }]);
+        query.mockResolvedValueOnce([[{ id: 5 }]]);
+        await createVehicle(mockReq({
+          body: { matricula: '1234BCD', alias: 'A5', ...body },
+          user: { id: 1, username: 'admin' },
+        }), mockRes(), mockNext());
+        return query.mock.calls[1][1][3];
+      };
+
+      it('con 32.000 km le toca a los 45.000', async () => {
+        expect(await alta({ kilometros_actuales: 32000 })).toBe(45000);
+      });
+
+      it('sin km no hay referencia', async () => {
+        expect(await alta({})).toBeNull();
+      });
+
+      it('respeta el que se anota a mano', async () => {
+        expect(await alta({ kilometros_actuales: 32000, km_proximo_mantenimiento: '38000' })).toBe('38000');
+      });
+    });
   });
 
   // ── getVehicleImages (extended) ────────────────────────
@@ -394,6 +421,48 @@ describe('vehicles.controller', () => {
       const res = mockRes();
       await updateVehicle(mockReq({ params: { id: '1' }, body: {}, user: { id: 1, username: 'admin' } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('con km nuevos fija la referencia de mantenimiento si no la tenía, después de los km', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+
+      await updateVehicle(mockReq({
+        params: { id: '1' }, body: { kilometros_actuales: 32000 }, user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      const [sql, vals] = query.mock.calls[1];
+      // El COALESCE lee el km YA escrito: MySQL evalúa el SET de izquierda a derecha
+      expect(sql.indexOf('kilometros_actuales = ?')).toBeLessThan(sql.indexOf('COALESCE(km_proximo_mantenimiento'));
+      expect(vals).toEqual([32000, 1]);
+    });
+
+    it('el próximo mantenimiento a mano va antes que el recálculo, y en blanco se vacía', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+
+      await updateVehicle(mockReq({
+        params: { id: '1' }, body: { kilometros_actuales: 32000, km_proximo_mantenimiento: '' },
+        user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      const [sql, vals] = query.mock.calls[1];
+      expect(sql.indexOf('km_proximo_mantenimiento = ?')).toBeLessThan(sql.indexOf('COALESCE(km_proximo_mantenimiento'));
+      expect(vals).toEqual([32000, null, 1]);
+    });
+
+    it('sin km en el cuerpo no toca la referencia', async () => {
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 1 }]]);
+
+      await updateVehicle(mockReq({
+        params: { id: '1' }, body: { alias: 'X' }, user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls[1][0]).not.toContain('km_proximo_mantenimiento');
     });
   });
 
@@ -1089,6 +1158,78 @@ describe('vehicles.controller', () => {
       const updateCall = query.mock.calls[2][0];
       expect(updateCall).toContain('fecha_ultima_revision');
     });
+
+    // El ejemplo del usuario: llega a su mantenimiento de 15.000, el taller
+    // dice que no hay nada que hacer y que vuelva en 5.000 km.
+    describe('mantenimiento por km', () => {
+      const crear = async (body, { kmVehiculo = 15300, posterior = [] } = {}) => {
+        query.mockResolvedValueOnce([[{ id: 1, kilometros_actuales: kmVehiculo }]]);
+        query.mockResolvedValueOnce([{ insertId: 10 }]);    // INSERT
+        query.mockResolvedValueOnce([]);                    // fecha_ultima_revision
+        query.mockResolvedValueOnce([posterior]);           // ¿hay uno más reciente?
+        if (!posterior.length) query.mockResolvedValueOnce([]); // UPDATE vehicles
+        query.mockResolvedValueOnce([[{ id: 10 }]]);
+        const res = mockRes();
+        await createRevision(mockReq({
+          params: { id: '1' },
+          body: { tipo: 'mantenimiento', fecha_revision: '2026-10-12', ...body },
+          user: { id: 1, username: 'admin' },
+        }), res, mockNext());
+        return res;
+      };
+      const updateVehiculo = () => query.mock.calls.find(c => c[0].includes('SET km_proximo_mantenimiento = ?'));
+
+      it('el siguiente va a lo que dice el taller y pasa a ser la referencia', async () => {
+        const res = await crear({ km: '15300', km_proximo: '20300' });
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        const insert = query.mock.calls[1];
+        expect(insert[0]).toContain('km, km_proximo');
+        expect(insert[1].slice(4, 6)).toEqual([15300, 20300]);
+        expect(updateVehiculo()[1]).toEqual([20300, 1]);
+      });
+
+      it('sin decir nada: a los km del vehículo + 15.000', async () => {
+        await crear({});
+
+        expect(query.mock.calls[1][1].slice(4, 6)).toEqual([15300, 30300]);
+        expect(updateVehiculo()[1]).toEqual([30300, 1]);
+      });
+
+      it('rechaza un próximo que no está por encima de la revisión', async () => {
+        query.mockResolvedValueOnce([[{ id: 1, kilometros_actuales: 15300 }]]);
+        const res = mockRes();
+        await createRevision(mockReq({
+          params: { id: '1' },
+          body: { tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: '15300', km_proximo: '15000' },
+          user: { id: 1, username: 'admin' },
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(query).toHaveBeenCalledTimes(1);
+      });
+
+      it('uno anotado a posteriori no mueve la referencia si hay otro más reciente', async () => {
+        await crear({ km: '5000' }, { posterior: [{ id: 3 }] });
+
+        expect(updateVehiculo()).toBeUndefined();
+      });
+
+      it('en otra revisión que no es mantenimiento los km no se guardan', async () => {
+        query.mockResolvedValueOnce([[{ id: 1, kilometros_actuales: 15300 }]]);
+        query.mockResolvedValueOnce([{ insertId: 11 }]);
+        query.mockResolvedValueOnce([]);
+        query.mockResolvedValueOnce([[{ id: 11 }]]);
+        await createRevision(mockReq({
+          params: { id: '1' },
+          body: { tipo: 'itv', fecha_revision: '2026-10-12', km: '15300', km_proximo: '20300' },
+          user: { id: 1, username: 'admin' },
+        }), mockRes(), mockNext());
+
+        expect(query.mock.calls[1][1].slice(4, 6)).toEqual([null, null]);
+        expect(updateVehiculo()).toBeUndefined();
+      });
+    });
   });
 
   // ── updateRevision ─────────────────────────────────────
@@ -1127,6 +1268,80 @@ describe('vehicles.controller', () => {
         user: { id: 1 },
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('corregir el próximo de un mantenimiento corrige el del vehículo', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);   // UPDATE revisión
+      query.mockResolvedValueOnce([[]]); // ninguno más reciente
+      query.mockResolvedValueOnce([]);   // UPDATE vehicles
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      const res = mockRes();
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { km_proximo: '20300' }, user: { id: 1 },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(query.mock.calls[1]).toEqual([expect.stringContaining('km_proximo = ?'), [20300, 8]]);
+      expect(query.mock.calls[3]).toEqual([expect.stringContaining('SET km_proximo_mantenimiento = ?'), [20300, 1]]);
+    });
+
+    // El formulario reenvía siempre el próximo: editar la descripción no puede
+    // deshacer el ajuste que se hizo a mano en la ficha después de la revisión
+    it('si el próximo no cambia, no se toca el del vehículo', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' },
+        body: { descripcion: 'Cambio de aceite', km: '15300', km_proximo: '30300' },
+        user: { id: 1 },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls.some(c => c[0].includes('SET km_proximo_mantenimiento'))).toBe(false);
+      expect(query).toHaveBeenCalledTimes(3);
+    });
+
+    it('el próximo en blanco al editar vuelve al de serie: los km de la revisión + 15.000', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 20300 }]]);
+      query.mockResolvedValueOnce([]);   // UPDATE revisión
+      query.mockResolvedValueOnce([[]]); // ninguno más reciente
+      query.mockResolvedValueOnce([]);   // UPDATE vehicles
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { km_proximo: '' }, user: { id: 1 },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls[1][1]).toEqual([30300, 8]);
+      expect(query.mock.calls[3][1]).toEqual([30300, 1]);
+    });
+
+
+    it('rechaza un próximo por debajo de los km de la revisión', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      const res = mockRes();
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { km_proximo: '15000' }, user: { id: 1 },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    it('si deja de ser mantenimiento se vacían sus km', async () => {
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { tipo: 'reparacion' }, user: { id: 1 },
+      }), mockRes(), mockNext());
+
+      expect(query.mock.calls[1][0]).toContain('km = NULL, km_proximo = NULL');
+      expect(query).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -1306,6 +1521,46 @@ describe('vehicles.controller', () => {
       await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
 
       expect(res._json.data.map(a => a.tipo)).toEqual(['tarjeta_transporte']);
+    });
+
+    describe('mantenimiento por km', () => {
+      it('avisa cuando faltan 2.000 km o menos, con los km y sin días', async () => {
+        query.mockResolvedValueOnce([[vehiculo({ kilometros_actuales: 44200, km_proximo_mantenimiento: 45000 })]]);
+
+        const res = mockRes();
+        await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+        expect(query.mock.calls[0][0]).toContain('OR km_proximo_mantenimiento IS NOT NULL');
+        expect(res._json.data).toEqual([{
+          vehicle_id: 1, matricula: '1234ABC', alias: 'Ambulancia 1',
+          tipo: 'mantenimiento', km_objetivo: 45000, km_actuales: 44200, km_restantes: 800,
+          fecha_caducidad: null, dias_restantes: null,
+        }]);
+      });
+
+      it('con más de 2.000 km por delante no avisa', async () => {
+        query.mockResolvedValueOnce([[vehiculo({ kilometros_actuales: 40000, km_proximo_mantenimiento: 45000 })]]);
+
+        const res = mockRes();
+        await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+        expect(res._json.data).toEqual([]);
+      });
+
+      it('orden: vencidas primero (de fecha o de km), luego las de fecha y al final las de km', async () => {
+        query.mockResolvedValueOnce([[
+          vehiculo({ id: 1, kilometros_actuales: 44500, km_proximo_mantenimiento: 45000 }),  // 500 km
+          vehiculo({ id: 2, fecha_tarjeta_transporte: '2026-10-10' }),                        // 20 días
+          vehiculo({ id: 3, kilometros_actuales: 45300, km_proximo_mantenimiento: 45000 }),  // pasado 300
+          vehiculo({ id: 4, fecha_tarjeta_transporte: '2026-09-10' }),                        // vencida
+          vehiculo({ id: 5, kilometros_actuales: 43500, km_proximo_mantenimiento: 45000 }),  // 1.500 km
+        ]]);
+
+        const res = mockRes();
+        await listAlertasVehiculos(mockReq({ query: {} }), res, mockNext());
+
+        expect(res._json.data.map(a => a.vehicle_id)).toEqual([4, 3, 2, 1, 5]);
+      });
     });
 
     it('sin vehículos devuelve una lista vacía', async () => {

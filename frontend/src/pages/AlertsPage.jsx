@@ -3,14 +3,15 @@
  *
  * Panel dedicado para administradores: visualiza y gestiona
  * todas las alertas de caducidad de documentos de vehículos
- * (ITV, ITS, Tarjeta de transporte).
+ * (ITV, ITS, Tarjeta de transporte) y del mantenimiento por km.
  *
  * Funciones:
- *   - KPIs por umbral (vencidas / 15d / 30d / 45d / 60d)
+ *   - KPIs por umbral (vencidas / 15d / 30d / 45d / 60d / mantenimiento por km)
  *   - Filtros por tipo de documento, umbral y estado (activas/descartadas)
  *   - Descartar y restaurar alertas (persistido en localStorage)
  *   - Acción masiva: restaurar todas las descartadas
- *   - Selector del horizonte consultado (60/90/180/365 días)
+ *   - Selector del horizonte consultado (60/90/180/365 días). El mantenimiento
+ *     no lo mira: sale siempre que falten 2.000 km o menos
  *   - Refresco manual + timestamp de última actualización
  */
 
@@ -24,6 +25,9 @@ import { useEstadoEnUrl }    from '../hooks/useNavegacion.js';
 import { formatFechaSola, formatDate } from '../utils/dateUtils.js';
 import {
   TIPO_LABEL,
+  UMBRALES_KM,
+  margenAlerta,
+  venceAlerta,
   thresholdStyle,
   isDismissed,
   markDismissed,
@@ -54,14 +58,8 @@ function KpiCard({ color, label, count, active, onClick }) {
   );
 }
 
-function DiasBadge({ dias, threshold }) {
-  const style = thresholdStyle(threshold);
-  const text = threshold === 'vencida'
-    ? `Vencida hace ${Math.abs(dias)}d`
-    : `${dias}d`;
-  return (
-    <span className={style.badge}>{text}</span>
-  );
+function MargenBadge({ alerta }) {
+  return <span className={thresholdStyle(alerta.threshold).badge}>{margenAlerta(alerta)}</span>;
 }
 
 export default function AlertsPage() {
@@ -76,8 +74,8 @@ export default function AlertsPage() {
   // Filtros en la URL: «Ver vehículo» lleva a su ficha y al volver siguen
   // puestos (en `useState` se perdían)
   const [filtros, cambiarFiltros] = useEstadoEnUrl({
-    tipo:   'todos',    // todos|itv|its|tarjeta_transporte
-    umbral: 'todos',    // todos|vencida|15|30|45|60
+    tipo:   'todos',    // todos|itv|its|tarjeta_transporte|mantenimiento
+    umbral: 'todos',    // todos|vencida|15|30|45|60|km (mantenimiento sin vencer)
     estado: 'activas',  // activas|descartadas|todas
   });
   const { tipo: filtroTipo, umbral: filtroUmbral, estado: filtroEstado } = filtros;
@@ -113,6 +111,7 @@ export default function AlertsPage() {
     30:      conThreshold.filter(a => a.threshold === 30).length,
     45:      conThreshold.filter(a => a.threshold === 45).length,
     60:      conThreshold.filter(a => a.threshold === 60).length,
+    km:      conThreshold.filter(a => UMBRALES_KM.includes(a.threshold)).length,
     total:   conThreshold.length,
   }), [conThreshold]);
 
@@ -123,7 +122,9 @@ export default function AlertsPage() {
     if (filtroTipo !== 'todos') {
       out = out.filter(a => a.tipo === filtroTipo);
     }
-    if (filtroUmbral !== 'todos') {
+    if (filtroUmbral === 'km') {
+      out = out.filter(a => UMBRALES_KM.includes(a.threshold));
+    } else if (filtroUmbral !== 'todos') {
       const t = filtroUmbral === 'vencida' ? 'vencida' : parseInt(filtroUmbral);
       out = out.filter(a => a.threshold === t);
     }
@@ -165,7 +166,8 @@ export default function AlertsPage() {
         <div className="flex-1">
           <h1 className="text-[19px] font-semibold text-neutral-900">Alertas de caducidad</h1>
           <p className="text-neutral-500 text-sm">
-            ITV, ITS y tarjeta de transporte · {kpis.total} alertas en los próximos {horizonte} días
+            ITV, ITS y tarjeta de transporte en los próximos {horizonte} días, y mantenimiento
+            a 2.000 km o menos · {kpis.total} alertas
             {lastFetch && (
               <span className="text-neutral-400"> · actualizado {formatDate(lastFetch, 'HH:mm:ss')}</span>
             )}
@@ -184,7 +186,7 @@ export default function AlertsPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
         <KpiCard
           color="bg-bad-50 text-bad-600"
           label="Vencidas"
@@ -220,6 +222,13 @@ export default function AlertsPage() {
           active={filtroUmbral === '60'}
           onClick={() => setFiltroUmbral(filtroUmbral === '60' ? 'todos' : '60')}
         />
+        <KpiCard
+          color="bg-warn-50 text-warn-700"
+          label="Mantenimiento ≤ 2.000 km"
+          count={kpis.km}
+          active={filtroUmbral === 'km'}
+          onClick={() => setFiltroUmbral(filtroUmbral === 'km' ? 'todos' : 'km')}
+        />
       </div>
 
       {/* Filtros */}
@@ -235,6 +244,7 @@ export default function AlertsPage() {
             <option value="itv">ITV</option>
             <option value="its">ITS</option>
             <option value="tarjeta_transporte">Tarjeta transporte</option>
+            <option value="mantenimiento">Mantenimiento (km)</option>
           </select>
 
           <label className="text-sm text-neutral-600 ml-2">Estado:</label>
@@ -272,7 +282,6 @@ export default function AlertsPage() {
             <div className="grid grid-cols-1 sm:hidden gap-2">
               {visibles.map(a => {
                 const descartada = isDismissed(a);
-                const fechaStr = formatFechaSola(a.fecha_caducidad);
                 return (
                   <div key={`${a.vehicle_id}:${a.tipo}:${a.threshold}`}
                     className={`card space-y-2 ${descartada ? 'opacity-60' : ''}`}>
@@ -285,9 +294,9 @@ export default function AlertsPage() {
                           {a.alias} <span className="text-neutral-400 font-mono">{a.matricula}</span>
                         </p>
                       </div>
-                      <DiasBadge dias={a.dias_restantes} threshold={a.threshold} />
+                      <MargenBadge alerta={a} />
                     </div>
-                    <div className="text-xs text-neutral-500">Caducidad: {fechaStr}</div>
+                    <div className="text-xs text-neutral-500">Vence: {venceAlerta(a, formatFechaSola)}</div>
                     <div className="flex gap-2 pt-1 border-t border-neutral-100">
                       <Link to={`/vehiculos/${a.vehicle_id}`} className="btn-ghost text-xs flex-1 text-center">Ver vehículo</Link>
                       {descartada
@@ -308,8 +317,8 @@ export default function AlertsPage() {
                     <tr>
                       <th className="text-left px-4 py-3">Vehículo</th>
                       <th className="text-left px-4 py-3">Documento</th>
-                      <th className="text-left px-4 py-3">Caducidad</th>
-                      <th className="text-left px-4 py-3">Días</th>
+                      <th className="text-left px-4 py-3">Vence</th>
+                      <th className="text-left px-4 py-3">Queda</th>
                       <th className="text-left px-4 py-3">Estado</th>
                       <th className="text-right px-4 py-3">Acciones</th>
                     </tr>
@@ -317,7 +326,6 @@ export default function AlertsPage() {
                   <tbody className="divide-y divide-neutral-100">
                     {visibles.map(a => {
                       const descartada = isDismissed(a);
-                      const fechaStr = formatFechaSola(a.fecha_caducidad);
                       return (
                         <tr
                           key={`${a.vehicle_id}:${a.tipo}:${a.threshold}`}
@@ -330,9 +338,9 @@ export default function AlertsPage() {
                           <td className="px-4 py-3">
                             <span>{TIPO_LABEL[a.tipo]}</span>
                           </td>
-                          <td className="px-4 py-3 text-neutral-700">{fechaStr}</td>
+                          <td className="px-4 py-3 text-neutral-700">{venceAlerta(a, formatFechaSola)}</td>
                           <td className="px-4 py-3">
-                            <DiasBadge dias={a.dias_restantes} threshold={a.threshold} />
+                            <MargenBadge alerta={a} />
                           </td>
                           <td className="px-4 py-3">
                             {descartada

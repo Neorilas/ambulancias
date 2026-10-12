@@ -26,10 +26,11 @@ import EnlaceAsignacion from '../../components/common/EnlaceAsignacion.jsx';
 import { useVolver } from '../../hooks/useNavegacion.js';
 import { formatDate, formatDateTime, formatDateTimeShort, toInputDate } from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
-import { parseKm } from '../../utils/kmUtils.js';
+import { parseKm, formatKm as fmtKm } from '../../utils/kmUtils.js';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { calcProximaITV, calcProximaITS, diasHasta } from '../../utils/vehicleAlerts.js';
-import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS } from '../../utils/constants.js';
+import { ESTADO_LABELS, ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, ASIGNACION_ESTADO_COLORS,
+         MANTENIMIENTO_INTERVALO_KM, MANTENIMIENTO_AVISO_KM } from '../../utils/constants.js';
 import { TIPO_REVISION_LABELS as TIPO_REV_LABELS, fmtEuros, fmtTamano, nombreDescarga } from '../../utils/facturas.js';
 
 // El popup de subida de facturas, como la pantalla de Facturas, solo lo
@@ -536,7 +537,9 @@ function FilaFactura({ f, descargando, onDescargar }) {
  * `facturas` es null para quien no es administración: entonces no se pinta
  * nada de facturas (el backend le daría 404, la sección está oculta, §2.8).
  */
-function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, recargarFacturas, enlaceFacturas }) {
+
+function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehiculo,
+                         facturas, recargarFacturas, enlaceFacturas }) {
   const { notify } = useNotification();
   const veFacturas = facturas !== null;
   // undefined = cerrado; null = factura sin revisión; una revisión = de esa
@@ -561,18 +564,30 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, re
   const [saving,     setSaving]     = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
-  const emptyForm = { tipo: 'mantenimiento', fecha_revision: '', fecha_proxima: '', resultado: 'realizado', descripcion: '', coste: '', realizado_por: '' };
+  // `km` y `dentro` solo se usan en el mantenimiento: los km del vehículo al
+  // hacerlo y dentro de cuántos le toca el siguiente (15.000, o lo que diga
+  // el taller: «vuelva en 5.000»). El backend guarda el absoluto.
+  const emptyForm = { tipo: 'mantenimiento', fecha_revision: '', fecha_proxima: '', resultado: 'realizado', descripcion: '', coste: '', realizado_por: '',
+                      km: '', dentro: String(MANTENIMIENTO_INTERVALO_KM) };
   const [form, setForm] = useState(emptyForm);
 
-  const load = recargar;
+  // Una revisión mueve datos del vehículo (fecha de ITV/ITS, próximo
+  // mantenimiento) que pinta el Resumen: se recargan los dos.
+  const load = () => { recargar(); recargarVehiculo?.(); };
 
-  const openCreate = () => { setEditRev(null); setForm(emptyForm); setShowForm(true); };
+  const openCreate = () => {
+    setEditRev(null);
+    setForm({ ...emptyForm, km: vehiculo?.kilometros_actuales ? String(vehiculo.kilometros_actuales) : '' });
+    setShowForm(true);
+  };
   const openEdit   = (rev) => {
     setEditRev(rev);
     setForm({
       tipo:           rev.tipo,
       fecha_revision: rev.fecha_revision?.slice(0, 10) || '',
       fecha_proxima:  rev.fecha_proxima?.slice(0, 10) || '',
+      km:             rev.km != null ? String(rev.km) : '',
+      dentro:         rev.km != null && rev.km_proximo != null ? String(rev.km_proximo - rev.km) : '',
       resultado:      rev.resultado,
       descripcion:    rev.descripcion || '',
       coste:          rev.coste != null ? String(rev.coste) : '',
@@ -581,8 +596,25 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, re
     setShowForm(true);
   };
 
+  const esMantenimiento = form.tipo === 'mantenimiento';
+  const kmRev     = parseKm(form.km);
+  const kmDentro  = parseKm(form.dentro);
+  const kmProximo = kmRev != null && kmDentro ? kmRev + kmDentro : null;
+
   const handleSave = async (e) => {
     e.preventDefault();
+    if (esMantenimiento && (form.km !== '' && kmRev == null)) {
+      notify.error('Los km de la revisión no son válidos'); return;
+    }
+    if (esMantenimiento && form.dentro !== '' && !kmDentro) {
+      notify.error('Indica dentro de cuántos km toca el siguiente mantenimiento'); return;
+    }
+    // Sin los km de la revisión, «dentro de» no tiene desde dónde contar y el
+    // backend lo ignoraría (pondría +15.000 sobre los del vehículo)
+    if (esMantenimiento && kmRev == null && form.dentro !== ''
+        && kmDentro !== MANTENIMIENTO_INTERVALO_KM) {
+      notify.error('Indica los km del vehículo en esta revisión'); return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -594,6 +626,12 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, re
         coste:         form.coste ? parseFloat(form.coste) : undefined,
         realizado_por: form.realizado_por || undefined,
       };
+      // Sin km de la revisión, el backend toma los del vehículo y cita el
+      // siguiente a +15.000
+      if (esMantenimiento) {
+        payload.km         = kmRev;
+        payload.km_proximo = kmProximo;
+      }
       if (editRev) {
         await vehiclesService.updateRevision(vehicleId, editRev.id, payload);
         notify.success('Revisión actualizada');
@@ -694,6 +732,28 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, re
                 value={form.fecha_proxima}
                 onChange={e => setForm(f => ({ ...f, fecha_proxima: e.target.value }))} />
             </div>
+            {esMantenimiento && (
+              <>
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Km del vehículo</label>
+                  <input className="input text-sm" type="text" inputMode="numeric" placeholder="Ej: 15.300"
+                    value={form.km}
+                    onChange={e => setForm(f => ({ ...f, km: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 block mb-1">Siguiente mantenimiento dentro de (km)</label>
+                  <input className="input text-sm" type="text" inputMode="numeric"
+                    placeholder={String(MANTENIMIENTO_INTERVALO_KM)}
+                    value={form.dentro}
+                    onChange={e => setForm(f => ({ ...f, dentro: e.target.value }))} />
+                  <p className="text-xs text-neutral-400 mt-1">
+                    {kmProximo != null
+                      ? `Le tocará a los ${fmtKm(kmProximo)}. Si el taller cita antes, cámbialo.`
+                      : `Por defecto, ${fmtKm(MANTENIMIENTO_INTERVALO_KM)} después de este.`}
+                  </p>
+                </div>
+              </>
+            )}
             <div>
               <label className="text-xs text-neutral-500 block mb-1">Coste (€)</label>
               <input className="input text-sm" type="number" min="0" step="0.01" placeholder="0.00"
@@ -769,6 +829,18 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, facturas, re
                           <> {diasProxima < 0 ? `(vencida ${Math.abs(diasProxima)}d)` : `(en ${diasProxima}d)`}</>
                         )}
                       </span>
+                    </div>
+                  )}
+                  {rev.km != null && (
+                    <div>
+                      <span className="text-neutral-400">Km: </span>
+                      <span>{fmtKm(rev.km)}</span>
+                    </div>
+                  )}
+                  {rev.km_proximo != null && (
+                    <div>
+                      <span className="text-neutral-400">Siguiente: </span>
+                      <span>a los {fmtKm(rev.km_proximo)}</span>
                     </div>
                   )}
                   {rev.coste != null && (
@@ -881,6 +953,25 @@ function Campo({ label, error, hint, children }) {
   );
 }
 
+/** Km del próximo mantenimiento con lo que falta; ámbar a 2.000 o menos, rojo pasado. */
+function KmMantenimiento({ objetivo, actuales }) {
+  const obj = typeof objetivo === 'number' ? objetivo : parseKm(objetivo);
+  if (!obj) return <span className="text-neutral-400">—</span>;
+  const quedan  = obj - (parseKm(actuales) ?? 0);
+  const pasado  = quedan <= 0;
+  const avisa   = quedan <= MANTENIMIENTO_AVISO_KM;
+  return (
+    <span className={pasado ? 'text-bad-600 font-medium' : avisa ? 'text-warn-600 font-medium' : ''}>
+      {fmtKm(obj)}
+      <span className={`ml-1 text-xs ${avisa ? '' : 'text-neutral-500'}`}>
+        {pasado
+          ? (quedan < 0 ? `(pasado ${fmtKm(-quedan)})` : '(toca ya)')
+          : `(quedan ${fmtKm(quedan)})`}
+      </span>
+    </span>
+  );
+}
+
 /** Fecha de caducidad con aviso de vencida / próxima. */
 function FechaVencimiento({ proxima, umbralAviso = 30 }) {
   if (!proxima) return <span className="text-neutral-400">—</span>;
@@ -908,7 +999,7 @@ const PENDIENTE_CONFIRMACION_KM = 'confirmar-km';
 const CAMPOS_FICHA = [
   'alias', 'matricula', 'kilometros_actuales', 'fecha_matriculacion',
   'fecha_itv', 'fecha_its', 'fecha_tarjeta_transporte',
-  'fecha_ultima_revision', 'fecha_ultimo_servicio',
+  'fecha_ultima_revision', 'fecha_ultimo_servicio', 'km_proximo_mantenimiento',
 ];
 
 function formDesdeVehiculo(v) {
@@ -922,6 +1013,7 @@ function formDesdeVehiculo(v) {
     fecha_tarjeta_transporte: toInputDate(v?.fecha_tarjeta_transporte),
     fecha_ultima_revision:    toInputDate(v?.fecha_ultima_revision),
     fecha_ultimo_servicio:    toInputDate(v?.fecha_ultimo_servicio),
+    km_proximo_mantenimiento: v?.km_proximo_mantenimiento ?? '',
   };
 }
 
@@ -980,6 +1072,12 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
     if (!form.alias.trim())                e.alias     = 'Nombre requerido';
     if (!form.matricula.trim())            e.matricula = 'Matrícula requerida';
     else if (!esMatricula(form.matricula)) e.matricula = MENSAJE_FORMATO;
+    // En blanco vale: es «recalcular con los km». Escrito, tiene que ser un km.
+    const kmProxMant = String(form.km_proximo_mantenimiento).trim() === ''
+      ? null : parseKm(form.km_proximo_mantenimiento);
+    if (String(form.km_proximo_mantenimiento).trim() !== '' && !kmProxMant) {
+      e.km_proximo_mantenimiento = 'Km no válidos';
+    }
     setErrores(e);
     if (Object.keys(e).length) {
       // El aviso de cambios sin guardar tapa el formulario: sin este toast,
@@ -997,6 +1095,7 @@ function useEdicionVehiculo(vehicle, recargarVehiculo) {
       fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
       fecha_ultima_revision:    form.fecha_ultima_revision    || null,
       fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
+      km_proximo_mantenimiento: kmProxMant,
     };
     // Km en blanco es «no hay lectura nueva», no «cero»: mandándolo como 0 el
     // UPDATE borraba el cuentakilómetros real del vehículo. Si no se toca, el
@@ -1174,6 +1273,15 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, pu
               <input type="date" className="input"
                 value={form.fecha_ultima_revision} onChange={edicion.set('fecha_ultima_revision')} />
             </Campo>
+            <Campo label="Próximo mantenimiento (km)" error={errores.km_proximo_mantenimiento}
+              hint={`Cada ${fmtKm(MANTENIMIENTO_INTERVALO_KM)}. En blanco, se calcula con los km actuales`}>
+              <input type="text" inputMode="numeric" placeholder="Ej: 45.000"
+                className={`input ${errores.km_proximo_mantenimiento ? 'input-error' : ''}`}
+                value={form.km_proximo_mantenimiento} onChange={edicion.set('km_proximo_mantenimiento')} />
+            </Campo>
+            <Dato label="Mantenimiento">
+              <KmMantenimiento objetivo={form.km_proximo_mantenimiento} actuales={form.kilometros_actuales} />
+            </Dato>
           </div>
         ) : (
           <>
@@ -1184,6 +1292,9 @@ function TabResumen({ vehicle, incidencias, revisiones, edicion, puedeEditar, pu
               <Dato label="Próxima ITS"><FechaVencimiento proxima={proximaITS} /></Dato>
               <Dato label="Tarjeta de transporte">
                 <FechaVencimiento proxima={proximaTarjeta} umbralAviso={60} />
+              </Dato>
+              <Dato label="Próximo mantenimiento">
+                <KmMantenimiento objetivo={vehicle.km_proximo_mantenimiento} actuales={vehicle.kilometros_actuales} />
               </Dato>
               <Dato label="Última revisión registrada">
                 {ultimaRevision
@@ -1600,7 +1711,9 @@ export default function VehicleHistory() {
           vehiculo={vehicle}
           revisiones={ficha.revisiones}
           recargar={ficha.cargarRevisiones}
+          recargarVehiculo={ficha.cargarVehiculo}
           facturas={ficha.facturas}
+
           recargarFacturas={ficha.cargarFacturas}
           enlaceFacturas={isFeatureEnabled('menu_facturas')}
         />

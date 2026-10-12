@@ -6,7 +6,8 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDate, sumarMeses, diasHasta, formatDiaCalendario }
   from '../../utils/dateUtils.js';
 import { esMatricula, normalizarMatricula, MENSAJE_FORMATO } from '../../utils/matricula.js';
-import { parseKm } from '../../utils/kmUtils.js';
+import { parseKm, formatKm } from '../../utils/kmUtils.js';
+import { MANTENIMIENTO_INTERVALO_KM } from '../../utils/constants.js';
 
 /**
  * Calcula la próxima fecha de ITV según normativa:
@@ -78,6 +79,7 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     fecha_tarjeta_transporte: toInputDate(vehicle?.fecha_tarjeta_transporte),
     fecha_ultima_revision:    toInputDate(vehicle?.fecha_ultima_revision),
     fecha_ultimo_servicio: toInputDate(vehicle?.fecha_ultimo_servicio),
+    km_proximo_mantenimiento: vehicle?.km_proximo_mantenimiento ?? '',
   });
 
   const set = (field) => (e) => {
@@ -90,6 +92,9 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
     if (!form.alias.trim())                e.alias     = 'Nombre requerido';
     if (!form.matricula.trim())            e.matricula = 'Matrícula requerida';
     else if (!esMatricula(form.matricula)) e.matricula = MENSAJE_FORMATO;
+    if (String(form.km_proximo_mantenimiento).trim() !== '' && !parseKm(form.km_proximo_mantenimiento)) {
+      e.km_proximo_mantenimiento = 'Km no válidos';
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -123,6 +128,9 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
       fecha_tarjeta_transporte: form.fecha_tarjeta_transporte || null,
       fecha_ultima_revision:    form.fecha_ultima_revision    || null,
       fecha_ultimo_servicio:    form.fecha_ultimo_servicio    || null,
+      // En blanco (null) el backend lo calcula con los km: siguiente múltiplo
+      // de 15.000 por encima
+      km_proximo_mantenimiento: parseKm(form.km_proximo_mantenimiento) || null,
     };
 
     // Km en blanco es «no hay lectura», no «cero». Al editar, mandarlo como 0
@@ -222,6 +230,24 @@ export default function VehicleForm({ vehicle, onSaved, onClose }) {
             <p className="text-xs text-neutral-400 mt-1">Determina la frecuencia de ITV</p>
           </div>
         </div>
+
+        <div>
+          <label className="label">Próximo mantenimiento (km)</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            className={`input ${errors.km_proximo_mantenimiento ? 'input-error' : ''}`}
+            value={form.km_proximo_mantenimiento}
+            onChange={set('km_proximo_mantenimiento')}
+            placeholder="Ej: 45.000"
+          />
+          {errors.km_proximo_mantenimiento
+            ? <p className="field-error">{errors.km_proximo_mantenimiento}</p>
+            : <p className="hint">
+                Cada {formatKm(MANTENIMIENTO_INTERVALO_KM)}. En blanco, se calcula con los kilómetros actuales.
+              </p>}
+        </div>
+
 
         {/* ITV e ITS */}
         <div className="border border-neutral-200 rounded-lg p-3 space-y-3">

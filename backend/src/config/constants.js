@@ -95,6 +95,13 @@ module.exports = {
   // administración (2026-09-27). Cambiarlo no reescribe los meses ya
   // archivados en `informe_mensual`: esos guardan su `umbral_min`.
   INICIO_TARDIO_MINUTOS: 30,
+  // Mantenimiento por kilómetros (2026-10-12, petición del usuario): toca cada
+  // 15.000 km contados desde el último realizado, no desde los múltiplos de
+  // 15.000 (si el taller manda volver en 5.000, el siguiente cuenta desde ahí).
+  // Se avisa como la ITV/ITS cuando faltan estos km o menos. Espejo de ambos
+  // en frontend/src/utils/constants.js. Lógica en utils/mantenimiento.utils.js.
+  MANTENIMIENTO_INTERVALO_KM: 15000,
+  MANTENIMIENTO_AVISO_KM: 2000,
   // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
   // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
   // es el valor por defecto a propósito: solo se enciende (en el .env del

@@ -83,3 +83,34 @@ describe('AlertsPage · «Ver vehículo» y los filtros', () => {
     expect(screen.queryByText('4444DDD')).not.toBeInTheDocument();
   });
 });
+
+describe('AlertsPage · mantenimiento por km', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vehiclesService.listAlertas.mockResolvedValue([
+      ...ALERTAS,
+      { vehicle_id: 8, alias: 'Ambulancia 8', matricula: '8888HHH', tipo: 'mantenimiento',
+        km_objetivo: 45000, km_actuales: 44200, km_restantes: 800,
+        fecha_caducidad: null, dias_restantes: null },
+    ]);
+  });
+
+  it('sale con los km que faltan y a cuántos toca, no con días', async () => {
+    montar();
+    await ultimaCarga();
+    expect(screen.getAllByText('800 km').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/a los 45.?000 km/).length).toBeGreaterThan(0);
+  });
+
+  it('su KPI filtra solo las de mantenimiento', async () => {
+    const user = userEvent.setup();
+    montar();
+    await ultimaCarga();
+    await user.click(screen.getByRole('button', { name: /Mantenimiento ≤ 2.000 km/ }));
+
+    expect(screen.getByTestId('url')).toHaveTextContent('umbral=km');
+    expect(screen.getAllByText('8888HHH').length).toBeGreaterThan(0);
+    expect(screen.queryByText('5555EEE')).not.toBeInTheDocument();
+  });
+});

@@ -18,6 +18,10 @@ const { IMAGEN_TIPOS }          = require('../config/constants');
 const { esMatricula, MENSAJE_FORMATO } = require('../utils/matricula.utils');
 const { limpiarMilesKm } = require('../utils/km.utils');
 
+// Tope de los km del mantenimiento: por encima, el INT UNSIGNED de MySQL daba
+// un 500 en vez de un 400 (y ninguna ambulancia llega a 10 millones de km)
+const KM_MAX = 9999999;
+
 const router = express.Router();
 router.use(authenticate);
 
@@ -71,6 +75,8 @@ router.post('/',
     body('alias').trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
     body('kilometros_actuales').optional().customSanitizer(limpiarMilesKm).isInt({ min: 0 }).withMessage('Kilómetros inválidos'),
+    body('km_proximo_mantenimiento').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 1, max: KM_MAX }).withMessage('Km del próximo mantenimiento inválidos'),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601().withMessage('Fecha de matriculación inválida'),
     body('fecha_itv').optional({ nullable: true }).isISO8601().withMessage('Fecha ITV inválida'),
     body('fecha_its').optional({ nullable: true }).isISO8601().withMessage('Fecha ITS inválida'),
@@ -93,6 +99,8 @@ router.put('/:id',
     body('alias').optional().trim().notEmpty().withMessage('Nombre de la ambulancia requerido')
       .isLength({ max: 100 }).withMessage('Nombre demasiado largo'),
     body('kilometros_actuales').optional().customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
+    body('km_proximo_mantenimiento').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 1, max: KM_MAX }).withMessage('Km del próximo mantenimiento inválidos'),
     body('fecha_matriculacion').optional({ nullable: true }).isISO8601(),
     body('fecha_itv').optional({ nullable: true }).isISO8601(),
     body('fecha_its').optional({ nullable: true }).isISO8601(),
@@ -208,6 +216,11 @@ router.post('/:id/revisiones',
       .withMessage('Tipo de revisión inválido'),
     body('fecha_revision').notEmpty().isISO8601().withMessage('Fecha de revisión requerida'),
     body('fecha_proxima').optional({ nullable: true }).isISO8601(),
+    // Solo cuentan en el mantenimiento (v37); en blanco = calcularlo
+    body('km').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 0, max: KM_MAX }).withMessage('Km de la revisión inválidos'),
+    body('km_proximo').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 1, max: KM_MAX }).withMessage('Km del próximo mantenimiento inválidos'),
     body('resultado').optional().isIn(['aprobado','rechazado','condicionado','realizado']),
     body('descripcion').optional().trim()
       .isLength({ max: 2000 }).withMessage('Descripción demasiado larga (máx. 2000)'),
@@ -227,6 +240,11 @@ router.put('/:vehicleId/revisiones/:revId',
     body('tipo').optional().isIn(['itv','its','mantenimiento','revision_preventiva','reparacion','otro']),
     body('fecha_revision').optional().isISO8601(),
     body('fecha_proxima').optional({ nullable: true }).isISO8601(),
+    // Solo cuentan en el mantenimiento (v37); en blanco = calcularlo
+    body('km').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 0, max: KM_MAX }).withMessage('Km de la revisión inválidos'),
+    body('km_proximo').optional({ nullable: true, checkFalsy: true }).customSanitizer(limpiarMilesKm)
+      .isInt({ min: 1, max: KM_MAX }).withMessage('Km del próximo mantenimiento inválidos'),
     body('resultado').optional().isIn(['aprobado','rechazado','condicionado','realizado']),
     body('coste').optional({ nullable: true }).isFloat({ min: 0 }),
     body('realizado_por').optional().trim().isLength({ max: 200 }),

@@ -2,7 +2,7 @@
  * components/common/VehicleExpirationAlerts.jsx
  *
  * Alertas flotantes de caducidad de documentos de vehículos
- * (ITV, ITS, Tarjeta de transporte) — SOLO visibles para
+ * (ITV, ITS, Tarjeta de transporte) y del mantenimiento por km — SOLO visibles para
  * administradores y superadmin.
  *
  * Posición: bottom-right en desktop, bottom full-width en móvil.
@@ -16,7 +16,8 @@ import { useAuth }         from '../../context/AuthContext.jsx';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { formatFechaSola } from '../../utils/dateUtils.js';
 import {
-  TIPO_LABEL,
+  tituloAlerta,
+  venceAlerta,
   thresholdStyle,
   isDismissed,
   markDismissed,
@@ -27,11 +28,8 @@ import {
 const POLL_MS = 30 * 60 * 1000; // 30 minutos
 
 function AlertCard({ alerta, onDismiss }) {
-  const { matricula, alias, tipo, fecha_caducidad, dias_restantes, threshold } = alerta;
-  const vencida = threshold === 'vencida';
+  const { matricula, alias, threshold } = alerta;
   const style = thresholdStyle(threshold);
-
-  const fechaStr = formatFechaSola(fecha_caducidad);
 
   return (
     <div
@@ -47,11 +45,7 @@ function AlertCard({ alerta, onDismiss }) {
       </button>
 
       <div className={`font-semibold ${style.text} flex items-center gap-1.5`}>
-        <span>
-          {vencida
-            ? `${TIPO_LABEL[tipo]} VENCIDA`
-            : `${TIPO_LABEL[tipo]} caduca en ${dias_restantes}d`}
-        </span>
+        <span>{tituloAlerta(alerta)}</span>
       </div>
 
       <div className="mt-1 text-neutral-800">
@@ -62,7 +56,7 @@ function AlertCard({ alerta, onDismiss }) {
       </div>
 
       <div className="text-xs text-neutral-500 mt-0.5">
-        Caducidad: {fechaStr}
+        Vence: {venceAlerta(alerta, formatFechaSola)}
       </div>
     </div>
   );

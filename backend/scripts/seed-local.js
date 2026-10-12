@@ -21,6 +21,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const mysql  = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
+const { siguienteMultiplo } = require('../src/utils/mantenimiento.utils');
 
 const PASSWORD      = process.env.SEED_PASSWORD || 'Local.2026';
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 4;
@@ -150,9 +151,12 @@ async function main() {
       } else {
         const [res] = await conn.query(
           `INSERT INTO vehicles
-             (matricula, alias, kilometros_actuales, fecha_itv, fecha_its, fecha_tarjeta_transporte)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [v.matricula, v.alias, v.km, v.itv, v.its, v.tarjeta]
+             (matricula, alias, kilometros_actuales, km_proximo_mantenimiento,
+              fecha_itv, fecha_its, fecha_tarjeta_transporte)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          // El seed corre DESPUÉS de las migraciones: el relleno de v37 no le
+          // llega, y sin esto la flota local no tendría mantenimiento (§2.9)
+          [v.matricula, v.alias, v.km, siguienteMultiplo(v.km), v.itv, v.its, v.tarjeta]
         );
         vehIds[v.matricula] = res.insertId;
       }
