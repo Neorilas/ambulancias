@@ -59,6 +59,14 @@ function montar() {
   );
 }
 
+
+// La etiqueta de un dato de la ficha. La barra de pasos (PasosAsignacion)
+// repite los nombres de los botones, así que se busca fuera de ella.
+async function etiquetaDato(texto) {
+  const todas = await screen.findAllByText(texto);
+  return todas.find(el => !el.closest('[data-testid="pasos-asignacion"]'));
+}
+
 describe('AsignacionDetalle — horas reales', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -168,6 +176,49 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
   });
 
+  // Un solo botón principal cada vez (2026-10-12): mientras falta el evento,
+  // ese es el azul y «Finalizar» queda en secundario, sin desaparecer.
+  it('con el evento por marcar, «Finalizar asignación» va en secundario', async () => {
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Inicio evento/servicio' })).toHaveClass('btn-primary');
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toHaveClass('btn-secondary');
+  });
+
+  it('con el evento terminado, «Finalizar asignación» vuelve a ser el principal', async () => {
+    asignacionesService.get.mockResolvedValue({
+      ...ACTIVA_TRAS_INICIO,
+      llegada_servicio_at: '2026-09-21T06:40:00.000Z', fin_servicio_at: '2026-09-21T12:00:00.000Z',
+    });
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Finalizar asignación' })).toHaveClass('btn-primary');
+  });
+
+  it('la barra de pasos marca el que toca y la etiqueta dice «En curso», no «Activa»', async () => {
+    asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
+    montar();
+
+    const barra = await screen.findByTestId('pasos-asignacion');
+    const actual = barra.querySelector('[aria-current="step"]');
+    expect(actual).toHaveTextContent('Inicio evento/servicio');
+    expect(screen.getByText('En curso')).toBeInTheDocument();
+    expect(screen.queryByText('Activa')).not.toBeInTheDocument();
+  });
+
+  it('sin pulsar el inicio, la tarjeta lo dice así y su botón es «Empezar»', async () => {
+    asignacionesService.get.mockResolvedValue({
+      ...ACTIVA_TRAS_INICIO, inicio_real_at: null,
+      progreso: { inicio: { completado: 0, total: 7, completo: false }, fin: { completado: 0, total: 7 } },
+    });
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Empezar' })).toBeInTheDocument();
+    expect(screen.getByText('Sin iniciar')).toBeInTheDocument();
+    expect(screen.queryByText('Faltan fotos de inicio')).not.toBeInTheDocument();
+  });
+
   it('al pulsarla registra la llegada y el botón desaparece', async () => {
     asignacionesService.get.mockResolvedValue(ACTIVA_TRAS_INICIO);
     asignacionesService.registrarLlegada.mockResolvedValue({
@@ -249,7 +300,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: '2026-09-21T06:40:00.000Z' });
     montar();
 
-    const etiqueta = await screen.findByText('Inicio evento/servicio');
+    const etiqueta = await etiquetaDato('Inicio evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T06:40:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('33 min desde el inicio');
   });
@@ -258,7 +309,7 @@ describe('AsignacionDetalle — llegada a evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, llegada_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Inicio evento/servicio');
+    const etiqueta = await etiquetaDato('Inicio evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });
@@ -308,7 +359,7 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     await waitFor(() => expect(asignacionesService.registrarFinServicio).toHaveBeenCalledWith(5, null));
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Fin evento/servicio' })).not.toBeInTheDocument());
-    const etiqueta = screen.getByText('Fin evento/servicio');
+    const etiqueta = await etiquetaDato('Fin evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent(formatDateTime('2026-09-21T09:10:00.000Z'));
     expect(etiqueta.nextElementSibling).toHaveTextContent('2h 30min en el evento');
   });
@@ -371,7 +422,7 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, fin_servicio_at: null });
     montar();
 
-    const etiqueta = await screen.findByText('Fin evento/servicio');
+    const etiqueta = await etiquetaDato('Fin evento/servicio');
     expect(etiqueta.nextElementSibling).toHaveTextContent('—');
   });
 });

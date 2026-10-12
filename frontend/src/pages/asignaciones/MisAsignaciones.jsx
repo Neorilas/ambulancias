@@ -9,7 +9,7 @@ import {
   formatDateTime, formatDateTimeShort, inicioServicioPermitidoDesde, esProntoParaIniciar,
 } from '../../utils/dateUtils.js';
 import useAhora from '../../hooks/useAhora.js';
-import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from '../../utils/constants.js';
+import { estadoVisible } from '../../utils/pasosAsignacion.js';
 import AsignacionDetalle from './AsignacionDetalle.jsx';
 import { resumenNombres } from '../../utils/miembrosAsignacion.js';
 import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
@@ -48,16 +48,6 @@ export default function MisAsignaciones() {
 
   const ahora = useAhora();
 
-  const handleActivar = async (id) => {
-    try {
-      await asignacionesService.activar(id);
-      notify.success('Asignación activada');
-      load();
-    } catch (err) {
-      notify.error(err.response?.data?.message || 'Error al activar');
-    }
-  };
-
   return (
     <div className="space-y-4 animate-fade-in">
       <div>
@@ -74,9 +64,17 @@ export default function MisAsignaciones() {
         <div className="space-y-3">
           {asignaciones.map(a => {
             const isActiva     = a.estado === 'activa';
-            const isProgramada = a.estado === 'programada';
             // El equipo ve la asignación, pero no la inicia ni la finaliza
             const esPersonal   = a.mi_rol === 'personal' && !canManageTrabajos();
+            // Sin iniciar todavía y antes de la media hora previa (lo corta el backend)
+            const esPronto     = !a.inicio_real_at && esProntoParaIniciar(a.fecha_inicio, ahora);
+            // Un solo botón, que abre la ficha: allí están los pasos y la acción
+            // del momento. Hasta 2026-10-12 había además un «Activar» que
+            // marcaba el inicio desde aquí, saltándose el asistente de las
+            // fotos, y el abrir se llamaba «Abrir jornada»: otros dos nombres
+            // para lo mismo.
+            const textoBoton   = esPersonal || esPronto ? 'Ver'
+              : a.inicio_real_at ? 'Continuar' : 'Inicio de la asignación';
 
             return (
               <div key={a.id} className="card pl-5">
@@ -86,9 +84,7 @@ export default function MisAsignaciones() {
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                       <span className="veh-name truncate">{a.vehiculo_alias}</span>
                       <span className="data text-[13px] text-neutral-500 break-all">{a.matricula}</span>
-                      <span className={ASIGNACION_ESTADO_COLORS[a.estado]}>
-                        {ASIGNACION_ESTADO_LABELS[a.estado]}
-                      </span>
+                      <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
                       {esPersonal && <span className="badge-gray">Equipo</span>}
                     </div>
 
@@ -156,29 +152,19 @@ export default function MisAsignaciones() {
                     )}
                   </div>
 
-                  {/* Acciones: fila full-width en móvil, columna lateral en sm+ */}
-                  <div className="flex flex-row sm:flex-col gap-2 sm:shrink-0">
-                    {isProgramada && !esPersonal && (
-                      esProntoParaIniciar(a.fecha_inicio, ahora) ? (
-                        // Media hora antes de la hora prevista, no antes (backend)
-                        <button disabled className="btn-secondary flex-1 sm:flex-none">
-                          Desde {formatDateTimeShort(inicioServicioPermitidoDesde(a.fecha_inicio))}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleActivar(a.id)}
-                          className="btn-secondary flex-1 sm:flex-none"
-                        >
-                          Activar
-                        </button>
-                      )
-                    )}
+                  {/* Acción: a todo el ancho en móvil, columna lateral en sm+ */}
+                  <div className="flex flex-col gap-1.5 sm:shrink-0">
                     <button
                       onClick={() => abrirDetalle(a.id)}
-                      className="btn-primary flex-1 sm:flex-none"
+                      className="btn-primary w-full"
                     >
-                      {esPersonal ? 'Ver' : isActiva ? 'Abrir jornada' : 'Abrir'}
+                      {textoBoton}
                     </button>
+                    {esPronto && !esPersonal && (
+                      <p className="text-[12px] text-neutral-500 text-center sm:max-w-[10rem]">
+                        Se puede iniciar desde {formatDateTimeShort(inicioServicioPermitidoDesde(a.fecha_inicio))}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

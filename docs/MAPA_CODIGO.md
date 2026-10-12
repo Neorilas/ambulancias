@@ -860,6 +860,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `utils/trabajos.js` | Formulario de trabajo (`formularioInicial`, `ambulanciaVacia`, `validarTrabajo` y `payloadTrabajo`, los dos con `{ alta }`: las ambulancias solo van en el alta) y «Tu ambulancia» (`misAmbulancias`, `siguientePaso` = texto del botón, `textoEstadoAmbulancia`, que tolera que falte `progreso_fotos` porque «Mis trabajos» no lo trae) y los coordinadores (`coordinadoresDe`, que con un backend anterior cae al `coordinador` suelto, y `esCoordinadorDe`). Solo traduce `mi_rol`/`detalle`/`puede_cerrar`, que calcula el backend |
 | `utils/mapas.js` + `components/common/EnlaceMaps.jsx` | La ubicación del trabajo en Google Maps (v34): `esEnlaceGoogleMaps` (espejo de `backend/src/utils/mapas.utils.js`), `enlaceBusquedaMaps` y `mapsDeTrabajo` (`{url, exacto}`); el botón «Abrir/Buscar en Google Maps». §6.2 «Ubicación en Google Maps» |
 | `components/common/ListaMiembros.jsx` | Selector de 1..N personas (con `UserCombobox`). Sacado de `AsignacionForm` para usarlo también en `TrabajoForm`. `destacados` (Set de ids): al elegir quién va en una ambulancia de un trabajo, el desplegable sale en dos bloques con título, **«Asociados al trabajo»** arriba y **«No pertenecen al trabajo»** debajo (pedido 2026-10-10); los títulos no se eligen (`role="presentation"`), un bloque vacío al buscar no sale, y el tope de 50 es solo para el resto. Quién es «asociado» lo dicen `asociadosDeTrabajo` (ficha) y `asociadosDeFormulario` (alta) de `utils/trabajos.js`: equipo del trabajo, coordinador y quien va en alguna de sus ambulancias no canceladas |
+| `utils/pasosAsignacion.js` + `components/common/PasosAsignacion.jsx` | Los cuatro pasos de una asignación y la etiqueta «Sin iniciar»/«En curso» en lugar de «Activa» (`estadoVisible`). §6.1 «Pasos de la asignación» |
 | `utils/miembrosAsignacion.js` | Responsables/equipo (`personal` en BD) en pantalla: qué usuarios ofrecer en cada fila (nadie dos veces), estado inicial del formulario, texto del aviso de solape, `rolEnAsignacion` (espejo del backend, que es quien manda) |
 | `utils/kmUtils.js` | `parseKm`: quita el "." solo cuando es de verdad separador de miles en español (`/^\d{1,3}(\.\d{3})+$/`, «45.000», «1.234.567») — sin esto `parseInt("45.000")` corta en el punto y guarda 45 en vez de 45000. **No** lo quita de un decimal mal tecleado («4.5», «45.5»): eso devuelve `null` (dato inválido), no un número distinto por accidente. Vacío/nulo es «sin lectura», no cero. No toca cómo se muestra después (eso es `toLocaleString()`). Espejo backend: `backend/src/utils/km.utils.js` (`limpiarMilesKm`, mismo criterio, usado como `customSanitizer` de express-validator) |
 | `utils/imageCompress.js`, `imageUtils.js`, `matricula.js` | Compresión previa a subir, URL de imagen, normalización de matrícula |
@@ -1236,8 +1237,10 @@ El corte es `INICIO_ANTICIPADO_MAX_MINUTOS` (backend `config/constants.js`,
 espejo en `frontend/utils/constants.js`); en pantalla lo aplican
 `inicioServicioPermitidoDesde`/`esProntoParaIniciar` (`dateUtils`) con
 `useAhora`, que refresca cada 30 s para que el botón se habilite solo:
-`InicioAsignacion` deshabilita el botón y explica desde cuándo, y los
-«Activar» de `MisAsignaciones` y `AsignacionList` pasan a «Desde dd/MM HH:mm».
+`InicioAsignacion` deshabilita el botón y explica desde cuándo, el
+«Activar» de `AsignacionList` pasa a «Desde dd/MM HH:mm» y la tarjeta de
+`MisAsignaciones` dice «Se puede iniciar desde dd/MM HH:mm» (su «Activar» se
+quitó el 2026-10-12: ver «Pasos de la asignación»).
 Trampas: (1) solo se mira mientras `inicio_real_at` es NULL, para que repetir
 la pulsación siga siendo idempotente; (2) **no** se mira el estado: el cron
 pasa a `activa` a la hora prevista, así que una `activa` sin hora real ya está
@@ -1257,6 +1260,40 @@ propia regla de 24 h en `activarTrabajo`.
   abandonarlo. Botones «Inicio evento/servicio» (`llegada_servicio_at`) y
   «Fin evento/servicio» (`fin_servicio_at`).
 
+**Pasos de la asignación y un solo botón principal (2026-10-12).** La
+revisión de usabilidad de ese día vio que el técnico no sabía qué botón tocaba:
+seis nombres parecidos, la acción debajo de una docena de datos y, a veces, dos
+botones azules a la vez. **No se renombró nada** (los nombres son decisión del
+usuario, arriba); se añadió:
+- `utils/pasosAsignacion.js` (con tests): `pasosAsignacion(asig)` da los cuatro
+  pasos en orden —Inicio de la asignación → Inicio evento/servicio →
+  Fin evento/servicio → Finalizar asignación— con su `situacion`
+  (`hecho`/`actual`/`pendiente`/`no_consta`) y su hora. Los dos del evento van
+  marcados como opcionales y en una cerrada sin ellos salen «No consta», no
+  pendientes. El inicio no cuenta como hecho hasta tener las fotos (`progreso`
+  de la ficha o `progreso_fotos` de la de un trabajo; sin ninguno, no se le
+  pone pega). La pinta `components/common/PasosAsignacion.jsx`, solo informa.
+- **`AsignacionDetalle`**: la barra va lo primero y, justo debajo, la acción del
+  momento (equipo/coordina, inicio, llegada, fin del evento, «Finalizar»); los
+  datos, incidencias y fotos van después. Mientras falte marcar el evento
+  (`faltaLlegada || faltaFinServicio`), «Finalizar asignación» es `btn-secondary`:
+  sigue ahí porque el evento es opcional. Sin pulsar el inicio, la tarjeta
+  amarilla dice «Inicio de la asignación» y su botón «Empezar» (con el inicio
+  pulsado, «Faltan fotos de inicio» / «Subir ahora», como antes).
+- **«Activa» ya no se enseña**: en BD solo quiere decir que pasó la hora
+  prevista (el cron la activa sola) y salía «Activa» pegado a «Sin iniciar».
+  `estadoVisible(a)` la parte en «Sin iniciar» (rojo) y «En curso» (azul); el
+  resto, con su etiqueta de siempre. Lo usan la cabecera del detalle,
+  `MisAsignaciones`, `AsignacionList` y las tarjetas de ambulancia de
+  `TrabajoDetail` (que ya no repiten debajo el texto si coincide). El filtro
+  por estado de `AsignacionList` sigue diciendo «Activa»: filtra por la BD.
+- **`TrabajoDetail` → «Tu ambulancia»** lleva también la barra.
+- **`MisAsignaciones`**: un solo botón, que abre la ficha: «Inicio de la
+  asignación», «Continuar» o «Ver» (equipo, o antes de la media hora previa,
+  con «Se puede iniciar desde…» debajo). Se quitó su «Activar», que marcaba el
+  inicio desde el listado saltándose el asistente de fotos, y «Abrir jornada».
+  El «Activar» de `AsignacionList` (gestión) sigue.
+
 Antes se llamaban «Inicio de servicio», «Inicio/Fin real de servicio» y
 «Llegada a evento/servicio», y «servicio» servía para las dos parejas. Las
 tarjetas de ayuda del detalle y del asistente de inicio dicen expresamente que
@@ -1273,7 +1310,8 @@ fotografiarla) y el trabajo en el sitio va el desplazamiento; la llegada es la
 hora real a la que empieza el servicio en el punto establecido. En
 `AsignacionDetalle`, con las fotos de inicio completas y sin llegada aparece
 la tarjeta «¿Has llegado al evento/servicio?» (`faltaLlegada`) **junto a** «Finalizar
-asignación», no en su lugar. `registrarLlegada` pide responsable o `manage_trabajos` (el
+asignación», no en su lugar (desde el 2026-10-12, con «Finalizar» en secundario
+mientras tanto: ver «Pasos de la asignación»). `registrarLlegada` pide responsable o `manage_trabajos` (el
 personal no), `estado = 'activa'` con `inicio_real_at`, y la tanda de inicio
 completa (`getProgreso`); si ya hay hora devuelve 200 sin tocar nada, antes de
 mirar el estado, para que un reintento no dé error. El `UPDATE` lleva
