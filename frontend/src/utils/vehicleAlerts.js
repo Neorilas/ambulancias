@@ -76,13 +76,17 @@ export const TIPO_LABEL = {
  * sobre un documento del que no sabemos la fecha. Sin número de días no hay
  * umbral, y la entrada se filtra en `withThresholds`.
  */
-export function thresholdFor(dias) {
+export function thresholdFor(dias, horizonte = 60) {
   if (typeof dias !== 'number' || !Number.isFinite(dias)) return null;
   if (dias < 0)   return 'vencida';
   if (dias <= 15) return 15;
   if (dias <= 30) return 30;
   if (dias <= 45) return 45;
   if (dias <= 60) return 60;
+  // Más allá de 60 días solo si se pidió un horizonte mayor (/alertas con
+  // «90 días», «6 meses», «1 año»). Hasta 2026-10-12 se tiraban aquí: el
+  // selector pedía un año al backend y la tabla seguía enseñando lo mismo.
+  if (dias <= horizonte) return 'lejana';
   return null;
 }
 
@@ -145,6 +149,7 @@ export function thresholdStyle(threshold) {
     case 'km500':   return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-700', badge: 'badge-yellow' };
     case 'km1000':  return { bg: 'bg-warn-50 border-warn-200', text: 'text-warn-600', badge: 'badge-yellow' };
     case 'km2000':  return { bg: 'bg-primary-50 border-primary-200', text: 'text-primary-700', badge: 'badge-blue' };
+    case 'lejana':  return { bg: 'bg-idle-50 border-idle-200', text: 'text-idle-600', badge: 'badge-gray' };
     default:        return { bg: 'bg-idle-50 border-idle-200', text: 'text-idle-600', badge: 'badge-gray' };
   }
 }
@@ -181,7 +186,12 @@ export function pruneDismissals(alertasActivas) {
     const aBorrar = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(KEY_PREFIX) && !vivas.has(k)) aBorrar.push(k);
+      // Los de «lejana» (más de 60 días) solo los crea /alertas con un
+      // horizonte mayor; quien poda es la tarjeta flotante, que mira 60 días y
+      // nunca los vería vivos: se borraban y la alerta descartada volvía. Se
+      // quedan hasta «Restaurar descartadas».
+      if (k && k.startsWith(KEY_PREFIX) && !k.endsWith(':lejana') && !vivas.has(k)) aBorrar.push(k);
+
     }
     for (const k of aBorrar) localStorage.removeItem(k);
   } catch { /* ignore */ }
@@ -211,11 +221,12 @@ export function clearAllDismissals() {
  * Filtra las entradas sin umbral activo (días_restantes > 60, o más de
  * 2.000 km por delante en el mantenimiento).
  */
-export function withThresholds(alertas) {
+export function withThresholds(alertas, horizonte = 60) {
   return (alertas || [])
     .map(a => ({
       ...a,
-      threshold: esAlertaPorKm(a) ? thresholdForKm(a.km_restantes) : thresholdFor(a.dias_restantes),
+      threshold: esAlertaPorKm(a) ? thresholdForKm(a.km_restantes) : thresholdFor(a.dias_restantes, horizonte),
     }))
+
     .filter(a => a.threshold !== null);
 }

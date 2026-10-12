@@ -69,12 +69,14 @@ export default function VehicleExpirationAlerts() {
   const [alertas,   setAlertas]   = useState([]);
   const [collapsed, setCollapsed] = useState(false);
   const [tick,      setTick]      = useState(0); // fuerza recálculo tras dismiss
+  const [cargadas,  setCargadas]  = useState(false); // hasta la primera carga buena no se poda
 
   const cargar = useCallback(async () => {
     if (!puedeVer) return;
     try {
       const data = await vehiclesService.listAlertas(60);
       setAlertas(Array.isArray(data) ? data : []);
+      setCargadas(true);
     } catch {
       // Silencioso: no spamear al usuario con errores de polling
     }
@@ -89,10 +91,13 @@ export default function VehicleExpirationAlerts() {
 
   const visibles = useMemo(() => {
     const conThreshold = withThresholds(alertas);
-    pruneDismissals(conThreshold);
+    // Solo con la lista de verdad: con la vacía del primer render (o si la
+    // carga falla) podar borraba TODOS los descartes en cada arranque
+    if (cargadas) pruneDismissals(conThreshold);
     return conThreshold.filter(a => !isDismissed(a));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alertas, tick]);
+  }, [alertas, tick, cargadas]);
+
 
   const handleDismiss = useCallback((alerta) => {
     markDismissed(alerta);

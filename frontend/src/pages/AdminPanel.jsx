@@ -71,6 +71,8 @@ const ACTION_LABEL = {
   create_incidencia:   'Registró una incidencia',
   update_incidencia:   'Actualizó una incidencia',
   create_revision:     'Registró una revisión',
+  update_revision:     'Editó una revisión',
+  delete_revision:     'Eliminó una revisión',
   create_user:         'Creó un usuario',
   update_user:         'Editó un usuario',
   delete_user:         'Eliminó un usuario',

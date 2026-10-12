@@ -1044,6 +1044,10 @@ async function listRevisiones(req, res, next) {
 
 const numOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 
+// Los campos que acepta el PUT de una revisión (lo demás se ignora)
+const CAMPOS_REVISION = ['tipo', 'fecha_revision', 'fecha_proxima', 'resultado', 'descripcion',
+                         'coste', 'realizado_por', 'km', 'km_proximo'];
+
 const MSG_PROXIMO_POR_DEBAJO = 'El próximo mantenimiento tiene que ser a más km que esta revisión';
 
 /**
@@ -1066,8 +1070,9 @@ function kmDeMantenimiento(km, kmProximo, kmVehiculo) {
  * miran las alertas. Solo la MÁS RECIENTE: anotar a posteriori uno del año
  * pasado no puede mover la referencia hacia atrás.
  */
+/** Devuelve true si ha movido la referencia del vehículo (para la auditoría). */
 async function aplicarProximoMantenimiento(vehicleId, revId, fechaRevision, kmProximo) {
-  if (kmProximo == null) return;
+  if (kmProximo == null) return false;
   const [posterior] = await query(
     `SELECT id FROM vehicle_revisiones
       WHERE vehicle_id = ? AND tipo = 'mantenimiento' AND id <> ?
@@ -1075,8 +1080,9 @@ async function aplicarProximoMantenimiento(vehicleId, revId, fechaRevision, kmPr
       LIMIT 1`,
     [vehicleId, revId, fechaRevision, fechaRevision, revId]
   );
-  if (posterior.length) return;
+  if (posterior.length) return false;
   await query('UPDATE vehicles SET km_proximo_mantenimiento = ? WHERE id = ?', [kmProximo, vehicleId]);
+  return true;
 }
 
 // ============================================================
@@ -1200,9 +1206,26 @@ async function updateRevision(req, res, next) {
     // El formulario lo reenvía siempre: tocar la descripción o el coste no
     // puede deshacer un ajuste hecho a mano en la ficha después de la revisión.
     const cambiaProximo = antes.tipo !== 'mantenimiento' || kmProximo !== antes.km_proximo;
-    if (tipoFinal === 'mantenimiento' && cambiaProximo) {
-      await aplicarProximoMantenimiento(vehicleId, revId, fecha_revision ?? antes.fecha_revision, kmProximo);
-    }
+    const movioVehiculo = tipoFinal === 'mantenimiento' && cambiaProximo
+      && await aplicarProximoMantenimiento(vehicleId, revId, fecha_revision ?? antes.fecha_revision, kmProximo);
+
+    // Editar una revisión puede mover el próximo mantenimiento del vehículo:
+    // sin esto no quedaba rastro de quién lo cambió
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'update_revision',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  {
+        // Solo los nombres de campos que existen: el cuerpo puede traer claves
+        // de cualquier tamaño y no hay que guardarlas en audit_logs
+        revision_id: revId, tipo: tipoFinal,
+        campos: Object.keys(req.body).filter(k => CAMPOS_REVISION.includes(k)),
+        ...(tipoFinal !== antes.tipo && { tipo_antes: antes.tipo }),
+        ...(movioVehiculo && { km_proximo_mantenimiento: kmProximo }),
+      },
+      ip: req.ip,
+    });
 
 
     const [updated] = await query(
@@ -1224,13 +1247,30 @@ async function deleteRevision(req, res, next) {
     const revId     = parseInt(req.params.revId);
 
     const [existing] = await query(
-      'SELECT id FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
+      'SELECT id, tipo, fecha_revision, km, km_proximo FROM vehicle_revisiones WHERE id = ? AND vehicle_id = ?',
       [revId, vehicleId]
     );
     if (!existing.length) return notFound(res, 'Revisión');
 
     await query('DELETE FROM vehicle_revisiones WHERE id = ?', [revId]);
+    // Lo borrado no se puede consultar después: lo que era va en la auditoría
+    const r = existing[0];
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'delete_revision',
+      entityType: 'vehicle', entityId: vehicleId,
+      details:  {
+        // mysql2 la devuelve como Date (medianoche UTC): en la auditoría, el día
+        revision_id: revId, tipo: r.tipo,
+        fecha_revision: r.fecha_revision instanceof Date
+          ? r.fecha_revision.toISOString().slice(0, 10) : r.fecha_revision,
+        ...(r.km_proximo != null && { km: r.km, km_proximo: r.km_proximo }),
+      },
+      ip: req.ip,
+    });
     return success(res, null, 'Revisión eliminada');
+
   } catch (err) {
     next(err);
   }

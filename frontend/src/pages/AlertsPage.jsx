@@ -75,7 +75,7 @@ export default function AlertsPage() {
   // puestos (en `useState` se perdían)
   const [filtros, cambiarFiltros] = useEstadoEnUrl({
     tipo:   'todos',    // todos|itv|its|tarjeta_transporte|mantenimiento
-    umbral: 'todos',    // todos|vencida|15|30|45|60|km (mantenimiento sin vencer)
+    umbral: 'todos',    // todos|vencida|15|30|45|60|lejana (>60 días)|km (mantenimiento sin vencer)
     estado: 'activas',  // activas|descartadas|todas
   });
   const { tipo: filtroTipo, umbral: filtroUmbral, estado: filtroEstado } = filtros;
@@ -101,8 +101,17 @@ export default function AlertsPage() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // «> 60 días» solo existe con un horizonte mayor (que no va en la URL). Con
+  // `?umbral=lejana` y el horizonte en 60 —al volver a 60, o al recargar o
+  // abrir un enlace con el filtro—, su casilla no se pinta y la lista salía
+  // vacía sin forma visible de quitar el filtro.
+  useEffect(() => {
+    if (horizonte <= 60 && filtroUmbral === 'lejana') setFiltroUmbral('todos');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horizonte, filtroUmbral]);
+
   // Todas las alertas con umbral calculado
-  const conThreshold = useMemo(() => withThresholds(alertas), [alertas]);
+  const conThreshold = useMemo(() => withThresholds(alertas, horizonte), [alertas, horizonte]);
 
   // KPIs (sobre TODAS, sin filtrar por estado)
   const kpis = useMemo(() => ({
@@ -111,6 +120,7 @@ export default function AlertsPage() {
     30:      conThreshold.filter(a => a.threshold === 30).length,
     45:      conThreshold.filter(a => a.threshold === 45).length,
     60:      conThreshold.filter(a => a.threshold === 60).length,
+    lejana:  conThreshold.filter(a => a.threshold === 'lejana').length,
     km:      conThreshold.filter(a => UMBRALES_KM.includes(a.threshold)).length,
     total:   conThreshold.length,
   }), [conThreshold]);
@@ -125,7 +135,7 @@ export default function AlertsPage() {
     if (filtroUmbral === 'km') {
       out = out.filter(a => UMBRALES_KM.includes(a.threshold));
     } else if (filtroUmbral !== 'todos') {
-      const t = filtroUmbral === 'vencida' ? 'vencida' : parseInt(filtroUmbral);
+      const t = ['vencida', 'lejana'].includes(filtroUmbral) ? filtroUmbral : parseInt(filtroUmbral);
       out = out.filter(a => a.threshold === t);
     }
     if (filtroEstado === 'activas') {
@@ -186,7 +196,7 @@ export default function AlertsPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 ${horizonte > 60 ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
         <KpiCard
           color="bg-bad-50 text-bad-600"
           label="Vencidas"
@@ -222,6 +232,17 @@ export default function AlertsPage() {
           active={filtroUmbral === '60'}
           onClick={() => setFiltroUmbral(filtroUmbral === '60' ? 'todos' : '60')}
         />
+        {/* Solo con un horizonte mayor: lo de más allá de 60 días */}
+        {horizonte > 60 && (
+          <KpiCard
+            color="bg-idle-50 text-idle-600"
+            label="> 60 días"
+            count={kpis.lejana}
+            active={filtroUmbral === 'lejana'}
+            onClick={() => setFiltroUmbral(filtroUmbral === 'lejana' ? 'todos' : 'lejana')}
+          />
+        )}
+
         <KpiCard
           color="bg-warn-50 text-warn-700"
           label="Mantenimiento ≤ 2.000 km"

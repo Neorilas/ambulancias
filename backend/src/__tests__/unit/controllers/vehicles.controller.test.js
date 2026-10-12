@@ -1319,6 +1319,56 @@ describe('vehicles.controller', () => {
       expect(query.mock.calls[3][1]).toEqual([30300, 1]);
     });
 
+    it('queda en la auditoría, con el próximo del vehículo si lo ha movido', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { km_proximo: '20300' },
+        user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'update_revision', entityId: 1,
+        details: { revision_id: 8, tipo: 'mantenimiento', campos: ['km_proximo'], km_proximo_mantenimiento: 20300 },
+      }));
+    });
+
+    it('sin mover el vehículo, la auditoría no dice que lo moviera', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'itv', fecha_revision: '2026-10-12', km: null, km_proximo: null }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' }, body: { descripcion: 'x' },
+        user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      expect(logAudit.mock.calls[0][0].details).toEqual({ revision_id: 8, tipo: 'itv', campos: ['descripcion'] });
+    });
+
+    it('la auditoría solo guarda nombres de campos conocidos y el tipo de antes si cambia', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
+      query.mockResolvedValueOnce([]);
+      query.mockResolvedValueOnce([[{ id: 8 }]]);
+
+      await updateRevision(mockReq({
+        params: { vehicleId: '1', revId: '8' },
+        body: { tipo: 'itv', ['x'.repeat(500)]: 1 },
+        user: { id: 1, username: 'admin' },
+      }), mockRes(), mockNext());
+
+      expect(logAudit.mock.calls[0][0].details).toEqual({
+        revision_id: 8, tipo: 'itv', campos: ['tipo'], tipo_antes: 'mantenimiento',
+      });
+    });
+
 
     it('rechaza un próximo por debajo de los km de la revisión', async () => {
       query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 30300 }]]);
@@ -1355,6 +1405,31 @@ describe('vehicles.controller', () => {
       await deleteRevision(mockReq({ params: { vehicleId: '1', revId: '8' }, user: { id: 1 } }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
     });
+
+    it('lo borrado queda en la auditoría con lo que era', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 20300 }]]);
+      query.mockResolvedValueOnce([]);
+
+      await deleteRevision(mockReq({ params: { vehicleId: '1', revId: '8' }, user: { id: 1, username: 'admin' } }), mockRes(), mockNext());
+
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'delete_revision', entityId: 1,
+        details: { revision_id: 8, tipo: 'mantenimiento', fecha_revision: '2026-10-12', km: 15300, km_proximo: 20300 },
+      }));
+    });
+
+    it('la fecha que llega de MySQL como Date queda en la auditoría como día', async () => {
+      const { logAudit } = require('../../../controllers/admin.controller');
+      query.mockResolvedValueOnce([[{ id: 8, tipo: 'itv', fecha_revision: new Date('2026-10-12T00:00:00Z'), km: null, km_proximo: null }]]);
+      query.mockResolvedValueOnce([]);
+
+      await deleteRevision(mockReq({ params: { vehicleId: '1', revId: '8' }, user: { id: 1, username: 'admin' } }), mockRes(), mockNext());
+
+      expect(logAudit.mock.calls[0][0].details).toEqual({ revision_id: 8, tipo: 'itv', fecha_revision: '2026-10-12' });
+    });
+
+
 
     it('returns 404 when not found', async () => {
       query.mockResolvedValueOnce([[]]);
