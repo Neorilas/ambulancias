@@ -15,9 +15,13 @@
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionSinIniciar: jest.fn(),
 }));
+jest.mock('../../../services/push.service', () => ({
+  notificarAdministracion: jest.fn(),
+}));
 
 const { query } = require('../../../config/database');
 const avisos    = require('../../../services/avisosAsignacion.service');
+const push      = require('../../../services/push.service');
 const { AVISO_SIN_INICIAR_MINUTOS } = require('../../../config/constants');
 const vigilancia = require('../../../services/vigilancia.service');
 
@@ -147,5 +151,88 @@ describe('vigilancia.service · alarmas sonando (listarAlarmasSinIniciar)', () =
     query.mockResolvedValueOnce([[]]);
     await vigilancia.listarAlarmasSinIniciar();
     expect(query.mock.calls[0][1][1]).toBe(0);
+  });
+});
+
+describe('vigilancia.service · mantenimiento a 500 km (revisarMantenimientoKm)', () => {
+  const VEHICULO = { id: 16, alias: 'UVI-05', matricula: '1234ABC', kilometros_actuales: 44020, km_proximo_mantenimiento: 44500 };
+
+  beforeEach(() => {
+    query.mockReset();
+    push.notificarAdministracion.mockReset();
+  });
+
+  it('avisa a administración del vehículo al que le quedan 500 km o menos', async () => {
+    query.mockResolvedValueOnce([[VEHICULO]]);
+    query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const resumen = await vigilancia.revisarMantenimientoKm();
+
+    expect(resumen).toEqual({ candidatos: 1, avisados: 1 });
+    expect(push.notificarAdministracion).toHaveBeenCalledWith({
+      titulo: 'UVI-05: mantenimiento en 480 km',
+      cuerpo: 'UVI-05 (1234ABC) lleva 44.020 km y le toca el mantenimiento a los 44.500.',
+      url: '/vehiculos/16?tab=revisiones',
+      tag: 'veh-16-mantenimiento',
+    });
+    // Umbral de 500, km a 0 = sin anotar, y sin resta de UNSIGNED.
+    const [sql, params] = query.mock.calls[0];
+    expect(params).toEqual([500]);
+    expect(sql).toContain('kilometros_actuales > 0');
+    expect(sql).toContain('kilometros_actuales + ? >= km_proximo_mantenimiento');
+    expect(sql).toContain('aviso_mantenimiento_km <> km_proximo_mantenimiento');
+  });
+
+  it('el candado va dentro del UPDATE con la referencia que se vio en el SELECT', async () => {
+    query.mockResolvedValueOnce([[VEHICULO]]);
+    query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    await vigilancia.revisarMantenimientoKm();
+
+    const [sql, params] = query.mock.calls[1];
+    expect(sql).toContain('SET aviso_mantenimiento_km = km_proximo_mantenimiento');
+    expect(sql).toContain('km_proximo_mantenimiento = ?');
+    expect(sql).toContain('aviso_mantenimiento_km <> km_proximo_mantenimiento');
+    expect(params).toEqual([16, 44500, 500]);
+  });
+
+  it('no avisa si la fila no se pudo reclamar (ya avisado o referencia movida)', async () => {
+    query.mockResolvedValueOnce([[VEHICULO]]);
+    query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    const resumen = await vigilancia.revisarMantenimientoKm();
+
+    expect(resumen).toEqual({ candidatos: 1, avisados: 0 });
+    expect(push.notificarAdministracion).not.toHaveBeenCalled();
+  });
+
+  it('sin candidatos no hace UPDATE', async () => {
+    query.mockResolvedValueOnce([[]]);
+    expect(await vigilancia.revisarMantenimientoKm()).toEqual({ candidatos: 0, avisados: 0 });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('no lanza si la BD falla', async () => {
+    query.mockRejectedValueOnce(new Error('BD caída'));
+    await expect(vigilancia.revisarMantenimientoKm()).resolves.toEqual({ candidatos: 0, avisados: 0 });
+  });
+
+  it('si el salto de km lo deja pasado, lo dice', () => {
+    const aviso = vigilancia.avisoMantenimiento({ ...VEHICULO, kilometros_actuales: 45620 });
+    expect(aviso.titulo).toBe('UVI-05: mantenimiento vencido');
+    expect(aviso.cuerpo).toBe('UVI-05 (1234ABC) lleva 45.620 km: se ha pasado 1.120 km del mantenimiento de los 44.500.');
+  });
+
+  it('justo en la referencia dice que ya toca, y sin alias usa la matrícula', () => {
+    const aviso = vigilancia.avisoMantenimiento({ ...VEHICULO, alias: null, kilometros_actuales: 44500 });
+    expect(aviso.titulo).toBe('1234ABC: mantenimiento vencido');
+    expect(aviso.cuerpo).toBe('1234ABC ha llegado a los 44.500 km: le toca el mantenimiento.');
+  });
+
+  it('formatKm agrupa también los de cuatro cifras', () => {
+    expect(vigilancia.formatKm(5650)).toBe('5.650');
+    expect(vigilancia.formatKm(480)).toBe('480');
+    expect(vigilancia.formatKm(1234567)).toBe('1.234.567');
+    expect(vigilancia.formatKm(null)).toBe('0');
   });
 });

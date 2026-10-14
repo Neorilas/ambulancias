@@ -102,6 +102,10 @@ module.exports = {
   // en frontend/src/utils/constants.js. Lógica en utils/mantenimiento.utils.js.
   MANTENIMIENTO_INTERVALO_KM: 15000,
   MANTENIMIENTO_AVISO_KM: 2000,
+  // Push a administración cuando al mantenimiento le quedan estos km o menos
+  // (2026-10-14, petición del usuario). Una vez por referencia: la marca es
+  // `vehicles.aviso_mantenimiento_km` (v38). services/vigilancia.service.js.
+  MANTENIMIENTO_PUSH_KM: 500,
   // Retención: meses desde que una asignación se CIERRA (finalizada/cancelada)
   // o se borra hasta que se purga del servidor con sus fotos. 0 = apagado, y
   // es el valor por defecto a propósito: solo se enciende (en el .env del

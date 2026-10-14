@@ -9,6 +9,11 @@
  * controladores y lo llama `autoActivar` en server.js, en el mismo tick de un
  * minuto.
  *
+ * Lo mismo vale para el mantenimiento por km: los km los escriben cuatro
+ * caminos distintos (ficha, cierre de asignación, dos del trabajo) y la
+ * referencia se mueve a mano o con una revisión. Mirarlo desde el reloj cubre
+ * todos sin tocar ninguno.
+ *
  * Como el resto del módulo de avisos, nada de lo que hay aquí puede tumbar el
  * proceso: el cron corre sin dueño que capture un rechazo.
  */
@@ -19,7 +24,8 @@ const { query }  = require('../config/database');
 const logger     = require('../utils/logger.utils');
 const { ahora }  = require('../utils/fecha.utils');
 const avisos     = require('./avisosAsignacion.service');
-const { AVISO_SIN_INICIAR_MINUTOS } = require('../config/constants');
+const push       = require('./push.service');
+const { AVISO_SIN_INICIAR_MINUTOS, MANTENIMIENTO_PUSH_KM } = require('../config/constants');
 
 /**
  * Asignaciones cuya hora prevista pasó hace más del margen y que siguen sin
@@ -145,4 +151,109 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
   return filas;
 }
 
-module.exports = { revisarAsignacionesSinIniciar, listarAlarmasSinIniciar };
+// ============================================================
+// Mantenimiento por km
+// ============================================================
+
+/** 44500 → «44.500». `toLocaleString('es-ES')` no agrupa los de cuatro cifras. */
+function formatKm(n) {
+  return String(Math.abs(Math.round(Number(n) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** Texto del push. Si el salto de km lo deja ya pasado, lo dice así. */
+function avisoMantenimiento(v) {
+  const nombre   = v.alias || v.matricula || 'Vehículo sin identificar';
+  const quien    = v.alias && v.matricula ? `${v.alias} (${v.matricula})` : nombre;
+  const faltan   = v.km_proximo_mantenimiento - v.kilometros_actuales;
+  const objetivo = formatKm(v.km_proximo_mantenimiento);
+  const km       = formatKm(v.kilometros_actuales);
+  let cuerpo;
+  if (faltan > 0)       cuerpo = `${quien} lleva ${km} km y le toca el mantenimiento a los ${objetivo}.`;
+  else if (faltan === 0) cuerpo = `${quien} ha llegado a los ${objetivo} km: le toca el mantenimiento.`;
+  else                  cuerpo = `${quien} lleva ${km} km: se ha pasado ${formatKm(faltan)} km del mantenimiento de los ${objetivo}.`;
+  return {
+    titulo: faltan > 0
+      ? `${nombre}: mantenimiento en ${formatKm(faltan)} km`
+      : `${nombre}: mantenimiento vencido`,
+    cuerpo,
+    url: `/vehiculos/${v.id}?tab=revisiones`,
+    // Sin la referencia en el tag: el aviso del siguiente mantenimiento
+    // sustituye en la bandeja al del anterior si aún siguiera ahí.
+    tag: `veh-${v.id}-mantenimiento`,
+  };
+}
+
+/**
+ * Vehículos a los que les quedan MANTENIMIENTO_PUSH_KM (500) o menos para el
+ * mantenimiento: push a administración UNA vez por referencia.
+ *
+ * El candado es `aviso_mantenimiento_km` (v38) y guarda la referencia avisada,
+ * no un instante: un mantenimiento nuevo (o un ajuste a mano en la ficha)
+ * mueve `km_proximo_mantenimiento`, la marca deja de coincidir y el aviso
+ * vuelve a quedar armado para la referencia nueva sin que nadie limpie nada.
+ *
+ * Igual que el de «sin iniciar», las condiciones van también DENTRO del
+ * UPDATE que reclama la fila: si entre el SELECT y el UPDATE alguien anota el
+ * mantenimiento, la referencia ya no es la del SELECT y no se avisa de algo
+ * resuelto.
+ *
+ * `kilometros_actuales + N >= km_proximo` y no una resta: las dos columnas son
+ * UNSIGNED y en MySQL `a - b` con b > a da error de rango, no un negativo.
+ * Km a 0 = «no anotado» (§2.9 del mapa), no se avisa.
+ *
+ * Nunca lanza.
+ */
+async function revisarMantenimientoKm() {
+  const resumen = { candidatos: 0, avisados: 0 };
+
+  try {
+    const [candidatos] = await query(
+      `SELECT id, alias, matricula, kilometros_actuales, km_proximo_mantenimiento
+         FROM vehicles
+        WHERE deleted_at IS NULL
+          AND km_proximo_mantenimiento IS NOT NULL
+          AND kilometros_actuales > 0
+          AND kilometros_actuales + ? >= km_proximo_mantenimiento
+          AND (aviso_mantenimiento_km IS NULL
+               OR aviso_mantenimiento_km <> km_proximo_mantenimiento)`,
+      [MANTENIMIENTO_PUSH_KM]
+    );
+    resumen.candidatos = candidatos.length;
+
+    for (const v of candidatos) {
+      const [res] = await query(
+        `UPDATE vehicles
+            SET aviso_mantenimiento_km = km_proximo_mantenimiento
+          WHERE id = ?
+            AND deleted_at IS NULL
+            AND km_proximo_mantenimiento = ?
+            AND kilometros_actuales + ? >= km_proximo_mantenimiento
+            AND (aviso_mantenimiento_km IS NULL
+                 OR aviso_mantenimiento_km <> km_proximo_mantenimiento)`,
+        [v.id, v.km_proximo_mantenimiento, MANTENIMIENTO_PUSH_KM]
+      );
+      if (res.affectedRows === 0) continue;   // ya avisado o referencia movida
+
+      resumen.avisados++;
+      // Sin await, como el resto de avisos: el tick no espera al envío.
+      push.notificarAdministracion(avisoMantenimiento(v));
+    }
+
+    if (resumen.avisados > 0) {
+      logger.info(`Avisados ${resumen.avisados} vehículo(s) a ${MANTENIMIENTO_PUSH_KM} km o menos del mantenimiento`);
+    }
+  } catch (err) {
+    logger.error(`Error vigilando el mantenimiento por km: ${err.message}`);
+  }
+
+  return resumen;
+}
+
+module.exports = {
+  revisarAsignacionesSinIniciar,
+  listarAlarmasSinIniciar,
+  revisarMantenimientoKm,
+  // Expuestos para los tests
+  avisoMantenimiento,
+  formatKm,
+};
