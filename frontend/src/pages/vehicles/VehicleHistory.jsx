@@ -563,6 +563,8 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
   const [editRev,    setEditRev]    = useState(null);
   const [saving,     setSaving]     = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  // Revisión pendiente de confirmar el borrado (ConfirmDialog, no window.confirm)
+  const [aBorrar,    setABorrar]    = useState(null);
 
   // `km` y `dentro` solo se usan en el mantenimiento: los km del vehículo al
   // hacerlo y dentro de cuántos le toca el siguiente (15.000, o lo que diga
@@ -647,19 +649,21 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
     } finally { setSaving(false); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    const id = aBorrar.id;
     const conFactura = facturasDe(id).length > 0;
-    if (!window.confirm(conFactura
-      ? '¿Eliminar esta revisión? Su factura no se borra: se queda en el vehículo, sin revisión.'
-      : '¿Eliminar esta revisión?')) return;
     setDeletingId(id);
     try {
       await vehiclesService.deleteRevision(vehicleId, id);
       notify.success('Revisión eliminada');
       load();
       if (conFactura) recargarFacturas();
-    } catch { notify.error('Error al eliminar'); }
-    finally { setDeletingId(null); }
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'Error al eliminar');
+    } finally {
+      setDeletingId(null);
+      setABorrar(null);
+    }
   };
 
   // Próximas revisiones con fecha_proxima en ≤ 30 días
@@ -809,7 +813,7 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
                     {/* Borrar es solo de administración (requireAdmin en la
                         ruta): al gestor el botón le daba un 403 */}
                     {puedeBorrar && (
-                      <button onClick={() => handleDelete(rev.id)} disabled={deletingId === rev.id}
+                      <button onClick={() => setABorrar(rev)} disabled={deletingId === rev.id}
                         className="btn-ghost btn-sm text-bad-600 hover:bg-bad-50">
                         {deletingId === rev.id ? '…' : 'Eliminar'}
                       </button>
@@ -928,6 +932,19 @@ function TabRevisiones({ vehicleId, vehiculo, revisiones, recargar, recargarVehi
           />
         </Suspense>
       )}
+
+      <ConfirmDialog
+        isOpen={!!aBorrar}
+        onClose={() => { if (deletingId === null) setABorrar(null); }}
+        onConfirm={handleDelete}
+        title="¿Eliminar esta revisión?"
+        message={aBorrar && facturasDe(aBorrar.id).length > 0
+          ? 'Su factura no se borra: se queda en el vehículo, sin revisión.'
+          : 'Esta acción no se puede deshacer.'}
+        confirmText="Eliminar"
+        danger
+        loading={deletingId !== null}
+      />
     </div>
   );
 }

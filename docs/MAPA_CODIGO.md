@@ -83,8 +83,8 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` (una tarjeta por trabajo con `mi_asignacion`, v33; `?finalizados=1` añade los cerrados al final, §6.2) · GET `/calendario` (gestión ve todos) · GET `/mi-calendario` (lo suyo del mes, también para gestión; «Mis trabajos» → Calendario, §8) · GET `/` · CRUD `/:id` (el POST lleva `coordinador_user_id` y `asignaciones[]`, v33) · POST `/:id/cerrar` (v33: su coordinador o gestión, D3) · del modelo v25, vivas hasta la fase 6: POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos ni asignaciones**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
-| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET queda solo para PWAs sin actualizar; retirarlo más adelante) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
-| `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP (report-only): …`), sin BD, URLs sin query, cada violación una vez por hora |
+| `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET con `?endpoint=` se retiró el 2026-10-12: el endpoint en la query acababa en el log de peticiones, y en PRO no se usaba desde el 22-sep) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
+| `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP: <directiva> ha bloqueado …`; la CSP es obligatoria desde 2026-10-12, §9), sin BD, URLs sin query, cada violación una vez por hora |
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
 | `/informes` | `informes.routes.js` | `informes.controller.js` | GET `/mensual?mes=YYYY-MM` (el mes + resumen del anterior y del mismo mes del año pasado) y GET `/tecnico/:userId?mes=YYYY-MM` (los servicios de un técnico con sus horas y lo que no cuadra). **Solo administrador y superadmin, por rol**: lleva el desglose nominal por técnico. El flag `menu_informes` es solo de menú (§2.7) |
@@ -162,7 +162,7 @@ asignación. Sin app nativa ni Firebase.
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
 | Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **nuevo trabajo**, a quien entra en el equipo del trabajo (`avisarEquipoTrabajo`, 2026-10-10; tag `trab-<id>-equipo`; quien además va en una ambulancia del alta ya recibe el «nuevo servicio» y no se le repite) · **coordinador del trabajo**, a quien se nombra al crearlo o al cambiarlo (`avisarCoordinadorTrabajo`, 2026-10-11; tag `trab-<id>-coordinador`; no a quien lo nombra; si a la vez entra en el equipo del trabajo, solo recibe este; si además va en una ambulancia, también el «nuevo servicio», que dice cuál lleva. Existe porque el coordinador puede ser un técnico que no va en ninguna ambulancia, y hasta entonces no se enteraba hasta el «listo para cerrar») · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) |
-| Asignación de un trabajo (v33) | Todos sus avisos **abren el trabajo** con esa ambulancia señalada, `/trabajos/<trabajo_id>?asignacion=<id>`, tanto los de gestión como los del técnico (D10), y el texto lo nombra. Las asignaciones sin trabajo conservan `/asignaciones?id=` y `/mis-asignaciones`. Trampa: hasta que se enciendan `menu_trabajos`/`menu_mis_trabajos` (fase 7) ese enlace rebota a quien no es superadmin; solo hay asignaciones con trabajo si alguien las crea desde la pantalla oculta |
+| Asignación de un trabajo (v33) | Todos sus avisos **abren el trabajo** con esa ambulancia señalada, `/trabajos/<trabajo_id>?asignacion=<id>`, tanto los de gestión como los del técnico (D10), y el texto lo nombra. Las asignaciones sin trabajo conservan `/asignaciones?id=` y `/mis-asignaciones`. Trampa: en un entorno con `menu_trabajos`/`menu_mis_trabajos` apagados (los de la migración; en PRO están encendidos desde 2026-10-10, §7) ese enlace rebota a quien no es superadmin |
 | Aviso de «nuevo servicio» | Va al TÉCNICO, no a gestión (desde 2026-09-25; el de cambio de vehículo también). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
 | Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de la asignación»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
 | Alarma sonora en la app | `components/common/AlarmaSinIniciar.jsx`, montado en `Layout`, solo con `MANAGE_TRABAJOS`. Existe porque el push suena UNA vez y con el tono del sistema, que no se puede elegir: con la app abierta (móvil en primer plano u ordenador de la oficina) esto hace sonar un **«ding-dong» suave con Web Audio: 3 campanadas en 6 s y silencio** (más una vibración corta en Android); el diálogo se queda en pantalla, callado, hasta «Enterado», y solo vuelve a sonar si aparece una alarma nueva. Antes era una sirena en bucle hasta «Enterado»; se cambió porque una ventana olvidada en segundo plano sonaba sin fin sin que nadie viera el botón. «Enterado» se propaga a las otras ventanas del mismo dispositivo (evento `storage`) y cierra la notificación del sistema de esas asignaciones. Pregunta a `GET /asignaciones/alarmas` cada 30 s, al volver a la pestaña y cuando el SW le reenvía un push (`postMessage` `AVISO_PUSH`). Usa **la misma marca** `aviso_sin_iniciar_at` que el push: suena lo que ya se avisó, y se apaga sola al pulsar el técnico «Inicio de la asignación». «Enterado» es **por dispositivo** (localStorage, `utils/alarmaSinIniciar.js`), con clave `id@aviso_sin_iniciar_at` para que una asignación aplazada que vuelve a vencer suene de nuevo. Trampa: **autoplay** — el navegador no deja sonar nada sin un toque previo en la página; el contexto de audio se desbloquea con el primer `pointerdown`/`keydown` y, si la alarma salta antes, se pinta «Activar sonido». Con la app en segundo plano en el móvil no suena: ahí solo queda el push |
@@ -790,6 +790,27 @@ InstallPWAButton + VehicleExpirationAlerts) → páginas. `SWUpdater` gestiona l
 auto-actualización de la PWA. Config en `vite.config.js` (`VITE_BASE_PATH`,
 `VITE_APP_ENV`, proxy de dev a `:3001`, plugin PWA).
 
+**Una sola Vite para build y tests (Vite 7, desde 2026-10-12).** Hasta
+entonces el build iba con Vite 5.4 y los tests con la Vite 8 que Vitest 4 se
+traía anidada: dos versiones que transforman distinto, y avisos de
+deprecación de `plugin-react` en cada `npm test`. Bajar Vitest a 3 no sirve
+(los tests usan la semántica de los mocks de Vitest 4 y fallan 20). Se subió
+el build a **Vite 7.3** con **vite-plugin-pwa 1.3** (la 0.20 no admite
+Vite 7) y `plugin-react` 4.7 (ya la admite), y `"overrides": { "vite":
+"$vite" }` en `package.json` obliga a Vitest a usar la del proyecto. **Trampas:**
+(1) Si un `npm install` vuelve a anidar otra Vite bajo `vitest/`, `npm ls
+vite` lo dice («invalid»); se arregla quitando del lock las entradas
+`node_modules/vitest/node_modules/*` y reinstalando. `npm dedupe` (npm 10)
+casca con «reading 'edgesOut'». (2) El lock, siempre con
+`npx npm@10.9.8`, el npm de CI. (3) Vite 7 pide Node 20.19+ (CI y local
+llevan 22). (4) El chunk `deteccion` pasa de 1,44 MB a 0,84 MB solo porque
+Vite 7 quita los 870 comentarios `@license` repetidos de TensorFlow (gzip,
+234 → 216 KB); el código es el mismo. Comprobado cargando el modelo y
+detectando desde el build. Aparece un chunk de 502 bytes,
+`coco-ssd.es2017.esm.min-*.js` (la envoltura CJS de coco-ssd), que entra en
+el precache. (5) Pasar a Vite 8 (rolldown) es otro cambio: `manualChunks`
+y los plugins cambian de API.
+
 **El service worker lo escribimos nosotros**: `src/sw.js`, con
 `strategies: 'injectManifest'`. Antes lo generaba el plugin (`generateSW`) y se
 cambió porque los handlers `push`/`notificationclick` no se pueden declarar en
@@ -844,9 +865,9 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | `/informes` | `informes/Informes.jsx`: mes y pestaña de técnicos en la URL (`?mes`, `?tecnico`); el detalle de un técnico es un panel (`DetalleTecnico.jsx`, `?detalle=<id>` con `usePanelEnUrl`) | admin, super | `menu_informes` (encendida, v28; §2.7) |
 | `/facturas` | `facturas/Facturas.jsx` | admin, super | `menu_facturas` (encendida, v32; §2.8) |
 | `/admin` | `AdminPanel.jsx` (pestañas Funcionalidades, Resumen, Auditoría, Errores, Backups; en Resumen, las cards «Errores totales» y «Errores hoy» abren la pestaña Errores sin filtros, `StatCard` con `onClick`) | solo super | — |
-| `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off) |
-| `/mis-trabajos` | `MisTrabajos.jsx`: la portada del técnico (v33, D7). Tarjetas por trabajo (hoy arriba, próximos debajo y **finalizados al final**, del más reciente al más antiguo, 2026-10-11: pide `misTrab` con `finalizados: 1`, de 50 en 50 con «Ver más») con «Tu ambulancia» y su estado, «Coordinas este trabajo» o «Estás en el equipo de este trabajo» (`en_equipo`); **un único botón, «Ver trabajo»**: la tarjeta no ejecuta nada. **«Lista | Calendario»** (2026-10-11): el calendario es `components/calendar/CalendarioPersonal.jsx` (`GET /trabajos/mi-calendario`), lo suyo del mes **también ya cerrado**; vista y día van en la URL (`?vista=calendario&dia=yyyy-MM-dd`, con `replace`) para que «‹» desde la ficha vuelva al mismo día, y la vista elegida se recuerda en el dispositivo (`vistaMisTrabajos` de `sessionStorage.js`, se borra al cerrar sesión). En calendario no se pide `misTrab`. Mes del ancho de un móvil y, desde `lg`, el día a la derecha, como `CalendarioTrab` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off) |
-| `/trabajos` | `trabajos/TrabajoList.jsx`: ordenado por fecha (en curso, luego del más próximo al más lejano, cerrados al final; `ORDEN_LISTADO_TRABAJOS`, §8) y con las fechas como dato destacado de cada tarjeta, con jerarquía título > fecha > resto (2026-10-10: título 16 px negrita; fecha 13 px `font-medium` `neutral-800` en mono; resto 12 px gris. Un primer intento a 15 px en negrita pesaba tanto como el título, porque la mono es más ancha). Tras crear, a la ficha nueva con `recienCreado`. Vista, página, filtros y el mes y el día del calendario van en la URL (`?vista=calendario&mes=yyyy-MM&dia=yyyy-MM-dd`, `?page`, `?search`, `?estado`, `?tipo`; 2026-10-11): «‹» desde la ficha vuelve a la misma página filtrada o al mismo día del calendario —antes volvía a «Lista», página 1—, y el `/trabajos?estado=activo` del Dashboard filtra de verdad, que antes se ignoraba. La vista «Calendario» es `components/calendar/CalendarioTrab.jsx` (`GET /trabajos/calendario`), **controlado**: el mes y el día se los pasa `TrabajoList`; la cuadrícula va limitada a `max-w-md` y desde `lg` los trabajos del día pinchado salen en una columna a su derecha. Las celdas son `aspect-square` y, a todo el ancho del contenido (`max-w-7xl`), en el PC el mes salía de casi 1000 px de alto (2026-10-11): quien toque las celdas o quite el tope tiene que saber que el alto crece con el ancho | admin, gestor, super | `menu_trabajos` (off) |
+| `/dashboard` | `Dashboard.jsx` | admin, gestor, super | `menu_dashboard` (off de serie; **on en PRO**, §7) |
+| `/mis-trabajos` | `MisTrabajos.jsx`: la portada del técnico (v33, D7). Tarjetas por trabajo (hoy arriba, próximos debajo y **finalizados al final**, del más reciente al más antiguo, 2026-10-11: pide `misTrab` con `finalizados: 1`, de 50 en 50 con «Ver más») con «Tu ambulancia» y su estado, «Coordinas este trabajo» o «Estás en el equipo de este trabajo» (`en_equipo`); **un único botón, «Ver trabajo»**: la tarjeta no ejecuta nada. **«Lista | Calendario»** (2026-10-11): el calendario es `components/calendar/CalendarioPersonal.jsx` (`GET /trabajos/mi-calendario`), lo suyo del mes **también ya cerrado**; vista y día van en la URL (`?vista=calendario&dia=yyyy-MM-dd`, con `replace`) para que «‹» desde la ficha vuelva al mismo día, y la vista elegida se recuerda en el dispositivo (`vistaMisTrabajos` de `sessionStorage.js`, se borra al cerrar sesión). En calendario no se pide `misTrab`. Mes del ancho de un móvil y, desde `lg`, el día a la derecha, como `CalendarioTrab` | **cualquiera** (el backend filtra) | `menu_mis_trabajos` (off de serie; **on en PRO** desde 2026-10-10, §7) |
+| `/trabajos` | `trabajos/TrabajoList.jsx`: ordenado por fecha (en curso, luego del más próximo al más lejano, cerrados al final; `ORDEN_LISTADO_TRABAJOS`, §8) y con las fechas como dato destacado de cada tarjeta, con jerarquía título > fecha > resto (2026-10-10: título 16 px negrita; fecha 13 px `font-medium` `neutral-800` en mono; resto 12 px gris. Un primer intento a 15 px en negrita pesaba tanto como el título, porque la mono es más ancha). Tras crear, a la ficha nueva con `recienCreado`. Vista, página, filtros y el mes y el día del calendario van en la URL (`?vista=calendario&mes=yyyy-MM&dia=yyyy-MM-dd`, `?page`, `?search`, `?estado`, `?tipo`; 2026-10-11): «‹» desde la ficha vuelve a la misma página filtrada o al mismo día del calendario —antes volvía a «Lista», página 1—, y el `/trabajos?estado=activo` del Dashboard filtra de verdad, que antes se ignoraba. La vista «Calendario» es `components/calendar/CalendarioTrab.jsx` (`GET /trabajos/calendario`), **controlado**: el mes y el día se los pasa `TrabajoList`; la cuadrícula va limitada a `max-w-md` y desde `lg` los trabajos del día pinchado salen en una columna a su derecha. Las celdas son `aspect-square` y, a todo el ancho del contenido (`max-w-7xl`), en el PC el mes salía de casi 1000 px de alto (2026-10-11): quien toque las celdas o quite el tope tiene que saber que el alto crece con el ancho | admin, gestor, super | `menu_trabajos` (off de serie; **on en PRO** desde 2026-10-10, §7) |
 | `/trabajos/:id` | `trabajos/TrabajoDetail.jsx` (v33): ficha, aviso de pendiente de cierre con «Cerrar trabajo» (`puede_cerrar`), bloque «Tu ambulancia» con el siguiente paso (`siguientePaso`) y una tarjeta por ambulancia; ambos abren `AsignacionDetalle` (con `desdeTrabajo`, en `?ver=<id>` con push: el atrás del móvil lo cierra y deja en el trabajo), que es donde se opera. `?asignacion=<id>` **resalta** esa ambulancia y la lleva a la vista, no la abre (D10: que se vea en qué trabajo está). Gestión: «Editar» y «+ Añadir ambulancia» (`AsignacionForm` con `trabajo`). Tarjeta «Equipo del trabajo»; sin ambulancias, «Aún no lleva ninguna ambulancia», y quien está en el equipo sin ambulancia lo ve explicado (`solo-equipo`). Si `puede_cerrar` fuera de pendiente de cierre (trabajo empezado sin ambulancias en marcha), tarjeta con «Cerrar trabajo». «‹» es `useVolver`: abierta desde un aviso push o un enlace no hay pantalla anterior y va a `/trabajos` (gestión) o a la portada; antes no hacía nada. **Un trabajo v25 (`v25: true` en la API) se pinta entero con `trabajos/TrabajoV25.jsx`**, que sí opera sus vehículos (§6.2 «Modelo v25») | **cualquiera** (el backend da 403 o recorta) | `menu_trabajos` **o** `menu_mis_trabajos` |
 
 Guardia: `components/common/ProtectedRoute.jsx` (`allowedRoles`,
@@ -1762,7 +1783,7 @@ siempre: en BD sigue `personal`, en pantalla «Equipo»). Plan completo y
 decisiones D1–D11 en `docs/PLAN_TRABAJO_PADRE.md` (solo en local). Lo que ya
 hace el backend:
 - `trabajo_id` es **opcional hasta la fase 8** del plan, que va DESPUÉS de
-  encender `menu_trabajos` (fase 7): con el flag apagado, `AsignacionList`
+  encender `menu_trabajos` (fase 7, hecha en PRO el 2026-10-10): con el flag apagado, `AsignacionList`
   enseña el alta suelta, que no lo manda, y exigirlo antes daría 400 a
   administración al crear cualquier asignación (§7). Además las PWA ya
   instaladas siguen un rato con el frontend anterior. Las asignaciones que ya
@@ -2133,10 +2154,26 @@ incluidos; a otro superadmin y a uno mismo, no.
 
 Tabla `app_features` (v9), gestionada desde `/admin` por superadmin.
 Backend: `features.controller.js`. Frontend: `FeaturesContext` +
-`requiredFeature` en `ProtectedRoute` + `Sidebar`. Claves: `menu_dashboard`,
-`menu_mis_trabajos`, `menu_trabajos` (apagadas: línea base «solo vehículos»);
-`menu_mis_asignaciones`, `menu_asignaciones`, `menu_vehiculos`,
-`menu_usuarios`, `menu_alertas`, `menu_informes`, `menu_facturas` (encendidas; las dos últimas nacen así en v28 y v32); `menu_flota` (apagada, v20).
+`requiredFeature` en `ProtectedRoute` + `Sidebar`.
+
+**Lo que trae la migración no es lo que hay en PRO**: los flags se cambian a
+mano desde `/admin` y la migración no los vuelve a tocar. Una BD nueva (local,
+PRE recién creado) arranca con los de serie; PRO lleva los suyos.
+
+| Clave | De serie (migración) | PRO (leído de la BD el 2026-10-12) |
+|---|---|---|
+| `menu_dashboard` | off | **on** (desde 2026-06-21) |
+| `menu_trabajos` | off | **on** (2026-10-10, fase 7 del trabajo padre) |
+| `menu_mis_trabajos` | off | **on** (2026-10-10) |
+| `menu_asignaciones` | on | **off** (2026-10-10: el alta suelta ya no se ofrece, D9) |
+| `menu_mis_asignaciones` | on | **off** (2026-10-10: la portada es «Mis trabajos») |
+| `menu_vehiculos`, `menu_usuarios`, `menu_alertas` | on | on |
+| `menu_informes` (v28), `menu_facturas` (v32) | on | on |
+| `menu_flota` (v20) | off | **on** (2026-09-20; abre `/flota` a administradores, ver abajo) |
+
+Antes de dar por hecho el estado de un flag en PRO, leerlo de `app_features`
+(`SELECT feature_key, enabled, updated_at FROM app_features`): esta tabla se
+queda vieja en cuanto alguien pulsa un interruptor.
 
 **El `personal` de las asignaciones NO se retira (anulado el 2026-09-27).**
 Con el trabajo padre (v33) pasa a ser el EQUIPO de la ambulancia: en BD sigue
@@ -2144,8 +2181,8 @@ Con el trabajo padre (v33) pasa a ser el EQUIPO de la ambulancia: en BD sigue
 frontends viejos, D8) y en pantalla se llama «Equipo» desde la fase 4
 (`AsignacionForm`, `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`).
 
-**Mientras los flags de Trabajos estén apagados** (hasta la fase 7) el
-frontend nuevo se comporta como el viejo para todos menos el superadmin: la
+**Donde los flags de Trabajos estén apagados** (los de serie: local y una BD
+nueva; en PRO se encendieron el 2026-10-10) el frontend nuevo se comporta como el viejo para todos menos el superadmin: la
 portada sigue en `/mis-asignaciones` y `AsignacionList` conserva el botón de
 alta suelta. Las dos cosas miran la lista real (`features.includes`), no
 `isFeatureEnabled`. Al encender `menu_trabajos` el alta suelta desaparece
@@ -2244,8 +2281,9 @@ solo actúa en el navegador no es un control de acceso.
 | Quién puede ver el mapa de flota | `routes/flota.routes.js` (el que manda: rol **y** flag) **y** `App.jsx` + `Sidebar.jsx` + los enlaces al mapa de `VehicleHistory` (botón «Ver en el mapa» y tarjeta «Asignada/Libre»; `puedeVerMapa`, comodidad). Superadmin siempre, administradores con `menu_flota` puesto — leer §2.6 antes de ampliarlo a nadie más |
 | Un feature flag que decida ACCESO y no solo menú | No basta con `requiredFeature` en `ProtectedRoute`: hay que añadir `requireFeature(key)` en las rutas del backend, o el endpoint queda abierto a quien sepa la URL (§2.3) |
 | La navegación hacia atrás (que «‹» y el atrás del navegador vuelvan a donde se estaba, como se estaba) | `hooks/useNavegacion.js`. **Regla:** lo que una pantalla tiene que conservar al ir a una ficha y volver (página, filtros, búsqueda, pestaña, vista, mes, día, lo elegido) va en la URL con `useEstadoEnUrl`, no en `useState`, que se pierde al desmontar; y se escribe con `replace`, para que mirar páginas y filtros no deje rastro y «atrás» salga de la pantalla. Los «‹ Volver» usan `useVolver(alternativa)`: `navigate(-1)` si hay una pantalla de la app detrás y, si no (aviso push en ventana nueva, enlace, marcador), la alternativa — ahí `navigate(-1)` no hacía nada o sacaba de la app. Lo usan `TrabajoList` (+ `CalendarioTrab`, controlado), `VehicleList`, `VehicleHistory`, `AsignacionList`, `AlertsPage`, `Informes`, `MapaFlota`, `TrabajoDetail` y `TrabajoV25`; `MisTrabajos` lo hace a mano (es anterior al hook). Revisión de todas las pantallas el 2026-10-11, a raíz de que el calendario de `/trabajos` volvía a «Lista». **Trampas:** (1) `cambiar` parte de la URL de ESE render: dos llamadas seguidas se pisan; lo que cambia junto (un filtro y la página 1) va en una. (2) Volver a la página 1 al cambiar un filtro va en ese mismo `cambiar`, **nunca** en un efecto sobre el filtro: el efecto también salta al montar y al volver se perdía la página (así estaba `VehicleList`). (3) Las dependencias de `useCallback`/`useEffect` son los valores sueltos (`url.estado`), no un objeto armado en cada render, o la carga entra en bucle. (4) «Hay pantalla detrás» mira `history.state.idx` del router y no la `key`: un `replace` en la primera entrada cambia la key y sigue sin haber nada detrás. (5) Lo que llega de la URL se valida (`paginaDeUrl`, `esDiaValido`, el patrón del mes): es texto que cualquiera puede escribir. (5 bis) **Un campo de texto nunca se ata a la URL directamente** (`value={url.q}` + `cambiar` en `onChange`): el router 7 aplica cada cambio de ubicación en una transición, el `value` llega un render tarde y React devuelve el campo al texto viejo entre medias — salta el cursor, se pierden teclas en un móvil lento, se lía el autocompletado del teclado. Los buscadores (`VehicleList`, `TrabajoList`, `MapaFlota`) usan `useBuscadorEnUrl`: texto en local, a la URL ya reposado (400 ms) y con la vuelta a la página 1 en esa escritura; si la URL cambia por fuera (atrás), el campo la sigue. Lo encontró la revisión del 2026-10-11 antes de subir. Los `<select>` y botones sí van directos: no hay cursor que perder. **Paneles encima de la pantalla** (`usePanelEnUrl`): el detalle de una asignación (`?ver=<id>` en `TrabajoDetail` y `MisAsignaciones`, `?id=<id>` en `AsignacionList`) y sus revisiones de inicio y fin (`?paso=inicio|fin`, dentro de `AsignacionDetalle`) se abren con un parámetro puesto con **push** y marcado en el estado de la navegación (`state.panel`): el atrás del móvil quita el parámetro y cierra solo la capa de arriba (cámara → revisión → detalle → trabajo), en vez de sacar de la pantalla entera como hasta 2026-10-11. Su botón de cerrar deshace esa entrada (`navigate(-1)`) si la puso la app, o quita el parámetro con `replace` si llegó de fuera (los enlaces `?id=` de `rutaAsignacion`), y la recarga de lo de debajo va en `alCerrar`, que corre se cierre como se cierre. Trampas: (6) `cerrar` mira la URL del momento (un ref), no la del render en que se creó: una subida larga puede acabar con el paso ya cerrado por «atrás», y con la del render viejo haría un `navigate(-1)` de más y cerraría también el detalle. Por lo mismo, un segundo `cerrar` antes de que se aplique el primero (`cerrando`) o con el dueño ya desmontado (`montado`) no hace nada. (7) `?paso=` va con `soloDesdeLaApp`: un enlace o una URL pegada no abre una revisión a medias. (8) `CameraCapture` sigue con su propio `pushState` (sin `idx` del router) y convive porque el router ve la vuelta a la entrada de debajo como un POP a la misma URL; un panel nuevo encima de la cámara tendría que respetar ese orden |
+| La versión de Vite o Vitest | `frontend/package.json` (`vite`, `vite-plugin-pwa`, `@vitejs/plugin-react`, `vitest`, `@vitest/coverage-v8` y el `overrides` de `vite`) → lock con `npx npm@10.9.8` → `npm ls vite` tiene que dar UNA versión → tests con cobertura + build + cargar el detector desde el build (§3.1) |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja). Las reglas de caché en ejecución solo existen en el build (`CACHE_EN_EJECUCION`, §3.1): pruébalas con `vite preview` en un Chrome real, el navegador integrado no deja hacer fetch al SW |
-| Un origen externo nuevo en el frontend (API, CDN, fuentes, teselas) | La CSP de `frontend/public/.htaccess` (§9). En `Report-Only` solo sale un aviso en el log; cuando sea obligatoria, sin añadirlo ahí no carga |
+| Un origen externo nuevo en el frontend (API, CDN, fuentes, teselas) | La CSP de `frontend/public/.htaccess` (§9). **Es obligatoria desde 2026-10-12**: sin añadirlo ahí no carga, y el bloqueo sale en el log del backend como «CSP: … ha bloqueado» |
 
 ## 9. Entornos y despliegue
 
@@ -2276,11 +2314,21 @@ y `sw.js` los últimos y no resube lo de `assets/` y `modelos/` que ya esté con
 el mismo tamaño (**un modelo nuevo, siempre en carpeta nueva**: en `modelos/` no hay hash). Su única dependencia, `basic-ftp`, va fijada con lockfile en esa carpeta y se instala con `npm ci --ignore-scripts`. `emergency-delete-mu-plugin.yml` (WordPress) ya solo corre a
 mano: antes se disparaba con cualquier push a master que lo tocara.
 **El `.htaccess` de la PWA lleva las cabeceras de seguridad** (nosniff,
-X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS) y la **CSP en modo
-`Report-Only`**: sus avisos salen en el log del backend. Pasarla a obligatoria
-es cambiar el nombre de la cabecera cuando deje de haber avisos; cualquier
-origen externo nuevo (una API, un CDN, otras teselas) hay que añadirlo ahí
-antes, o la CSP obligatoria lo bloqueará. Los marcadores `__API_ORIGIN__` y
+X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS) y la **CSP,
+obligatoria desde el 2026-10-12**. Estuvo en `Report-Only` del 26-sep al 12-oct
+y en ese tiempo no llegó **ni un aviso** de un navegador real a
+`POST /csp-report` (el único del log de PRO es la prueba con curl del 26-sep,
+que respondió 204: el endpoint funciona). Antes de pasarla se revisó el build:
+no hay `eval` ni `fetch` propios; el único `Function("return this")` es el
+polyfill de `globalThis` de core-js (chunk del PDF), que no se ejecuta en
+navegadores con `globalThis`. Cada bloqueo sale en el log del backend como
+«CSP: <directiva> ha bloqueado <recurso>». **Cualquier origen externo nuevo
+(una API, un CDN, otras teselas) hay que añadirlo ahí antes de subirlo, o no
+carga.** Marcha atrás si algo deja de cargar: volver a llamar a la cabecera
+`Content-Security-Policy-Report-Only`. **Trampa al comprobarla:** `curl` y el
+navegador integrado de Claude se quedan en la pantalla del antibots de
+Hostalia («One moment, please…», servidor `openresty`) y no ven las
+cabeceras de la app; hay que mirarlas en un Chrome real (DevTools → Network). Los marcadores `__API_ORIGIN__` y
 `__API_URL__` los rellena el plugin `htaccess-con-base` de `vite.config.js`.
 **La app no se indexa en Google** (desde 2026-10-05; Search Console la veía
 como página normal de vapss.net): cabecera `X-Robots-Tag: noindex, nofollow`
@@ -2301,9 +2349,10 @@ El mapa de flota necesita `CARTRACK_USER`/`CARTRACK_KEY` **en el `.env` de
 cada servidor**, igual que las claves VAPID: no están en el repo y el workflow
 no las toca. Sin ellas la pantalla se explica sola y el resto de la app
 funciona igual. En local van en `backend/.env`, que está en `.gitignore`.
-**Backups: `scripts/backup/` + `docs/BACKUPS.md`** (desde 2026-09-26; **escrito y
-probado en local, pendiente de instalar en el Hetzner**: hasta entonces no hay
-ninguna copia). Van por cron del servidor, no por el workflow, porque el deploy
+**Backups: `scripts/backup/` + `docs/BACKUPS.md`** (escrito el 2026-09-26;
+**instalado y en verde en PRO desde el 2026-10-01**, cron a las 02:00 UTC; lo
+que falta está en `docs/BACKUPS.md`: aviso de healthchecks.io, encender la
+retención y la descarga semanal del dump al PC). Van por cron del servidor, no por el workflow, porque el deploy
 no toca MySQL ni los volúmenes. Se hace un `mysqldump` diario, que se verifica
 antes de darlo por bueno, y las fotos nuevas. Las dos copias van con `rclone`
 a **Google Drive, cifradas** (remoto `crypt`; en Drive solo hay nombres
@@ -2336,7 +2385,8 @@ Local: `docker-compose.local.yml` (MySQL en **3307**),
 |---|---|
 | `docs/MAPA_CODIGO.md` | Este fichero |
 | `docs/ESTADO_PROYECTO.md` | Alcance actual y problemas conocidos |
-| `docs/PLAN_*.md` | Planes (trabajo, seguridad, push, Cartrack). **Solo en local**: están en `.gitignore` desde 2026-09-27, para que `/a-pro` pueda subir con merge y no con cherry-pick |
+| `docs/PLAN_*.md` | Planes. **Solo en local**: están en `.gitignore` desde 2026-09-27, para que `/a-pro` pueda subir con merge y no con cherry-pick. A 2026-10-12 quedan `PLAN_CARTRACK.md` y `PLAN_TRABAJO_PADRE.md`. Los de trabajo, seguridad y push ya no están en local; la última versión versionada se saca con `git show b8c03a0^:docs/PLAN_SEGURIDAD.md` (igual con los otros nombres) |
+| `docs/guia-uso/` | Guías de uso en HTML/PNG para el personal. **Solo en local** (`.gitignore` desde 2026-10-12): no son código y pesan |
 | `docs/ENTORNOS.md`, `docs/LOCAL.md` | Despliegue y entorno local |
 | `docs/BACKUPS.md` | Backup de BD y fotos: instalación, vigilancia, prueba de restauración y restauración |
 | `docs/FLUJO_SERVICIO.md` | Rediseño inicio → jornada → cierre |
@@ -2368,7 +2418,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-10-12** (revisión de errores acumulados: §7 con el estado real de los flags en PRO, §9 CSP obligatoria y backups instalados, §2.2 sin el `GET /push/estado`, §10 planes que quedan, §3.1 y §8 Vite 7 para build y tests; antes, ese mismo día, facturas de mantenimiento §2.8 y mantenimiento por km §2.9). Antes, **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

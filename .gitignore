@@ -35,6 +35,9 @@ docs/auditoria-seguridad*.md
 # Planes de trabajo: se quedan en local. No suben a master y, con el repo
 # publico, tampoco deben estar en develop.
 docs/PLAN_*.md
+# Guías de uso para el personal (HTML + capturas): material de formación, no
+# código, y las PNG pesan.
+docs/guia-uso/
 
 # Scripts ad-hoc de inspeccion/despliegue (suelen acabar con credenciales dentro)
 deploy_helper.py

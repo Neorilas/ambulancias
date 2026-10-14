@@ -50,7 +50,6 @@ const ACCESO = {
   'GET /features/active':        ['abierta', 'flags para pintar el menú'],
   'GET /push/vapid-public-key':  ['abierta', 'clave pública'],
   'POST /push/estado':           ['abierta', 'solo las suscripciones propias'],
-  'GET /push/estado':            ['abierta', 'obsoleta, igual que el POST'],
   'POST /push/subscribe':        ['abierta', 'da de alta el dispositivo propio'],
   'DELETE /push/subscribe':      ['abierta', 'solo borra si es suya'],
   'POST /push/test':             ['abierta', 'aviso a uno mismo'],
