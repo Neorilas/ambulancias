@@ -1286,6 +1286,22 @@ const MIGRATIONS = [
           WHERE km_proximo_mantenimiento IS NULL AND kilometros_actuales > 0`);
     },
   },
+
+  {
+    name: 'v38_aviso_mantenimiento_km',
+    description: 'Candado del push de mantenimiento a 500 km',
+    async run() {
+      // Guarda la referencia (`km_proximo_mantenimiento`) de la que ya se
+      // avisó por push, no un instante: cuando un mantenimiento nuevo mueve la
+      // referencia, la marca deja de coincidir y el aviso vuelve a quedar
+      // armado sin que nadie tenga que limpiarla. Ver vigilancia.service.js.
+      await ensureColumn('vehicles', 'aviso_mantenimiento_km',
+        `ALTER TABLE vehicles
+           ADD COLUMN aviso_mantenimiento_km INT UNSIGNED NULL DEFAULT NULL
+             COMMENT 'Referencia de mantenimiento ya avisada por push'
+             AFTER km_proximo_mantenimiento`);
+    },
+  },
 ];
 
 // ============================================================

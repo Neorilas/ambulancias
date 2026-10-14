@@ -249,6 +249,14 @@ async function startServer() {
     } catch (err) {
       logger.error('Error en vigilancia de asignaciones sin iniciar:', err.message);
     }
+
+    // Tercera: mantenimiento a 500 km o menos (push a administración). Mismo
+    // try/catch por lo mismo.
+    try {
+      await vigilancia.revisarMantenimientoKm();
+    } catch (err) {
+      logger.error('Error en vigilancia del mantenimiento por km:', err.message);
+    }
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto

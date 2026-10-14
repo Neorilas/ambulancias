@@ -387,6 +387,23 @@ describe('push.service', () => {
     });
   });
 
+  describe('notificarAdministracion', () => {
+    it('avisa a administrador y superadmin, no al gestor', async () => {
+      const push = cargarPush();
+      query.mockResolvedValueOnce([[{ id: 2 }]]);
+      query.mockResolvedValueOnce([[SUSCRIPCION(4, 2)]]);
+      query.mockResolvedValue([{ affectedRows: 1 }]);
+      webpush.sendNotification.mockResolvedValue({});
+
+      const res = await push.notificarAdministracion({ titulo: 'Mant', cuerpo: 'x', tag: 'm' });
+
+      expect(res.enviados).toBe(1);
+      const [sql, params] = query.mock.calls[0];
+      expect(params).toEqual(['administrador', 'superadmin']);
+      expect(sql).toContain('r.nombre IN (?,?)');
+    });
+  });
+
   // ── Alta y baja ──────────────────────────────────────────
   describe('guardarSuscripcion', () => {
     it('inserta actualizando si el endpoint ya existía', async () => {

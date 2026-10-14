@@ -6,7 +6,9 @@ const { runMigrations, MIGRATIONS } = require('../../../config/migrations');
 const TODAS = MIGRATIONS.map(m => m.name);
 
 /** Las columnas de v37, para los tests de «no repite» que la ejecutan de paso. */
-const COLUMNAS_V37 = ['vehicles.km_proximo_mantenimiento', 'vehicle_revisiones.km', 'vehicle_revisiones.km_proximo'];
+const COLUMNAS_V37 = ['vehicles.km_proximo_mantenimiento', 'vehicle_revisiones.km', 'vehicle_revisiones.km_proximo',
+                      // v38 corre detrás; para los «no repite» va con ellas
+                      'vehicles.aviso_mantenimiento_km'];
 
 /**
  * Reescrituras de FILA: las de v16 enlazan valores y un id. Las migraciones
@@ -898,7 +900,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km']);
+    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km', 'v38_aviso_mantenimiento_km']);
     const vehiculo = ejecutadas.find(q => q.includes('ADD COLUMN vehicle_id'));
     expect(vehiculo).toContain('ALTER TABLE facturas');
     expect(vehiculo).toContain('NULL DEFAULT NULL');
@@ -923,7 +925,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v37_mantenimiento_km']);
+    expect(aplicadas).toEqual(['v37_mantenimiento_km', 'v38_aviso_mantenimiento_km']);
     const veh = ejecutadas.find(q => q.includes('ADD COLUMN km_proximo_mantenimiento'));
     expect(veh).toContain('ALTER TABLE vehicles');
     expect(veh).toContain('INT UNSIGNED NULL DEFAULT NULL');
@@ -944,6 +946,28 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { ejecutadas } = mockDb({
       aplicadas: hasta('v36_facturas_mantenimiento'),
       columnas: COLUMNAS_V37,
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
+  });
+
+  it('v38 añade el candado del push de mantenimiento, opcional', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v37_mantenimiento_km') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v38_aviso_mantenimiento_km']);
+    const col = ejecutadas.find(q => q.includes('ADD COLUMN aviso_mantenimiento_km'));
+    expect(col).toContain('ALTER TABLE vehicles');
+    expect(col).toContain('INT UNSIGNED NULL DEFAULT NULL');
+  });
+
+  it('v38 no repite la columna si ya existe', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v37_mantenimiento_km'),
+      columnas: ['vehicles.aviso_mantenimiento_km'],
     });
     const { fallida } = await runMigrations();
 

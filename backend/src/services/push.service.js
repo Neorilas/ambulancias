@@ -445,24 +445,40 @@ async function contarDispositivosPorUsuario() {
 }
 
 /**
- * Avisa a todos los superadmin activos. Para lo que solo les incumbe a ellos
- * (la descarga de un backup). Mismas reglas: nunca lanza.
+ * Avisa a los usuarios activos con alguno de esos roles. Para lo que solo
+ * incumbe a un público acotado por rol y no por permiso (el backup al
+ * superadmin; el mantenimiento a administración, el mismo público que las
+ * alertas de la ITV). Mismas reglas: nunca lanza.
  */
-async function notificarSuperadmins(aviso) {
+async function notificarRoles(roles, aviso) {
   try {
     const [rows] = await query(
       `SELECT DISTINCT u.id
          FROM users u
          JOIN user_roles ur ON ur.user_id = u.id
          JOIN roles r       ON r.id       = ur.role_id
-        WHERE r.nombre = ? AND u.activo = 1 AND u.deleted_at IS NULL`,
-      [ROLES.SUPERADMIN]
+        WHERE r.nombre IN (${roles.map(() => '?').join(',')})
+          AND u.activo = 1 AND u.deleted_at IS NULL`,
+      roles
     );
     return await notificarUsuarios(rows.map(r => r.id), aviso);
   } catch (err) {
-    logger.error(`Push: fallo al notificar a superadmins — ${err.message}`);
+    logger.error(`Push: fallo al notificar a ${roles.join('/')} — ${err.message}`);
     return { enviados: 0, borrados: 0, fallidos: 0, omitido: 'error' };
   }
+}
+
+/** Avisa a todos los superadmin activos (la descarga de un backup). */
+function notificarSuperadmins(aviso) {
+  return notificarRoles([ROLES.SUPERADMIN], aviso);
+}
+
+/**
+ * Avisa a administración: administrador y superadmin, NO el gestor. Es quien
+ * ve las alertas de ITV/ITS/mantenimiento (`GET /vehicles/alertas`).
+ */
+function notificarAdministracion(aviso) {
+  return notificarRoles([ROLES.ADMINISTRADOR, ROLES.SUPERADMIN], aviso);
 }
 
 module.exports = {
@@ -472,6 +488,7 @@ module.exports = {
   notificarUsuario,
   notificarUsuarios,
   notificarSuperadmins,
+  notificarAdministracion,
   guardarSuscripcion,
   borrarSuscripcion,
   tieneSuscripcion,
