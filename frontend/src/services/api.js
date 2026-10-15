@@ -10,6 +10,7 @@ import {
   impersonacionActiva, restaurarSesionPropia, recargarComoOtraIdentidad, descartarSesionApartada,
 } from '../utils/impersonacion.js';
 import { reportarErrorDePeticion } from '../utils/reporteErrores.js';
+import { urlLoginVolviendo } from '../utils/destinoLogin.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -185,9 +186,11 @@ function clearAuth() {
   // quede el refresh token del superadmin apartado en imp:* sin nadie que lo use.
   descartarSesionApartada();
   vaciarCachesDeSesion();
-  // Redirigir a login sin causar loop
+  // Redirigir a login sin causar loop. Es una recarga entera, así que la
+  // pantalla a la que volver va en `?volver=` (utils/destinoLogin.js): el
+  // aviso push que te trajo aquí con la sesión caducada no se pierde.
   if (!window.location.pathname.includes('/login')) {
-    window.location.href = `${import.meta.env.BASE_URL}login`;
+    window.location.href = urlLoginVolviendo(import.meta.env.BASE_URL, window.location);
   }
 }
 

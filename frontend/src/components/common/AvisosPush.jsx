@@ -143,10 +143,14 @@ function AjustesDelTelefono({ ios }) {
 
 export default function AvisosPush() {
   const { notify } = useNotification();
-  const { hasPermission } = useAuth();
+  const { hasPermission, isAdmin, isSuperAdmin } = useAuth();
   // Los avisos de gestión solo llegan a quien gestiona; el de «nuevo
-  // servicio», a cualquiera que vaya en una asignación.
-  const gestiona = hasPermission(PERMISSIONS.MANAGE_TRABAJOS);
+  // servicio», a cualquiera que vaya en una asignación. Mismo criterio que
+  // `notificarAdmins` en el backend: el permiso o el rol de administración.
+  // El de mantenimiento a 500 km va SOLO a administrador y superadmin
+  // (`notificarAdministracion`): un gestor tiene MANAGE_TRABAJOS y no lo recibe.
+  const administra = isAdmin() || isSuperAdmin();
+  const gestiona   = administra || hasPermission(PERMISSIONS.MANAGE_TRABAJOS);
 
   const [estado,    setEstado]    = useState('cargando');
   const [ocupado,   setOcupado]   = useState(false);
@@ -239,9 +243,11 @@ export default function AvisosPush() {
         <div>
           <h2 className="text-[15px] font-semibold text-neutral-900">Avisos en este dispositivo</h2>
           <p className="text-[12.5px] text-neutral-500 mt-0.5">
-            {gestiona
-              ? 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio, al llegar al evento y al terminar en él, cuando se finaliza la asignación, y cuando te asignan uno.'
-              : 'Suena cuando te asignan un servicio nuevo.'}
+            {!gestiona
+              ? 'Suena cuando te asignan un servicio nuevo.'
+              : administra
+                ? 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio, al llegar al evento y al terminar en él, cuando se finaliza la asignación, cuando a una ambulancia le quedan 500 km para el mantenimiento, y cuando te asignan uno.'
+                : 'Suena cuando se inicia un servicio, cuando se completan las fotos de inicio, al llegar al evento y al terminar en él, cuando se finaliza la asignación, y cuando te asignan uno.'}
           </p>
         </div>
         {estado === 'activo'    && <Estado tono="green">Activos</Estado>}

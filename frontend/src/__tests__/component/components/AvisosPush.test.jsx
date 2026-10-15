@@ -23,10 +23,15 @@ vi.mock('../../../utils/push.js', () => ({
 }));
 
 // El texto de la cabecera cambia según gestione o no (el técnico solo recibe
-// el aviso de «nuevo servicio»). Por defecto, gestión.
-const auth = { gestiona: true };
+// el aviso de «nuevo servicio») y según sea administración, la única que recibe
+// el de mantenimiento a 500 km. Por defecto, gestión sin ser administración.
+const auth = { gestiona: true, admin: false, superadmin: false };
 vi.mock('../../../context/AuthContext.jsx', () => ({
-  useAuth: () => ({ hasPermission: () => auth.gestiona }),
+  useAuth: () => ({
+    hasPermission: () => auth.gestiona || auth.superadmin,
+    isAdmin:       () => auth.admin,
+    isSuperAdmin:  () => auth.superadmin,
+  }),
 }));
 
 import { pushService } from '../../../services/push.service.js';
@@ -59,6 +64,8 @@ describe('AvisosPush', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.gestiona = true;
+    auth.admin = false;
+    auth.superadmin = false;
     escenarioNormal();
   });
 
@@ -73,6 +80,33 @@ describe('AvisosPush', () => {
       montar();
       expect(await screen.findByText('Suena cuando te asignan un servicio nuevo.')).toBeInTheDocument();
       expect(screen.queryByText(/se inicia un servicio/i)).not.toBeInTheDocument();
+    });
+
+    it('gestor: no anuncia el de mantenimiento, que no le llega', async () => {
+      montar();
+      expect(await screen.findByText(/se inicia un servicio/i)).toBeInTheDocument();
+      expect(screen.queryByText(/mantenimiento/i)).not.toBeInTheDocument();
+    });
+
+    it('administrador: anuncia también el de mantenimiento a 500 km', async () => {
+      auth.admin = true;
+      montar();
+      expect(await screen.findByText(/se inicia un servicio.*500 km para el mantenimiento.*te asignan uno/i))
+        .toBeInTheDocument();
+    });
+
+    it('superadmin: también el de mantenimiento', async () => {
+      auth.gestiona = false;
+      auth.superadmin = true;
+      montar();
+      expect(await screen.findByText(/500 km para el mantenimiento/i)).toBeInTheDocument();
+    });
+
+    it('administrador sin MANAGE_TRABAJOS: el backend le manda los de gestión igual', async () => {
+      auth.gestiona = false;
+      auth.admin = true;
+      montar();
+      expect(await screen.findByText(/se inicia un servicio/i)).toBeInTheDocument();
     });
   });
 
