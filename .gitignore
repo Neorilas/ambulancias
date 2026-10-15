@@ -32,6 +32,8 @@ accesos.html
 docs/AUDITORIA_SEGURIDAD.md
 AUDITORIA_SEGURIDAD.md
 docs/auditoria-seguridad*.md
+# Notas de seguridad (bloqueos esperados de la CSP...): solo en local.
+docs/NOTAS_SEGURIDAD.md
 # Planes de trabajo: se quedan en local. No suben a master y, con el repo
 # publico, tampoco deben estar en develop.
 docs/PLAN_*.md

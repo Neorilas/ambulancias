@@ -430,5 +430,19 @@ describe('api service', () => {
       // href should not have been changed
       expect(window.location.href).toBe('');
     });
+
+    it('recuerda la pantalla, con su pestaña, para volver tras el login', async () => {
+      // Un aviso push abre la ficha en Revisiones con la sesión ya caducada.
+      delete window.location;
+      window.location = { pathname: '/vehiculos/2', search: '?tab=revisiones', hash: '', href: '' };
+
+      const error = {
+        response: { status: 401 },
+        config: { url: '/vehicles/2', headers: {}, _retry: false },
+      };
+
+      await expect(resRejected(error)).rejects.toEqual(error);
+      expect(window.location.href).toBe('/login?volver=%2Fvehiculos%2F2%3Ftab%3Drevisiones');
+    });
   });
 });

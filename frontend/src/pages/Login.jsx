@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotification } from '../context/NotificationContext.jsx';
 import InstallPWAButton from '../components/common/InstallPWAButton.jsx';
+import { destinoTrasLogin } from '../utils/destinoLogin.js';
 
 const ES_PRE = import.meta.env.VITE_APP_ENV === 'pre';
 
@@ -17,7 +18,9 @@ export default function Login() {
   const { notify }  = useNotification();
   const navigate    = useNavigate();
   const location    = useLocation();
-  const from        = location.state?.from?.pathname || '/dashboard';
+  // Con query y hash: un aviso push abre p. ej. /vehiculos/2?tab=revisiones
+  // y, con la sesión caducada, hay que volver a esa pestaña (utils/destinoLogin).
+  const from        = destinoTrasLogin(location);
 
   // Si ya autenticado, redirigir
   useEffect(() => {
