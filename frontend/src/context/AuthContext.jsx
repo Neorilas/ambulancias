@@ -19,6 +19,9 @@ const sinEsperarMasDe = (promesa, ms) =>
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
+  // true desde «Cerrar sesión» hasta el siguiente login. ProtectedRoute lo
+  // mira para no recordar la pantalla de quien se fue (§3.2 del mapa).
+  const [salidaVoluntaria, setSalidaVoluntaria] = useState(false);
   // Se lee una vez: entrar y salir de la impersonación recarga la app entera.
   const [impersonando] = useState(() => impersonacionActiva());
 
@@ -55,6 +58,7 @@ export function AuthProvider({ children }) {
     setItem('accessToken',  data.accessToken);
     setItem('refreshToken', data.refreshToken);
     setItem('user',         JSON.stringify(data.user));
+    setSalidaVoluntaria(false);
     setUser(data.user);
     return data.user;
   }, []);
@@ -92,6 +96,8 @@ export function AuthProvider({ children }) {
     removeItem('refreshToken');
     removeItem('user');
     await vaciarCachesDeSesion();
+    // En el mismo render que `user = null`: es ese render el que ve el guardia.
+    setSalidaVoluntaria(true);
     setUser(null);
   }, []);
 
@@ -139,7 +145,7 @@ export function AuthProvider({ children }) {
   const canAccessGestion  = useCallback(() => isAdmin() || isSuperAdmin() || isGestor(), [isAdmin, isSuperAdmin, isGestor]);
 
   const value = {
-    user, loading,
+    user, loading, salidaVoluntaria,
     login, logout, updateStoredUser,
     impersonando, impersonar, terminarImpersonacion,
     hasRole, hasPermission,

@@ -953,6 +953,23 @@ el destino viaja en `/login?volver=` (`urlLoginVolviendo`, que quita el
 `/\x`, URLs absolutas, caracteres de control y el propio `/login`); si no
 vale, `/dashboard`.
 
+**Tras «Cerrar sesión» no se recuerda nada** (2026-10-15, lo encontró
+probador-local al verificar v3.21.1): el gestor salía en `/perfil` y el técnico
+que entraba después en ese móvil aterrizaba en `/perfil`; el admin, en
+`/mis-asignaciones` del técnico. `logout` (`AuthContext`) pone
+`salidaVoluntaria` a `true` en el mismo render que `user = null`, y
+`ProtectedRoute` manda entonces a `/login` **sin** `state.from`; `login` la
+vuelve a `false`. Tres trampas: (1) no basta con que Navbar haga
+`navigate('/login')` sin state: el router 7 aplica esa navegación en una
+transición, el render del `setUser(null)` llega antes con la pantalla vieja
+montada y el `replace` de su guardia pisa la entrada limpia; (2) ese
+`state.from` vive en `history.state`, así que **recargar el login no lo
+quitaba**; (3) en jsdom React pinta en el otro orden (el `replace` del guardia
+antes que el `push`), y un test que imite a Navbar pasa sin el arreglo: el de
+`LoginTrasLogout.test.jsx` sale solo con `logout()` para dejar al guardia el
+último, como en el navegador. La sesión caducada (`?volver=`, recarga entera)
+y el enlace abierto sin sesión no cambian: la marca no sobrevive a recargar.
+
 Otras dos reglas de esa parte:
 - **Solo un rechazo real del servidor (4xx salvo 429) cierra la sesión.** Un
   refresco sin respuesta (timeout, sin red), con un 429 o con un 5xx (un 502
