@@ -2361,14 +2361,8 @@ que respondió 204: el endpoint funciona). Antes de pasarla se revisó el build:
 no hay `eval` ni `fetch` propios; el único `Function("return this")` es el
 polyfill de `globalThis` de core-js (chunk del PDF), que no se ejecuta en
 navegadores con `globalThis`. Cada bloqueo sale en el log del backend como
-«CSP: <directiva> ha bloqueado <recurso>». **Un bloqueo esperado: `script-src` ←
-`wasm-eval`** al abrir la cámara exterior. Es `long.js` (dentro de
-TensorFlow, chunk `deteccion`), que intenta compilar unos cientos de bytes de
-WebAssembly para la aritmética de 64 bits y, si no puede, usa la misma
-operación en JS: el detector funciona igual (comprobado sirviendo el build
-con la CSP en local, 2026-10-12). **No se añadió `'wasm-unsafe-eval'`** a
-propósito (decisión del usuario, 2026-10-14): no gana nada medible y abre
-una puerta que no hace falta. **Cualquier origen externo nuevo
+«CSP: <directiva> ha bloqueado <recurso>». Los bloqueos que se sabe que son
+esperados están en `docs/NOTAS_SEGURIDAD.md` (local, fuera de git). **Cualquier origen externo nuevo
 (una API, un CDN, otras teselas) hay que añadirlo ahí antes de subirlo, o no
 carga.** Marcha atrás si algo deja de cargar: volver a llamar a la cabecera
 `Content-Security-Policy-Report-Only`. **Trampa al comprobarla:** `curl` y el
