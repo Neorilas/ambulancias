@@ -5,14 +5,21 @@ import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { PageLoading } from './LoadingSpinner.jsx';
 
 export default function ProtectedRoute({ children, allowedRoles, requiredFeature }) {
-  const { isAuthenticated, loading, hasRole } = useAuth();
+  const { isAuthenticated, loading, hasRole, salidaVoluntaria } = useAuth();
   const { isFeatureEnabled, loading: cargandoFlags } = useFeatures();
   const location = useLocation();
 
   if (loading) return <PageLoading />;
 
+  // Sin sesión se recuerda adónde iba (un aviso push, un enlace) para volver
+  // tras el login. Tras «Cerrar sesión», no: el siguiente que entre en ese
+  // móvil aterrizaría en la pantalla del anterior. Y no basta con que Navbar
+  // navegue a /login sin state: el router 7 aplica esa navegación en una
+  // transición, este render con la pantalla vieja llega antes y su `replace`
+  // la pisa (y `history.state` sobrevive a recargar el login).
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const state = salidaVoluntaria ? undefined : { from: location };
+    return <Navigate to="/login" state={state} replace />;
   }
 
   // Quien no puede entrar vuelve a la portada (`/`), que decide entre «Mis
