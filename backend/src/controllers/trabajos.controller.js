@@ -228,7 +228,10 @@ async function leerAsignacionesDelTrabajo(id) {
     `SELECT al.id, al.vehicle_id, al.user_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             al.km_inicio, al.km_fin, al.notas,
-            v.matricula, v.alias AS vehiculo_alias
+            v.matricula, v.alias AS vehiculo_alias,
+            -- Para «Volver a programado» (haEmpezado): ¿hay alguna prueba del servicio?
+            (SELECT COUNT(*) FROM vehicle_images vi WHERE vi.asignacion_id = al.id) AS num_evidencias,
+            (SELECT COUNT(*) FROM vehicle_incidencias vn WHERE vn.asignacion_id = al.id) AS num_incidencias
      FROM asignaciones_libres al
      JOIN vehicles v ON v.id = al.vehicle_id
      WHERE al.trabajo_id = ? AND al.deleted_at IS NULL
@@ -381,6 +384,58 @@ function motivoNoSeCierra(t, estados) {
 }
 
 /**
+ * Por qué el trabajo NO puede volver a `programado` ahora (o null si puede).
+ * Lo pidió el usuario el 2026-10-16, tras el TRB-2026-0040: se creó con una
+ * ambulancia con la hora de inicio ya pasada, el cron la activó al minuto y
+ * el trabajo quedó «activo» sin que nadie hubiera empezado nada. Es un botón
+ * del TRABAJO (decisión del usuario), pero lo que vuelve son sus ambulancias:
+ * el estado del trabajo se deriva de ellas.
+ *  - Solo un trabajo `activo` del modelo nuevo.
+ *  - Ninguna ambulancia empezada (`haEmpezado`: hora real, fotos,
+ *    incidencias) ni terminada: lo hecho no se deshace, y con una en marcha
+ *    el trabajo seguiría activo de todos modos.
+ *  - Ninguna con la hora de inicio ya pasada: el cron la volvería a activar
+ *    en un minuto. El texto dice CUÁL y a qué hora, y qué hacer (pedido
+ *    expresamente: que avise de lo que hay que arreglar).
+ * La usan `volverAProgramado` (que manda) y la ficha
+ * (`volver_a_programado`), así que dicen lo mismo.
+ *
+ * @param {{estado, v25: boolean}} t
+ * @param {object[]} asigs  las de `leerAsignacionesDelTrabajo`
+ */
+function motivoNoVuelveAProgramado(t, asigs, instante = ahora()) {
+  if (CERRADOS.includes(t.estado)) return 'El trabajo ya está cerrado';
+  if (t.v25) return 'Este trabajo es del modelo anterior: no se puede volver a programado';
+  if (t.estado === TRABAJO_ESTADOS.PROGRAMADO) return 'El trabajo ya está programado';
+  const vivas = asigs.filter(a => a.estado !== 'cancelada');
+  const empezadas = vivas.filter(a => a.estado === 'finalizada' || asignaciones.haEmpezado(a));
+  if (empezadas.length) {
+    const una = empezadas.length === 1;
+    return `No puede volver a programado: ${empezadas.map(asignaciones.nombreAmbulancia).join(', ')} ` +
+      `ya ${una ? 'ha' : 'han'} empezado el servicio (hay hora de inicio, fotos o incidencias)`;
+  }
+  const horaPasada = vivas.filter(a => instanteUtc(a.fecha_inicio) <= instante);
+  if (horaPasada.length) return asignaciones.textoHoraPasada(horaPasada);
+  return null;
+}
+
+/**
+ * El botón «Volver a programado» de la ficha: null si no se ofrece; si se
+ * ofrece, `{ motivo }`, con el motivo null si se puede ya. Solo gestión
+ * (`manage_trabajos`), y solo en un trabajo activo en el que nadie ha
+ * empezado: con alguna ambulancia en marcha (lo normal en un trabajo activo)
+ * el botón no tiene sentido y no se enseña, en vez de enseñarlo apagado en
+ * todos. Lo que sí se enseña es el caso de la hora ya pasada, que es el que
+ * hay que saber arreglar.
+ */
+function ofrecerVolverAProgramado(t, user) {
+  if (!gestiona(user) || t.v25 || t.estado !== TRABAJO_ESTADOS.ACTIVO) return null;
+  const vivas = (t.asignaciones || []).filter(a => a.estado !== 'cancelada');
+  if (vivas.some(a => a.estado === 'finalizada' || asignaciones.haEmpezado(a))) return null;
+  return { motivo: motivoNoVuelveAProgramado(t, t.asignaciones || []) };
+}
+
+/**
  * De una ambulancia ajena solo se ve cuál es y quién va en ella (decisión 6
  * del plan del trabajo padre): ni estado, ni fechas, ni km, ni fotos. Es una
  * LISTA BLANCA a propósito (§6.2 del mapa): un campo nuevo de la asignación no
@@ -461,6 +516,7 @@ function vistaParaUsuario(t, user) {
     // cerrarTrabajo (motivoNoSeCierra), que es quien manda.
     puede_cerrar: (coordina || gestiona(user)) && !motivoNoSeCierra(
       { ...t, v25 }, (t.asignaciones || []).map(a => a.estado)),
+    volver_a_programado: ofrecerVolverAProgramado({ ...t, v25 }, user),
   };
 }
 
@@ -1508,6 +1564,73 @@ async function cerrarTrabajo(req, res, next) {
   }
 }
 
+// La sincronización no dejó el trabajo en `programado`: una ambulancia empezó
+// entre la comprobación y el UPDATE. Deshace la transacción.
+class TrabajoSeMovio extends Error {}
+
+// ============================================================
+// POST /trabajos/:id/volver-a-programado (2026-10-16)
+// Deshace una activación por error (motivoNoVuelveAProgramado). Solo gestión
+// (lo pone la ruta). Devuelve a `programada` sus ambulancias activas y el
+// trabajo queda `programado` por sincronización, no escrito a mano.
+// ============================================================
+async function volverAProgramado(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    const [rows] = await query(
+      `SELECT t.id, t.identificador, t.nombre, t.estado, t.coordinador_user_id,
+              (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos_v25,
+              (SELECT COUNT(*) FROM asignaciones_libres a WHERE a.trabajo_id = t.id) AS num_asignaciones
+       FROM trabajos t WHERE t.id = ? AND t.deleted_at IS NULL`,
+      [id]
+    );
+    if (!rows.length) return notFound(res, 'Trabajo');
+    const trabajo = rows[0];
+
+    const asigs = await leerAsignacionesDelTrabajo(id);
+    const instante = ahora();
+    const motivo = motivoNoVuelveAProgramado({ ...trabajo, v25: esV25(trabajo) }, asigs, instante);
+    if (motivo) return error(res, motivo, 400);
+
+    const activas = asigs.filter(a => a.estado === 'activa');
+    try {
+      await transaction(async (conn) => {
+        // El WHERE repite la regla (sin empezar, hora futura) por la carrera
+        // con el técnico que pulsa «Inicio» o sube la primera foto
+        await conn.execute(
+          `UPDATE asignaciones_libres SET estado = 'programada', aviso_sin_iniciar_at = NULL
+            WHERE trabajo_id = ? AND deleted_at IS NULL AND estado = 'activa'
+              AND fecha_inicio > ? AND ${asignaciones.SQL_SIN_EMPEZAR}`,
+          [id, instante]
+        );
+        const r = await sincronizarEstadoTrabajo(conn, id);
+        if (r.estado !== TRABAJO_ESTADOS.PROGRAMADO) throw new TrabajoSeMovio();
+      });
+    } catch (err) {
+      if (err instanceof TrabajoSeMovio) {
+        return error(res, 'No ha vuelto a programado: una ambulancia acaba de empezar el servicio. Recarga la ficha.', 409);
+      }
+      throw err;
+    }
+
+    logAudit({
+      userId:   req.user.id,
+      userInfo: req.user.username,
+      action:   'reprogramar_trabajo',
+      entityType: 'trabajo', entityId: id,
+      details:  { identificador: trabajo.identificador, nombre: trabajo.nombre,
+                  estado_antes: trabajo.estado,
+                  ambulancias: activas.map(a => ({ asignacion_id: a.id, vehiculo: a.matricula })) },
+      ip: req.ip,
+    });
+
+    const t = await getTrabajoCompleto(id);
+    return success(res, vistaParaUsuario(t, req.user), 'El trabajo vuelve a estar programado');
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ============================================================
 // POST /trabajos/:id/evidencias
 // Subida de evidencias (imágenes) para un vehículo del trabajo
@@ -1718,11 +1841,12 @@ async function misTrab(req, res, next) {
 
 module.exports = {
   listTrabajos, listTrabajosCalendario, miCalendario, getTrabajo,
-  createTrabajo, updateTrabajo, deleteTrabajo, cerrarTrabajo,
+  createTrabajo, updateTrabajo, deleteTrabajo, cerrarTrabajo, volverAProgramado,
   activarVehiculo, finalizeVehiculo,
   activarTrabajo, finalizeTrabajo,
   uploadEvidencia, misTrab,
   // Para los tests (el cálculo vive en services/estadoTrabajo.service)
   estadoTrabajoDesde: estadoTrabajo.estadoTrabajoDesde,
   sincronizarEstadoTrabajo, vistaParaUsuario, leerVehiculos, leerAmbulancias, motivoNoSeCierra,
+  motivoNoVuelveAProgramado,
 };

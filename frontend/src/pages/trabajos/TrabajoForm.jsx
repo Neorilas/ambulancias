@@ -9,6 +9,7 @@ import {
   formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
 } from '../../utils/trabajos.js';
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
+import { inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
 import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../utils/mapas.js';
 
 /**
@@ -316,6 +317,10 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                           onChange={e => setAmbulancia(i, 'fecha_fin', e.target.value)} />
                       </div>
                     </div>
+                    {/* En blanco es la del trabajo: es la que guardará el backend */}
+                    {inicioYaPasado(amb.fecha_inicio || form.fecha_inicio) && (
+                      <p className="text-xs text-warn-700" data-testid="aviso-inicio-pasado">{AVISO_INICIO_PASADO}</p>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
                         <label className="label text-xs">Km inicio</label>

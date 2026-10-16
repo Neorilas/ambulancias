@@ -40,6 +40,10 @@ export const trabajosService = {
   cerrar(id) {
     return api.post(`/trabajos/${id}/cerrar`).then(r => r.data.data);
   },
+  /** Deshace una activación por error: el trabajo y sus ambulancias vuelven a programado. */
+  volverAProgramado(id) {
+    return api.post(`/trabajos/${id}/volver-a-programado`).then(r => r.data.data);
+  },
 
   // ── Modelo v25 (convive hasta la fase 6) ──────────────────────
   // Ciclo de vida por vehículo: cada responsable activa y cierra el suyo

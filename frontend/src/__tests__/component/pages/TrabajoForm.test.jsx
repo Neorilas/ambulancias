@@ -61,6 +61,31 @@ describe('TrabajoForm · ubicación en Google Maps (v34)', () => {
   });
 });
 
+// 2026-10-16, TRB-2026-0040: una ambulancia con el inicio ya pasado la activa
+// el cron al minuto de guardarla
+describe('TrabajoForm · aviso de hora de inicio pasada', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('avisa en la ambulancia, con su hora o con la del trabajo si la deja en blanco', async () => {
+    const user = userEvent.setup();
+    const { container } = montar();
+    await user.click(screen.getByRole('button', { name: '+ Añadir ambulancia' }));
+    expect(screen.queryByTestId('aviso-inicio-pasado')).not.toBeInTheDocument();
+
+    const [inicioTrabajo, , inicioAmb] = container.querySelectorAll('input[type="datetime-local"]');
+    // En blanco toma la del trabajo
+    fireEvent.change(inicioTrabajo, { target: { value: '2020-01-01T10:00' } });
+    expect(screen.getByTestId('aviso-inicio-pasado')).toHaveTextContent('se activará sola en un minuto');
+
+    fireEvent.change(inicioAmb, { target: { value: '2099-01-01T10:00' } });
+    expect(screen.queryByTestId('aviso-inicio-pasado')).not.toBeInTheDocument();
+
+    fireEvent.change(inicioTrabajo, { target: { value: '2099-01-01T09:00' } });
+    fireEvent.change(inicioAmb, { target: { value: '2020-01-01T10:00' } });
+    expect(screen.getByTestId('aviso-inicio-pasado')).toBeInTheDocument();
+  });
+});
+
 describe('TrabajoForm · varios coordinadores (v35)', () => {
   const USERS = [
     { id: 50, nombre: 'Carla', apellidos: 'Ruiz', username: 'carla', activo: 1 },

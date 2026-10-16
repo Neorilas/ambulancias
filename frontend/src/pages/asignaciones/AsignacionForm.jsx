@@ -5,7 +5,7 @@ import { asignacionesService } from '../../services/asignaciones.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDatetime, toUtcIso } from '../../utils/dateUtils.js';
+import { toInputDatetime, toUtcIso, inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
 import { asociadosDeTrabajo } from '../../utils/trabajos.js';
 import {
   idsElegidos, miembrosIniciales, textoSolapes, textoVehiculoOcupado,
@@ -82,6 +82,14 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
       .catch(console.error);
   }, [asignacion]);
 
+  // Una nueva, o una programada, con el inicio ya pasado: el cron la activará
+  // en cuanto se guarde. A una activa no le pasa nada nuevo.
+  const avisoInicioPasado = (!isEdit || asignacion.estado === 'programada')
+    && inicioYaPasado(form.fecha_inicio);
+  // `vehiculoBloqueado` vacío = ya se sabe que no hay fotos ni incidencias
+  const activaSinEmpezar = isEdit && asignacion.estado === 'activa'
+    && !asignacion.inicio_real_at && !asignacion.llegada_servicio_at && vehiculoBloqueado === '';
+
   const setMiembros = campo => lista => {
     setForm(f => ({ ...f, [campo]: lista }));
     setErrors(prev => ({ ...prev, responsables: '' }));
@@ -139,6 +147,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
         ? await asignacionesService.update(asignacion.id, payload)
         : await asignacionesService.create(payload);
       notify.success(isEdit ? 'Asignación actualizada' : 'Asignación creada');
+      // Estaba activa sin que nadie empezara y se le ha puesto una hora
+      // futura: el backend la devuelve sola a programada (2026-10-16)
+      if (guardada?.vuelta_a_programada) notify.info('La ambulancia vuelve a estar programada', 8000);
       // Solape de fechas con otra asignación: se avisa, no se bloquea.
       const aviso = textoSolapes(guardada?.solapes);
       if (aviso) notify.warning(aviso, 10000);
@@ -179,7 +190,16 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             Trabajo: <span className="font-medium text-neutral-900">{trabajoNombre}</span>
           </p>
         )}
-        {isEdit && asignacion.estado === 'activa' && (
+        {/* Activa sin que nadie haya empezado: la activó el cron al llegar
+            su hora (o se activó por error). Se deshace moviendo la hora. */}
+        {activaSinEmpezar && (
+          <p className="text-xs text-warn-700 bg-warn-50 border border-warn-200 rounded-lg p-2"
+            data-testid="activa-sin-empezar">
+            Está activa, pero nadie ha empezado el servicio: se activó sola al llegar su hora
+            de inicio. Si le pones una hora de inicio futura, vuelve a programada.
+          </p>
+        )}
+        {isEdit && asignacion.estado === 'activa' && !activaSinEmpezar && (
           <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
             Servicio en curso. Puedes cambiar responsables, equipo y notas;
             las fotos ya subidas se quedan en la asignación y el nuevo
@@ -256,6 +276,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
               onChange={set('fecha_inicio')}
             />
             {errors.fecha_inicio && <p className="field-error">{errors.fecha_inicio}</p>}
+            {avisoInicioPasado && (
+              <p className="text-xs text-warn-700 mt-1" data-testid="aviso-inicio-pasado">{AVISO_INICIO_PASADO}</p>
+            )}
           </div>
           <div>
             <label className="label">Fecha fin <span className="text-bad-500">*</span></label>
