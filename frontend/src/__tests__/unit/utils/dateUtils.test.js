@@ -4,7 +4,7 @@ import {
   toUtcIso, toInputDatetime, toInputDate,
   isWorkActive, isOverdue, duration, formatMinutos,
   diaEnEspana, formatFechaSola, formatDiaCalendario, sumarDias, sumarMeses, diasHasta,
-  inicioServicioPermitidoDesde, esProntoParaIniciar,
+  inicioServicioPermitidoDesde, esProntoParaIniciar, inicioYaPasado,
 } from '../../../utils/dateUtils';
 
 describe('dateUtils', () => {
@@ -212,6 +212,27 @@ describe('dateUtils', () => {
     it('sin fecha válida no bloquea (decide el backend)', () => {
       expect(inicioServicioPermitidoDesde(null)).toBeNull();
       expect(esProntoParaIniciar(undefined)).toBe(false);
+    });
+  });
+
+  // 2026-10-16, TRB-2026-0040: el selector del móvil propuso el día de hoy
+  describe('inicioYaPasado', () => {
+    // 14:51 UTC = 16:51 en España (CEST)
+    const AHORA = new Date('2026-10-16T14:51:00.000Z');
+
+    it('lo tecleado es hora española: 12:55 de hoy ya ha pasado, mañana no', () => {
+      expect(inicioYaPasado('2026-10-16T12:55', AHORA)).toBe(true);
+      expect(inicioYaPasado('2026-10-17T12:00', AHORA)).toBe(false);
+    });
+
+    it('16:50 española ya ha pasado aunque en UTC serían las 14:50 (mismo instante)', () => {
+      expect(inicioYaPasado('2026-10-16T16:50', AHORA)).toBe(true);
+      expect(inicioYaPasado('2026-10-16T16:52', AHORA)).toBe(false);
+    });
+
+    it('vacío o inválido: sin aviso', () => {
+      expect(inicioYaPasado('', AHORA)).toBe(false);
+      expect(inicioYaPasado('no es fecha', AHORA)).toBe(false);
     });
   });
 

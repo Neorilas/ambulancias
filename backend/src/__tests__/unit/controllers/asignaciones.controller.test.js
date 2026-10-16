@@ -539,7 +539,8 @@ describe('asignaciones.controller', () => {
     it('cambiar la hora prevista limpia la marca del aviso «sin iniciar» (y va la primera del SET)', async () => {
       mockAsignacionCompleta({ estado: 'activa' });
       query.mockResolvedValueOnce([]); // UPDATE
-      mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]); // vuelve a programada (hora futura)
+      mockAsignacionCompleta({ estado: 'programada' });
       query.mockResolvedValueOnce([[]]); // solapes
 
       await updateAsignacion(mockReq({ params: { id: '1' }, body: { fecha_inicio: '2030-01-01 09:00:00' }, user: ADMIN }),
@@ -551,6 +552,134 @@ describe('asignaciones.controller', () => {
       expect(sql.indexOf('aviso_sin_iniciar_at = IF(? <> fecha_inicio'))
         .toBeLessThan(sql.indexOf('fecha_inicio = COALESCE'));
       expect(params[0]).toBe('2030-01-01 09:00:00');
+    });
+
+    // ── Volver a programada (2026-10-16, TRB-2026-0040) ──────
+    describe('volver a programada', () => {
+      const FUTURA = '2030-01-01 09:00:00';
+      const vuelta = () => query.mock.calls.find(([q]) => q.includes("SET estado = 'programada'"));
+      const editar = async (body, existente = {}, vuelve = { affectedRows: 1 }) => {
+        mockAsignacionCompleta({ estado: 'activa', ...existente });
+        query.mockResolvedValueOnce([]);                       // UPDATE principal
+        if (vuelve) query.mockResolvedValueOnce([vuelve]);     // UPDATE de la vuelta
+        mockAsignacionCompleta({ estado: vuelve?.affectedRows ? 'programada' : 'activa' });
+        query.mockResolvedValue([[]]);   // solapes y, si cambian las fechas, ambulancia ocupada
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('una activa sin empezar vuelve sola al moverle el inicio al futuro', async () => {
+        const res = await editar({ fecha_inicio: FUTURA });
+        expect(res.status).toHaveBeenCalledWith(200);
+        const [sql, params] = vuelta();
+        // Con su propio candado: sin empezar y con la hora (ya guardada) por venir
+        expect(sql).toContain("WHERE id = ? AND estado = 'activa' AND fecha_inicio > ?");
+        expect(sql).toContain('inicio_real_at IS NULL');
+        expect(sql).toContain('NOT EXISTS (SELECT 1 FROM vehicle_images');
+        expect(sql).toContain('aviso_sin_iniciar_at = NULL');
+        expect(params[0]).toBe(1);
+        expect(params[1]).toBeInstanceOf(Date);
+        expect(res._json.data.vuelta_a_programada).toBe(true);
+        // El UPDATE principal no toca el estado: va aparte
+        const [, p] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
+        expect(p[9]).toBeNull();
+      });
+
+      it('si la hora no cambia (el formulario la manda en todo PUT), editar no la devuelve', async () => {
+        const futura = new Date(Date.now() + 86400000);
+        futura.setUTCSeconds(0, 0);
+        const res = await editar({ notas: 'otra cosa', fecha_inicio: futura.toISOString().slice(0, 16) },
+          { fecha_inicio: futura }, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('con la hora a menos de 2 minutos no la devuelve (el cron la reactivaría en el acto)', async () => {
+        const enUnMinuto = new Date(Date.now() + 60000).toISOString().slice(0, 16);
+        const res = await editar({ fecha_inicio: enUnMinuto }, {}, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('el WHERE de la vuelta usa el mismo margen: ahora + 2 min', async () => {
+        await editar({ fecha_inicio: FUTURA });
+        const [, params] = vuelta();
+        expect(params[1].getTime() - Date.now()).toBeGreaterThan(110000);
+      });
+
+      it('con el servicio empezado, mover la hora no la devuelve', async () => {
+        const res = await editar({ fecha_inicio: FUTURA }, { inicio_real_at: new Date(INSTANTE_MOCK) }, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+        expect(res._json.data.vuelta_a_programada).toBe(false);
+      });
+
+      it('con una foto subida, tampoco', async () => {
+        const res = await editar({ fecha_inicio: FUTURA },
+          { evidencias: [{ id: 1, tipo_imagen: 'frontal', momento: 'inicio' }] }, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('moverla a otra hora ya pasada no la devuelve (el cron la volvería a activar)', async () => {
+        const res = await editar({ fecha_inicio: '2020-01-01 09:00:00' }, {}, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('pedida a mano con la hora pasada: 400 que dice cuál y a qué hora', async () => {
+        mockAsignacionCompleta({ estado: 'activa', fecha_inicio: new Date('2026-10-16T10:55:00Z') });
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { estado: 'programada' }, user: ADMIN }),
+          res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toContain('AMB-1 (ABC1234), el 16/10 12:55');
+        expect(res._json.message).toContain('hora de inicio futura');
+      });
+
+      it('pedida a mano con el servicio empezado: 400 (antes el PUT lo aceptaba sin mirar)', async () => {
+        mockAsignacionCompleta({ estado: 'activa', inicio_real_at: new Date(INSTANTE_MOCK) });
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { estado: 'programada', fecha_inicio: FUTURA },
+          user: ADMIN }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toContain('ya ha empezado');
+        expect(query.mock.calls.some(([q]) => q.includes('UPDATE asignaciones_libres'))).toBe(false);
+      });
+
+      it('pedida a mano y el técnico la inicia en medio: 409', async () => {
+        mockAsignacionCompleta({ estado: 'activa' });
+        query.mockResolvedValueOnce([]);                     // UPDATE principal
+        query.mockResolvedValueOnce([{ affectedRows: 0 }]);  // la vuelta ya no encaja
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { estado: 'programada', fecha_inicio: FUTURA },
+          user: ADMIN }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(409);
+      });
+
+      it('con trabajo, la vuelta re-sincroniza el estado del trabajo', async () => {
+        // Por SQL y no por orden: con trabajo, la ficha pide además sus coordinadores
+        let vuelta_hecha = false;
+        query.mockImplementation(async (sql) => {
+          if (sql.startsWith('SELECT al.*')) {
+            return [[{ id: 1, vehicle_id: 1, user_id: 2, trabajo_id: 40, trabajo_identificador: 'TRB-2026-0040',
+              estado: vuelta_hecha ? 'programada' : 'activa', matricula: 'ABC1234', vehiculo_alias: 'AMB-1',
+              fecha_inicio: new Date(INSTANTE_MOCK), fecha_fin: new Date(INSTANTE_MOCK + 86400000) }]];
+          }
+          if (sql.includes("SET estado = 'programada'")) { vuelta_hecha = true; return [{ affectedRows: 1 }]; }
+          if (sql.includes('FROM asignaciones_libres WHERE trabajo_id')) return [[{ estado: 'programada', borrada: 0 }]];
+          if (sql.includes('SELECT au.user_id')) return [[{ user_id: 2, rol: 'responsable', orden: 0 }]];
+          if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
+          return [[]];
+        });
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '1' }, body: { fecha_inicio: FUTURA }, user: ADMIN }),
+          res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+        const sync = query.mock.calls.find(([q]) => q.includes('UPDATE trabajos SET estado'));
+        expect(sync[1]).toEqual(['programado', 40, 'programado']);
+      });
     });
 
     it('sin fecha_inicio en el body la marca del aviso no se toca', async () => {

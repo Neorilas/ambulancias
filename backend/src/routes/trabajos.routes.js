@@ -161,6 +161,17 @@ router.post('/:id/cerrar',
   ctrl.cerrarTrabajo
 );
 
+// POST /trabajos/:id/volver-a-programado — deshace una activación por error
+// (2026-10-16): sus ambulancias activas sin empezar vuelven a programadas.
+// Solo gestión; cuándo se puede lo decide el controlador
+// (motivoNoVuelveAProgramado).
+router.post('/:id/volver-a-programado',
+  requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
+  [param('id').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.volverAProgramado
+);
+
 // Ciclo de vida POR VEHÍCULO (modelo v25): cada responsable activa y cierra el suyo. El
 // permiso lo decide el controlador (responsable de ESE vehículo, o gestión).
 const paramsVehiculo = [param('id').isInt({ min: 1 }), param('vehicleId').isInt({ min: 1 })];

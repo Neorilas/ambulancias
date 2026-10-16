@@ -108,6 +108,7 @@ const ACCESO = {
   'PUT /trabajos/:id':                 ['denegada'],
   'DELETE /trabajos/:id':              ['denegada'],
   'POST /trabajos/:id/activar':        ['denegada'],
+  'POST /trabajos/:id/volver-a-programado': ['denegada'],
   'POST /trabajos/:id/finalize':       ['denegada'],
   'GET /asignaciones/alarmas':         ['denegada'],
   'POST /asignaciones/':               ['denegada'],

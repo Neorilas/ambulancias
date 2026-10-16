@@ -57,6 +57,7 @@ const ACTION_LABEL = {
   delete_trabajo:      'Eliminó un trabajo',
   finalize_trabajo:    'Finalizó un trabajo',
   close_trabajo:       'Cerró un trabajo',
+  reprogramar_trabajo: 'Devolvió un trabajo a programado',
   activate_trabajo:    'Activó un trabajo',
   create_asignacion:   'Creó una asignación',
   update_asignacion:   'Editó una asignación',

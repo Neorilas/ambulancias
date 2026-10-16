@@ -24,6 +24,7 @@ const {
   updateTrabajo, deleteTrabajo, cerrarTrabajo, activarVehiculo, finalizeVehiculo,
   activarTrabajo, finalizeTrabajo, uploadEvidencia, misTrab,
   estadoTrabajoDesde, vistaParaUsuario, leerVehiculos, leerAmbulancias,
+  volverAProgramado, motivoNoVuelveAProgramado,
 } = require('../../../controllers/trabajos.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
 const { logAudit } = require('../../../controllers/admin.controller');
@@ -1804,6 +1805,166 @@ describe('trabajos.controller', () => {
 
       expect(next).toHaveBeenCalledWith(expect.any(Error));
       expect(next.mock.calls[0][0].message).toBe('DB down');
+    });
+  });
+
+  // ── Volver a programado (2026-10-16, TRB-2026-0040) ─────────
+  describe('volver a programado', () => {
+    const HORA = 3600000;
+    const DENTRO_DE_20H = () => new Date(Date.now() + 20 * HORA);
+    const sinEmpezar = (extra = {}) => ({
+      id: 201, vehicle_id: 7, estado: 'activa', inicio_real_at: null, llegada_servicio_at: null,
+      fin_servicio_at: null, finalizado_at: null, num_evidencias: 0, num_incidencias: 0,
+      fecha_inicio: DENTRO_DE_20H(), fecha_fin: MANANA(), matricula: '7740MZB', vehiculo_alias: 'UVI-04',
+      responsables: [{ id: 20 }], personal: [], ...extra,
+    });
+    const programada = sinEmpezar({ id: 202, vehicle_id: 8, estado: 'programada',
+      matricula: '5626MTR', vehiculo_alias: 'SVB-2', responsables: [{ id: 21 }] });
+
+    describe('motivoNoVuelveAProgramado', () => {
+      const activo = { estado: 'activo', v25: false };
+
+      it('sin nadie empezado y con las horas por venir, se puede', () => {
+        expect(motivoNoVuelveAProgramado(activo, [sinEmpezar(), programada])).toBeNull();
+      });
+
+      it('cerrado, del modelo anterior o ya programado: no', () => {
+        expect(motivoNoVuelveAProgramado({ estado: 'finalizado' }, [])).toContain('cerrado');
+        expect(motivoNoVuelveAProgramado({ estado: 'activo', v25: true }, [])).toContain('modelo anterior');
+        expect(motivoNoVuelveAProgramado({ estado: 'programado' }, [])).toContain('ya está programado');
+      });
+
+      it.each([
+        ['hora de inicio real', { inicio_real_at: AYER() }],
+        ['llegada al servicio', { llegada_servicio_at: AYER() }],
+        ['una foto', { num_evidencias: 1 }],
+        ['una incidencia', { num_incidencias: 1 }],
+        ['terminada', { estado: 'finalizada' }],
+      ])('con una ambulancia empezada (%s) no, y dice cuál', (_n, extra) => {
+        const m = motivoNoVuelveAProgramado(activo, [sinEmpezar(extra), programada]);
+        expect(m).toContain('UVI-04 (7740MZB)');
+        expect(m).toContain('ya ha empezado');
+      });
+
+      it('las canceladas no cuentan', () => {
+        expect(motivoNoVuelveAProgramado(activo,
+          [sinEmpezar(), sinEmpezar({ id: 203, estado: 'cancelada', inicio_real_at: AYER() })])).toBeNull();
+      });
+
+      it('con la hora de inicio ya pasada avisa de CUÁL, a qué hora y qué hacer', () => {
+        // 2026-10-16 10:55 UTC = 12:55 en España (CEST)
+        const m = motivoNoVuelveAProgramado(activo,
+          [sinEmpezar({ fecha_inicio: new Date('2026-10-16T10:55:00Z') }),
+           { ...programada, fecha_inicio: new Date('2026-10-17T08:00:00Z') }],
+          new Date('2026-10-16T14:51:00Z'));
+        expect(m).toContain('UVI-04 (7740MZB), el 16/10 12:55');
+        expect(m).toContain('la activará otra vez en un minuto');
+        expect(m).toContain('hora de inicio futura');
+        expect(m).not.toContain('SVB-2');
+      });
+
+      it('con varias pasadas las nombra todas', () => {
+        const m = motivoNoVuelveAProgramado(activo,
+          [sinEmpezar({ fecha_inicio: AYER() }), { ...programada, fecha_inicio: AYER() }]);
+        expect(m).toContain('UVI-04 (7740MZB)');
+        expect(m).toContain('SVB-2 (5626MTR)');
+        expect(m).toContain('Las horas de inicio');
+      });
+    });
+
+    describe('en la ficha (volver_a_programado)', () => {
+      const t = (asignaciones, extra = {}) => ({
+        id: 1, estado: 'activo', coordinador_user_id: 50, usuarios: [], vehiculos: [], evidencias: [],
+        coordinadores: [{ id: 50 }], asignaciones, ...extra });
+
+      it('solo gestión lo ve; ni el coordinador ni quien va', () => {
+        expect(vistaParaUsuario(t([sinEmpezar()]), admin).volver_a_programado).toEqual({ motivo: null });
+        expect(vistaParaUsuario(t([sinEmpezar()]), coord).volver_a_programado).toBeNull();
+        expect(vistaParaUsuario(t([sinEmpezar()]), resp1).volver_a_programado).toBeNull();
+      });
+
+      it('con alguna ambulancia empezada no se ofrece (lo normal en un trabajo activo)', () => {
+        expect(vistaParaUsuario(t([sinEmpezar({ inicio_real_at: AYER() })]), admin).volver_a_programado)
+          .toBeNull();
+      });
+
+      it('con la hora pasada se ofrece con el motivo, para enseñarlo', () => {
+        const v = vistaParaUsuario(t([sinEmpezar({ fecha_inicio: AYER() })]), admin);
+        expect(v.volver_a_programado.motivo).toContain('UVI-04 (7740MZB)');
+      });
+
+      it('una fila sin la cuenta de fotos se da por empezada (lado seguro)', () => {
+        const { num_evidencias, ...sinCuenta } = sinEmpezar();
+        expect(vistaParaUsuario(t([sinCuenta]), admin).volver_a_programado).toBeNull();
+      });
+
+      it('en un trabajo programado no se ofrece', () => {
+        expect(vistaParaUsuario(t([programada], { estado: 'programado' }), admin).volver_a_programado)
+          .toBeNull();
+      });
+    });
+
+    describe('POST /trabajos/:id/volver-a-programado', () => {
+      const fila = (extra = {}) => ['AS num_vehiculos_v25', [[{
+        id: 1, identificador: 'TRB-2026-0040', nombre: 'Traslado', estado: 'activo',
+        coordinador_user_id: 50, num_vehiculos_v25: 0, num_asignaciones: 2, ...extra }]]];
+      const ambulancias = (lista) => trabajoConAsignaciones({ asignaciones: lista });
+      const volver = async () => {
+        const res = mockRes();
+        await volverAProgramado(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        return res;
+      };
+
+      it('devuelve las activas sin empezar a programada, re-sincroniza y audita', async () => {
+        bd([fila(), ...ambulancias([sinEmpezar(), programada])]);
+        const { ejecutadas } = conexion({ asignaciones: ['programada', 'programada'] });
+        const res = await volver();
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        const upd = ejecutadas.find(e => e.sql.includes("SET estado = 'programada'"));
+        // El WHERE repite la regla: sin empezar y con la hora por venir
+        expect(upd.sql).toContain('inicio_real_at IS NULL');
+        expect(upd.sql).toContain('NOT EXISTS (SELECT 1 FROM vehicle_images');
+        expect(upd.sql).toContain('fecha_inicio > ?');
+        expect(upd.sql).toContain('aviso_sin_iniciar_at = NULL');
+        expect(upd.params[0]).toBe(1);
+        // El estado del trabajo lo pone la sincronización, con su bloqueo
+        expect(ejecutadas.some(e => e.sql.includes('FOR UPDATE'))).toBe(true);
+        expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+          action: 'reprogramar_trabajo',
+          details: expect.objectContaining({
+            identificador: 'TRB-2026-0040',
+            ambulancias: [{ asignacion_id: 201, vehiculo: '7740MZB' }],
+          }),
+        }));
+      });
+
+      it('400 con el aviso concreto si una ambulancia tiene la hora pasada, sin tocar nada', async () => {
+        bd([fila(), ...ambulancias([sinEmpezar({ fecha_inicio: AYER() }), programada])]);
+        const res = await volver();
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toContain('UVI-04 (7740MZB)');
+        expect(transaction).not.toHaveBeenCalled();
+      });
+
+      it('400 si una ya ha empezado; 400 si es del modelo anterior; 404 si no existe', async () => {
+        bd([fila(), ...ambulancias([sinEmpezar({ num_evidencias: 3 })])]);
+        expect((await volver()).status).toHaveBeenCalledWith(400);
+
+        bd([fila({ num_vehiculos_v25: 2 }), ...ambulancias([])]);
+        expect((await volver()).status).toHaveBeenCalledWith(400);
+
+        bd([]);
+        expect((await volver()).status).toHaveBeenCalledWith(404);
+      });
+
+      it('409 si una ambulancia empieza entre la comprobación y el UPDATE (no se audita)', async () => {
+        bd([fila(), ...ambulancias([sinEmpezar(), programada])]);
+        conexion({ asignaciones: ['activa', 'programada'] });
+        const res = await volver();
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(logAudit).not.toHaveBeenCalled();
+      });
     });
   });
 });

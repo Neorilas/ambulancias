@@ -80,7 +80,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` (`?search`, `?role=<rol>` o `sin-rol`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
 | `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` (`?trabajo_id=N` o `sin`, v33) · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
-| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` (una tarjeta por trabajo con `mi_asignacion`, v33; `?finalizados=1` añade los cerrados al final, §6.2) · GET `/calendario` (gestión ve todos) · GET `/mi-calendario` (lo suyo del mes, también para gestión; «Mis trabajos» → Calendario, §8) · GET `/` · CRUD `/:id` (el POST lleva `coordinador_user_id` y `asignaciones[]`, v33) · POST `/:id/cerrar` (v33: su coordinador o gestión, D3) · del modelo v25, vivas hasta la fase 6: POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos ni asignaciones**, `MANAGE_TRABAJOS`) |
+| `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` (una tarjeta por trabajo con `mi_asignacion`, v33; `?finalizados=1` añade los cerrados al final, §6.2) · GET `/calendario` (gestión ve todos) · GET `/mi-calendario` (lo suyo del mes, también para gestión; «Mis trabajos» → Calendario, §8) · GET `/` · CRUD `/:id` (el POST lleva `coordinador_user_id` y `asignaciones[]`, v33) · POST `/:id/cerrar` (v33: su coordinador o gestión, D3) · POST `/:id/volver-a-programado` (deshace una activación por error, `MANAGE_TRABAJOS`, §6.2) · del modelo v25, vivas hasta la fase 6: POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos ni asignaciones**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET con `?endpoint=` se retiró el 2026-10-12: el endpoint en la query acababa en el log de peticiones, y en PRO no se usaba desde el 22-sep) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
@@ -1867,6 +1867,41 @@ hace el backend:
   sin fotos ni incidencias, el mismo candado que el cambio de vehículo y por
   lo mismo; el `WHERE` del `UPDATE` lo repite (carrera → 409). Dejarla sin
   trabajo (`trabajo_id: null`) da 400.
+- **Volver a programada (2026-10-16).** Nada desactivaba: el cron pasa a
+  `activa` toda `programada` con la hora de inicio cumplida, y nada hacía el
+  camino de vuelta. El caso real fue el TRB-2026-0040 en PRO: una ambulancia
+  se dio de alta con el inicio **ya pasado** (hoy a las 12:55 en vez de
+  mañana; probablemente el selector de fecha del móvil propone el día de hoy y
+  solo se cambió la hora), el cron la activó al minuto, el trabajo pasó a
+  `activo`, y al moverle la hora a mañana **siguió activa**. Se arregló a mano
+  por SQL. Desde entonces, en `updateAsignacion`:
+  - una `activa` **sin empezar** (`haEmpezado`: ni `inicio_real_at`, ni
+    llegada, ni fin del evento, ni fotos, ni incidencias) vuelve sola a
+    `programada` si la edición **cambia** la `fecha_inicio` a una futura.
+    **Trampa:** el formulario manda `fecha_inicio` en todo `PUT`, la haya
+    tocado o no; por eso se compara con la guardada (a precisión de minuto:
+    `toUtcIso` corta los segundos) y editar solo las notas no mueve el estado.
+    «Futura» es **más de 2 minutos** por delante (`limiteVueltaProgramada`, el
+    mismo valor en JS y en el `WHERE`): más cerca, el cron la reactivaría casi
+    en el acto con un segundo push de «activada». `haEmpezado` da por empezada
+    una fila que no traiga ni la cuenta ni la lista de fotos e incidencias:
+    ante la duda, no se deshace;
+  - `estado: 'programada'` pedido a mano sobre una `activa` exige lo mismo, y
+    da 400 si ya ha empezado (**hasta ese día el `PUT` lo aceptaba sin mirar
+    nada**, aunque hubiera fotos) o si la hora ya ha pasado, con el texto de
+    `textoHoraPasada` (cuál, a qué hora y qué hacer);
+  - la vuelta va en un `UPDATE` **aparte** dentro de la misma transacción, con
+    `SQL_SIN_EMPEZAR` y `fecha_inicio > ahora` en el `WHERE` (la carrera con el
+    técnico que pulsa «Inicio» o sube la primera foto): pedida a mano es 409;
+    por mover la hora, se queda activa sin más. Limpia `aviso_sin_iniciar_at`
+    y sincroniza el trabajo. La respuesta lleva `vuelta_a_programada` y
+    `AsignacionForm` lo dice; el formulario avisa además, antes de guardar, de
+    una hora de inicio ya pasada (`inicioYaPasado`, `AVISO_INICIO_PASADO` en
+    `dateUtils`, también en las ambulancias del alta de `TrabajoForm`). Avisa,
+    no bloquea: dar de alta un servicio ya en marcha es legítimo.
+  - La auditoría sale sola: `update_asignacion` con `cambios.estado`.
+  - No se avisa por push de la vuelta: quien recibió el «asignación activada»
+    no se entera de que se deshizo.
 - **Estado del padre:** todo lo que cambia el estado de una asignación con
   trabajo llama a `estadoTrabajo.sincronizarEstadoTrabajo` **dentro de la
   misma transacción**: crear, activar, finalizar, cancelar o mover por `PUT`,
@@ -1960,6 +1995,28 @@ quedarse en solo lectura).
   `UPDATE` (entonces 409, no «cerrado»). Un trabajo v25 da 400 y se cierra como
   siempre: con vehículos, por ellos; sin vehículos ni coordinador, con
   `/finalize`, que pide el motivo de fin anticipado.
+- **Volver a programado (2026-10-16, decisión del usuario: botón del
+  TRABAJO, no de cada ambulancia).** Deshace una activación por error
+  (§6.1, «Volver a programada»). `POST /trabajos/:id/volver-a-programado`,
+  solo `MANAGE_TRABAJOS` (ni coordinadores ni quien va). La regla es
+  `motivoNoVuelveAProgramado`, compartida con la ficha: trabajo `activo` del
+  modelo nuevo, **ninguna ambulancia empezada ni terminada** (`haEmpezado`; lo
+  hecho no se deshace y el trabajo seguiría activo igual) y **ninguna con la
+  hora de inicio ya pasada**, porque el cron la volvería a activar en un
+  minuto (con el mismo margen de 2 minutos). En ese caso el texto dice **cuál y a qué hora** y qué hacer
+  (ponerle una hora futura con «Editar»; al guardar vuelve sola, y con ella
+  el trabajo): pedido expresamente por el usuario, que avisara de la
+  situación concreta. Lo que vuelve son las ambulancias (`UPDATE` con
+  `SQL_SIN_EMPEZAR` y la hora en el `WHERE`); el estado del trabajo lo pone
+  `sincronizarEstadoTrabajo`, nunca se escribe a mano, y si no sale
+  `programado` (alguien empezó en medio) se deshace todo con 409. Audita
+  `reprogramar_trabajo` con las ambulancias devueltas.
+  La ficha lleva `volver_a_programado`: `null` si no se ofrece (no gestión,
+  no activo, o alguna ambulancia en marcha, que es lo normal en un trabajo
+  activo: por eso no se enseña apagado en todos), o `{ motivo }`. En
+  `TrabajoDetail` el botón va junto a «Editar»; con `motivo` abre un aviso
+  («Antes hay que cambiar la hora») sin opción de seguir, y sin él, la
+  confirmación.
 - **Tras el commit del alta nada devuelve 500**: avisos y relecturas van en un
   `try/catch` que solo registra, porque un 500 con el trabajo ya creado haría
   que se reintentara y se duplicara. El formulario viejo (manda `vehiculos` y
@@ -2289,6 +2346,7 @@ solo actúa en el navegador no es un control de acceso.
 | Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |
 | Quién coordina un trabajo (uno o varios, v35) | `trabajo_coordinadores` + `coordinadores.service` (`ES_COORDINADOR`, `leerCoordinadores`, `guardarCoordinadores`) → `trabajos.controller` (`FILTRO_PROPIOS`, `getTrabajoCompleto`, `vistaParaUsuario`, `listTrabajos`, `miCalendario`, `misTrab`, `createTrabajo`, `updateTrabajo`, `cerrarTrabajo`) + `trabajos.routes` (`validarCoordinadores`) + `asignaciones.controller` (`getAsignacionCompleta`, `esCoordinador`) + `estadoTrabajo.avisarSiPendienteCierre` + `avisosAsignacion` → `utils/trabajos.js` (`coordinadoresDe`, `esCoordinadorDe`, formulario) → `TrabajoForm`, `TrabajoDetail`, `TrabajoList`, `AsignacionDetalle`. **Nunca comparar con `coordinador_user_id`**: es solo el principal (§6.2) |
+| Deshacer una activación por error (qué cuenta como «empezado», cuándo vuelve) | `haEmpezado` + `SQL_SIN_EMPEZAR` en `asignaciones.controller` (las dos a la vez: JS para decidir, SQL para el `WHERE` de la carrera) → la usan `updateAsignacion` (vuelta al mover la hora o pedida) y `trabajos.controller` (`motivoNoVuelveAProgramado`, `ofrecerVolverAProgramado` → `volver_a_programado` de la ficha, `volverAProgramado`) → `textoHoraPasada` (el aviso de cuál y a qué hora) → `TrabajoDetail` (botón y aviso) + `AsignacionForm` (`activaSinEmpezar`, `vuelta_a_programada`) + `inicioYaPasado` en `dateUtils` (aviso antes de guardar) → `reprogramar_trabajo` en `ACTION_LABEL` de `AdminPanel` (§6.1, §6.2) |
 | Cerrar un trabajo (quién, cuándo) | `trabajos.controller.cerrarTrabajo` (+ `puede_cerrar` en `vistaParaUsuario`, que tiene que decir lo mismo; los dos aceptan a cualquier coordinador) → `POST /trabajos/:id/cerrar` (clasificada `controlador` en `autorizacion-rutas.test.js`) → aviso previo `avisarTrabajoPendienteCierre` → acción `close_trabajo` en `ACTION_LABEL` de `AdminPanel` (§6.2) |
 | Responsables de un vehículo en un trabajo | v25 → `trabajos.controller` (`leerVehiculos`, `guardarResponsables`, `vistaParaUsuario`, `cargarVehiculoDelTrabajo`, `FILTRO_PROPIOS`) + `ownership.middleware` + `vehicles.controller` (`canOperacionalAccess`, listado de operacionales) → `TrabajoForm` (`ListaMiembros`) + `utils/trabajos.js`. Reglas en §6.2 |
 | El ciclo de vida por vehículo de un trabajo (v25, se retira en la fase 6) | `trabajos.controller` (`activarVehiculo`, `finalizeVehiculo`, candado de `uploadEvidencia`, `activarTrabajo`/`finalizeTrabajo` sin vehículos, `esV25`) + `estadoTrabajo.service` (`estadoTrabajoDesde`) + cron de `server.js` → `TrabajoV25` (`VehiculoTrabajo`, `CicloSinVehiculos`), `InicioTrabajo`, `Finalizacion`, `mis_vehiculos_v25` de `misTrab` → `MisTrabajos`. Los trabajos nuevos no lo usan: su ciclo es el de cada asignación. **Qué es v25 lo decide `esV25`** (lo usan `cerrarTrabajo`, `puede_cerrar` y el campo `v25` de la ficha): tocar la regla en un sitio y no en otro deja botones que dan 400 |
@@ -2325,7 +2383,7 @@ solo actúa en el navegador no es un control de acceso.
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
 | La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `urlParaMiembros` (la del trabajo, o `/mis-asignaciones` sin él), nunca `/asignaciones`. Una consulta nueva que alimente un aviso necesita `trabajo_id` y `trabajo_nombre` (como el cron y `vigilancia`), o el aviso pierde el enlace al trabajo |
-| El estado de un trabajo (qué lo mueve) | `services/estadoTrabajo.service.js` → quien lo llama: `asignaciones.controller` (create, activar, finalizar, `PUT` con estado o trabajo, delete), `trabajos.controller` (ciclo antiguo y alta) y el cron de `server.js`. Un camino nuevo que cambie el estado de una asignación con trabajo **tiene que** sincronizar dentro de su transacción y, si puede dejarlo pendiente de cierre, llamar después a `avisarSiPendienteCierre` (§6.1) |
+| El estado de un trabajo (qué lo mueve) | `services/estadoTrabajo.service.js` → quien lo llama: `asignaciones.controller` (create, activar, finalizar, `PUT` con estado o trabajo o al volver a programada, delete), `trabajos.controller` (ciclo antiguo, alta y `volverAProgramado`) y el cron de `server.js`. Un camino nuevo que cambie el estado de una asignación con trabajo **tiene que** sincronizar dentro de su transacción y, si puede dejarlo pendiente de cierre, llamar después a `avisarSiPendienteCierre` (§6.1) |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) **y** `trabajos.controller.createTrabajo` (las ambulancias del alta) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | A quién avisa que lo han puesto en un trabajo | `trabajos.controller`: `createTrabajo` (coordinadores → `avisarCoordinadorTrabajo`; equipo del trabajo que no va en ninguna ambulancia del alta y no es coordinador → `avisarEquipoTrabajo`) y `updateTrabajo` (coordinadores solo los que **entran**; equipo solo quien **entra**, sin los coordinadores nuevos). Los tres avisos al empleado (servicio, equipo, coordinador) los reparte el controlador para que nadie reciba dos por lo mismo: si se añade un camino nuevo que meta gente, repetir ese reparto. Que le llegue de verdad depende de que haya pulsado «Activar avisos» en ese teléfono (columna de dispositivos en `UserList`) y, en iPhone, del `topic` (§2.5) |
 | Cuándo se puede cambiar el vehículo de una asignación | `updateAsignacion`: candado previo **y** el `WHERE` del `UPDATE` (carrera → 409) → `motivoVehiculoBloqueado` en `AsignacionForm` → `avisarCambioVehiculo`. Las tres a la vez, o el formulario y el backend dicen cosas distintas (§6.1) |

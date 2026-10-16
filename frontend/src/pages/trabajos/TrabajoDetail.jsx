@@ -6,6 +6,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { EstadoBadge, TipoBadge } from '../../components/common/StatusBadge.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
+import Modal from '../../components/common/Modal.jsx';
 import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateUtils.js';
 import { ESTADO_LABELS } from '../../utils/constants.js';
@@ -146,6 +147,8 @@ export default function TrabajoDetail() {
   const detalleId = Number(verUrl) || null;
   const [confirmCerrar,  setConfirmCerrar]  = useState(false);
   const [cerrando,       setCerrando]       = useState(false);
+  const [confirmVolver,  setConfirmVolver]  = useState(false);
+  const [volviendo,      setVolviendo]      = useState(false);
   const [otroTrabajo,    setOtroTrabajo]    = useState(false);
 
   // Se llega aquí recién creado desde el alta (`TrabajoList` o el «Añadir
@@ -219,6 +222,24 @@ export default function TrabajoDetail() {
     }
   };
 
+  // Deshacer una activación por error (2026-10-16, TRB-2026-0040). El backend
+  // solo lo ofrece a gestión y con nadie empezado; si hay algo que arreglar
+  // antes (la hora de inicio ya pasada), lo dice en `motivo`.
+  const volverOfrecido = trabajo.volver_a_programado;
+  const volverAProgramado = async () => {
+    setVolviendo(true);
+    try {
+      setTrabajo(await trabajosService.volverAProgramado(trabajo.id));
+      notify.success('El trabajo vuelve a estar programado');
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se pudo volver a programado', 12000);
+      load();
+    } finally {
+      setVolviendo(false);
+      setConfirmVolver(false);
+    }
+  };
+
   return (
     <div className="space-y-5 animate-fade-in max-w-3xl">
       {/* Cabecera */}
@@ -232,9 +253,17 @@ export default function TrabajoDetail() {
           </div>
           <p className="text-neutral-500 text-sm mt-0.5 data">{trabajo.identificador}</p>
         </div>
-        {gestion && !cerrado && (
-          <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
-        )}
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          {volverOfrecido && (
+            <button onClick={() => setConfirmVolver(true)} className="btn-secondary text-sm"
+              data-testid="volver-a-programado">
+              Volver a programado
+            </button>
+          )}
+          {gestion && !cerrado && (
+            <button onClick={() => setShowEdit(true)} className="btn-secondary text-sm">Editar</button>
+          )}
+        </div>
       </div>
 
       {recienCreado && gestion && (
@@ -385,6 +414,30 @@ export default function TrabajoDetail() {
           id={detalleId}
           desdeTrabajo
           onClose={cerrarDetalle}
+        />
+      )}
+
+      {/* Con algo que arreglar antes, se explica qué y no se ofrece seguir */}
+      {volverOfrecido?.motivo ? (
+        <Modal isOpen={confirmVolver} onClose={() => setConfirmVolver(false)}
+          title="Antes hay que cambiar la hora" size="sm"
+          footer={
+            <button className="btn-primary w-full sm:w-auto" onClick={() => setConfirmVolver(false)}>
+              Entendido
+            </button>
+          }>
+          <p className="text-neutral-600 text-sm" data-testid="motivo-volver">{volverOfrecido.motivo}</p>
+        </Modal>
+      ) : (
+        <ConfirmDialog
+          isOpen={confirmVolver}
+          onClose={() => setConfirmVolver(false)}
+          onConfirm={volverAProgramado}
+          title="Volver a programado"
+          message={'Nadie ha empezado todavía el servicio en este trabajo. Sus ambulancias activas ' +
+            'vuelven a programadas y se activarán solas a su hora de inicio.'}
+          confirmText="Volver a programado"
+          loading={volviendo}
         />
       )}
 

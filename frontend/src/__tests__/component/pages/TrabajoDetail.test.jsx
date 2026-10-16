@@ -5,7 +5,7 @@ import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-rou
 
 vi.mock('../../../services/trabajos.service.js', () => ({
   trabajosService: {
-    get: vi.fn(), cerrar: vi.fn(),
+    get: vi.fn(), cerrar: vi.fn(), volverAProgramado: vi.fn(),
     // Modelo v25 (TrabajoV25)
     activarVehiculo: vi.fn(), activar: vi.fn(), finalize: vi.fn(),
   },
@@ -247,6 +247,50 @@ describe('TrabajoDetail', () => {
       .toBeInTheDocument();
     expect(screen.getByText('Coordinan')).toBeInTheDocument();
     expect(screen.getByText('Carla Ruiz, Pablo Gil')).toBeInTheDocument();
+  });
+
+  // 2026-10-16, TRB-2026-0040: activado por error, sin que nadie empezara
+  describe('«Volver a programado»', () => {
+    const SIN_EMPEZAR = { ...MIA, mi_rol: null, inicio_real_at: null, fecha_inicio: iso(20 * 3600e3) };
+
+    it('gestión lo devuelve tras confirmar', async () => {
+      const user = userEvent.setup();
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion', asignaciones: [SIN_EMPEZAR],
+        volver_a_programado: { motivo: null } });
+      trabajosService.volverAProgramado.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion', estado: 'programado',
+        asignaciones: [{ ...SIN_EMPEZAR, estado: 'programada' }], volver_a_programado: null });
+      montar();
+
+      await user.click(await screen.findByTestId('volver-a-programado'));
+      expect(await screen.findByText(/se activarán solas a su hora de inicio/)).toBeInTheDocument();
+      const botones = screen.getAllByRole('button', { name: 'Volver a programado' });
+      await user.click(botones[botones.length - 1]);
+      expect(trabajosService.volverAProgramado).toHaveBeenCalledWith(1);
+      // La ficha se queda con lo que devuelve el backend: ya sin el botón
+      await waitFor(() => expect(screen.queryByTestId('volver-a-programado')).not.toBeInTheDocument());
+    });
+
+    it('con la hora de inicio pasada explica qué hay que arreglar y no ofrece seguir', async () => {
+      const user = userEvent.setup();
+      comoUsuario(GESTOR);
+      const motivo = 'La hora de inicio de UVI-04 (7740MZB), el 16/10 12:55, ya ha pasado: ...';
+      trabajosService.get.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion', asignaciones: [SIN_EMPEZAR],
+        volver_a_programado: { motivo } });
+      montar();
+
+      await user.click(await screen.findByTestId('volver-a-programado'));
+      expect(await screen.findByTestId('motivo-volver')).toHaveTextContent('UVI-04 (7740MZB), el 16/10 12:55');
+      expect(screen.getByText('Antes hay que cambiar la hora')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Entendido' }));
+      expect(trabajosService.volverAProgramado).not.toHaveBeenCalled();
+    });
+
+    it('sin el campo del backend no sale (técnicos, coordinadores, trabajos en marcha)', async () => {
+      montar();
+      expect(await screen.findByText('Cobertura de la carrera')).toBeInTheDocument();
+      expect(screen.queryByTestId('volver-a-programado')).not.toBeInTheDocument();
+    });
   });
 
   it('gestión añade ambulancias desde aquí (D9)', async () => {

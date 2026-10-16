@@ -207,6 +207,25 @@ export function inicioServicioPermitidoDesde(fechaInicio) {
   return new Date(d.getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
 }
 
+/**
+ * ¿La hora tecleada en un datetime-local (hora española) ya ha pasado? Una
+ * ambulancia guardada con el inicio en el pasado la activa el cron al minuto,
+ * sin que nadie haga nada (2026-10-16, TRB-2026-0040: el selector del móvil
+ * propone el día de hoy y se cambió solo la hora). Los formularios lo avisan
+ * antes de guardar; no lo impiden, porque dar de alta un servicio que ya está
+ * en marcha es legítimo.
+ */
+export function inicioYaPasado(localStr, ahora = new Date()) {
+  if (!localStr) return false;
+  const d = new Date(`${toUtcIso(localStr)}Z`);
+  return !Number.isNaN(d.getTime()) && d <= ahora;
+}
+
+/** El aviso que acompaña a `inicioYaPasado` en los formularios. */
+export const AVISO_INICIO_PASADO =
+  'Esta hora de inicio ya ha pasado: al guardar, la ambulancia se activará sola en un minuto. ' +
+  'Si el servicio es otro día, corrige la fecha.';
+
 /** ¿Todavía es pronto para iniciar la asignación? */
 export function esProntoParaIniciar(fechaInicio, ahora = new Date()) {
   const desde = inicioServicioPermitidoDesde(fechaInicio);
