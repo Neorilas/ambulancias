@@ -1877,11 +1877,15 @@ hace el backend:
   por SQL. Desde entonces, en `updateAsignacion`:
   - una `activa` **sin empezar** (`haEmpezado`: ni `inicio_real_at`, ni
     llegada, ni fin del evento, ni fotos, ni incidencias) vuelve sola a
-    `programada` si la edición trae una `fecha_inicio` futura. **Trampa:** el
-    formulario manda `fecha_inicio` en todo `PUT`, la haya tocado o no, así que
-    basta con guardar cualquier cosa de una activa sin empezar con la hora por
-    venir. Es a propósito: ese estado solo se da por error (el cron no activa
-    antes de la hora, y «Activar» de gestión sella `inicio_real_at`);
+    `programada` si la edición **cambia** la `fecha_inicio` a una futura.
+    **Trampa:** el formulario manda `fecha_inicio` en todo `PUT`, la haya
+    tocado o no; por eso se compara con la guardada (a precisión de minuto:
+    `toUtcIso` corta los segundos) y editar solo las notas no mueve el estado.
+    «Futura» es **más de 2 minutos** por delante (`limiteVueltaProgramada`, el
+    mismo valor en JS y en el `WHERE`): más cerca, el cron la reactivaría casi
+    en el acto con un segundo push de «activada». `haEmpezado` da por empezada
+    una fila que no traiga ni la cuenta ni la lista de fotos e incidencias:
+    ante la duda, no se deshace;
   - `estado: 'programada'` pedido a mano sobre una `activa` exige lo mismo, y
     da 400 si ya ha empezado (**hasta ese día el `PUT` lo aceptaba sin mirar
     nada**, aunque hubiera fotos) o si la hora ya ha pasado, con el texto de
@@ -1999,7 +2003,7 @@ quedarse en solo lectura).
   modelo nuevo, **ninguna ambulancia empezada ni terminada** (`haEmpezado`; lo
   hecho no se deshace y el trabajo seguiría activo igual) y **ninguna con la
   hora de inicio ya pasada**, porque el cron la volvería a activar en un
-  minuto. En ese caso el texto dice **cuál y a qué hora** y qué hacer
+  minuto (con el mismo margen de 2 minutos). En ese caso el texto dice **cuál y a qué hora** y qué hacer
   (ponerle una hora futura con «Editar»; al guardar vuelve sola, y con ella
   el trabajo): pedido expresamente por el usuario, que avisara de la
   situación concreta. Lo que vuelve son las ambulancias (`UPDATE` con

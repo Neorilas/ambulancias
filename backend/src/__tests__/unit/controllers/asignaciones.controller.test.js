@@ -563,7 +563,7 @@ describe('asignaciones.controller', () => {
         query.mockResolvedValueOnce([]);                       // UPDATE principal
         if (vuelve) query.mockResolvedValueOnce([vuelve]);     // UPDATE de la vuelta
         mockAsignacionCompleta({ estado: vuelve?.affectedRows ? 'programada' : 'activa' });
-        query.mockResolvedValueOnce([[]]);                     // solapes
+        query.mockResolvedValue([[]]);   // solapes y, si cambian las fechas, ambulancia ocupada
         const res = mockRes();
         await updateAsignacion(mockReq({ params: { id: '1' }, body, user: ADMIN }), res, mockNext());
         return res;
@@ -584,6 +584,28 @@ describe('asignaciones.controller', () => {
         // El UPDATE principal no toca el estado: va aparte
         const [, p] = query.mock.calls.find(([q]) => q.includes('UPDATE asignaciones_libres SET'));
         expect(p[9]).toBeNull();
+      });
+
+      it('si la hora no cambia (el formulario la manda en todo PUT), editar no la devuelve', async () => {
+        const futura = new Date(Date.now() + 86400000);
+        futura.setUTCSeconds(0, 0);
+        const res = await editar({ notas: 'otra cosa', fecha_inicio: futura.toISOString().slice(0, 16) },
+          { fecha_inicio: futura }, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('con la hora a menos de 2 minutos no la devuelve (el cron la reactivaría en el acto)', async () => {
+        const enUnMinuto = new Date(Date.now() + 60000).toISOString().slice(0, 16);
+        const res = await editar({ fecha_inicio: enUnMinuto }, {}, null);
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(vuelta()).toBeUndefined();
+      });
+
+      it('el WHERE de la vuelta usa el mismo margen: ahora + 2 min', async () => {
+        await editar({ fecha_inicio: FUTURA });
+        const [, params] = vuelta();
+        expect(params[1].getTime() - Date.now()).toBeGreaterThan(110000);
       });
 
       it('con el servicio empezado, mover la hora no la devuelve', async () => {

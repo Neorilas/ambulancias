@@ -856,11 +856,24 @@ class EmpezoEnMedio extends Error {}
  * para el WHERE, por la carrera con el técnico.
  */
 function haEmpezado(a) {
-  const cuenta = (num, lista) => Number(num ?? (lista ? lista.length : 0)) || 0;
+  // Una fila que no trae ni la cuenta ni la lista no dice que no haya fotos:
+  // se da por empezada, que es el lado seguro (revisión del 2026-10-16)
+  const hay = (num, lista) => ((num == null && !Array.isArray(lista))
+    ? true : Number(num ?? lista.length) > 0);
   return !!(a.inicio_real_at || a.llegada_servicio_at || a.fin_servicio_at || a.finalizado_at
-    || cuenta(a.num_evidencias, a.evidencias) > 0
-    || cuenta(a.num_incidencias, a.incidencias) > 0);
+    || hay(a.num_evidencias, a.evidencias)
+    || hay(a.num_incidencias, a.incidencias));
 }
+
+/**
+ * Hasta dónde hay que mirar para que la vuelta a programada valga: una hora
+ * de inicio a menos de esto la reactivaría el cron (cada minuto) casi en el
+ * acto, con un segundo push de «activada» (revisión del 2026-10-16). Se
+ * compara contra `ahora + margen`, en JS y en el WHERE con el mismo valor.
+ */
+const MARGEN_VUELTA_PROGRAMADA_MS = 2 * 60 * 1000;
+const limiteVueltaProgramada = (instante = ahora()) =>
+  new Date(instante.getTime() + MARGEN_VUELTA_PROGRAMADA_MS);
 const SQL_SIN_EMPEZAR = `inicio_real_at IS NULL AND llegada_servicio_at IS NULL
    AND fin_servicio_at IS NULL AND finalizado_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM vehicle_images     WHERE asignacion_id = asignaciones_libres.id)
@@ -883,10 +896,10 @@ function textoHoraPasada(asigs) {
   const lista = cuales.length > 1
     ? `${cuales.slice(0, -1).join('; ')} y ${cuales[cuales.length - 1]}` : cuales[0];
   return una
-    ? `La hora de inicio de ${lista}, ya ha pasado: si vuelve a programada, el sistema la activará otra vez ` +
+    ? `La hora de inicio de ${lista}, ya ha pasado o está a punto: si vuelve a programada, el sistema la activará otra vez ` +
       'en un minuto. Ponle una hora de inicio futura con «Editar» en la ficha de la ambulancia: al guardarla, ' +
       'vuelve sola a programada.'
-    : `Las horas de inicio de estas ambulancias ya han pasado (${lista}): si vuelven a programada, el ` +
+    : `Las horas de inicio de estas ambulancias ya han pasado o están a punto (${lista}): si vuelven a programada, el ` +
       'sistema las activará otra vez en un minuto. Ponle a cada una una hora de inicio futura con «Editar» ' +
       'en su ficha: al guardarla, vuelve sola a programada.';
 }
@@ -959,8 +972,15 @@ async function updateAsignacion(req, res, next) {
     // volvería a activar al minuto. Con el servicio empezado, nunca: la hora
     // real y las fotos son la evidencia del servicio. Hasta hoy el PUT
     // aceptaba `programada` sin mirar nada de esto.
-    const inicioFuturo = instanteUtc(fecha_inicio || asig.fecha_inicio) > ahora();
+    const limiteVuelta = limiteVueltaProgramada();
+    const inicioFuturo = instanteUtc(fecha_inicio || asig.fecha_inicio) > limiteVuelta;
     const pideProgramada = estado === 'programada' && asig.estado === 'activa';
+    // La vuelta sola, solo si la hora CAMBIA: el formulario manda
+    // `fecha_inicio` en todo PUT, y editar las notas no debe mover el estado
+    // (revisión del 2026-10-16). A precisión de minuto, que es lo que manda
+    // el formulario (`toUtcIso` corta los segundos).
+    const minuto = v => Math.floor(instanteUtc(v).getTime() / 60000);
+    const cambiaInicio = !!fecha_inicio && minuto(fecha_inicio) !== minuto(asig.fecha_inicio);
     if (pideProgramada) {
       if (haEmpezado(asig)) {
         return error(res, 'No puede volver a programada: el servicio ya ha empezado (hay hora de inicio, fotos o incidencias)', 400);
@@ -970,7 +990,7 @@ async function updateAsignacion(req, res, next) {
       }
     }
     const vuelveAProgramada = pideProgramada
-      || (asig.estado === 'activa' && !estado && !!fecha_inicio && inicioFuturo && !haEmpezado(asig));
+      || (asig.estado === 'activa' && !estado && cambiaInicio && inicioFuturo && !haEmpezado(asig));
 
     // ── El trabajo (v33) ─────────────────────────────────────
     // Mover la ambulancia a otro trabajo, o meter en uno una asignación del
@@ -1065,7 +1085,7 @@ async function updateAsignacion(req, res, next) {
           const [resVuelta] = await conn.execute(
             `UPDATE asignaciones_libres SET estado = 'programada', aviso_sin_iniciar_at = NULL
               WHERE id = ? AND estado = 'activa' AND fecha_inicio > ? AND ${SQL_SIN_EMPEZAR}`,
-            [asig.id, ahora()]
+            [asig.id, limiteVuelta]
           );
           volvio = (resVuelta?.affectedRows || 0) > 0;
           if (!volvio && pideProgramada) throw new EmpezoEnMedio();
@@ -1762,6 +1782,7 @@ module.exports = {
   // «Volver a programado» del trabajo usa la misma regla que el PUT
   haEmpezado,
   SQL_SIN_EMPEZAR,
+  limiteVueltaProgramada,
   textoHoraPasada,
   nombreAmbulancia,
   // Para el alta de un trabajo con su primera ambulancia (trabajos.controller)

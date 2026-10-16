@@ -1893,6 +1893,11 @@ describe('trabajos.controller', () => {
         expect(v.volver_a_programado.motivo).toContain('UVI-04 (7740MZB)');
       });
 
+      it('una fila sin la cuenta de fotos se da por empezada (lado seguro)', () => {
+        const { num_evidencias, ...sinCuenta } = sinEmpezar();
+        expect(vistaParaUsuario(t([sinCuenta]), admin).volver_a_programado).toBeNull();
+      });
+
       it('en un trabajo programado no se ofrece', () => {
         expect(vistaParaUsuario(t([programada], { estado: 'programado' }), admin).volver_a_programado)
           .toBeNull();

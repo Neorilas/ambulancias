@@ -414,7 +414,9 @@ function motivoNoVuelveAProgramado(t, asigs, instante = ahora()) {
     return `No puede volver a programado: ${empezadas.map(asignaciones.nombreAmbulancia).join(', ')} ` +
       `ya ${una ? 'ha' : 'han'} empezado el servicio (hay hora de inicio, fotos o incidencias)`;
   }
-  const horaPasada = vivas.filter(a => instanteUtc(a.fecha_inicio) <= instante);
+  // Con el mismo margen que el PUT: una hora a punto de llegar la reactivaría el cron
+  const limite = asignaciones.limiteVueltaProgramada(instante);
+  const horaPasada = vivas.filter(a => instanteUtc(a.fecha_inicio) <= limite);
   if (horaPasada.length) return asignaciones.textoHoraPasada(horaPasada);
   return null;
 }
@@ -1601,7 +1603,7 @@ async function volverAProgramado(req, res, next) {
           `UPDATE asignaciones_libres SET estado = 'programada', aviso_sin_iniciar_at = NULL
             WHERE trabajo_id = ? AND deleted_at IS NULL AND estado = 'activa'
               AND fecha_inicio > ? AND ${asignaciones.SQL_SIN_EMPEZAR}`,
-          [id, instante]
+          [id, asignaciones.limiteVueltaProgramada(instante)]
         );
         const r = await sincronizarEstadoTrabajo(conn, id);
         if (r.estado !== TRABAJO_ESTADOS.PROGRAMADO) throw new TrabajoSeMovio();
