@@ -11,16 +11,20 @@ import { ROLES } from './constants.js';
  *   gestionan, si pueden abrirlo. Manda el rol de gestión aunque lleve además
  *   `tecnico` (los roles no son excluyentes).
  * - El resto → «Mis trabajos» en cuanto el flag esté encendido para todos (D7
- *   del trabajo padre); hasta entonces, «Mis asignaciones».
+ *   del trabajo padre); si no, «Mis asignaciones».
+ * - Si tampoco esa está encendida, «Mi perfil», que no lleva flag.
  *
- * `isFeatureEnabled` (que al superadmin le dice que sí a todo) solo decide si
- * se puede abrir `/trabajos`: si se mandara allí a quien ProtectedRoute no deja
- * pasar, lo rebotaría a `/` y de vuelta aquí, en bucle. Para «Mis trabajos» se
- * mira la lista REAL de flags, que si no al superadmin le cambiaría la portada
- * antes que a nadie.
+ * Solo se devuelve una pantalla que ProtectedRoute deje pasar a ese usuario:
+ * si no, la guardia lo rebota a `/` y de vuelta aquí, en bucle. Por eso
+ * «Trabajos» y «Mis asignaciones» se miran con `isFeatureEnabled`, el mismo
+ * criterio que la guardia. «Mis trabajos» se mira en la lista REAL de flags
+ * (que si no al superadmin le cambiaría la portada antes que a nadie); lo que
+ * está en la lista también lo deja pasar la guardia.
  */
 export function rutaPortada({ hasRole, isFeatureEnabled, features = [] }) {
   const esAdministracion = hasRole(ROLES.ADMINISTRADOR) || hasRole(ROLES.SUPERADMIN);
   if (esAdministracion && isFeatureEnabled('menu_trabajos')) return '/trabajos';
-  return features.includes('menu_mis_trabajos') ? '/mis-trabajos' : '/mis-asignaciones';
+  if (features.includes('menu_mis_trabajos')) return '/mis-trabajos';
+  if (isFeatureEnabled('menu_mis_asignaciones')) return '/mis-asignaciones';
+  return '/perfil';
 }

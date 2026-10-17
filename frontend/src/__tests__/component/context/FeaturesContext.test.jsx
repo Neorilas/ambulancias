@@ -21,10 +21,11 @@ function sesion({ isAuthenticated = true, isSuperAdmin = false } = {}) {
 }
 
 function TestConsumer() {
-  const { features, loading, isFeatureEnabled, reload } = useFeatures();
+  const { features, loading, errorCarga, isFeatureEnabled, reload } = useFeatures();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
+      <span data-testid="error">{String(errorCarga)}</span>
       <span data-testid="features">{features.join(',')}</span>
       <span data-testid="vehiculos">{String(isFeatureEnabled('menu_vehiculos'))}</span>
       <span data-testid="trabajos">{String(isFeatureEnabled('menu_trabajos'))}</span>
@@ -78,6 +79,29 @@ describe('FeaturesContext', () => {
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     expect(screen.getByTestId('features').textContent).toBe('');
     expect(screen.getByTestId('vehiculos').textContent).toBe('false');
+  });
+
+  // La portada lo usa para no confundir «no han llegado» con «todo apagado».
+  it('si la petición falla lo dice (errorCarga), y reintentar con éxito lo quita', async () => {
+    featuresService.getActive
+      .mockRejectedValueOnce(new Error('500'))
+      .mockResolvedValueOnce(['menu_vehiculos']);
+    montar();
+
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('true'));
+
+    await act(() => screen.getByText('reload').click());
+
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('false'));
+    expect(screen.getByTestId('features').textContent).toBe('menu_vehiculos');
+  });
+
+  it('si carga bien, errorCarga es false', async () => {
+    featuresService.getActive.mockResolvedValueOnce([]);
+    montar();
+
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(screen.getByTestId('error').textContent).toBe('false');
   });
 
   it('el superadmin ve todo, esté o no el flag activo', async () => {

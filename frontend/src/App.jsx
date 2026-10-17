@@ -33,11 +33,24 @@ const Facturas = lazy(() => import('./pages/facturas/Facturas.jsx'));
 /**
  * La portada: «Trabajos» para administración y «Mis trabajos» (o, con el flag
  * apagado, «Mis asignaciones») para los demás. La regla, en utils/portada.js.
+ *
+ * Si no se pudieron cargar los flags, lo dice aquí en vez de mandar a otra
+ * pantalla: con la lista vacía todo parece apagado, y a esta portada llegan
+ * también los rebotes de cualquier pantalla con flag.
  */
 function PortadaInicio() {
   const { hasRole } = useAuth();
-  const { features, isFeatureEnabled, loading } = useFeatures();
+  const { features, isFeatureEnabled, loading, errorCarga, reload } = useFeatures();
   if (loading) return <PageLoading />;
+  if (errorCarga) {
+    return (
+      <div className="empty" role="alert">
+        <p className="empty-title">No se pudo cargar la configuración</p>
+        <p className="empty-hint">Comprueba la conexión y vuelve a intentarlo</p>
+        <button onClick={reload} className="btn-secondary mt-3">Reintentar</button>
+      </div>
+    );
+  }
   return <Navigate to={rutaPortada({ hasRole, isFeatureEnabled, features })} replace />;
 }
 
@@ -234,8 +247,11 @@ export default function App() {
               />
             </Route>
 
-            {/* Catch-all */}
-            <Route path="*" element={<PortadaInicio />} />
+            {/* Catch-all: a `/`, que es donde vive la portada, dentro de la
+                guardia y del Layout. Decidir aquí, fuera de la guardia, sin
+                sesión mandaba al login recordando una pantalla que no se
+                había pedido. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
         </FeaturesProvider>
