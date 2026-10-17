@@ -217,6 +217,19 @@ export function nombresResponsables(v) {
   return nombresDe(v?.responsables);
 }
 
+/**
+ * Las ambulancias de una fila del listado (`vehiculos_nombres`, separadas por
+ * «|»), sin repetir y en castellano: «UVI-05», «UVI-04 y UVI-03»,
+ * «UVI-01, UVI-02 y SVB-1». Cadena vacía si no lleva ninguna.
+ */
+export function ambulanciasDeFila(fila) {
+  const nombres = [...new Set(
+    String(fila?.vehiculos_nombres || '').split('|').map(n => n.trim()).filter(Boolean),
+  )];
+  if (nombres.length < 2) return nombres[0] || '';
+  return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+}
+
 // ── Modelo v25 (convive hasta la fase 6; lo usa TrabajoV25) ─────────────────
 
 /**

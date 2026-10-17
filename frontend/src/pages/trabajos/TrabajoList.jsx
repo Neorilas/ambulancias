@@ -9,6 +9,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import CalendarioTrab from '../../components/calendar/CalendarioTrab.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { esDiaValido } from '../../utils/calendario.js';
+import { ambulanciasDeFila } from '../../utils/trabajos.js';
 import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import TrabajoForm from './TrabajoForm.jsx';
 
@@ -224,12 +225,15 @@ export default function TrabajoList() {
                             <span className="whitespace-nowrap">{formatDateTime(t.fecha_fin)}</span>
                           </p>
                           <p className="text-xs text-neutral-500 mt-0.5 data">{t.identificador}</p>
-                          <p className="text-xs text-neutral-400 mt-0.5">
-                            {t.num_vehiculos} ambulancia(s) · {t.num_usuarios} persona(s)
-                            {t.coordinadores_nombres && (
-                              <> · {Number(t.num_coordinadores) > 1 ? 'Coordinan' : 'Coordina'} {t.coordinadores_nombres}</>
-                            )}
-                          </p>
+                          {/* Bajo el ID, solo quién coordina y qué
+                              ambulancias van, en negro (2026-10-17: lo
+                              pidió el usuario; los recuentos de ambulancias
+                              y personas se quitaron) */}
+                          {(t.coordinadores_nombres || ambulanciasDeFila(t)) && (
+                            <p className="text-[13px] text-neutral-900 mt-0.5" data-testid="coordina-y-ambulancias">
+                              {[t.coordinadores_nombres, ambulanciasDeFila(t)].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
                         </div>
                         {canDeleteAny() && (
                           <button
