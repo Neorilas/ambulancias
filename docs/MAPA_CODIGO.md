@@ -878,7 +878,7 @@ e `images-cache` al cerrar sesión (`AuthContext.logout` y `clearAuth` de
 | Ruta | Página | Roles | Feature flag |
 |---|---|---|---|
 | `/login` | `pages/Login.jsx` | público | — |
-| `/` (y el `*`) | `PortadaInicio` en `App.jsx`: `/mis-trabajos` si `menu_mis_trabajos` está encendido **de verdad** (lista `features`, no `isFeatureEnabled`, que al superadmin le dice que sí a todo y le cambiaría la portada antes que a nadie), y si no `/mis-asignaciones`. D7 del trabajo padre. `ProtectedRoute` también rebota aquí | | |
+| `/` (y el `*`) | `PortadaInicio` en `App.jsx`, regla en `utils/portada.js` (`rutaPortada`). **Administración (administrador o superadmin, aunque lleve además `tecnico`) → `/trabajos`** (2026-10-17, lo pidió el usuario: entraban en «Mis trabajos», que es lo del técnico); el gestor no, sigue como el técnico. El resto: `/mis-trabajos` si `menu_mis_trabajos` está encendido **de verdad** (lista `features`, no `isFeatureEnabled`, que al superadmin le dice que sí a todo y le cambiaría la portada antes que a nadie), y si no `/mis-asignaciones`. D7 del trabajo padre. **Trampa:** para `/trabajos` sí se mira `isFeatureEnabled('menu_trabajos')`, el mismo criterio que `ProtectedRoute`: mandar ahí a quien la guardia no deja pasar lo rebota a `/` y de vuelta, en bucle. `ProtectedRoute` también rebota aquí, y el login sin destino también (`DESTINO_POR_DEFECTO = '/'`) | | |
 | `/mis-asignaciones` | `asignaciones/MisAsignaciones.jsx` (el detalle se abre en `?ver=<id>` con push: el atrás del móvil lo cierra; §8 «La navegación hacia atrás») | cualquiera | `menu_mis_asignaciones` |
 | `/asignaciones` | `asignaciones/AsignacionList.jsx` (`?id=<n>` abre ese detalle, que es un panel del listado y no una página —pinchar una fila lo pone con push, y el atrás del móvil lo cierra—; la columna «Nº» enseña `#id`, el mismo número que el detalle, los avisos y la ficha del vehículo — sustituyó a «Km inicio» el 2026-10-03, que casi siempre salía «—» por lo mismo que en §2.7). Página y estado también van en la URL (`?page`, `?estado`; §8 «La navegación hacia atrás») | admin, gestor, super | `menu_asignaciones` |
 | `/vehiculos` | `vehicles/VehicleList.jsx`: página, búsqueda y «Solo con incidencias» en la URL (`?page`, `?q`, `?incidencias=abiertas`; §8 «La navegación hacia atrás») | admin, gestor, super | `menu_vehiculos` |
@@ -951,7 +951,10 @@ el destino viaja en `/login?volver=` (`urlLoginVolviendo`, que quita el
 `BASE_URL` `/app/`). `?volver=` lo puede escribir cualquiera en un enlace:
 `rutaInterna` solo deja pasar rutas que empiezan por una `/` (fuera `//x`,
 `/\x`, URLs absolutas, caracteres de control y el propio `/login`); si no
-vale, `/dashboard`.
+vale, `/`, la portada, que decide por rol (`utils/portada.js`). Hasta el
+2026-10-17 era `/dashboard`: el administrador entraba en el Dashboard o en
+«Mis trabajos» según por dónde llegara al login (abrir la PWA pasa por
+`ProtectedRoute` con `from = /`; tras «Cerrar sesión», sin destino).
 
 **Tras «Cerrar sesión» no se recuerda nada** (2026-10-15, lo encontró
 probador-local al verificar v3.21.1): el gestor salía en `/perfil` y el técnico
@@ -2327,6 +2330,7 @@ solo actúa en el navegador no es un control de acceso.
 | Si cambias… | Toca |
 |---|---|
 | La versión que enseña la app | `frontend/package.json` → `version` (se sube a mano con cada cambio: mayor/menor/parche, regla en `CLAUDE.md` → «Versión») → `vite.config.js` la inyecta como `__APP_VERSION__` → `utils/version.js` (`VERSION_APP`, «desarrollo» fuera de Vite) → pie de `components/Layout/Sidebar.jsx`. El backend no la tiene: su `/health` da `commit`, y su `version` es siempre 1.0.0 (`npm_package_version` no existe con `node server.js`). |
+| La pantalla en la que se entra en la app | Solo `rutaPortada` (`utils/portada.js`), que usa `PortadaInicio` (`App.jsx`). A ella llegan `/`, el `*`, los rebotes de `ProtectedRoute` y el login sin destino (`DESTINO_POR_DEFECTO` de `utils/destinoLogin.js`). No mandar a una ruta que `ProtectedRoute` rechace para ese usuario: bucle (§3.2). La impersonación («Ver como») va aparte, a `/dashboard` (`recargarComoOtraIdentidad`) |
 | Colores grises o un fondo de panel | Si debe seguir el tema oscuro: variables de `index.css` (`:root` y `html[data-tema="oscuro"]`) + escalas de `tailwind.config.js`; paneles con `bg-superficie`. Reiniciar `npm run dev` tras tocar la config (§3.4 «Tema oscuro») |
 | Las facturas (un campo, quién las ve, el popup de subida) | Backend: `facturas.controller` (`COLUMNAS` + `DESDE`, nunca `SELECT *`) y `facturas.routes` (`ocultarSalvoRoles`). Frontend: `components/facturas/SubirFactura.jsx` lo usan **dos sitios**, la pantalla `Facturas` (proveedores) y la ficha del vehículo (`TabRevisiones`, mantenimiento, cargado con `lazy()`); lo compartido en `utils/facturas.js`. Quién las ve en la ficha va por rol (`veFacturas` en `VehicleHistory`), igual que el backend. Un chunk nuevo solo de administración, a `globIgnores` de `vite.config.js` (§2.8) |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |

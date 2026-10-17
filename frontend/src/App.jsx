@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider }         from './context/AuthContext.jsx';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { NotificationProvider } from './context/NotificationContext.jsx';
 import { FeaturesProvider, useFeatures } from './context/FeaturesContext.jsx';
 import ProtectedRoute           from './components/common/ProtectedRoute.jsx';
@@ -21,6 +21,7 @@ import Informes                 from './pages/informes/Informes.jsx';
 import MisAsignaciones          from './pages/asignaciones/MisAsignaciones.jsx';
 import Perfil                   from './pages/Perfil.jsx';
 import { ROLES, PERMISSIONS }   from './utils/constants.js';
+import { rutaPortada }          from './utils/portada.js';
 import SWUpdater                from './components/common/SWUpdater.jsx';
 import { PageLoading }          from './components/common/LoadingSpinner.jsx';
 
@@ -30,15 +31,14 @@ import { PageLoading }          from './components/common/LoadingSpinner.jsx';
 const Facturas = lazy(() => import('./pages/facturas/Facturas.jsx'));
 
 /**
- * La portada: «Mis trabajos» en cuanto Trabajos esté encendido para todos
- * (D7 del plan del trabajo padre, fase 7); hasta entonces, «Mis asignaciones».
- * Se mira la lista REAL de flags y no isFeatureEnabled, que al superadmin le
- * dice que sí a todo y le cambiaría la portada antes que a nadie.
+ * La portada: «Trabajos» para administración y «Mis trabajos» (o, con el flag
+ * apagado, «Mis asignaciones») para los demás. La regla, en utils/portada.js.
  */
 function PortadaInicio() {
-  const { features, loading } = useFeatures();
+  const { hasRole } = useAuth();
+  const { features, isFeatureEnabled, loading } = useFeatures();
   if (loading) return <PageLoading />;
-  return <Navigate to={features.includes('menu_mis_trabajos') ? '/mis-trabajos' : '/mis-asignaciones'} replace />;
+  return <Navigate to={rutaPortada({ hasRole, isFeatureEnabled, features })} replace />;
 }
 
 export default function App() {

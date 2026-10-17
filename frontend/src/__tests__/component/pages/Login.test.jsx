@@ -76,6 +76,6 @@ describe('Login: adónde vuelve', () => {
   it('un ?volver= a otro origen no saca de la app', async () => {
     montar('/login?volver=%2F%2Fevil.example%2Fx');
     await entrar();
-    expect(await screen.findByTestId('ruta')).toHaveTextContent(/^\/dashboard$/);
+    expect(await screen.findByTestId('ruta')).toHaveTextContent(/^\/$/);
   });
 });
