@@ -25,7 +25,7 @@ describe('rutaPortada', () => {
 
   it('un administrador sin «Trabajos» encendido no va a una pantalla que lo rebotaría', () => {
     expect(rutaPortada(con(['administrador'], ['menu_mis_trabajos']))).toBe('/mis-trabajos');
-    expect(rutaPortada(con(['administrador'], []))).toBe('/mis-asignaciones');
+    expect(rutaPortada(con(['administrador'], ['menu_mis_asignaciones']))).toBe('/mis-asignaciones');
   });
 
   it('el técnico y el gestor siguen en «Mis trabajos»', () => {
@@ -34,6 +34,14 @@ describe('rutaPortada', () => {
   });
 
   it('con «Mis trabajos» apagado, «Mis asignaciones»', () => {
-    expect(rutaPortada(con(['tecnico'], ['menu_trabajos']))).toBe('/mis-asignaciones');
+    expect(rutaPortada(con(['tecnico'], ['menu_mis_asignaciones']))).toBe('/mis-asignaciones');
+  });
+
+  // «Mis asignaciones» también lleva flag (apagado en PRO): mandar allí con él
+  // apagado rebotaba a `/` y de vuelta, en bucle. El perfil no lleva flag.
+  it('con las dos apagadas, al perfil, no a una pantalla que lo rebotaría', () => {
+    expect(rutaPortada(con(['tecnico'], ['menu_trabajos']))).toBe('/perfil');
+    expect(rutaPortada(con(['gestor'], []))).toBe('/perfil');
+    expect(rutaPortada(con(['administrador'], []))).toBe('/perfil');
   });
 });

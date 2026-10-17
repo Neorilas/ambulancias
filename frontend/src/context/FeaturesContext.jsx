@@ -15,18 +15,25 @@ export function FeaturesProvider({ children }) {
   // un enlace a una pantalla con flag.
   const [cargadoConSesion, setCargadoConSesion] = useState(false);
   const loading = isAuthenticated && !cargadoConSesion;
+  // Si la carga falla, la lista se queda vacía y todo parece apagado. La
+  // portada no puede distinguir eso de «todo apagado de verdad» sin esto, y
+  // con ello mandaría a una pantalla que la guardia rechaza: enseña el error.
+  const [errorCarga, setErrorCarga] = useState(false);
 
   const load = useCallback(async () => {
     if (!isAuthenticated) {
       setFeatures([]);
       setCargadoConSesion(false);
+      setErrorCarga(false);
       return;
     }
     try {
       const active = await featuresService.getActive();
       setFeatures(active);
+      setErrorCarga(false);
     } catch {
       setFeatures([]);
+      setErrorCarga(true);
     } finally {
       setCargadoConSesion(true);
     }
@@ -42,7 +49,7 @@ export function FeaturesProvider({ children }) {
   const reload = useCallback(() => load(), [load]);
 
   return (
-    <FeaturesContext.Provider value={{ features, loading, isFeatureEnabled, reload }}>
+    <FeaturesContext.Provider value={{ features, loading, errorCarga, isFeatureEnabled, reload }}>
       {children}
     </FeaturesContext.Provider>
   );
