@@ -194,23 +194,35 @@ describe('TrabajoList: la lista sobrevive a abrir un trabajo', () => {
   });
 });
 
-describe('TrabajoList: quién coordina', () => {
-  const fila = (coordinadores_nombres) => ({
+describe('TrabajoList: coordinador y ambulancias bajo el ID', () => {
+  const fila = (coordinadores_nombres, vehiculos_nombres) => ({
     id: 7, nombre: 'Maratón', estado: 'activo', tipo: 'traslado', identificador: 'T-7',
     fecha_inicio: '2026-10-11T08:00:00Z', fecha_fin: '2026-10-11T10:00:00Z',
-    num_vehiculos: 1, num_usuarios: 2, coordinadores_nombres,
-    num_coordinadores: coordinadores_nombres.split(', ').length,
+    num_vehiculos: 2, num_usuarios: 2, coordinadores_nombres, vehiculos_nombres,
+    num_coordinadores: (coordinadores_nombres || '').split(', ').length,
   });
 
   beforeEach(() => vi.clearAllMocks());
 
   it.each([
-    ['uno', 'Carla Ruiz', /Coordina Carla Ruiz/],
-    ['varios (v35)', 'Carla Ruiz, Pablo Gil', /Coordinan Carla Ruiz, Pablo Gil/],
-  ])('con %s, los nombra', async (_n, nombres, texto) => {
-    trabajosService.list.mockResolvedValue({ data: [fila(nombres)], pagination: { total: 1, totalPages: 1 } });
+    ['un coordinador y una ambulancia', 'Carla Ruiz', 'UVI-05', 'Carla Ruiz · UVI-05'],
+    ['varios coordinadores (v35) y dos ambulancias', 'Carla Ruiz, Pablo Gil', 'UVI-04|UVI-03',
+      'Carla Ruiz, Pablo Gil · UVI-04 y UVI-03'],
+    ['solo ambulancias', null, 'UVI-04|UVI-03', 'UVI-04 y UVI-03'],
+    ['solo coordinador', 'Carla Ruiz', '', 'Carla Ruiz'],
+  ])('con %s, solo eso', async (_n, coordinadores, vehiculos, texto) => {
+    trabajosService.list.mockResolvedValue({ data: [fila(coordinadores, vehiculos)], pagination: { total: 1, totalPages: 1 } });
     montar('/trabajos');
-    expect(await screen.findByText(texto)).toBeInTheDocument();
+    expect((await screen.findByTestId('coordina-y-ambulancias')).textContent).toBe(texto);
+    // Los recuentos ya no salen
+    expect(screen.queryByText(/ambulancia\(s\)|persona\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it('sin coordinador ni ambulancias, no pinta la línea', async () => {
+    trabajosService.list.mockResolvedValue({ data: [fila(null, '')], pagination: { total: 1, totalPages: 1 } });
+    montar('/trabajos');
+    await screen.findByText('Maratón');
+    expect(screen.queryByTestId('coordina-y-ambulancias')).not.toBeInTheDocument();
   });
 });
 

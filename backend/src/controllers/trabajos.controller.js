@@ -635,6 +635,16 @@ async function listTrabajos(req, res, next) {
               (SELECT COUNT(*) FROM asignaciones_libres a
                 WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada')
               + (SELECT COUNT(*) FROM trabajo_vehiculos tv WHERE tv.trabajo_id = t.id) AS num_vehiculos,
+              -- Sus nombres, para la tarjeta del listado (2026-10-17). Van
+              -- con «|» porque un alias puede llevar coma; puede repetirse
+              -- una ambulancia (dos turnos) y la PWA lo junta
+              CONCAT_WS('|',
+                (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR '|')
+                   FROM asignaciones_libres a JOIN vehicles v ON v.id = a.vehicle_id
+                  WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada'),
+                (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY tv.id SEPARATOR '|')
+                   FROM trabajo_vehiculos tv JOIN vehicles v ON v.id = tv.vehicle_id
+                  WHERE tv.trabajo_id = t.id)) AS vehiculos_nombres,
               -- Personas distintas: el equipo del trabajo y, además, quien
               -- vaya en una ambulancia sin estar en él
               (SELECT COUNT(*) FROM trabajo_usuarios tu WHERE tu.trabajo_id = t.id)

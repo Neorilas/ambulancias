@@ -3,7 +3,7 @@ import {
   estaCerrado, formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
   asociadosDeTrabajo, asociadosDeFormulario, coordinadoresDe, esCoordinadorDe,
-  accionesVehiculo, vehiculosConAcciones,
+  accionesVehiculo, vehiculosConAcciones, ambulanciasDeFila,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -260,5 +260,16 @@ describe('utils/trabajos', () => {
     ] };
     expect(vehiculosConAcciones(t).map(v => v.vehicle_id)).toEqual([7]);
     expect(vehiculosConAcciones(null)).toEqual([]);
+  });
+
+  it('ambulanciasDeFila: las nombra con «y», sin repetir', () => {
+    expect(ambulanciasDeFila({ vehiculos_nombres: 'UVI-05' })).toBe('UVI-05');
+    expect(ambulanciasDeFila({ vehiculos_nombres: 'UVI-04|UVI-03' })).toBe('UVI-04 y UVI-03');
+    expect(ambulanciasDeFila({ vehiculos_nombres: 'UVI-01|UVI-02|SVB, 1' })).toBe('UVI-01, UVI-02 y SVB, 1');
+    // La misma ambulancia en dos turnos sale una vez
+    expect(ambulanciasDeFila({ vehiculos_nombres: 'UVI-04|UVI-03|UVI-04' })).toBe('UVI-04 y UVI-03');
+    expect(ambulanciasDeFila({ vehiculos_nombres: '' })).toBe('');
+    expect(ambulanciasDeFila({})).toBe('');
+    expect(ambulanciasDeFila(null)).toBe('');
   });
 });
