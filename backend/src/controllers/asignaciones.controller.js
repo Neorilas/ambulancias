@@ -23,6 +23,7 @@ const avisos                     = require('../services/avisosAsignacion.service
 const vigilancia                 = require('../services/vigilancia.service');
 const estadoTrabajo              = require('../services/estadoTrabajo.service');
 const coordinadores              = require('../services/coordinadores.service');
+const jornadasSrv                = require('../services/jornadas.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -223,8 +224,16 @@ async function getAsignacionCompleta(id) {
   if (!rows.length) return null;
 
   const asig = trabajoAparte(rows[0]);
-  // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera
-  if (asig.trabajo) asig.trabajo.coordinadores = await coordinadores.coordinadoresDe(asig.trabajo_id);
+  asig.horario_propio = !!Number(asig.horario_propio);
+  // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera.
+  // Y sus jornadas por día (v39), que solo existen dentro de un trabajo. Las
+  // dos consultas solo con trabajo: los tests antiguos encolan las respuestas
+  // por orden y las asignaciones sin trabajo no las hacen.
+  asig.jornadas = [];
+  if (asig.trabajo) {
+    asig.trabajo.coordinadores = await coordinadores.coordinadoresDe(asig.trabajo_id);
+    asig.jornadas = await jornadasSrv.jornadasDe(id);
+  }
 
   // Quién va en la asignación: responsables (activan, evidencian y cierran) y
   // personal (solo la ven). Ver v23 en migrations.js.
@@ -416,13 +425,13 @@ function fueraDelTrabajo(trabajo, fechaInicio, fechaFin) {
  */
 async function insertarAsignacion(conn, datos, creadoPor) {
   const { trabajo_id = null, vehicle_id, responsables, personal = [],
-          fecha_inicio, fecha_fin, km_inicio, notas } = datos;
+          fecha_inicio, fecha_fin, km_inicio, notas, horario_propio = false } = datos;
   const [result] = await conn.execute(
     `INSERT INTO asignaciones_libres
-       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id, horario_propio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [vehicle_id, responsables[0], creadoPor, fecha_inicio, fecha_fin,
-     km_inicio || null, notas || null, trabajo_id]
+     km_inicio || null, notas || null, trabajo_id, horario_propio ? 1 : 0]
   );
   await guardarMiembros(conn, result.insertId, responsables, personal);
   return result.insertId;
@@ -768,11 +777,21 @@ async function createAsignacion(req, res, next) {
       }
     }
 
+    // Jornadas por día (v39): con `horario`, las suyas propias; sin él, las
+    // del trabajo que caen en sus fechas. Solo dentro de un trabajo.
+    const { horario, error: errHor } = jornadasSrv.leerHorario(req.body.horario, { fecha_inicio, fecha_fin });
+    if (errHor) return error(res, errHor, 400);
+    if (horario !== undefined && !trabajoId) {
+      return error(res, 'El horario por días solo existe en una ambulancia de un trabajo', 400);
+    }
+
     const asignacionId = await transaction(async (conn) => {
       const id = await insertarAsignacion(conn, {
         trabajo_id: trabajoId, vehicle_id, responsables, personal,
-        fecha_inicio, fecha_fin, km_inicio, notas,
+        fecha_inicio, fecha_fin, km_inicio, notas, horario_propio: horario !== undefined,
       }, req.user.id);
+      if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, id, horario);
+      else if (trabajoId) await jornadasSrv.heredarDelTrabajo(conn, id, trabajoId, fecha_inicio, fecha_fin);
       // Una ambulancia nueva puede devolver a «activo» un trabajo pendiente
       // de cierre, o dejarlo programado si es la primera.
       if (trabajoId) await estadoTrabajo.sincronizarEstadoTrabajo(conn, trabajoId);
@@ -826,6 +845,8 @@ function cambiosAsignacion(antes, despues) {
     estado:       [a => a.estado],
     responsables: [a => nombres(a.responsables)],
     personal:     [a => nombres(a.personal)],
+    horario_propio: [a => !!a.horario_propio],
+    horario:      [a => jornadasSrv.resumenHorario(a.jornadas)],
   };
   const cambios = {};
   for (const [campo, [leer]] of Object.entries(campos)) {
@@ -1024,6 +1045,26 @@ async function updateAsignacion(req, res, next) {
     const tocaPadre = asig.trabajo_id || cambiaTrabajo;
     const sincronizados = [];
 
+    // ── Jornadas por día (v39) ───────────────────────────────
+    // `horario` = horario propio (aunque venga vacío); `horario_propio: false`
+    // = volver a seguir el del trabajo. Sin ninguno de los dos, si la
+    // ambulancia sigue al trabajo y cambian sus fechas o su trabajo, se
+    // recalculan las suyas. Lo fichado no se borra nunca (jornadas.service).
+    const fechaIniFinal = fecha_inicio || asig.fecha_inicio;
+    const fechaFinFinal = fecha_fin    || asig.fecha_fin;
+    const { horario, error: errHor } = jornadasSrv.leerHorario(req.body.horario,
+      { fecha_inicio: fechaIniFinal, fecha_fin: fechaFinFinal });
+    if (errHor) return error(res, errHor, 400);
+    const trabajoFinal = cambiaTrabajo ? Number(trabajoPedido) : asig.trabajo_id;
+    if (horario !== undefined && !trabajoFinal) {
+      return error(res, 'El horario por días solo existe en una ambulancia de un trabajo', 400);
+    }
+    const propioFinal = horario !== undefined ? true
+      : req.body.horario_propio === false ? false : asig.horario_propio;
+    const cambiaFin = !!fecha_fin && minuto(fecha_fin) !== minuto(asig.fecha_fin);
+    const reheredar = trabajoFinal && !propioFinal
+      && (asig.horario_propio || cambiaInicio || cambiaFin || cambiaTrabajo);
+
     const kmNuevo = km_inicio !== undefined ? km_inicio : null;
     let volvio = false;
     try {
@@ -1077,6 +1118,16 @@ async function updateAsignacion(req, res, next) {
           throw new VehiculoConEvidencia();
         }
         if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
+
+        if (propioFinal !== asig.horario_propio) {
+          await conn.execute('UPDATE asignaciones_libres SET horario_propio = ? WHERE id = ?',
+            [propioFinal ? 1 : 0, asig.id]);
+        }
+        if (horario !== undefined) {
+          await jornadasSrv.aplicarJornadas(conn, asig.id, horario);
+        } else if (reheredar) {
+          await jornadasSrv.heredarDelTrabajo(conn, asig.id, trabajoFinal, fechaIniFinal, fechaFinFinal);
+        }
 
         // El WHERE repite la regla de arriba con la fecha ya guardada: si el
         // técnico acaba de pulsar «Inicio» o subir una foto, no vuelve. Pedida

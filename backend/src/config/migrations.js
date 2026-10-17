@@ -1302,6 +1302,63 @@ const MIGRATIONS = [
              AFTER km_proximo_mantenimiento`);
     },
   },
+
+  {
+    name: 'v39_jornadas',
+    description: 'Jornadas por día: horario del trabajo y lo que ficha cada ambulancia',
+    async run() {
+      // Un trabajo de varios días tiene un horario por día (uno o varios
+      // tramos). Es la plantilla: sus ambulancias lo heredan y cada una
+      // ficha SUS jornadas en asignacion_jornadas. Fechas en UTC, como todo
+      // (utils/fecha.utils.js). Ver services/jornadas.service.js.
+      await query(`CREATE TABLE IF NOT EXISTS trabajo_jornadas (
+        id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        trabajo_id INT UNSIGNED NOT NULL,
+        inicio     DATETIME NOT NULL COMMENT 'Inicio previsto del tramo (UTC)',
+        fin        DATETIME NOT NULL COMMENT 'Fin previsto del tramo (UTC)',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        INDEX idx_tj_trabajo (trabajo_id, inicio),
+        CONSTRAINT fk_tj_trabajo FOREIGN KEY (trabajo_id)
+          REFERENCES trabajos(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Lo que ficha el responsable de cada ambulancia. CASCADE: la
+      // retención borra la asignación y se lleva sus jornadas.
+      await query(`CREATE TABLE IF NOT EXISTS asignacion_jornadas (
+        id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        asignacion_id  INT UNSIGNED NOT NULL,
+        inicio         DATETIME NOT NULL COMMENT 'Inicio previsto (UTC)',
+        fin            DATETIME NOT NULL COMMENT 'Fin previsto (UTC)',
+        inicio_real_at DATETIME NULL DEFAULT NULL COMMENT 'Botón «Inicio de jornada»',
+        inicio_por     INT UNSIGNED NULL DEFAULT NULL,
+        fin_real_at    DATETIME NULL DEFAULT NULL COMMENT 'Botón «Fin de jornada» o cierre automático',
+        fin_por        INT UNSIGNED NULL DEFAULT NULL,
+        motivo_fin     TEXT NULL,
+        cierre_auto    TINYINT(1) NOT NULL DEFAULT 0
+                       COMMENT '1 = se cerró sola a su hora prevista al iniciar la siguiente',
+        aviso_sin_iniciar_at DATETIME NULL DEFAULT NULL
+                       COMMENT 'Candado del push de jornada sin iniciar',
+        created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        INDEX idx_aj_asignacion (asignacion_id, inicio),
+        INDEX idx_aj_vigilancia (inicio_real_at, inicio),
+        CONSTRAINT fk_aj_asignacion FOREIGN KEY (asignacion_id)
+          REFERENCES asignaciones_libres(id) ON DELETE CASCADE,
+        CONSTRAINT fk_aj_inicio_por FOREIGN KEY (inicio_por)
+          REFERENCES users(id) ON DELETE SET NULL,
+        CONSTRAINT fk_aj_fin_por FOREIGN KEY (fin_por)
+          REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // 0 = sus jornadas siguen al horario del trabajo; 1 = horario propio,
+      // cambiar el del trabajo no lo toca.
+      await ensureColumn('asignaciones_libres', 'horario_propio',
+        `ALTER TABLE asignaciones_libres
+           ADD COLUMN horario_propio TINYINT(1) NOT NULL DEFAULT 0
+             COMMENT '1 = jornadas propias, no siguen al horario del trabajo'`);
+    },
+  },
 ];
 
 // ============================================================

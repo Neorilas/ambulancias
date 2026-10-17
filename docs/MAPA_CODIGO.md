@@ -140,6 +140,7 @@ de los listados, cuatro parámetros). El estado derivado vive en
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo. Con trabajo (v33) el texto lo nombra («en «Maratón»») y la url es la del trabajo (`urlAsignacion`/`urlParaMiembros`). Incluye `avisarTrabajoPendienteCierre` (a todos los coordinadores) y `avisarCoordinadorTrabajo` (acepta una lista: a los que entran) |
 | `services/coordinadores.service.js` | Los coordinadores de un trabajo (v35, §6.2): `ES_COORDINADOR` (fragmento SQL, un parámetro, la tabla se tiene que llamar `t`), `NOMBRES_COORDINADORES` (para listados), `leerCoordinadores` (body nuevo `coordinadores` o viejo `coordinador_user_id`), `cambiarPrincipal`, `idsCoordinadores`, `coordinadoresDe` y `guardarCoordinadores` (lista + principal en la misma transacción). Vive fuera de los controladores porque lo leen trabajos, asignaciones y `estadoTrabajo.service`, y en un controlador crearía una dependencia circular |
+| `services/jornadas.service.js` | Jornadas por día (v39, §6.1 «Jornadas por día»): `leerHorario` (valida el horario del body: ordenado, sin solapes, ≤ 24 h por tramo, dentro de las fechas), `tramosDentro` (lo que hereda una ambulancia según sus fechas), `horarioDelTrabajo`/`guardarHorarioTrabajo` (la plantilla), `jornadasDe`, `aplicarJornadas` (rehace las no fichadas, **nunca borra una fichada**), `propagarHorarioDelTrabajo`, `heredarDelTrabajo` y `resumenHorario` (auditoría). Fuera de los controladores por lo mismo que `coordinadores.service` |
 | `services/estadoTrabajo.service.js` | El estado DERIVADO de un trabajo (v33): `sincronizarEstadoTrabajo` (lee sus asignaciones; si no tiene, `trabajo_vehiculos` del modelo v25), `estadoTrabajoDesdeAsignaciones`, `estadoTrabajoDesde` (el antiguo) y `avisarSiPendienteCierre`. Un único sitio porque lo cambian asignaciones, trabajos y el cron (§6.1) |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
 | `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
@@ -1301,7 +1302,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1313,6 +1314,8 @@ vehicles 1─N asignaciones_libres (user_id = responsable PRINCIPAL, created_by 
 trabajos 1─N asignaciones_libres (trabajo_id, v33; NULL = asignación del modelo antiguo)
 trabajos N─1 users (coordinador_user_id, v33: el coordinador PRINCIPAL, orden 0 de la lista)
 trabajos N:M users (trabajo_coordinadores, v35: orden; TODOS ven todas las ambulancias y cierran)
+trabajos 1─N trabajo_jornadas (v39: el horario por días, plantilla; CASCADE)
+asignaciones_libres 1─N asignacion_jornadas (v39: lo que se ficha cada día; CASCADE)
 asignaciones_libres N:M users (asignacion_usuarios: rol responsable|personal, orden)
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
@@ -1379,7 +1382,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v38_aviso_mantenimiento_km**. (En alguna BD local puede
+Última migración: **v39_jornadas**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1718,6 +1721,47 @@ No bloquea nada ni avisa a nadie: es una marca para revisar.
   reescribe. La ficha del trabajo (`getTrabajoCompleto`) y `MisAsignaciones`
   no la llevan: las ven coordinadores y técnicos. Dentro del trabajo sale al
   abrir la ambulancia (`AsignacionDetalle`), y solo a la oficina.
+
+**Jornadas por día (v39, 2026-10-17).** Pedido del usuario a raíz de CONGRESO
+SEVILLA (TRB-2026-0034, 3 días) y MANIOBRAS CHINCHILLA (TRB-2026-0041, con el
+horario de cada día escrito a mano en las notas, turno partido incluido): una
+ambulancia de varios días era UNA asignación con un solo juego de sellos, y las
+«Horas de asignación» del informe salían de 61 h con las noches dentro.
+Decisiones del usuario:
+- El administrador define un **horario por día** en el trabajo (uno o varios
+  tramos; el turno partido es opcional). Lo **heredan todas** sus ambulancias
+  y se puede **personalizar en cada una** (`horario_propio`).
+- Cada tramo, el responsable pulsa «Inicio de jornada» / «Fin de jornada», sin
+  fotos. Las fotos de inicio van una vez (el primer día, en base) y las de fin
+  con «Finalizar asignación» el último, como siempre. En una asignación con
+  jornadas, la jornada **sustituye** a «Inicio/Fin evento/servicio».
+- Horas de asignación = **suma de jornadas** (los viajes no cuentan).
+Modelo: `trabajo_jornadas` es la plantilla (lo que se ve y se edita en el
+trabajo); `asignacion_jornadas` son las filas que ficha cada ambulancia. Las
+fechas son instantes UTC y el «día» es la fecha española del inicio, así que un
+tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
+- **Una jornada fichada no se borra nunca** (su hora real es la evidencia).
+  Cambiar el horario rehace las no fichadas; si un tramo nuevo cae encima de
+  una fichada, se le mueve la hora prevista en vez de duplicarla.
+- Una ambulancia que sigue al trabajo (`horario_propio = 0`) recibe solo los
+  tramos que tocan **sus** fechas (`tramosDentro`): la que va dos de tres días
+  hereda dos. Se recalcula al crearla, al cambiarle fechas o trabajo y al
+  cambiar el horario del trabajo (`propagarHorarioDelTrabajo`, solo
+  `programada`/`activa`). Con horario propio no se toca nada de eso.
+- API: `horario: [{inicio, fin}]` en el trabajo (`POST`/`PUT /trabajos`) y en
+  cada ambulancia del alta (`asignaciones[].horario`, con él es propia); en
+  `POST`/`PUT /asignaciones`, `horario` (= propio, aunque venga vacío) y
+  `horario_propio: false` (= volver a seguir al trabajo). Sin el campo no se
+  toca nada. Solo dentro de un trabajo (400 en una suelta). Cada tramo dentro
+  de las fechas de quien lo lleva (400). Validador de ruta solo de forma
+  (`isISO8601`); orden, solapes y fechas, `leerHorario`.
+- Lectura: `getTrabajoCompleto` → `horario`, y `jornadas` +
+  `horario_propio` por ambulancia (`leerAsignacionesDelTrabajo`; de una ajena
+  no salen: `ambulanciaAjena` es lista blanca). `getAsignacionCompleta` →
+  `jornadas` (consulta solo si tiene trabajo, como los coordinadores).
+- Auditoría: `create_trabajo` lleva `horario`; `update_trabajo`,
+  `horario_antes`/`horario` si cambió; `update_asignacion`, `cambios.horario` y
+  `cambios.horario_propio` (`cambiosAsignacion`).
 
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
@@ -2346,6 +2390,7 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
+| El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo`) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
 | Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |

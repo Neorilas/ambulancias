@@ -142,6 +142,8 @@ function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
       // Sin AUTO_INCREMENT, MySQL devuelve insertId 0
       if (sql.startsWith('INSERT INTO trabajo_coordinadores')) return [{ insertId: 0, affectedRows: 1 }];
       if (sql.startsWith('INSERT')) return [{ insertId: insertId++ }];
+      // El resto de lecturas (jornadas, v39): sin filas
+      if (sql.trimStart().startsWith('SELECT')) return [[]];
       return [{ affectedRows: 1 }];
     }),
   };
@@ -760,7 +762,8 @@ describe('trabajos.controller', () => {
     it('por defecto, las fechas del trabajo; el equipo va como personal', () => {
       const { ambulancias } = leerAmbulancias([{ vehicle_id: '7', responsables: [20], personal: [30], notas: '  ' }], TRAB);
       expect(ambulancias).toEqual([{ vehicle_id: 7, responsables: [20], personal: [30],
-        fecha_inicio: TRAB.fecha_inicio, fecha_fin: TRAB.fecha_fin, km_inicio: null, notas: null }]);
+        fecha_inicio: TRAB.fecha_inicio, fecha_fin: TRAB.fecha_fin, km_inicio: null, notas: null,
+        horario_propio: false }]);
     });
     it.each([
       ['no es lista', 'x', 'debe ser una lista'],
@@ -818,10 +821,10 @@ describe('trabajos.controller', () => {
       expect(insTrab.params[8]).toBe(50);
 
       const insAsig = ejecutadas.find(e => e.sql.includes('INSERT INTO asignaciones_libres'));
-      // vehículo, principal = primer responsable, …, trabajo_id el último
+      // vehículo, principal = primer responsable, …, trabajo_id y horario_propio al final
       expect(insAsig.params[0]).toBe(7);
       expect(insAsig.params[1]).toBe(20);
-      expect(insAsig.params[insAsig.params.length - 1]).toBe(10);
+      expect(insAsig.params.slice(-2)).toEqual([10, 0]);
       const miembros = ejecutadas.find(e => e.sql.includes('INSERT INTO asignacion_usuarios'));
       expect(miembros.params).toEqual([11, 20, 'responsable', 0, 11, 21, 'responsable', 1, 11, 30, 'personal', 0]);
       expect(ejecutadas.find(e => e.sql.includes('UPDATE trabajos SET estado')).params[0]).toBe('programado');
@@ -1965,6 +1968,143 @@ describe('trabajos.controller', () => {
         expect(res.status).toHaveBeenCalledWith(409);
         expect(logAudit).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('horario por días (v39)', () => {
+    const BODY = {
+      nombre: 'Congreso', tipo: 'cobertura_evento',
+      fecha_inicio: '2026-10-20 06:00:00', fecha_fin: '2026-10-22 22:00:00',
+      coordinador_user_id: 50,
+      horario: [
+        { inicio: '2026-10-20T08:00', fin: '2026-10-20T20:00' },
+        { inicio: '2026-10-21T08:00', fin: '2026-10-21T20:00' },
+        { inicio: '2026-10-22T08:00', fin: '2026-10-22T20:00' },
+      ],
+      asignaciones: [
+        // sigue al trabajo, pero solo va el 21 y el 22
+        { vehicle_id: 7, responsables: [20], fecha_inicio: '2026-10-21 06:00:00' },
+        // horario propio: un solo tramo el 20
+        { vehicle_id: 8, responsables: [21],
+          horario: [{ inicio: '2026-10-20T09:00', fin: '2026-10-20T13:00' }] },
+      ],
+    };
+    const reglas = [
+      ['SELECT id FROM vehicles WHERE id IN', (params) => [params.map(id => ({ id }))]],
+      ['FROM users', (params) => [params.map(id => ({ id }))]],
+      ...trabajoConAsignaciones(),
+    ];
+
+    it('el alta guarda la plantilla y da a cada ambulancia sus jornadas', async () => {
+      bd(reglas);
+      const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada', 'programada'] });
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: BODY, user: admin }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(ejecutadas.filter(e => e.sql.includes('INSERT INTO trabajo_jornadas'))).toHaveLength(3);
+      const asigs = ejecutadas.filter(e => e.sql.includes('INSERT INTO asignaciones_libres'));
+      expect(asigs.map(e => e.params[e.params.length - 1])).toEqual([0, 1]);
+      const porAsig = ejecutadas.filter(e => e.sql.includes('INSERT INTO asignacion_jornadas'))
+        .map(e => e.params[0]);
+      // La primera hereda los dos días en que va; la segunda lleva el suyo
+      const cuantas = [...new Set(porAsig)].map(id => porAsig.filter(x => x === id).length);
+      expect(cuantas).toEqual([2, 1]);
+      expect(logAudit.mock.calls[0][0].details.horario).toHaveLength(3);
+    });
+
+    it('400 si un tramo cae fuera de las fechas del trabajo', async () => {
+      bd(reglas);
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: { ...BODY,
+        horario: [{ inicio: '2026-10-23T08:00', fin: '2026-10-23T20:00' }] }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('fuera de las fechas');
+    });
+
+    it('400 si el horario propio de una ambulancia se sale de sus fechas', async () => {
+      bd(reglas);
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: { ...BODY, asignaciones: [{ vehicle_id: 7, responsables: [20],
+        fecha_inicio: '2026-10-21 06:00:00',
+        horario: [{ inicio: '2026-10-20T09:00', fin: '2026-10-20T13:00' }] }] }, user: admin }),
+      res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    describe('al editar', () => {
+      const existente = ['AS num_asignaciones', [[{ id: 1, estado: 'programado',
+        fecha_inicio: new Date('2026-10-20T06:00:00Z'), fecha_fin: new Date('2026-10-22T22:00:00Z'),
+        coordinador_user_id: 50, num_asignaciones: 1 }]]];
+      const editar = async (body) => {
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' }, body, user: admin }), res, mockNext());
+        return res;
+      };
+
+      it('un horario nuevo se guarda, se lleva a las ambulancias que lo siguen y se audita', async () => {
+        bd([existente, ['FROM trabajo_jornadas', [[]]], ...reglas]);
+        const { ejecutadas } = conexion();
+        const res = await editar({ horario: BODY.horario });
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_jornadas'))).toBe(true);
+        expect(ejecutadas.some(e => e.sql.includes('horario_propio = 0'))).toBe(true);
+        const det = logAudit.mock.calls[0][0].details;
+        expect(det.horario_antes).toEqual([]);
+        expect(det.horario).toHaveLength(3);
+      });
+
+      it('el mismo horario no reescribe nada', async () => {
+        const guardado = BODY.horario.map((t, i) => ({ id: i + 1,
+          inicio: new Date(`${t.inicio}Z`), fin: new Date(`${t.fin}Z`) }));
+        bd([existente, ['FROM trabajo_jornadas', [guardado]], ...reglas]);
+        const { ejecutadas } = conexion();
+        const res = await editar({ horario: BODY.horario });
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(ejecutadas.some(e => e.sql.includes('trabajo_jornadas'))).toBe(false);
+        expect(logAudit.mock.calls[0][0].details.horario).toBeUndefined();
+      });
+
+      it('sin horario en el body no se toca', async () => {
+        bd([existente, ...reglas]);
+        const { ejecutadas } = conexion();
+        await editar({ nombre: 'Otro' });
+        expect(ejecutadas.some(e => e.sql.includes('jornadas'))).toBe(false);
+      });
+
+      it('valida el horario contra las fechas nuevas', async () => {
+        bd([existente, ...reglas]);
+        const res = await editar({ fecha_fin: '2026-10-21 22:00:00', horario: BODY.horario });
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+    });
+
+    it('la ficha trae el horario y las jornadas de cada ambulancia', async () => {
+      bd([
+        ['FROM trabajo_jornadas', [[{ id: 1, inicio: new Date('2026-10-20T08:00:00Z'), fin: new Date('2026-10-20T20:00:00Z') }]]],
+        ['FROM asignacion_jornadas j', [[{ id: 5, asignacion_id: 201, inicio: AYER(), fin: MANANA(), cierre_auto: 0 }]]],
+        ...trabajoConAsignaciones(),
+      ]);
+      const res = mockRes();
+      await getTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+      const t = res._json.data;
+      expect(t.horario).toHaveLength(1);
+      expect(t.asignaciones.find(a => a.id === 201).jornadas).toEqual([
+        expect.objectContaining({ id: 5, cierre_auto: false })]);
+      expect(t.asignaciones.find(a => a.id === 202).jornadas).toEqual([]);
+    });
+
+    it('de una ambulancia ajena no se ven sus jornadas', async () => {
+      bd([
+        ['FROM asignacion_jornadas j', [[{ id: 5, asignacion_id: 202, inicio: AYER(), fin: MANANA(), cierre_auto: 0 }]]],
+        ...trabajoConAsignaciones(),
+      ]);
+      const res = mockRes();
+      // Eva va en la 201: la 202 le es ajena
+      await getTrabajo(mockReq({ params: { id: '1' }, user: equipo }), res, mockNext());
+      expect(res._json.data.asignaciones.find(a => a.id === 202).jornadas).toBeUndefined();
     });
   });
 });

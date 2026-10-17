@@ -36,6 +36,7 @@ const { SQL_FIJAR_PROXIMO_MANTENIMIENTO } = require('../utils/mantenimiento.util
 const estadoTrabajo                   = require('../services/estadoTrabajo.service');
 const avisos                          = require('../services/avisosAsignacion.service');
 const coordinadores                   = require('../services/coordinadores.service');
+const jornadas                        = require('../services/jornadas.service');
 const asignaciones                    = require('./asignaciones.controller');
 const logger                          = require('../utils/logger.utils');
 
@@ -227,7 +228,7 @@ async function leerAsignacionesDelTrabajo(id) {
   const [asigs] = await query(
     `SELECT al.id, al.vehicle_id, al.user_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
-            al.km_inicio, al.km_fin, al.notas,
+            al.km_inicio, al.km_fin, al.notas, al.horario_propio,
             v.matricula, v.alias AS vehiculo_alias,
             -- Para «Volver a programado» (haEmpezado): ¿hay alguna prueba del servicio?
             (SELECT COUNT(*) FROM vehicle_images vi WHERE vi.asignacion_id = al.id) AS num_evidencias,
@@ -256,12 +257,25 @@ async function leerAsignacionesDelTrabajo(id) {
      WHERE al.trabajo_id = ? AND al.deleted_at IS NULL`,
     [id]
   );
+  // Las jornadas de cada ambulancia (v39). Son de la ambulancia: a quien no
+  // va en ella no le llegan (`ambulanciaAjena` es lista blanca)
+  const [filasJornadas] = await query(
+    `SELECT j.id, j.asignacion_id, j.inicio, j.fin, j.inicio_real_at, j.fin_real_at, j.cierre_auto
+     FROM asignacion_jornadas j
+     JOIN asignaciones_libres al ON al.id = j.asignacion_id
+     WHERE al.trabajo_id = ? AND al.deleted_at IS NULL
+     ORDER BY j.inicio, j.id`,
+    [id]
+  );
   const persona = ({ asignacion_id, rol, ...p }) => p;
   return asigs.map(a => ({
     ...a,
+    horario_propio: !!Number(a.horario_propio),
     responsables: miembros.filter(m => m.asignacion_id === a.id && m.rol === 'responsable').map(persona),
     personal:     miembros.filter(m => m.asignacion_id === a.id && m.rol === 'personal').map(persona),
     progreso_fotos: progresoDe(fotos.filter(f => f.asignacion_id === a.id)),
+    jornadas: (filasJornadas || []).filter(j => j.asignacion_id === a.id)
+      .map(({ asignacion_id, cierre_auto, ...j }) => ({ ...j, cierre_auto: !!Number(cierre_auto) })),
   }));
 }
 
@@ -287,6 +301,8 @@ async function getTrabajoCompleto(id) {
     ? { id: t.coordinador_user_id, nombre: coordinador_nombre, apellidos: coordinador_apellidos }
     : null;
   t.asignaciones = await leerAsignacionesDelTrabajo(id);
+  // El horario por días (v39): la plantilla que heredan sus ambulancias
+  t.horario = await jornadas.horarioDelTrabajo(id);
 
   const [vehicles] = await query(
     `SELECT tv.id AS trabajo_vehiculo_id, tv.vehicle_id, tv.responsable_user_id,
@@ -844,6 +860,10 @@ function leerAmbulancias(lista, trabajo) {
     if (instanteUtc(fecha_fin) <= instanteUtc(fecha_inicio)) {
       return { error: 'La hora de fin de cada ambulancia debe ser posterior a la de inicio' };
     }
+    // Sin `horario`, la ambulancia sigue el del trabajo; con él (aunque sea
+    // vacío), tiene el suyo propio (v39)
+    const propio = jornadas.leerHorario(amb.horario, { fecha_inicio, fecha_fin });
+    if (propio.error) return { error: propio.error };
     ambulancias.push({
       vehicle_id: vehicleId,
       responsables: miembros.responsables,
@@ -851,6 +871,8 @@ function leerAmbulancias(lista, trabajo) {
       fecha_inicio, fecha_fin,
       km_inicio: amb.km_inicio ?? null,
       notas: textoOpcional(amb.notas) ?? null,
+      horario: propio.horario,
+      horario_propio: propio.horario !== undefined,
     });
   }
   if (new Set(ambulancias.map(a => a.vehicle_id)).size !== ambulancias.length) {
@@ -887,6 +909,9 @@ async function createTrabajo(req, res, next) {
     if (!coordIds) return error(res, 'Falta el coordinador del trabajo', 400);
     const { ambulancias, error: errAmb } = leerAmbulancias(req.body.asignaciones, { fecha_inicio, fecha_fin });
     if (errAmb) return error(res, errAmb, 400);
+    // El horario por días (v39), opcional: lo heredan las ambulancias sin uno propio
+    const { horario, error: errHor } = jornadas.leerHorario(req.body.horario, { fecha_inicio, fecha_fin });
+    if (errHor) return error(res, errHor, 400);
 
     // El equipo del trabajo: la gente asignada, vaya o no en una ambulancia
     const equipo = [...new Set(idsDe(req.body.usuarios) || [])];
@@ -927,9 +952,14 @@ async function createTrabajo(req, res, next) {
         await conn.execute(
           'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)', [nuevoId, userId]);
       }
+      if (horario?.length) await jornadas.guardarHorarioTrabajo(conn, nuevoId, horario);
       const ids = [];
       for (const amb of ambulancias) {
-        ids.push(await asignaciones.insertarAsignacion(conn, { ...amb, trabajo_id: nuevoId }, req.user.id));
+        const asigId = await asignaciones.insertarAsignacion(conn, { ...amb, trabajo_id: nuevoId }, req.user.id);
+        const suyas = amb.horario_propio ? amb.horario
+          : jornadas.tramosDentro(horario, amb.fecha_inicio, amb.fecha_fin);
+        if (suyas?.length) await jornadas.aplicarJornadas(conn, asigId, suyas);
+        ids.push(asigId);
       }
       await sincronizarEstadoTrabajo(conn, nuevoId);
       return { trabajoId: nuevoId, asignacionIds: ids };
@@ -977,7 +1007,8 @@ async function createTrabajo(req, res, next) {
       entityType: 'trabajo', entityId: trabajoId,
       details:  { identificador: t?.identificador, nombre, tipo,
                   coordinadores: coordIds, ambulancias: ambulancias.length,
-                  equipo: equipo.length },
+                  equipo: equipo.length,
+                  ...(horario?.length && { horario: jornadas.resumenHorario(horario) }) },
       ip: req.ip,
     });
     return created(res, t ? { ...vistaParaUsuario(t, req.user), avisos_alta: avisosAlta } : { id: trabajoId },
@@ -1042,6 +1073,16 @@ async function updateTrabajo(req, res, next) {
 
     const { vehiculos, error: errVeh } = leerVehiculos(req.body.vehiculos);
     if (errVeh) return error(res, errVeh, 400);
+
+    // El horario por días (v39): si viene, sustituye al que hay y se lleva a
+    // las ambulancias que lo siguen, sin tocar lo ya fichado
+    const { horario, error: errHor } = jornadas.leerHorario(req.body.horario,
+      { fecha_inicio: inicio, fecha_fin: fin });
+    if (errHor) return error(res, errHor, 400);
+    const horarioAntes = horario !== undefined
+      ? jornadas.resumenHorario(await jornadas.horarioDelTrabajo(id)) : null;
+    const horarioNuevo = horario !== undefined ? jornadas.resumenHorario(horario) : null;
+    const cambiaHorario = horario !== undefined && JSON.stringify(horarioAntes) !== JSON.stringify(horarioNuevo);
 
     const equipo = idsDe(usuarios);
     if (equipo && equipo.some(id => !Number.isInteger(id) || id < 1)) {
@@ -1144,6 +1185,11 @@ async function updateTrabajo(req, res, next) {
         await sincronizarEstadoTrabajo(conn, id);
       }
 
+      if (cambiaHorario) {
+        await jornadas.guardarHorarioTrabajo(conn, id, horario);
+        await jornadas.propagarHorarioDelTrabajo(conn, id, horario);
+      }
+
       if (equipo !== undefined) {
         await conn.execute('DELETE FROM trabajo_usuarios WHERE trabajo_id = ?', [id]);
         for (const userId of equipo) {
@@ -1176,7 +1222,8 @@ async function updateTrabajo(req, res, next) {
       entityType: 'trabajo', entityId: id,
       // Quién coordina decide quién ve y cierra el trabajo: queda dicho
       details:  { nombre: t.nombre, estado: t.estado,
-                  ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }) },
+                  ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }),
+                  ...(cambiaHorario && { horario_antes: horarioAntes, horario: horarioNuevo }) },
       ip: req.ip,
     });
     return success(res, t, 'Trabajo actualizado');
