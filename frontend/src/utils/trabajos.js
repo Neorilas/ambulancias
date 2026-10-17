@@ -15,7 +15,7 @@ import { toInputDatetime, toUtcIso, formatDateTimeShort } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
-import { horarioDesdeApi, horarioAPayload, errorHorario } from './jornadas.js';
+import { horarioDesdeApi, horarioAPayload, errorHorario, resumenJornadas } from './jornadas.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -154,6 +154,12 @@ export function siguientePaso(a) {
   if (!a || a.estado === 'finalizada' || a.estado === 'cancelada') return null;
   if (!a.inicio_real_at) return 'Inicio de la asignación';
   if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Fotos de inicio';
+  // Con horario por días (v39), cada día «Inicio/Fin de jornada» en vez del evento
+  const j = resumenJornadas(a);
+  if (j.total) {
+    if (j.enCurso) return 'Fin de jornada';
+    return j.hechas < j.total ? 'Inicio de jornada' : 'Finalizar asignación';
+  }
   if (!a.llegada_servicio_at) return 'Inicio evento/servicio';
   if (!a.fin_servicio_at) return 'Fin evento/servicio';
   return 'Finalizar asignación';
@@ -169,6 +175,10 @@ export function textoEstadoAmbulancia(a) {
     default:
       if (!a.inicio_real_at) return 'Sin iniciar';
       if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Iniciada · faltan fotos de inicio';
+      if (resumenJornadas(a).total) {
+        const j = resumenJornadas(a);
+        return j.enCurso ? `En jornada · ${j.hechas + 1} de ${j.total}` : `Jornadas: ${j.hechas} de ${j.total} hechas`;
+      }
       if (a.fin_servicio_at) return 'De vuelta a base';
       if (a.llegada_servicio_at) return 'En el evento/servicio';
       return 'En camino';

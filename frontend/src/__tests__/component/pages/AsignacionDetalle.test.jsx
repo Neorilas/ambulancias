@@ -3,7 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
-  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn() },
+  asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn(),
+    iniciarJornada: vi.fn(), finalizarJornada: vi.fn() },
 }));
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn().mockResolvedValue({ data: [] }) },
@@ -618,3 +619,94 @@ describe('AsignacionDetalle — su trabajo', () => {
     expect(screen.queryByTestId('trabajo-de-asignacion')).not.toBeInTheDocument();
   });
 });
+
+// Jornadas por día (v39): «Inicio/Fin de jornada» sustituyen a la pareja del evento
+describe('AsignacionDetalle — jornadas por día', () => {
+  const H = 3600000;
+  const en = (h) => new Date(Date.now() + h * H).toISOString();
+  const jornada = (id, desdeH, hastaH, over = {}) => ({
+    id, inicio: en(desdeH), fin: en(hastaH), inicio_real_at: null, fin_real_at: null, cierre_auto: false, ...over,
+  });
+  const ACTIVA = {
+    ...BASE, estado: 'activa', finalizado_at: null, llegada_servicio_at: null, fin_servicio_at: null,
+    fecha_inicio: en(-30), fecha_fin: en(40), inicio_real_at: en(-30),
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }], personal: [],
+    progreso: { inicio: { completado: 7, total: 7, completo: true }, fin: { completado: 0, total: 7 } },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 2, username: 'jlopez', roles: ['tecnico'], permissions: [] }));
+  });
+
+  it('ofrece «Inicio de jornada» y no los botones del evento; la barra tiene tres pasos', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16) }), jornada(11, 0.2, 10)] });
+    asignacionesService.iniciarJornada.mockResolvedValue({ ...ACTIVA, jornadas: [] });
+    montar();
+
+    const boton = await screen.findByRole('button', { name: 'Inicio de jornada' });
+    expect(boton).toHaveClass('btn-primary');
+    expect(screen.queryByRole('button', { name: 'Inicio evento/servicio' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toHaveClass('btn-secondary');
+    const barra = screen.getByTestId('pasos-asignacion');
+    expect(barra.querySelectorAll('li')).toHaveLength(3);
+    expect(barra.querySelector('[aria-current="step"]')).toHaveTextContent('1 de 2');
+    expect(screen.getByTestId('lista-jornadas')).toBeInTheDocument();
+
+    fireEvent.click(boton);
+    await waitFor(() => expect(asignacionesService.iniciarJornada).toHaveBeenCalledWith(5, 11));
+  });
+
+  it('con una en curso: «Fin de jornada», y no deja finalizar la asignación', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(11, -2, 0.2, { inicio_real_at: en(-2) })] });
+    asignacionesService.finalizarJornada.mockResolvedValue({ ...ACTIVA, jornadas: [] });
+    montar();
+
+    const boton = await screen.findByRole('button', { name: 'Fin de jornada' });
+    expect(screen.queryByRole('button', { name: 'Finalizar asignación' })).not.toBeInTheDocument();
+    fireEvent.click(boton);
+    await waitFor(() => expect(asignacionesService.finalizarJornada).toHaveBeenCalledWith(5, 11, null));
+  });
+
+  it('más de 30 min antes del fin previsto pide el motivo y lo manda', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(11, -2, 3, { inicio_real_at: en(-2) })] });
+    asignacionesService.finalizarJornada.mockResolvedValue({ ...ACTIVA, jornadas: [] });
+    montar();
+
+    const boton = await screen.findByRole('button', { name: 'Fin de jornada' });
+    expect(boton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/por qué terminas antes/), { target: { value: 'Se suspende la tarde' } });
+    fireEvent.click(boton);
+    await waitFor(() => expect(asignacionesService.finalizarJornada).toHaveBeenCalledWith(5, 11, 'Se suspende la tarde'));
+  });
+
+  it('con la siguiente ya disponible y la anterior olvidada, avisa de que se cerrará sola', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26) }), jornada(11, 0.2, 10)] });
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Inicio de jornada' })).toBeInTheDocument();
+    expect(screen.getByText(/se cerrará sola a su hora prevista/)).toBeInTheDocument();
+  });
+
+  it('antes de la media hora previa, el botón espera y dice desde cuándo', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA, jornadas: [jornada(11, 5, 15)] });
+    montar();
+
+    expect(await screen.findByRole('button', { name: /^Inicio de jornada · desde/ })).toBeDisabled();
+  });
+
+  it('la lista marca la que se cerró sola para revisar', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA, estado: 'finalizada', finalizado_at: en(-1),
+      jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16), cierre_auto: true })] });
+    montar();
+
+    expect(await screen.findByText('Se cerró sola · a revisar')).toBeInTheDocument();
+  });
+});
+

@@ -1798,6 +1798,23 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
   como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por
   acabar cinco minutos antes, no (decisión del usuario).
+- **Pantalla del responsable:** en `AsignacionDetalle` la tarjeta de la
+  jornada del momento sale de `accionJornada` (`utils/jornadas.js`, misma
+  regla que el backend): `inicio` si la siguiente ya está en su media hora
+  previa (aunque haya una abierta: avisa de que se cerrará sola), `fin` si hay
+  una abierta (con motivo si `finJornadaAnticipado`, y `forzarMotivoJornada`
+  si el servidor lo pide), `esperar` (botón apagado «desde dd/MM HH:mm»).
+  Con jornadas no salen las tarjetas del evento, y «Finalizar asignación» va en
+  secundario mientras quede jornada y **no sale con una abierta** (el backend
+  da 400). Debajo de las horas, `ListaJornadas`: previsto, real, «No consta»,
+  «Pendiente», «Se cerró sola · a revisar» y el motivo. La barra de pasos pasa
+  a tres (Inicio → «Jornadas n de m» → Finalizar; `pasosAsignacion`, clases de
+  columnas escritas enteras en `PasosAsignacion` por la purga de Tailwind).
+  «Tu ambulancia» de `TrabajoDetail` y la tarjeta de `MisTrabajos` usan
+  `siguientePaso`/`textoEstadoAmbulancia` con `resumenJornadas`, que lee la
+  lista de la ficha o el resumen que trae `misTrab` (`num_jornadas`,
+  `jornadas_hechas`, `en_jornada`). `FIN_JORNADA_ANTICIPADO_MINUTOS` en
+  `frontend/utils/constants.js` es espejo de `INICIO_TARDIO_MINUTOS`.
 - Con jornadas, `/llegada` y `/fin-servicio` dan 400
   (`MSG_FICHA_POR_JORNADAS`): la jornada los sustituye. `finalizarAsignacion`
   da 400 con una jornada abierta: cerrarla sola le pondría la hora de base.
@@ -2432,7 +2449,7 @@ solo actúa en el navegador no es un control de acceso.
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo`) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
 | El editor del horario por días | `utils/jornadas.js` (formato de días y tramos ↔ API, validación espejo de `leerHorario`) → `components/trabajos/HorarioJornadas.jsx` → `TrabajoForm` (trabajo y ambulancias del alta, vía `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`), `AsignacionForm` y la ficha en `TrabajoDetail`. Si cambia una regla del horario, cambiarla también en `jornadas.service.leerHorario` (§6.1 «Jornadas por día») |
-| Fichar una jornada (ventana, motivo, olvido) | `asignaciones.controller` (`cargarJornada`, `iniciarJornada`, `finalizarJornada`; la guarda en `registrarLlegada`/`registrarFinServicio`/`finalizarAsignacion`) + rutas en `asignaciones.routes` (clasificadas en `ACCESO` de `autorizacion-rutas.test.js`) + `avisarInicioJornada`/`avisarFinJornada` + `ACTION_LABEL` de `AdminPanel`. Los cortes son `INICIO_ANTICIPADO_MAX_MINUTOS` (inicio) e `INICIO_TARDIO_MINUTOS` (motivo de fin) (§6.1 «Jornadas por día») |
+| Fichar una jornada (ventana, motivo, olvido) | Frontend: `accionJornada`/`finJornadaAnticipado`/`resumenJornadas` (`utils/jornadas.js`) → `AsignacionDetalle` (tarjeta y `ListaJornadas`), `pasosAsignacion`, `siguientePaso`/`textoEstadoAmbulancia` (+ el resumen de `misTrab`). Backend: `asignaciones.controller` (`cargarJornada`, `iniciarJornada`, `finalizarJornada`; la guarda en `registrarLlegada`/`registrarFinServicio`/`finalizarAsignacion`) + rutas en `asignaciones.routes` (clasificadas en `ACCESO` de `autorizacion-rutas.test.js`) + `avisarInicioJornada`/`avisarFinJornada` + `ACTION_LABEL` de `AdminPanel`. Los cortes son `INICIO_ANTICIPADO_MAX_MINUTOS` (inicio) e `INICIO_TARDIO_MINUTOS` (motivo de fin) (§6.1 «Jornadas por día») |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
 | Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |

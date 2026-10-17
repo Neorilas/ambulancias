@@ -1866,6 +1866,13 @@ async function misTrab(req, res, next) {
       const [mias] = await query(
         `SELECT a.trabajo_id, a.id, a.estado, a.fecha_inicio, a.fecha_fin, a.inicio_real_at,
                 a.llegada_servicio_at, a.fin_servicio_at,
+                -- Jornadas por día (v39): cuántas, cuántas cerradas y si hay
+                -- una en curso, para que la tarjeta diga en qué punto está
+                (SELECT COUNT(*) FROM asignacion_jornadas j WHERE j.asignacion_id = a.id) AS num_jornadas,
+                (SELECT COUNT(*) FROM asignacion_jornadas j
+                  WHERE j.asignacion_id = a.id AND j.fin_real_at IS NOT NULL) AS jornadas_hechas,
+                EXISTS (SELECT 1 FROM asignacion_jornadas j WHERE j.asignacion_id = a.id
+                          AND j.inicio_real_at IS NOT NULL AND j.fin_real_at IS NULL) AS en_jornada,
                 v.matricula, v.alias AS vehiculo_alias, au.rol,
                 (SELECT GROUP_CONCAT(CONCAT(ru.nombre, ' ', ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                    FROM asignacion_usuarios ra JOIN users ru ON ru.id = ra.user_id
@@ -1880,8 +1887,10 @@ async function misTrab(req, res, next) {
       );
       for (const m of mias) {
         if (!porTrabajo.has(m.trabajo_id)) {
-          const { trabajo_id, rol, ...resto } = m;
-          porTrabajo.set(trabajo_id, { ...resto, mi_rol: rol === 'responsable' ? 'responsable' : 'equipo' });
+          const { trabajo_id, rol, num_jornadas, jornadas_hechas, en_jornada, ...resto } = m;
+          porTrabajo.set(trabajo_id, { ...resto, mi_rol: rol === 'responsable' ? 'responsable' : 'equipo',
+            num_jornadas: Number(num_jornadas || 0), jornadas_hechas: Number(jornadas_hechas || 0),
+            en_jornada: !!Number(en_jornada) });
         }
       }
     }

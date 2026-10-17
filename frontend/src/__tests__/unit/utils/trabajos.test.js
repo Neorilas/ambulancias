@@ -164,6 +164,10 @@ describe('utils/trabajos', () => {
       ['de camino', {}, 'Inicio evento/servicio'],
       ['en el evento', { llegada_servicio_at: 'x' }, 'Fin evento/servicio'],
       ['de vuelta', { llegada_servicio_at: 'x', fin_servicio_at: 'y' }, 'Finalizar asignación'],
+      // Jornadas por día (v39): en vez del evento, cada día su jornada
+      ['con jornadas, ninguna en curso', { num_jornadas: 3, jornadas_hechas: 1 }, 'Inicio de jornada'],
+      ['con una jornada en curso', { jornadas: [{ inicio_real_at: 'x' }] }, 'Fin de jornada'],
+      ['con todas las jornadas hechas', { num_jornadas: 2, jornadas_hechas: 2 }, 'Finalizar asignación'],
       ['finalizada', { estado: 'finalizada' }, null],
       ['cancelada', { estado: 'cancelada' }, null],
     ])('siguientePaso %s → %s', (_n, extra, esperado) => {
@@ -178,6 +182,8 @@ describe('utils/trabajos', () => {
       ['sin progreso', { progreso_fotos: undefined }, /^En camino$/],
       ['en el evento', { llegada_servicio_at: 'x' }, /^En el evento\/servicio$/],
       ['de vuelta', { llegada_servicio_at: 'x', fin_servicio_at: 'y' }, /^De vuelta a base$/],
+      ['en jornada', { num_jornadas: 3, jornadas_hechas: 1, en_jornada: true }, /^En jornada · 2 de 3$/],
+      ['entre jornadas', { num_jornadas: 3, jornadas_hechas: 1 }, /^Jornadas: 1 de 3 hechas$/],
       ['finalizada', { estado: 'finalizada' }, /^Finalizada$/],
     ])('textoEstadoAmbulancia %s', (_n, extra, esperado) => {
       expect(textoEstadoAmbulancia({ ...base, ...extra })).toMatch(esperado);

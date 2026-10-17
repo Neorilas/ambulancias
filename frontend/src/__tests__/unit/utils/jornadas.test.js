@@ -3,6 +3,7 @@ import {
   diasEntre, cruzaDias, rellenarDias, horarioDesdeApi, horarioAPayload, errorHorario,
   horarioDentro, horarioDelTrabajoPara, pasaMedianoche, etiquetaDia, textoTramos,
   situacionJornada, jornadaDelMomento, cuentaJornadas, textoJornada,
+  accionJornada, inicioJornadaDesde, finJornadaAnticipado, resumenJornadas,
 } from '../../../utils/jornadas.js';
 
 const dia = (d, ...tramos) => ({ dia: d, tramos: tramos.map(([desde, hasta]) => ({ desde, hasta })) });
@@ -126,4 +127,43 @@ describe('utils/jornadas', () => {
       expect(cuentaJornadas(null)).toEqual({ hechas: 0, total: 0 });
     });
   });
+
+  describe('accionJornada y compañía (qué botón toca)', () => {
+    const j = (id, inicio, fin, over = {}) => ({ id, inicio, fin, inicio_real_at: null, fin_real_at: null, ...over });
+    const D21 = j(2, '2026-10-21T08:00:00Z', '2026-10-21T18:00:00Z');
+    const D22 = j(3, '2026-10-22T08:00:00Z', '2026-10-22T18:00:00Z');
+
+    it('antes de la media hora previa: esperar; dentro: inicio', () => {
+      expect(accionJornada([D21], new Date('2026-10-21T07:00:00Z')).principal).toBe('esperar');
+      expect(accionJornada([D21], new Date('2026-10-21T07:30:00Z')).principal).toBe('inicio');
+      expect(inicioJornadaDesde(D21).toISOString()).toBe('2026-10-21T07:30:00.000Z');
+    });
+
+    it('con una en curso: fin; si la siguiente ya se puede, inicio (la abierta se cerrará sola)', () => {
+      const abierta = { ...D21, inicio_real_at: '2026-10-21T08:00:00Z' };
+      const tarde = accionJornada([abierta, D22], new Date('2026-10-21T17:00:00Z'));
+      expect(tarde).toMatchObject({ principal: 'fin', abierta, siguiente: D22 });
+      expect(accionJornada([abierta, D22], new Date('2026-10-22T07:45:00Z')).principal).toBe('inicio');
+    });
+
+    it('sin nada que fichar: null', () => {
+      const hecha = { ...D21, inicio_real_at: 'x', fin_real_at: 'y' };
+      expect(accionJornada([hecha], new Date('2026-10-22T00:00:00Z')).principal).toBeNull();
+      expect(accionJornada(undefined).principal).toBeNull();
+    });
+
+    it('el fin pide motivo solo más de 30 min antes de lo previsto', () => {
+      expect(finJornadaAnticipado(D21, new Date('2026-10-21T17:00:00Z'))).toBe(true);
+      expect(finJornadaAnticipado(D21, new Date('2026-10-21T17:31:00Z'))).toBe(false);
+    });
+
+    it('resumenJornadas lee la ficha o la tarjeta de «Mis trabajos»', () => {
+      expect(resumenJornadas({ jornadas: [{ ...D21, inicio_real_at: 'x' }, D22] }))
+        .toEqual({ total: 2, hechas: 0, enCurso: true });
+      expect(resumenJornadas({ num_jornadas: 3, jornadas_hechas: 1, en_jornada: false }))
+        .toEqual({ total: 3, hechas: 1, enCurso: false });
+      expect(resumenJornadas(null)).toEqual({ total: 0, hechas: 0, enCurso: false });
+    });
+  });
 });
+

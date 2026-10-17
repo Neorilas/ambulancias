@@ -10,6 +10,7 @@
  * enseña como «no consta», no como pendientes.
  */
 import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from './constants.js';
+import { resumenJornadas, accionJornada } from './jornadas.js';
 
 export const PASOS_ASIGNACION = [
   { clave: 'inicio',     titulo: 'Inicio de la asignación', donde: 'En base, con fotos', campo: 'inicio_real_at' },
@@ -17,6 +18,13 @@ export const PASOS_ASIGNACION = [
   { clave: 'fin_evento', titulo: 'Fin evento/servicio',     donde: 'Al irte del lugar',  campo: 'fin_servicio_at',     opcional: true },
   { clave: 'cierre',     titulo: 'Finalizar asignación',    donde: 'En base, con fotos', campo: 'finalizado_at' },
 ];
+
+/**
+ * Con horario por días (v39), los dos del evento se cambian por uno solo,
+ * «Jornadas»: cada día se ficha «Inicio/Fin de jornada» y la barra dice
+ * cuántas van de cuántas.
+ */
+const PASO_JORNADAS = { clave: 'jornadas', titulo: 'Jornadas', donde: 'Cada día, en el sitio' };
 
 // ¿Están las fotos de inicio? La ficha trae `progreso` y la de un trabajo
 // `progreso_fotos`; sin ninguno de los dos no se sabe y no se le pone pega.
@@ -30,18 +38,29 @@ function fotosInicioCompletas(asig) {
  * la `hora` a la que se hizo y, si toca, un `aviso` («Faltan fotos»).
  * Una cancelada no tiene pasos (null).
  */
-export function pasosAsignacion(asig) {
+export function pasosAsignacion(asig, ahora = new Date()) {
   if (!asig || asig.estado === 'cancelada') return null;
   const cerrada = asig.estado === 'finalizada';
+  const jornadas = resumenJornadas(asig);
+  const lista = jornadas.total
+    ? [PASOS_ASIGNACION[0], PASO_JORNADAS, PASOS_ASIGNACION[3]]
+    : PASOS_ASIGNACION;
 
-  const hechos = PASOS_ASIGNACION.map(p => {
+  const hechos = lista.map(p => {
     if (p.clave === 'cierre') return cerrada;
     if (p.clave === 'inicio') return cerrada || (!!asig.inicio_real_at && fotosInicioCompletas(asig));
+    // Las jornadas, hechas cuando ya no queda ninguna por fichar y alguna se fichó
+    if (p.clave === 'jornadas') {
+      const quedan = Array.isArray(asig.jornadas)
+        ? !!accionJornada(asig.jornadas, ahora).principal
+        : jornadas.enCurso || jornadas.hechas < jornadas.total;
+      return jornadas.hechas > 0 && (cerrada || !quedan);
+    }
     return !!asig[p.campo];
   });
   const actual = cerrada ? -1 : hechos.indexOf(false);
 
-  return PASOS_ASIGNACION.map((p, i) => {
+  return lista.map((p, i) => {
     let situacion;
     if (hechos[i]) situacion = 'hecho';
     else if (cerrada) situacion = 'no_consta';
@@ -51,6 +70,9 @@ export function pasosAsignacion(asig) {
     // Pulsó «Inicio de la asignación» pero le faltan fotos: sigue en este paso
     if (p.clave === 'inicio' && situacion === 'actual' && asig.inicio_real_at) {
       paso.aviso = 'Faltan fotos';
+    }
+    if (p.clave === 'jornadas' && situacion !== 'no_consta') {
+      paso.donde = `${jornadas.hechas} de ${jornadas.total}`;
     }
     return paso;
   });

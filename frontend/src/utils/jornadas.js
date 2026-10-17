@@ -12,6 +12,7 @@
  */
 
 import { diaEnEspana, formatHora, formatDiaCalendario, sumarDias, toUtcIso, toInputDatetime } from './dateUtils.js';
+import { INICIO_ANTICIPADO_MAX_MINUTOS, FIN_JORNADA_ANTICIPADO_MINUTOS } from './constants.js';
 
 /** Horas que propone «Rellenar días» si no se dice otra cosa. */
 export const DESDE_POR_DEFECTO = '09:00';
@@ -171,3 +172,47 @@ export function textoJornada(j) {
   const t = { desde: formatHora(j.inicio), hasta: formatHora(j.fin) };
   return `${etiquetaDia(diaEnEspana(j.inicio))}, ${textoTramos([t])}`;
 }
+
+/**
+ * Resumen de las jornadas de una ambulancia, venga de la ficha (`jornadas`) o
+ * de la tarjeta de «Mis trabajos» (`num_jornadas`, `jornadas_hechas`,
+ * `en_jornada`). `total` 0 = ficha por «evento/servicio», como siempre.
+ */
+export function resumenJornadas(a) {
+  if (Array.isArray(a?.jornadas)) {
+    return { total: a.jornadas.length, hechas: a.jornadas.filter(j => j.fin_real_at).length,
+             enCurso: a.jornadas.some(j => j.inicio_real_at && !j.fin_real_at) };
+  }
+  return { total: Number(a?.num_jornadas || 0), hechas: Number(a?.jornadas_hechas || 0), enCurso: !!a?.en_jornada };
+}
+
+/** Desde cuándo se puede pulsar «Inicio de jornada» (media hora antes, como el de la asignación). */
+export const inicioJornadaDesde = (j) =>
+  new Date(new Date(j.inicio).getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
+
+/** ¿«Fin de jornada» ahora pediría motivo? (más de 30 min antes de lo previsto) */
+export const finJornadaAnticipado = (j, ahora = new Date()) =>
+  ahora < new Date(new Date(j.fin).getTime() - FIN_JORNADA_ANTICIPADO_MINUTOS * 60000);
+
+/**
+ * Qué botón de jornada toca ahora, con la misma regla que el backend:
+ *  - `abierta`: la iniciada sin cerrar; `siguiente`: la primera sin iniciar
+ *    que aún no ha terminado.
+ *  - `principal`: 'inicio' si la siguiente ya se puede iniciar (aunque haya
+ *    una abierta: al iniciar se cierra sola, decisión del usuario), 'fin' si
+ *    hay una abierta y la siguiente aún no se puede, 'esperar' si solo queda
+ *    una que todavía no se puede iniciar, o null si no queda nada.
+ */
+export function accionJornada(jornadas, ahora = new Date()) {
+  const lista = jornadas || [];
+  const abierta = lista.find(j => j.inicio_real_at && !j.fin_real_at) || null;
+  const siguiente = lista.find(j => !j.inicio_real_at && new Date(j.fin) > ahora
+    && (!abierta || new Date(j.inicio) > new Date(abierta.inicio))) || null;
+  const siguienteYa = !!siguiente && ahora >= inicioJornadaDesde(siguiente);
+  let principal = null;
+  if (siguienteYa) principal = 'inicio';
+  else if (abierta) principal = 'fin';
+  else if (siguiente) principal = 'esperar';
+  return { abierta, siguiente, principal };
+}
+

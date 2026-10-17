@@ -31,6 +31,13 @@ export const asignacionesService = {
   registrarFinServicio(id, motivoFin = null) {
     return api.post(`/asignaciones/${id}/fin-servicio`, { motivo_fin: motivoFin }).then(r => r.data.data);
   },
+  // Jornadas por día (v39). motivo_fin solo si termina más de 30 min antes.
+  iniciarJornada(id, jornadaId) {
+    return api.post(`/asignaciones/${id}/jornadas/${jornadaId}/inicio`).then(r => r.data.data);
+  },
+  finalizarJornada(id, jornadaId, motivoFin = null) {
+    return api.post(`/asignaciones/${id}/jornadas/${jornadaId}/fin`, { motivo_fin: motivoFin }).then(r => r.data.data);
+  },
   finalizar(id, data) {
     return api.post(`/asignaciones/${id}/finalizar`, data).then(r => r.data.data);
   },

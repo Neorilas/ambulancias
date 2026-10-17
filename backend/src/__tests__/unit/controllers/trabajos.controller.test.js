@@ -703,6 +703,17 @@ describe('trabajos.controller', () => {
       expect(paramsMias).toEqual([20, 1, 2]);
     });
 
+    it('con jornadas por día (v39), dice cuántas hay, cuántas cerradas y si hay una en curso', async () => {
+      bd([['COUNT(*) AS total', [[{ total: 1 }]]],
+          ['vehiculos_resumen', [[{ id: 1 }]]],
+          ['JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?', [[
+            { trabajo_id: 1, id: 201, rol: 'responsable', num_jornadas: '3', jornadas_hechas: '1', en_jornada: 1 },
+          ]]]]);
+      const res = mockRes();
+      await misTrab(mockReq({ query: {}, user: resp1 }), res, mockNext());
+      expect(res._json.data[0].mi_asignacion).toMatchObject({ num_jornadas: 3, jornadas_hechas: 1, en_jornada: true });
+    });
+
     it('el equipo sale como «equipo», con los nombres de quien la lleva', async () => {
       bd([['COUNT(*) AS total', [[{ total: 1 }]]],
           ['vehiculos_resumen', [[{ id: 1 }]]],
