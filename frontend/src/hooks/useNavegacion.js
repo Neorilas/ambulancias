@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  UNSAFE_NavigationContext, useLocation, useNavigate, useSearchParams,
+} from 'react-router-dom';
 import { useDebounce } from './useDebounce.js';
 
 /**
@@ -42,18 +44,25 @@ export function useVolver(alternativa = '/') {
  * la de siempre. Se escribe con `replace`: mirar páginas y filtros no deja
  * rastro y «atrás» sale de la pantalla, no recorre lo que se tocó.
  *
- * OJO: `cambiar` parte de la URL de este render. Dos llamadas seguidas se
- * pisan; lo que cambia junto (un filtro y volver a la página 1) va en una.
+ * `cambiar` parte de la URL del momento (la del historial del router), no de
+ * la de este render: el router aplica cada navegación en una transición y un
+ * segundo `cambiar` antes del siguiente render pisaba el primero (quitar un
+ * filtro y pulsar «Calendario» enseguida lo devolvía). La forma funcional de
+ * `setParams` no lo arregla: el router la evalúa con los `params` del render.
  *
  * @param {Object<string,string>} porDefecto clave en la URL → valor por defecto
  */
 export function useEstadoEnUrl(porDefecto) {
   const [params, setParams] = useSearchParams();
+  const { navigator } = useContext(UNSAFE_NavigationContext);
   const valores = {};
   for (const [k, def] of Object.entries(porDefecto)) valores[k] = params.get(k) ?? def;
 
   const cambiar = (cambios) => {
-    const siguiente = new URLSearchParams(params);
+    // `BrowserRouter` y `MemoryRouter` exponen el historial, que se actualiza
+    // al navegar, sin esperar al render; sin él, la del render
+    const ahora = navigator.location?.search;
+    const siguiente = new URLSearchParams(ahora ?? params);
     for (const [k, v] of Object.entries(cambios)) {
       if (v == null || v === '' || String(v) === String(porDefecto[k] ?? '')) siguiente.delete(k);
       else siguiente.set(k, String(v));

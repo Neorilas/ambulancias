@@ -92,6 +92,58 @@ describe('useEstadoEnUrl', () => {
     await userEvent.click(screen.getByRole('button', { name: 'todas' }));
     expect(screen.getByTestId('url')).toHaveTextContent(/^\/l\?id=9$/);
   });
+
+  // /trabajos: quitar «Tiempos que no cuadran» y pulsar «Calendario» antes del
+  // siguiente render devolvía el filtro. Dos `cambiar` en el mismo manejador
+  // no tienen render entremedias
+  it('dos cambios seguidos sin render entremedias no se pisan', async () => {
+    function Trabajos() {
+      const [url, cambiar] = useEstadoEnUrl({ revisar: '', vista: 'lista' });
+      return (
+        <>
+          <p>revisar «{url.revisar}», vista {url.vista}</p>
+          <button onClick={() => { cambiar({ revisar: '' }); cambiar({ vista: 'calendario' }); }}>
+            quitar filtro y calendario
+          </button>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/t?revisar=fin_evento']}>
+        <Routes><Route path="/t" element={<Trabajos />} /></Routes>
+        <Url />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'quitar filtro y calendario' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/t\?vista=calendario$/);
+    expect(screen.getByText('revisar «», vista calendario')).toBeInTheDocument();
+  });
+
+  it('tras un «atrás», parte de la URL a la que se ha vuelto', async () => {
+    function ConAtras() {
+      const [url, cambiar] = useEstadoEnUrl({ page: '1' });
+      const navigate = useNavigate();
+      return (
+        <>
+          <p>página {url.page}</p>
+          <button onClick={() => cambiar({ page: 2 })}>página 2</button>
+          <button onClick={() => navigate(-1)}>atrás</button>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/l?id=1', '/l?id=2']} initialIndex={1}>
+        <Routes><Route path="/l" element={<ConAtras />} /></Routes>
+        <Url />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'página 2' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/l\?id=2&page=2$/);
+    await userEvent.click(screen.getByRole('button', { name: 'atrás' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/l\?id=1$/);
+    await userEvent.click(screen.getByRole('button', { name: 'página 2' }));
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/l\?id=1&page=2$/);
+  });
 });
 
 describe('usePanelEnUrl', () => {
