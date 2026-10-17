@@ -42,6 +42,15 @@ describe('avisosAsignacion.service', () => {
       expect(fin.titulo).toContain('fin de jornada');
       expect([ini.tag, fin.tag]).toEqual(['asig-12-jornada-300-inicio', 'asig-12-jornada-300-fin']);
     });
+
+    it('la jornada sin iniciar va urgente, con su propio tag', async () => {
+      await avisos.avisarJornadaSinIniciar(ASIGNACION, JORNADA, { minutos: 30 });
+      const [aviso] = push.notificarAdmins.mock.calls[0];
+      expect(aviso).toMatchObject({ prioridad: 'alta', tag: 'asig-12-jornada-300-sin-iniciar', excluirUserId: 7 });
+      expect(aviso.titulo).toContain('URGENTE');
+      expect(aviso.cuerpo).toContain('jornada del 21/10 10:00');
+      expect(aviso.cuerpo).toContain('30 min');
+    });
   });
 
   beforeEach(() => {

@@ -27,6 +27,13 @@ describe('alarmaSinIniciar', () => {
     expect(tagAviso(A)).toBe('asig-1-sin-iniciar');
   });
 
+  it('una jornada sin iniciar (v39) es otra alarma de la misma asignación, con su tag', () => {
+    const J = { id: 1, jornada_id: 9, aviso_sin_iniciar_at: '2026-10-21T08:35:00.000Z' };
+    expect(claveAlarma(J)).toBe('1-j9@2026-10-21T08:35:00.000Z');
+    expect(claveAlarma(J)).not.toBe(claveAlarma({ ...J, jornada_id: undefined }));
+    expect(tagAviso(J)).toBe('asig-1-jornada-9-sin-iniciar');
+  });
+
   it('sin nada guardado, todas las alarmas suenan', () => {
     expect(alarmasPendientes([A, B])).toEqual([A, B]);
     expect(alarmasPendientes(null)).toEqual([]);

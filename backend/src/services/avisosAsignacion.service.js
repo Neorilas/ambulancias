@@ -215,6 +215,25 @@ function avisarAsignacionSinIniciar(asig, { minutos } = {}) {
 }
 
 /**
+ * Jornadas por día (v39): ha pasado la hora prevista de una jornada y su
+ * responsable no ha pulsado «Inicio de jornada». Lo saca el cron, como el de
+ * la asignación (`vigilancia.revisarJornadasSinIniciar`), y es igual de
+ * urgente. Tag propio por jornada: «Enterado» en la app lo quita de la bandeja
+ * (`tagAviso` del frontend dice lo mismo).
+ */
+function avisarJornadaSinIniciar(asig, jornada, { minutos } = {}) {
+  return disparar(push.notificarAdmins({
+    titulo:        `URGENTE · ${etiquetaVehiculo(asig)} · jornada sin iniciar`,
+    cuerpo:        `${etiquetaResponsable(asig)} no ha iniciado la jornada del ${cuandoJornada(jornada)}${enTrabajo(asig)} ` +
+                   `y ya han pasado ${minutos} min de la hora prevista.`,
+    url:           urlAsignacion(asig),
+    tag:           `asig-${asig.id}-jornada-${jornada.id}-sin-iniciar`,
+    prioridad:     'alta',
+    excluirUserId: asig.user_id,
+  }));
+}
+
+/**
  * Servicio cerrado.
  *
  * Este aviso vale también por el de «fotos de fin completas»: no se puede
@@ -416,6 +435,7 @@ module.exports = {
   avisarInicioJornada,
   avisarFinJornada,
   avisarAsignacionSinIniciar,
+  avisarJornadaSinIniciar,
   avisarAsignacionFinalizada,
   avisarTrabajoPendienteCierre,
   etiquetaVehiculo,

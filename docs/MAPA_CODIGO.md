@@ -1815,6 +1815,20 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   lista de la ficha o el resumen que trae `misTrab` (`num_jornadas`,
   `jornadas_hechas`, `en_jornada`). `FIN_JORNADA_ANTICIPADO_MINUTOS` en
   `frontend/utils/constants.js` es espejo de `INICIO_TARDIO_MINUTOS`.
+- **Jornada sin iniciar** (`vigilancia.revisarJornadasSinIniciar`, en el
+  tick del cron justo tras el de asignaciones): pasado
+  `AVISO_SIN_INICIAR_MINUTOS` de su hora prevista sin «Inicio de jornada»,
+  push urgente a gestión (`avisarJornadaSinIniciar`, tag
+  `asig-<id>-jornada-<jid>-sin-iniciar`) y alarma sonora. Candado propio
+  (`asignacion_jornadas.aviso_sin_iniciar_at`, dentro del `UPDATE` como el de
+  la asignación). Solo con la asignación `activa` **e iniciada** (si no, ya
+  suena la de la asignación: serían dos por lo mismo) y **mientras el tramo
+  no ha terminado** (después no se puede iniciar y la alarma no tendría
+  arreglo; queda «no consta» para el informe). `listarAlarmasSinIniciar`
+  devuelve también esas jornadas, con `jornada_id` y `fecha_inicio` = la de
+  la jornada; en la app, `claveAlarma` y `tagAviso` las distinguen de la
+  asignación (`<id>-j<jid>@…`) y la fila dice «Jornada · Prevista HH:mm».
+  Probado en local: avisó al primer tick y sonó en la app.
 - Con jornadas, `/llegada` y `/fin-servicio` dan 400
   (`MSG_FICHA_POR_JORNADAS`): la jornada los sustituye. `finalizarAsignacion`
   da 400 con una jornada abierta: cerrarla sola le pondría la hora de base.
@@ -2489,7 +2503,7 @@ solo actúa en el navegador no es un control de acceso.
 | Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` (estos dos, del v25 y sin pantalla desde la fase 4) y las pantallas `AsignacionDetalle` y `FinalizacionAsignacion`. Si solo cambia uno, la pantalla deja pasar y la API da 400 (o al revés). Los mensajes no explican la regla de la letra repetida, a propósito (§6.1) |
 | Cuánto antes se puede pulsar «Inicio de la asignación» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
-| La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
+| La alarma sonora (sirena, cadencia, quién la oye) | Con jornadas por día (v39) suenan también las jornadas sin iniciar: `vigilancia.revisarJornadasSinIniciar` + la segunda consulta de `listarAlarmasSinIniciar`, y `claveAlarma`/`tagAviso` con `jornada_id`. `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `urlParaMiembros` (la del trabajo, o `/mis-asignaciones` sin él), nunca `/asignaciones`. Una consulta nueva que alimente un aviso necesita `trabajo_id` y `trabajo_nombre` (como el cron y `vigilancia`), o el aviso pierde el enlace al trabajo |
 | El estado de un trabajo (qué lo mueve) | `services/estadoTrabajo.service.js` → quien lo llama: `asignaciones.controller` (create, activar, finalizar, `PUT` con estado o trabajo o al volver a programada, delete), `trabajos.controller` (ciclo antiguo, alta y `volverAProgramado`) y el cron de `server.js`. Un camino nuevo que cambie el estado de una asignación con trabajo **tiene que** sincronizar dentro de su transacción y, si puede dejarlo pendiente de cierre, llamar después a `avisarSiPendienteCierre` (§6.1) |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) **y** `trabajos.controller.createTrabajo` (las ambulancias del alta) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |

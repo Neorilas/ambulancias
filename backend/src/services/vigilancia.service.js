@@ -109,6 +109,79 @@ async function revisarAsignacionesSinIniciar() {
 }
 
 /**
+ * Jornadas por día (v39): la jornada cuya hora prevista pasó hace más del
+ * margen y nadie ha pulsado «Inicio de jornada». Mismo aviso urgente y misma
+ * alarma que la asignación sin iniciar, con su propio candado
+ * (`asignacion_jornadas.aviso_sin_iniciar_at`, dentro del UPDATE por lo mismo
+ * que arriba).
+ *
+ * Solo con la asignación ya iniciada (`inicio_real_at`): si no, ya está
+ * sonando la de la asignación y serían dos avisos por lo mismo. Y solo
+ * mientras el tramo no ha terminado: después ya no se puede iniciar
+ * (`iniciarJornada` lo rechaza) y la alarma no tendría arreglo; esa jornada
+ * queda «no consta» y la marca el informe.
+ *
+ * Nunca lanza: devuelve un resumen.
+ */
+async function revisarJornadasSinIniciar() {
+  const minutos = AVISO_SIN_INICIAR_MINUTOS;
+  const resumen = { candidatas: 0, avisadas: 0 };
+
+  try {
+    const instante = ahora();
+    const limite = new Date(instante.getTime() - minutos * 60 * 1000);
+
+    const [candidatas] = await query(
+      `SELECT j.id AS jornada_id, j.inicio AS jornada_inicio, j.fin AS jornada_fin,
+              al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
+              v.alias AS vehiculo_alias, v.matricula,
+              CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
+              (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
+                 FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
+                WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
+         FROM asignacion_jornadas j
+         JOIN asignaciones_libres al ON al.id = j.asignacion_id
+         JOIN vehicles v ON v.id = al.vehicle_id
+         JOIN users u    ON u.id = al.user_id
+         LEFT JOIN trabajos t ON t.id = al.trabajo_id
+        WHERE j.inicio_real_at IS NULL
+          AND j.aviso_sin_iniciar_at IS NULL
+          AND j.inicio <= ?
+          AND j.fin > ?
+          AND al.estado = 'activa'
+          AND al.inicio_real_at IS NOT NULL
+          AND al.deleted_at IS NULL`,
+      [limite, instante]
+    );
+    resumen.candidatas = candidatas.length;
+
+    for (const fila of candidatas) {
+      const [res] = await query(
+        `UPDATE asignacion_jornadas
+            SET aviso_sin_iniciar_at = ?
+          WHERE id = ?
+            AND inicio_real_at IS NULL
+            AND aviso_sin_iniciar_at IS NULL`,
+        [ahora(), fila.jornada_id]
+      );
+      if (res.affectedRows === 0) continue;   // ya avisada o ya iniciada
+
+      resumen.avisadas++;
+      const { jornada_id, jornada_inicio, jornada_fin, ...asig } = fila;
+      avisos.avisarJornadaSinIniciar(asig, { id: jornada_id, inicio: jornada_inicio, fin: jornada_fin }, { minutos });
+    }
+
+    if (resumen.avisadas > 0) {
+      logger.info(`Avisadas ${resumen.avisadas} jornada(s) sin iniciar ${minutos} min después de su hora prevista`);
+    }
+  } catch (err) {
+    logger.error(`Error vigilando jornadas sin iniciar: ${err.message}`);
+  }
+
+  return resumen;
+}
+
+/**
  * Las asignaciones que hoy tienen la alarma sonando: las que ya se avisaron por
  * push como «sin iniciar» y siguen sin iniciarse. Es lo que pinta la alarma
  * sonora de la app (`AlarmaSinIniciar` en el frontend), que vuelve a preguntar
@@ -148,7 +221,35 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
       ORDER BY al.fecha_inicio ASC, al.id ASC`,
     [limite, excluirUserId]
   );
-  return filas;
+
+  // Y las jornadas por día (v39) avisadas y sin iniciar, con la misma forma:
+  // `fecha_inicio` es la de la jornada (la alarma pinta «Prevista HH:mm» y el
+  // retraso) y `jornada_id` las distingue de la asignación en la app.
+  const [jornadas] = await query(
+    `SELECT al.id, j.id AS jornada_id, j.inicio AS fecha_inicio, al.estado,
+            j.aviso_sin_iniciar_at,
+            al.trabajo_id, t.nombre AS trabajo_nombre,
+            v.alias AS vehiculo_alias, v.matricula,
+            CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
+            (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
+               FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
+              WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
+       FROM asignacion_jornadas j
+       JOIN asignaciones_libres al ON al.id = j.asignacion_id
+       JOIN vehicles v ON v.id = al.vehicle_id
+       JOIN users u    ON u.id = al.user_id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
+      WHERE j.aviso_sin_iniciar_at IS NOT NULL
+        AND j.inicio_real_at IS NULL
+        AND j.fin > ?
+        AND al.estado = 'activa'
+        AND al.deleted_at IS NULL
+        AND al.user_id <> ?
+      ORDER BY j.inicio ASC, j.id ASC`,
+    [ahora(), excluirUserId]
+  );
+  return [...filas, ...(jornadas || [])]
+    .sort((a, b) => new Date(a.fecha_inicio) - new Date(b.fecha_inicio));
 }
 
 // ============================================================
@@ -251,6 +352,7 @@ async function revisarMantenimientoKm() {
 
 module.exports = {
   revisarAsignacionesSinIniciar,
+  revisarJornadasSinIniciar,
   listarAlarmasSinIniciar,
   revisarMantenimientoKm,
   // Expuestos para los tests

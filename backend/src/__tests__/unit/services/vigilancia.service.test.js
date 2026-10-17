@@ -14,6 +14,7 @@
 
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionSinIniciar: jest.fn(),
+  avisarJornadaSinIniciar:    jest.fn(),
 }));
 jest.mock('../../../services/push.service', () => ({
   notificarAdministracion: jest.fn(),
@@ -131,6 +132,7 @@ describe('vigilancia.service · alarmas sonando (listarAlarmasSinIniciar)', () =
 
   it('usa la misma marca que el push y descarta lo iniciado, cerrado o borrado', async () => {
     query.mockResolvedValueOnce([[{ id: 12 }]]);
+    query.mockResolvedValueOnce([[]]);   // jornadas (v39)
 
     const filas = await vigilancia.listarAlarmasSinIniciar({ excluirUserId: 3 });
 
@@ -149,8 +151,69 @@ describe('vigilancia.service · alarmas sonando (listarAlarmasSinIniciar)', () =
 
   it('sin usuario que excluir no excluye a nadie', async () => {
     query.mockResolvedValueOnce([[]]);
+    query.mockResolvedValueOnce([[]]);
     await vigilancia.listarAlarmasSinIniciar();
     expect(query.mock.calls[0][1][1]).toBe(0);
+  });
+
+  it('suma las jornadas avisadas y sin iniciar, ordenado por hora prevista (v39)', async () => {
+    query.mockResolvedValueOnce([[{ id: 12, fecha_inicio: new Date('2026-10-21T09:00:00Z') }]]);
+    query.mockResolvedValueOnce([[{ id: 30, jornada_id: 5, fecha_inicio: new Date('2026-10-21T08:00:00Z') }]]);
+
+    const filas = await vigilancia.listarAlarmasSinIniciar({ excluirUserId: 3 });
+
+    expect(filas.map(f => f.jornada_id ?? null)).toEqual([5, null]);
+    const [sql, params] = query.mock.calls[1];
+    expect(sql).toContain('FROM asignacion_jornadas j');
+    expect(sql).toMatch(/j\.aviso_sin_iniciar_at IS NOT NULL/);
+    expect(sql).toMatch(/j\.inicio_real_at IS NULL/);
+    // Una jornada ya terminada no se puede iniciar: no suena
+    expect(sql).toMatch(/j\.fin > \?/);
+    expect(params[1]).toBe(3);
+  });
+});
+
+describe('vigilancia.service · jornadas sin iniciar (v39)', () => {
+  beforeEach(() => { query.mockReset(); avisos.avisarJornadaSinIniciar.mockClear(); });
+  const FILA = { ...CANDIDATA, jornada_id: 5,
+    jornada_inicio: new Date('2026-10-21T08:00:00Z'), jornada_fin: new Date('2026-10-21T18:00:00Z') };
+
+  it('avisa una vez de la jornada sin iniciar, con la asignación y la jornada aparte', async () => {
+    query.mockResolvedValueOnce([[FILA]]);
+    query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const r = await vigilancia.revisarJornadasSinIniciar();
+
+    expect(r).toEqual({ candidatas: 1, avisadas: 1 });
+    const [sql, params] = query.mock.calls[0];
+    // Solo con la asignación ya iniciada (si no, ya suena la de la asignación)
+    expect(sql).toContain('al.inicio_real_at IS NOT NULL');
+    expect(sql).toContain("al.estado = 'activa'");
+    expect(sql).toContain('j.fin > ?');
+    const minutosAtras = (Date.now() - params[0].getTime()) / 60000;
+    expect(minutosAtras).toBeCloseTo(AVISO_SIN_INICIAR_MINUTOS, 1);
+    const [upd, updParams] = query.mock.calls[1];
+    expect(upd).toContain('UPDATE asignacion_jornadas');
+    expect(upd).toContain('inicio_real_at IS NULL');
+    expect(upd).toContain('aviso_sin_iniciar_at IS NULL');
+    expect(updParams[1]).toBe(5);
+    expect(avisos.avisarJornadaSinIniciar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 12, user_id: 7 }),
+      { id: 5, inicio: FILA.jornada_inicio, fin: FILA.jornada_fin },
+      { minutos: AVISO_SIN_INICIAR_MINUTOS });
+    expect(avisos.avisarJornadaSinIniciar.mock.calls[0][0]).not.toHaveProperty('jornada_id');
+  });
+
+  it('no avisa si la fila no se pudo reclamar', async () => {
+    query.mockResolvedValueOnce([[FILA]]);
+    query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    expect(await vigilancia.revisarJornadasSinIniciar()).toEqual({ candidatas: 1, avisadas: 0 });
+    expect(avisos.avisarJornadaSinIniciar).not.toHaveBeenCalled();
+  });
+
+  it('un fallo de BD no tumba el cron', async () => {
+    query.mockRejectedValueOnce(new Error('caída'));
+    expect(await vigilancia.revisarJornadasSinIniciar()).toEqual({ candidatas: 0, avisadas: 0 });
   });
 });
 

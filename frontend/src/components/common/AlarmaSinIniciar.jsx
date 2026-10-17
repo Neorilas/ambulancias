@@ -239,18 +239,19 @@ export default function AlarmaSinIniciar() {
             {pendientes.length === 1 ? 'Servicio sin iniciar' : `${pendientes.length} servicios sin iniciar`}
           </h2>
           <p className="text-sm text-bad-50">
-            Ha pasado la hora prevista y nadie ha pulsado «Inicio de la asignación».
+            Ha pasado la hora prevista y nadie ha pulsado «Inicio de la asignación»
+            {pendientes.some(a => a.jornada_id) && ' o «Inicio de jornada»'}.
           </p>
         </div>
 
         <ul className="max-h-[50vh] divide-y divide-neutral-200 overflow-y-auto">
           {pendientes.map(a => (
-            <li key={a.id} className="flex items-center justify-between gap-3 px-4 py-3">
+            <li key={claveAlarma(a)} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <div className="font-semibold text-neutral-900 truncate">{etiquetaVehiculo(a)}</div>
                 <div className="text-sm text-neutral-600 truncate">{etiquetaResponsables(a)}</div>
                 <div className="text-xs text-bad-700 font-mono">
-                  Prevista {formatHora(a.fecha_inicio)} · {minutosDeRetraso(a.fecha_inicio)} min de retraso
+                  {a.jornada_id && 'Jornada · '}Prevista {formatHora(a.fecha_inicio)} · {minutosDeRetraso(a.fecha_inicio)} min de retraso
                 </div>
               </div>
               <Link
