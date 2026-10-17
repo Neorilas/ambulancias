@@ -67,7 +67,9 @@ export default function VehicleExpirationAlerts() {
   const puedeVer = isAuthenticated && (isAdmin() || isSuperAdmin());
 
   const [alertas,   setAlertas]   = useState([]);
-  const [collapsed, setCollapsed] = useState(false);
+  // Plegadas al montar: tapaban la pantalla en cada arranque (pedido 2026-10-17).
+  // Solo se despliegan si el usuario pulsa el botón rojo.
+  const [collapsed, setCollapsed] = useState(true);
   const [tick,      setTick]      = useState(0); // fuerza recálculo tras dismiss
   const [cargadas,  setCargadas]  = useState(false); // hasta la primera carga buena no se poda
 
@@ -124,7 +126,8 @@ export default function VehicleExpirationAlerts() {
           </Link>
           <button
             onClick={() => setCollapsed(v => !v)}
-            className="text-xs px-2 py-1 rounded-full bg-neutral-800/90 text-white shadow hover:bg-neutral-900 transition-colors"
+            aria-expanded={!collapsed}
+            className="text-xs font-semibold px-2.5 py-1 rounded-full bg-bad-600 text-white shadow hover:bg-bad-700 transition-colors"
           >
             {collapsed ? `Ver ${visibles.length} alerta${visibles.length > 1 ? 's' : ''}` : 'Ocultar'}
           </button>
