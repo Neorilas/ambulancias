@@ -156,6 +156,35 @@ function avisarFinEvento(asig) {
   }));
 }
 
+/** «21/10 10:00» de una jornada: el día y la hora prevista de inicio. */
+const cuandoJornada = (jornada) => diaYHoraEnEspana(instanteUtc(jornada.inicio));
+
+/**
+ * «Inicio de jornada» (v39): en un trabajo de varios días, la jornada hace de
+ * «Inicio evento/servicio», y avisa a gestión igual. Tag por jornada: la de
+ * cada día es un suceso distinto y no debe sustituir a la del anterior.
+ */
+function avisarInicioJornada(asig, jornada) {
+  return disparar(push.notificarAdmins({
+    titulo:        `${etiquetaVehiculo(asig)} · inicio de jornada`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha iniciado la jornada del ${cuandoJornada(jornada)}${enTrabajo(asig)}.`,
+    url:           urlAsignacion(asig),
+    tag:           `asig-${asig.id}-jornada-${jornada.id}-inicio`,
+    excluirUserId: asig.user_id,
+  }));
+}
+
+/** «Fin de jornada» (v39): la pareja de la de arriba. */
+function avisarFinJornada(asig, jornada) {
+  return disparar(push.notificarAdmins({
+    titulo:        `${etiquetaVehiculo(asig)} · fin de jornada`,
+    cuerpo:        `${etiquetaResponsable(asig)} ha terminado la jornada del ${cuandoJornada(jornada)}${enTrabajo(asig)}.`,
+    url:           urlAsignacion(asig),
+    tag:           `asig-${asig.id}-jornada-${jornada.id}-fin`,
+    excluirUserId: asig.user_id,
+  }));
+}
+
 /**
  * Ha pasado la hora prevista y nadie ha iniciado la asignación.
  *
@@ -384,6 +413,8 @@ module.exports = {
   avisarFotosInicioCompletas,
   avisarLlegadaEvento,
   avisarFinEvento,
+  avisarInicioJornada,
+  avisarFinJornada,
   avisarAsignacionSinIniciar,
   avisarAsignacionFinalizada,
   avisarTrabajoPendienteCierre,

@@ -130,6 +130,24 @@ router.post('/:id/fin-servicio',
   ctrl.registrarFinServicio
 );
 
+// POST /asignaciones/:id/jornadas/:jornadaId/inicio y /fin  (jornadas por día,
+// v39; responsables o admin/gestor, el personal no: lo decide el controlador)
+router.post('/:id/jornadas/:jornadaId/inicio',
+  [param('id').isInt({ min: 1 }), param('jornadaId').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.iniciarJornada
+);
+router.post('/:id/jornadas/:jornadaId/fin',
+  [
+    param('id').isInt({ min: 1 }),
+    param('jornadaId').isInt({ min: 1 }),
+    // Obligatorio solo si termina más de 30 min antes: lo decide el controlador
+    body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+  ],
+  handleValidation,
+  ctrl.finalizarJornada
+);
+
 // POST /asignaciones/:id/finalizar
 router.post('/:id/finalizar',
   [

@@ -9,7 +9,7 @@ const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS,
-  INICIO_ANTICIPADO_MAX_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EN_BASE_MINUTOS,
+  INICIO_ANTICIPADO_MAX_MINUTOS, INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EN_BASE_MINUTOS,
   FIN_EVENTO_EXIGIDO_DESDE, ROLES } =
   require('../config/constants');
 const { hasPermission, hasRole, isAdmin } = require('../middleware/roles.middleware');
@@ -1340,6 +1340,7 @@ async function registrarLlegada(req, res, next) {
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'Solo un responsable puede registrar el inicio del evento/servicio');
     }
+    if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
 
     // Ya sellada: no-op. Se mira antes que el estado para que repetir la
     // pulsación (doble toque, reintento con mala red) no dé error aunque la
@@ -1410,6 +1411,7 @@ async function registrarFinServicio(req, res, next) {
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'Solo un responsable puede registrar el fin del evento/servicio');
     }
+    if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
 
     // Ya sellado: no-op, antes que el estado (mismo motivo que la llegada).
     if (asig.fin_servicio_at) {
@@ -1469,6 +1471,172 @@ async function registrarFinServicio(req, res, next) {
 }
 
 // ============================================================
+// Jornadas por día (v39): POST /asignaciones/:id/jornadas/:jornadaId/inicio y /fin
+// ============================================================
+// En una ambulancia con horario por días, cada tramo se ficha con «Inicio de
+// jornada» y «Fin de jornada», que hacen de «Inicio/Fin evento/servicio» (los
+// de la asignación dan 400 aquí). Las fotos siguen siendo las de siempre: las
+// de inicio una vez, antes de la primera jornada; las de fin al «Finalizar
+// asignación». Reglas en §6.1 «Jornadas por día» del mapa.
+
+const MSG_FICHA_POR_JORNADAS =
+  'Esta ambulancia ficha por jornadas: usa «Inicio de jornada» y «Fin de jornada»';
+
+/**
+ * Carga la asignación y la jornada pedida, y comprueba quién puede fichar:
+ * responsable o gestión, como la llegada. Devuelve `{ asig, jornada }`, o
+ * `null` si ya ha contestado.
+ */
+async function cargarJornada(req, res, accion) {
+  const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
+  const asig = await getAsignacionCompleta(req.params.id);
+  if (!asig) { notFound(res, 'Asignación'); return null; }
+  if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    forbidden(res, `Solo un responsable puede registrar el ${accion} de jornada`);
+    return null;
+  }
+  const jornada = asig.jornadas.find(j => j.id === Number(req.params.jornadaId));
+  if (!jornada) { notFound(res, 'Jornada'); return null; }
+  return { asig, jornada };
+}
+
+/** «la jornada del 21/10 10:00», para los mensajes. */
+const textoJornada = (j) => `la jornada del ${diaYHoraEnEspana(instanteUtc(j.inicio))}`;
+
+// Otra pulsación selló antes: se deshace el cierre de las olvidadas que hizo
+// esta, que ya ha hecho la que ganó.
+class JornadaYaSellada extends Error {}
+
+async function iniciarJornada(req, res, next) {
+  try {
+    const cargado = await cargarJornada(req, res, 'inicio');
+    if (!cargado) return;
+    const { asig, jornada } = cargado;
+
+    // Ya sellada: no-op antes que nada más (doble toque, reintento con mala red)
+    if (jornada.inicio_real_at) return success(res, asig, 'La jornada ya estaba iniciada');
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede iniciar una jornada en una asignación ${asig.estado}`, 400);
+    }
+    if (asig.estado !== 'activa' || !asig.inicio_real_at) {
+      return error(res, 'Primero hay que pulsar «Inicio de la asignación»', 400);
+    }
+    if (!asig.progreso.inicio.completo) {
+      return error(res,
+        `Antes de la primera jornada sube las fotos de inicio (faltan: ${asig.progreso.inicio.faltantes.join(', ')})`,
+        400);
+    }
+    // Como «Inicio de la asignación»: no antes de media hora de la prevista.
+    // Y no una que ya terminó: su hora real sería la de hoy, no la de ese día.
+    const instante = ahora();
+    const desde = new Date(instanteUtc(jornada.inicio).getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
+    if (instante < desde) {
+      return error(res, `${textoJornada(jornada)} se puede iniciar desde el ${diaYHoraEnEspana(desde)}`, 400);
+    }
+    if (instante >= instanteUtc(jornada.fin)) {
+      return error(res, `${textoJornada(jornada)} ya ha terminado: no se puede iniciar ahora`, 400);
+    }
+    if (asig.jornadas.some(j => j.inicio_real_at && instanteUtc(j.inicio) > instanteUtc(jornada.inicio))) {
+      return error(res, 'Ya hay iniciada una jornada posterior a esta', 400);
+    }
+
+    // Una anterior que se quedó abierta (olvido del «Fin de jornada») se
+    // cierra sola a su hora prevista y queda marcada para revisar (decisión
+    // del usuario, 2026-10-17): sus horas no se dan por buenas en el informe.
+    const olvidadas = asig.jornadas.filter(j => j.id !== jornada.id && j.inicio_real_at && !j.fin_real_at);
+    let sellada = false;
+    try {
+      await transaction(async (conn) => {
+        for (const j of olvidadas) {
+          await conn.execute(
+            `UPDATE asignacion_jornadas SET fin_real_at = fin, cierre_auto = 1
+              WHERE id = ? AND fin_real_at IS NULL`, [j.id]);
+        }
+        // `IS NULL` en el WHERE: de dos pulsaciones cruzadas, una sola sella y audita
+        const [r] = await conn.execute(
+          `UPDATE asignacion_jornadas SET inicio_real_at = ?, inicio_por = ?
+            WHERE id = ? AND asignacion_id = ? AND inicio_real_at IS NULL`,
+          [instante, req.user.id, jornada.id, asig.id]);
+        sellada = (r?.affectedRows || 0) > 0;
+        if (!sellada && olvidadas.length) throw new JornadaYaSellada();
+      });
+    } catch (err) {
+      if (!(err instanceof JornadaYaSellada)) throw err;
+    }
+
+    if (sellada) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'start_jornada',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula, jornada_id: jornada.id,
+                    ...(olvidadas.length && { cerradas_solas: olvidadas.map(j => j.id) }) },
+        ip: req.ip,
+      });
+      avisos.avisarInicioJornada(asig, jornada);
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    return success(res, updated, 'Jornada iniciada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function finalizarJornada(req, res, next) {
+  try {
+    const cargado = await cargarJornada(req, res, 'fin');
+    if (!cargado) return;
+    const { asig, jornada } = cargado;
+
+    if (jornada.fin_real_at) return success(res, asig, 'La jornada ya estaba terminada');
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede terminar una jornada en una asignación ${asig.estado}`, 400);
+    }
+    if (!jornada.inicio_real_at) return error(res, 'Primero hay que pulsar «Inicio de jornada»', 400);
+
+    // Terminar más de INICIO_TARDIO_MINUTOS antes de la hora prevista pide el
+    // motivo (decisión del usuario, 2026-10-17: el mismo margen que los
+    // informes usan para «anticipado»; por acabar cinco minutos antes, no).
+    const instante = ahora();
+    const esAnticipado = instante < new Date(instanteUtc(jornada.fin).getTime() - INICIO_TARDIO_MINUTOS * 60000);
+    const motivo = typeof req.body?.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
+    if (esAnticipado && !motivo) {
+      return error(res, 'Hay que explicar el motivo: la jornada termina antes de la hora prevista', 400,
+        [{ field: 'motivo_fin', msg: 'obligatorio' }]);
+    }
+    const falloMotivo = esAnticipado && errorMotivo(motivo);
+    if (falloMotivo) return error(res, falloMotivo, 400, [{ field: 'motivo_fin', msg: falloMotivo }]);
+
+    const [result] = await query(
+      `UPDATE asignacion_jornadas SET fin_real_at = ?, fin_por = ?, motivo_fin = ?
+        WHERE id = ? AND asignacion_id = ? AND fin_real_at IS NULL`,
+      [instante, req.user.id, esAnticipado ? motivo : null, jornada.id, asig.id]);
+
+    if (result?.affectedRows) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'end_jornada',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula, jornada_id: jornada.id, anticipado: esAnticipado,
+                    motivo_fin: esAnticipado ? motivo : null },
+        ip: req.ip,
+      });
+      avisos.avisarFinJornada(asig, jornada);
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    return success(res, updated, 'Jornada terminada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // POST /asignaciones/:id/finalizar
 // ============================================================
 async function finalizarAsignacion(req, res, next) {
@@ -1487,6 +1655,12 @@ async function finalizarAsignacion(req, res, next) {
     }
     if (asig.estado === 'cancelada') {
       return error(res, 'No se puede finalizar una asignación cancelada', 400);
+    }
+    // Con jornadas (v39), la del día se cierra antes con su botón: cerrarla
+    // aquí sola le pondría la hora del cierre en base y no la del sitio
+    const abierta = asig.jornadas.find(j => j.inicio_real_at && !j.fin_real_at);
+    if (abierta) {
+      return error(res, `Antes de finalizar, pulsa «Fin de jornada» en ${textoJornada(abierta)}`, 400);
     }
 
     const { km_fin, material_usado } = req.body;
@@ -1818,6 +1992,8 @@ module.exports = {
   activarAsignacion,
   registrarLlegada,
   registrarFinServicio,
+  iniciarJornada,
+  finalizarJornada,
   finalizarAsignacion,
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,

@@ -23,7 +23,27 @@ const ASIGNACION = {
   responsable_nombre: 'Juan López',
 };
 
+// Una jornada (v39): el 21/10 de 10:00 a 20:00 en hora española
+const JORNADA = { id: 300, inicio: new Date('2026-10-21T08:00:00Z'), fin: new Date('2026-10-21T18:00:00Z') };
+
 describe('avisosAsignacion.service', () => {
+  describe('jornadas por día (v39)', () => {
+    beforeEach(() => {
+      push.notificarAdmins.mockReset();
+      push.notificarAdmins.mockResolvedValue({ enviados: 1, borrados: 0, fallidos: 0 });
+    });
+
+    it('nombran el día y la hora de la jornada y llevan un tag por jornada', async () => {
+      await avisos.avisarInicioJornada(ASIGNACION, JORNADA);
+      await avisos.avisarFinJornada(ASIGNACION, JORNADA);
+      const [ini, fin] = push.notificarAdmins.mock.calls.map(c => c[0]);
+      expect(ini.titulo).toContain('inicio de jornada');
+      expect(ini.cuerpo).toContain('jornada del 21/10 10:00');
+      expect(fin.titulo).toContain('fin de jornada');
+      expect([ini.tag, fin.tag]).toEqual(['asig-12-jornada-300-inicio', 'asig-12-jornada-300-fin']);
+    });
+  });
+
   beforeEach(() => {
     push.notificarAdmins.mockReset();
     push.notificarAdmins.mockResolvedValue({ enviados: 1, borrados: 0, fallidos: 0 });
@@ -35,6 +55,8 @@ describe('avisosAsignacion.service', () => {
       ['fotos',      () => avisos.avisarFotosInicioCompletas(ASIGNACION)],
       ['llegada',    () => avisos.avisarLlegadaEvento(ASIGNACION)],
       ['fin evento', () => avisos.avisarFinEvento(ASIGNACION)],
+      ['inicio de jornada', () => avisos.avisarInicioJornada(ASIGNACION, JORNADA)],
+      ['fin de jornada', () => avisos.avisarFinJornada(ASIGNACION, JORNADA)],
       ['sin iniciar', () => avisos.avisarAsignacionSinIniciar(ASIGNACION, { minutos: 30 })],
       ['finalizada', () => avisos.avisarAsignacionFinalizada(ASIGNACION, { km_fin: 1000 })],
     ])('el aviso de %s excluye al responsable de la asignación', async (_nombre, disparar) => {
