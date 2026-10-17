@@ -49,12 +49,12 @@ describe('destinoLogin', () => {
       })).toBe('/trabajos/7');
     });
 
-    it('un ?volver= a otro origen acaba en el dashboard', () => {
+    it('un ?volver= a otro origen acaba en la portada', () => {
       expect(destinoTrasLogin({ search: '?volver=%2F%2Fevil.example' })).toBe(DESTINO_POR_DEFECTO);
       expect(destinoTrasLogin({ search: '?volver=https%3A%2F%2Fevil.example' })).toBe(DESTINO_POR_DEFECTO);
     });
 
-    it('sin nada, al dashboard', () => {
+    it('sin nada, a la portada', () => {
       expect(destinoTrasLogin({ search: '' })).toBe(DESTINO_POR_DEFECTO);
       expect(destinoTrasLogin(undefined)).toBe(DESTINO_POR_DEFECTO);
     });

@@ -19,7 +19,10 @@
  * así que no se acepta nada que el navegador pudiera leer como otro origen.
  */
 
-export const DESTINO_POR_DEFECTO = '/dashboard';
+// La portada: ahí se decide por rol adónde va cada uno (utils/portada.js).
+// Hasta el 2026-10-17 era /dashboard, y un administrador entraba en el
+// Dashboard o en «Mis trabajos» según por dónde llegara al login.
+export const DESTINO_POR_DEFECTO = '/';
 
 /**
  * La ruta tal cual si es interna de la app; null si no.

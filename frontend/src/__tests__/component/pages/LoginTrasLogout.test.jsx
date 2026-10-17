@@ -86,7 +86,8 @@ describe('Login tras «Cerrar sesión»', () => {
     montar();
     await salir(user);
     await entrar(user);
-    expect(await screen.findByTestId('ruta')).toHaveTextContent(/^\/dashboard$/);
+    // A la portada, que lo reparte por rol (utils/portada.js), no a /perfil.
+    expect(await screen.findByTestId('ruta')).toHaveTextContent(/^\/$/);
   });
 
   it('el login tras salir no guarda destino: recargarlo tampoco lo trae', async () => {
