@@ -524,7 +524,8 @@ describe('trabajos.controller', () => {
     // «A revisar» por el fin del evento (2026-10-11): la oficina lo ve en el
     // listado, con la misma regla que el de asignaciones.
     describe('ambulancias «A revisar»', () => {
-      const REVISAR = [1, 1, 1, '2026-10-02 22:00:00', 15];
+      // v39: el umbral de las jornadas va antes del corte de fecha
+      const REVISAR = [1, 1, 1, 15, '2026-10-02 22:00:00', 15];
 
       it('la oficina recibe el recuento por trabajo, con sus ? antes que los del WHERE', async () => {
         bd([['COUNT(*) AS total', [[{ total: 1 }]]], ['AS num_vehiculos', [[{ id: 4, asignaciones_a_revisar: 2 }]]]]);
@@ -535,7 +536,7 @@ describe('trabajos.controller', () => {
         expect(sql).toMatch(/WHERE al\.trabajo_id = t\.id[\s\S]*AS asignaciones_a_revisar/);
         // Excluye a quien va en la ambulancia o coordina su trabajo
         expect(sql).toContain('FROM trabajo_coordinadores rc');
-        expect(params.slice(0, 6)).toEqual([...REVISAR, 'finalizado']);
+        expect(params.slice(0, 7)).toEqual([...REVISAR, 'finalizado']);
         // Sin el filtro, el COUNT no lleva el recuento
         expect(sqlCount).not.toMatch(/asignaciones_libres al\s/);
         expect(paramsCount).toEqual(['finalizado']);
@@ -549,7 +550,7 @@ describe('trabajos.controller', () => {
         const [, params] = query.mock.calls[1];
         expect(sqlCount).toMatch(/IS NOT NULL\)\s*> 0/);
         expect(paramsCount).toEqual(REVISAR);
-        expect(params.slice(0, 10)).toEqual([...REVISAR, ...REVISAR]);
+        expect(params.slice(0, 12)).toEqual([...REVISAR, ...REVISAR]);
       });
 
       it('a quien no es de la oficina no le llega ni le filtra, aunque tenga MANAGE_TRABAJOS', async () => {

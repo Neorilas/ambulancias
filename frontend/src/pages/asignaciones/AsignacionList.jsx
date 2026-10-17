@@ -18,6 +18,19 @@ import { useEstadoEnUrl, paginaDeUrl, usePanelEnUrl } from '../../hooks/useNaveg
 
 const ESTADOS = ['', 'programada', 'activa', 'finalizada', 'cancelada'];
 
+// La marca «A revisar» del listado. 'jornada_sola' es de las jornadas por día
+// (v39): una se quedó sin «Fin de jornada» y se cerró sola.
+const TEXTO_REVISAR = {
+  sin_fin:      'A revisar: sin fin evento',
+  pegado:       'A revisar: fin evento',
+  jornada_sola: 'A revisar: jornada sin cerrar',
+};
+const TITULO_REVISAR = {
+  sin_fin:      'Finalizada sin pulsar «Fin evento/servicio»',
+  pegado:       'Fin del evento/servicio (o de la última jornada) pulsado justo antes de finalizar la asignación: probablemente ya en base',
+  jornada_sola: 'Una jornada se quedó sin «Fin de jornada» y se cerró sola a su hora prevista',
+};
+
 export default function AsignacionList() {
   const { notify } = useNotification();
   const { features, isFeatureEnabled } = useFeatures();
@@ -238,10 +251,8 @@ export default function AsignacionList() {
                         {a.revisar_fin_evento && (
                           <div className="mt-1">
                             <span className="badge-red whitespace-nowrap"
-                                  title={a.revisar_fin_evento === 'sin_fin'
-                                    ? 'Finalizada sin pulsar «Fin evento/servicio»'
-                                    : 'Fin del evento/servicio pulsado justo antes de finalizar la asignación: probablemente ya en base'}>
-                              {a.revisar_fin_evento === 'sin_fin' ? 'A revisar: sin fin evento' : 'A revisar: fin evento'}
+                                  title={TITULO_REVISAR[a.revisar_fin_evento] || TITULO_REVISAR.pegado}>
+                              {TEXTO_REVISAR[a.revisar_fin_evento] || TEXTO_REVISAR.pegado}
                             </span>
                           </div>
                         )}

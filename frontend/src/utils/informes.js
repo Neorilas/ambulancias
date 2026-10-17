@@ -110,12 +110,19 @@ const TEXTO_AVISO = {
   inicio_tardio:     (m) => `Inicio ${fmtMin(m)} tarde`,
   cierre_tardio:     (m) => `Cierre ${fmtMin(m)} después de lo previsto`,
   cierre_anticipado: (m) => `Cierre ${fmtMin(m)} antes de lo previsto`,
+  // Jornadas por día (v39): `n` es cuántas jornadas del servicio lo tienen
+  jornada_sin_iniciar:    (m, n) => `${jornadas(n)} sin iniciar: no suma${n > 1 ? 'n' : ''} horas`,
+  jornada_cerrada_sola:   (m, n) => `${jornadas(n)} sin «Fin de jornada» (se cerró sola): no suma${n > 1 ? 'n' : ''} horas`,
+  jornada_sin_fin:        (m, n) => `${jornadas(n)} sin terminar: no suma${n > 1 ? 'n' : ''} horas`,
+  fin_jornada_anticipado: (m, n) => `${jornadas(n)} terminada${n > 1 ? 's' : ''} antes de lo previsto (con motivo)`,
+  fin_jornada_pegado:     (m) => `Último fin de jornada pulsado ${m} min antes de finalizar: horas infladas`,
 };
+const jornadas = (n) => (n > 1 ? `${n} jornadas` : '1 jornada');
 
 /** Texto de un aviso; uno que no se conozca (backend más nuevo) sale con su código. */
 export function textoAviso(aviso) {
   const f = TEXTO_AVISO[aviso?.codigo];
-  return f ? f(aviso.minutos) : String(aviso?.codigo ?? '');
+  return f ? f(aviso.minutos, aviso.cuantas ?? 1) : String(aviso?.codigo ?? '');
 }
 
 /** ¿Las horas de este servicio no son de fiar? (algún aviso `grave`) */
@@ -147,6 +154,24 @@ export function tramo(desde, hasta, { sinDesde = 'sin inicio', sinHasta = 'sin f
   if (!hasta) return `${a} – ${sinHasta}`;
   const otroDia = desde && diaEnEspana(desde) !== diaEnEspana(hasta);
   return `${a} – ${otroDia ? formatDate(hasta, 'dd/MM HH:mm') : formatHora(hasta)}`;
+}
+
+/**
+ * La columna de evento/servicio de un servicio: un tramo, o con jornadas por
+ * día (v39) una línea por jornada («21/10 10:02 – 14:01», «22/10 no consta»,
+ * «… (se cerró sola)»). Lo usan la pantalla y el PDF.
+ */
+export function tramosEvento(s, ahora = new Date()) {
+  if (!s?.jornadas?.length) return [tramo(s?.llegada_servicio_at, s?.fin_servicio_at)];
+  return s.jornadas.map((j) => {
+    const dia = formatDate(j.inicio, 'dd/MM');
+    // En el mes en curso, la que aún no ha terminado no «falta»: está por venir
+    // Con su hora prevista: en un turno partido, los dos tramos del día se distinguen
+    if (!j.inicio_real_at) {
+      return `${dia} ${formatHora(j.inicio)}–${formatHora(j.fin)} ${new Date(j.fin) > ahora ? 'pendiente' : 'no consta'}`;
+    }
+    return `${dia} ${tramo(j.inicio_real_at, j.fin_real_at)}${j.cierre_auto ? ' (se cerró sola)' : ''}`;
+  });
 }
 
 export const ROL_SERVICIO = { responsable: 'Responsable', personal: 'Equipo' };

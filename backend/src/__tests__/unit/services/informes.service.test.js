@@ -27,9 +27,10 @@ function asig(extra = {}) {
 }
 
 /** BD falsa: responde según la consulta. */
-function bd({ asignaciones = [], miembros = [], flota = [], incidencias = [], archivados = {} } = {}) {
+function bd({ asignaciones = [], miembros = [], flota = [], incidencias = [], archivados = {}, jornadas = [] } = {}) {
   query.mockReset();
   query.mockImplementation(async (sql, params) => {
+    if (sql.includes('FROM asignacion_jornadas')) return [jornadas.filter(j => params.includes(j.asignacion_id))];
     if (sql.includes('FROM asignacion_usuarios')) return [miembros];
     if (sql.includes('FROM asignaciones_libres al')) return [asignaciones];
     if (sql.includes('FROM vehicles WHERE deleted_at')) return [flota];
@@ -302,8 +303,8 @@ describe('informes.service · detalleTecnico', () => {
     expect(sql).toContain('au.user_id = ?');
     expect(sql).toContain("al.estado <> 'cancelada'");
     expect(params.slice(0, 3)).toEqual([1, 1, 1]);          // paramsRevisarFinEvento(viewer)
-    expect(params[5]).toBe(7);
-    expect(params[6].toISOString()).toBe('2026-09-30T22:00:00.000Z');
+    expect(params[6]).toBe(7);   // tras los 6 de paramsRevisarFinEvento (v39)
+    expect(params[7].toISOString()).toBe('2026-09-30T22:00:00.000Z');
   });
 
   it('servicio limpio: horas de asignación y de evento, sin avisos', async () => {
@@ -370,5 +371,112 @@ describe('informes.service · detalleTecnico', () => {
   it('avisa si el mes está archivado (el detalle es en vivo)', async () => {
     bdDetalle({ archivado: true });
     expect((await inf.detalleTecnico('2026-08', 7, 1, OCT)).archivado).toBe(true);
+  });
+});
+
+describe('informes.service · jornadas por día (v39)', () => {
+  // Un congreso de tres días: la asignación va de 06:00 del 10 a 20:00 del 12
+  // (62 h con las noches); las jornadas, 10 h cada día
+  const congreso = (extra = {}) => asig({
+    id: 1, fecha_inicio: d('2026-09-10T06:00:00Z'), fecha_fin: d('2026-09-12T20:00:00Z'),
+    inicio_real_at: d('2026-09-10T06:00:00Z'), finalizado_at: d('2026-09-12T20:00:00Z'), ...extra,
+  });
+  const jornada = (dia, extra = {}) => ({
+    asignacion_id: 1, inicio: d(`2026-09-${dia}T08:00:00Z`), fin: d(`2026-09-${dia}T18:00:00Z`),
+    inicio_real_at: d(`2026-09-${dia}T08:00:00Z`), fin_real_at: d(`2026-09-${dia}T18:00:00Z`),
+    cierre_auto: 0, motivo_fin: null, ...extra,
+  });
+  const ANA = [{ asignacion_id: 1, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' }];
+
+  it('las horas de asignación y de evento son la suma de jornadas, no las 62 h del total', async () => {
+    bd({ asignaciones: [congreso()], miembros: ANA,
+         jornadas: [jornada('10'), jornada('11'), jornada('12')] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({
+      minutos_asignacion: 1800, asignaciones_medidas: 1, minutos_en_evento: 1800, eventos_medidos: 1,
+    });
+    expect(r.version).toBe(3);
+  });
+
+  it('la jornada que se cerró sola no suma; la que nadie inició, tampoco', async () => {
+    bd({ asignaciones: [congreso()], miembros: ANA, jornadas: [
+      jornada('10'),
+      jornada('11', { cierre_auto: 1 }),
+      jornada('12', { inicio_real_at: null, fin_real_at: null }),
+    ] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({ minutos_asignacion: 600, minutos_en_evento: 600 });
+  });
+
+  it('sin finalizar la asignación, las de asignación no suman y las de evento sí (lo abierto no cuenta)', async () => {
+    bd({ asignaciones: [congreso({ estado: 'activa', finalizado_at: null })], miembros: ANA,
+         jornadas: [jornada('10')] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({
+      minutos_asignacion: 0, asignaciones_sin_finalizar: 1, minutos_en_evento: 600,
+    });
+  });
+
+  describe('avisos del detalle del técnico', () => {
+    const OCT = new Date('2026-10-20T10:00:00.000Z');
+    const fila = (extra = {}) => ({
+      id: 1, trabajo_id: 5, estado: 'finalizada', rol: 'responsable', revisar_fin_evento: null,
+      alias: 'Ambulancia 10', matricula: '1010AAA', trabajo_nombre: 'Congreso',
+      fecha_inicio: d('2026-10-05T06:00:00Z'), fecha_fin: d('2026-10-07T20:00:00Z'),
+      inicio_real_at: d('2026-10-05T06:00:00Z'), llegada_servicio_at: null, fin_servicio_at: null,
+      finalizado_at: d('2026-10-07T20:00:00Z'), ...extra,
+    });
+    const jor = (dia, extra = {}) => jornada(dia, {
+      inicio: d(`2026-10-${dia}T08:00:00Z`), fin: d(`2026-10-${dia}T18:00:00Z`),
+      inicio_real_at: d(`2026-10-${dia}T08:00:00Z`), fin_real_at: d(`2026-10-${dia}T18:00:00Z`), ...extra,
+    });
+    function bdJornadas(jornadas, extra) {
+      query.mockReset();
+      query.mockImplementation(async (sql) => {
+        if (sql.includes('FROM users')) return [[{ id: 7, nombre: 'Ana', apellidos: 'Ruiz' }]];
+        // Antes que las jornadas: la fila lleva SQL_REVISAR_FIN_EVENTO, que las nombra
+        if (sql.includes('FROM asignacion_usuarios au')) return [[fila(extra)]];
+        if (sql.includes('FROM asignacion_jornadas')) return [jornadas];
+        return [[]];
+      });
+    }
+
+    it('sin llegada ni fin del evento no marca nada del evento: la jornada lo sustituye', async () => {
+      bdJornadas([jor('05'), jor('06'), jor('07')]);
+      const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+      expect(r.servicios[0].avisos).toEqual([]);
+      expect(r.servicios[0].minutos_asignacion).toBe(1800);
+      expect(r.servicios[0].jornadas).toHaveLength(3);
+      expect(r.servicios[0].jornadas[0]).toMatchObject({ cierre_auto: false, motivo_fin: null });
+    });
+
+    it('marca la que nadie inició, la que se cerró sola y el fin anticipado', async () => {
+      bdJornadas([
+        jor('05', { inicio_real_at: null, fin_real_at: null }),
+        jor('06', { cierre_auto: 1 }),
+        jor('07', { motivo_fin: 'Se suspende la sesión' }),
+      ]);
+      const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+      expect(r.servicios[0].avisos).toEqual([
+        { codigo: 'jornada_sin_iniciar', nivel: 'grave', cuantas: 1 },
+        { codigo: 'jornada_cerrada_sola', nivel: 'grave', cuantas: 1 },
+        { codigo: 'fin_jornada_anticipado', nivel: 'aviso', cuantas: 1 },
+      ]);
+    });
+
+    it('el último «Fin de jornada» pegado al cierre sale como grave, con sus minutos', async () => {
+      bdJornadas([jor('07', { fin_real_at: d('2026-10-07T19:50:00Z') })], { revisar_fin_evento: 'pegado' });
+      const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+      expect(r.servicios[0].avisos).toContainEqual({ codigo: 'fin_jornada_pegado', nivel: 'grave', minutos: 10 });
+    });
+
+    it('una jornada abierta en una asignación que ya debió cerrar es grave; al equipo no se le carga el anticipado', async () => {
+      bdJornadas([jor('05', { fin_real_at: null, motivo_fin: 'x' })],
+        { estado: 'activa', finalizado_at: null, rol: 'personal' });
+      const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+      const codigos = r.servicios[0].avisos.map(a => a.codigo);
+      expect(codigos).toContain('jornada_sin_fin');
+      expect(codigos).not.toContain('fin_jornada_anticipado');
+    });
   });
 });

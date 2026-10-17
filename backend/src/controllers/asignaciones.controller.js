@@ -108,6 +108,19 @@ function marcarFotosInicioTarde(asig, evidencias) {
 function marcarFinEventoEnBase(asig) {
   if (asig.estado !== 'finalizada' || !asig.finalizado_at) return null;
   const cierre = instanteUtc(asig.finalizado_at).getTime();
+  // Con jornadas por día (v39) no hay fin del evento que echar de menos: se
+  // revisa la jornada que se cerró sola (olvido del «Fin de jornada») y el
+  // último «Fin de jornada» pegado al cierre, con el mismo umbral.
+  if (asig.jornadas?.length) {
+    if (asig.jornadas.some(j => j.cierre_auto)) {
+      return { motivo: 'jornada_sola', umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
+    }
+    const fines = asig.jornadas.filter(j => j.fin_real_at).map(j => instanteUtc(j.fin_real_at).getTime());
+    if (!fines.length) return null;
+    const diffJ = cierre - Math.max(...fines);
+    if (diffJ > FIN_EVENTO_EN_BASE_MINUTOS * 60000) return null;
+    return { motivo: 'pegado', minutos: Math.max(0, Math.floor(diffJ / 60000)), umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
+  }
   if (!asig.fin_servicio_at) {
     const referencia = instanteUtc(asig.inicio_real_at || asig.finalizado_at).getTime();
     if (referencia < instanteUtc(FIN_EVENTO_EXIGIDO_DESDE).getTime()) return null;
@@ -157,13 +170,21 @@ const SQL_REVISAR_FIN_EVENTO = `
         AND NOT EXISTS (SELECT 1 FROM trabajo_coordinadores rc
                          WHERE rc.trabajo_id = al.trabajo_id AND rc.user_id = ?)
        THEN CASE
+         -- Jornadas por día (v39): la que se cerró sola, o el último fin
+         -- pegado al cierre; nunca 'sin_fin' (no hay fin del evento)
+         WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj WHERE rj.asignacion_id = al.id) THEN CASE
+           WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj
+                         WHERE rj.asignacion_id = al.id AND rj.cierre_auto = 1) THEN 'jornada_sola'
+           WHEN al.finalizado_at <= (SELECT MAX(rj.fin_real_at) FROM asignacion_jornadas rj
+                                      WHERE rj.asignacion_id = al.id) + INTERVAL ? MINUTE THEN 'pegado'
+         END
          WHEN al.fin_servicio_at IS NULL
           AND COALESCE(al.inicio_real_at, al.finalizado_at) >= ? THEN 'sin_fin'
          WHEN al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE THEN 'pegado'
        END
   END`;
 const paramsRevisarFinEvento = (userId) =>
-  [userId, userId, userId, FIN_EVENTO_EXIGIDO_DESDE, FIN_EVENTO_EN_BASE_MINUTOS];
+  [userId, userId, userId, FIN_EVENTO_EN_BASE_MINUTOS, FIN_EVENTO_EXIGIDO_DESDE, FIN_EVENTO_EN_BASE_MINUTOS];
 
 /**
  * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la

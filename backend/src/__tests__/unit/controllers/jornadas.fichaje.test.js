@@ -18,6 +18,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 
 const {
   iniciarJornada, finalizarJornada, registrarLlegada, registrarFinServicio, finalizarAsignacion,
+  marcarFinEventoEnBase,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
 const { logAudit } = require('../../../controllers/admin.controller');
@@ -247,4 +248,24 @@ describe('fichaje de jornadas (v39)', () => {
       expect(res._json.message).toContain('Fin de jornada');
     });
   });
+
+  describe('«A revisar» con jornadas', () => {
+    const cerrada = (jornadas) => ({ estado: 'finalizada', finalizado_at: new Date('2026-10-22T20:00:00Z'),
+      fin_servicio_at: null, inicio_real_at: new Date('2026-10-20T06:00:00Z'), jornadas });
+    const J = (fin, over = {}) => ({ inicio_real_at: new Date('2026-10-22T08:00:00Z'), fin_real_at: fin, cierre_auto: false, ...over });
+
+    it('sin fin del evento no es «sin_fin»: la jornada lo sustituye', () => {
+      expect(marcarFinEventoEnBase(cerrada([J(new Date('2026-10-22T18:00:00Z'))]))).toBeNull();
+    });
+    it('una jornada que se cerró sola', () => {
+      expect(marcarFinEventoEnBase(cerrada([J(new Date('2026-10-21T18:00:00Z'), { cierre_auto: true }),
+        J(new Date('2026-10-22T18:00:00Z'))]))).toMatchObject({ motivo: 'jornada_sola' });
+    });
+    it('el último «Fin de jornada» pegado al cierre (15 min o menos)', () => {
+      expect(marcarFinEventoEnBase(cerrada([J(new Date('2026-10-22T19:50:00Z'))])))
+        .toEqual({ motivo: 'pegado', minutos: 10, umbral_min: 15 });
+      expect(marcarFinEventoEnBase(cerrada([J(new Date('2026-10-22T19:44:00Z'))]))).toBeNull();
+    });
+  });
 });
+

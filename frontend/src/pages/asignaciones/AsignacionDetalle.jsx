@@ -807,6 +807,25 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </>
               )}
               {conJornadas && <ListaJornadas jornadas={asig.jornadas} ahora={ahora} />}
+              {/* «A revisar» con jornadas (v39): solo llega a la oficina, como el del evento */}
+              {conJornadas && asig.revisar_fin_evento && (
+                <div className="col-span-2 rounded-lg border border-bad-200 bg-bad-50 px-3 py-2 text-xs text-bad-600"
+                     data-testid="aviso-revisar-jornadas">
+                  <p className="font-semibold">A revisar</p>
+                  {asig.revisar_fin_evento.motivo === 'jornada_sola' ? (
+                    <p>
+                      Una jornada se quedó sin «Fin de jornada» y se cerró sola a su hora prevista al iniciar
+                      la siguiente: su hora de fin no es la real y sus horas no cuentan en el informe.
+                    </p>
+                  ) : (
+                    <p>
+                      El último «Fin de jornada» se pulsó {asig.revisar_fin_evento.minutos} min antes de finalizar
+                      la asignación (umbral: {asig.revisar_fin_evento.umbral_min} min). Probablemente ya en base:
+                      la hora de fin de esa jornada puede no ser la real.
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Km inicio</p>
                 <p className="text-neutral-900">{asig.km_inicio != null ? `${asig.km_inicio.toLocaleString()} km` : '—'}</p>

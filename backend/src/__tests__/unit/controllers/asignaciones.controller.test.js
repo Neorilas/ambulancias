@@ -98,6 +98,7 @@ describe('asignaciones.controller', () => {
   describe('listAlarmas', () => {
     it('devuelve las alarmas sin incluir las del propio usuario', async () => {
       query.mockResolvedValueOnce([[{ id: 5, vehiculo_alias: 'AMB-1' }]]);
+      query.mockResolvedValueOnce([[]]);   // jornadas sin iniciar (v39)
       const res = mockRes();
       await listAlarmas(mockReq({ user: { id: 9, roles: ['administrador'] } }), res, mockNext());
 
@@ -2248,9 +2249,10 @@ describe('asignaciones.controller', () => {
       expect(sql).toContain('FROM trabajo_coordinadores rc');
       expect(sql).toMatch(/END AS revisar_fin_evento/);
       // SELECT: mi_rol, fotos, tres veces el usuario, corte y umbral; luego el WHERE
-      const revisar = [3, 3, 3, '2026-10-02 22:00:00', 15];
-      expect(params.slice(0, 7)).toEqual([3, 30, ...revisar]);
-      expect(params.slice(7, 12)).toEqual(revisar);
+      // v39: el umbral de las jornadas va antes del corte de fecha
+      const revisar = [3, 3, 3, 15, '2026-10-02 22:00:00', 15];
+      expect(params.slice(0, 8)).toEqual([3, 30, ...revisar]);
+      expect(params.slice(8, 14)).toEqual(revisar);
       expect(sqlCount).toContain('IS NOT NULL');
       expect(paramsCount).toEqual(revisar);
       expect(res._json.data[0].revisar_fin_evento).toBe('pegado');
