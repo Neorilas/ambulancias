@@ -19,6 +19,8 @@ export const DESDE_POR_DEFECTO = '09:00';
 export const HASTA_POR_DEFECTO = '21:00';
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Tope de tramos de un horario. Espejo de MAX_TRAMOS de backend jornadas.service. */
+export const MAX_TRAMOS = 62;
 
 /** ¿El tramo acaba al día siguiente? (hasta ≤ desde) */
 export const pasaMedianoche = (t) => !!t.desde && !!t.hasta && t.hasta <= t.desde;
@@ -87,6 +89,8 @@ export function horarioAPayload(horario) {
  * sin solapes, dentro de las fechas de quien lo lleva.
  */
 export function errorHorario(horario, inicioLocal, finLocal) {
+  const total = (horario || []).reduce((n, d) => n + d.tramos.length, 0);
+  if (total > MAX_TRAMOS) return `El horario admite como mucho ${MAX_TRAMOS} tramos (lleva ${total})`;
   const tramos = [];
   for (const d of horario || []) {
     if (!d.tramos.length) return `El ${formatDiaCalendario(d.dia, 'dd/MM')} no tiene ningún tramo: quítalo o añade uno`;
@@ -198,10 +202,11 @@ export const finJornadaAnticipado = (j, ahora = new Date()) =>
  * Qué botón de jornada toca ahora, con la misma regla que el backend:
  *  - `abierta`: la iniciada sin cerrar; `siguiente`: la primera sin iniciar
  *    que aún no ha terminado.
- *  - `principal`: 'inicio' si la siguiente ya se puede iniciar (aunque haya
- *    una abierta: al iniciar se cierra sola, decisión del usuario), 'fin' si
- *    hay una abierta y la siguiente aún no se puede, 'esperar' si solo queda
- *    una que todavía no se puede iniciar, o null si no queda nada.
+ *  - `principal`: 'fin' si hay una abierta dentro de su horario; si no,
+ *    'inicio' si la siguiente ya se puede iniciar (aunque haya una abierta
+ *    que ya pasó su hora: al iniciar se cierra sola, decisión del usuario),
+ *    'fin' si queda una abierta, 'esperar' si solo queda una que todavía no
+ *    se puede iniciar, o null si no queda nada.
  */
 export function accionJornada(jornadas, ahora = new Date()) {
   const lista = jornadas || [];
@@ -209,8 +214,12 @@ export function accionJornada(jornadas, ahora = new Date()) {
   const siguiente = lista.find(j => !j.inicio_real_at && new Date(j.fin) > ahora
     && (!abierta || new Date(j.inicio) > new Date(abierta.inicio))) || null;
   const siguienteYa = !!siguiente && ahora >= inicioJornadaDesde(siguiente);
+  // Una abierta que aún está en su horario se está trabajando: primero su fin
+  // (el backend no la cierra sola; solo a la que ya pasó su hora, el olvido)
+  const abiertaEnCurso = !!abierta && new Date(abierta.fin) > ahora;
   let principal = null;
-  if (siguienteYa) principal = 'inicio';
+  if (abiertaEnCurso) principal = 'fin';
+  else if (siguienteYa) principal = 'inicio';
   else if (abierta) principal = 'fin';
   else if (siguiente) principal = 'esperar';
   return { abierta, siguiente, principal };

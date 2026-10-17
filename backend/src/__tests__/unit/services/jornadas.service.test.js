@@ -119,32 +119,48 @@ describe('jornadas.service', () => {
   });
 
   describe('aplicarJornadas', () => {
-    it('rehace las no fichadas y nunca borra una fichada', async () => {
-      const conn = conexion({
-        'FOR UPDATE': [
-          { id: 1, inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T20:00'), inicio_real_at: T('2026-10-20T08:05') },
-          { id: 2, inicio: T('2026-10-21T08:00'), fin: T('2026-10-21T20:00'), inicio_real_at: null },
-        ],
-      });
+    const fila = (id, ini, fin, fichada = null) =>
+      ({ id, inicio: T(ini), fin: T(fin), inicio_real_at: fichada ? T(fichada) : null });
+
+    it('lo que no cambia se queda con su id (y su candado); nunca borra una fichada', async () => {
+      const conn = conexion({ 'FOR UPDATE': [
+        fila(1, '2026-10-20T08:00', '2026-10-20T20:00', '2026-10-20T08:05'),   // fichada
+        fila(2, '2026-10-21T08:00', '2026-10-21T20:00'),                        // igual: se queda
+        fila(3, '2026-10-22T08:00', '2026-10-22T20:00'),                        // mismo inicio: cambia el fin
+        fila(4, '2026-10-23T08:00', '2026-10-23T20:00'),                        // ya no está: se borra
+      ] });
       const { conservadas } = await jornadas.aplicarJornadas(conn, 50, [
-        // encima de la fichada: se le mueve la hora prevista, no se duplica
-        { inicio: T('2026-10-20T09:00'), fin: T('2026-10-20T21:00') },
-        { inicio: T('2026-10-21T10:00'), fin: T('2026-10-21T22:00') },
+        { inicio: T('2026-10-20T09:00'), fin: T('2026-10-20T21:00') },   // encima de la fichada
+        { inicio: T('2026-10-21T08:00'), fin: T('2026-10-21T20:00') },
+        { inicio: T('2026-10-22T08:00'), fin: T('2026-10-22T14:00') },
+        { inicio: T('2026-10-24T08:00'), fin: T('2026-10-24T20:00') },   // nueva
       ]);
       expect(conservadas).toBe(1);
-      const sqls = conn.ejecutadas.map(e => e.sql);
-      expect(sqls[1]).toContain('DELETE FROM asignacion_jornadas WHERE asignacion_id = ? AND inicio_real_at IS NULL');
-      const mover = conn.ejecutadas.find(e => e.sql.startsWith('UPDATE asignacion_jornadas'));
-      expect(mover.params[2]).toBe(1);
-      const nuevas = conn.ejecutadas.filter(e => e.sql.includes('INSERT INTO asignacion_jornadas'));
-      expect(nuevas).toHaveLength(1);
-      expect(nuevas[0].params[0]).toBe(50);
+      const ej = conn.ejecutadas;
+      expect(ej.find(e => e.sql.startsWith('UPDATE asignacion_jornadas SET inicio = ?')).params[2]).toBe(1);
+      expect(ej.find(e => e.sql.startsWith('UPDATE asignacion_jornadas SET fin = ?')).params[1]).toBe(3);
+      expect(ej.filter(e => e.sql.includes('INSERT INTO asignacion_jornadas'))).toHaveLength(1);
+      const borrar = ej.find(e => e.sql.startsWith('DELETE'));
+      expect(borrar.params).toEqual([4]);
+      expect(borrar.sql).toContain('inicio_real_at IS NULL');
+      // Nada toca la 2: conserva id y aviso_sin_iniciar_at
+      expect(ej.some(e => e.params?.includes(2) && !e.sql.includes('FOR UPDATE'))).toBe(false);
     });
 
-    it('sin horario deja solo las fichadas', async () => {
-      const conn = conexion({ 'FOR UPDATE': [] });
+    it('sin horario borra las no fichadas y deja las fichadas', async () => {
+      const conn = conexion({ 'FOR UPDATE': [
+        fila(1, '2026-10-20T08:00', '2026-10-20T20:00', '2026-10-20T08:05'),
+        fila(2, '2026-10-21T08:00', '2026-10-21T20:00'),
+      ] });
       await jornadas.aplicarJornadas(conn, 50, []);
       expect(conn.ejecutadas.filter(e => e.sql.includes('INSERT'))).toHaveLength(0);
+      expect(conn.ejecutadas.find(e => e.sql.startsWith('DELETE')).params).toEqual([2]);
+    });
+
+    it('sin nada que sobre no lanza un DELETE vacío', async () => {
+      const conn = conexion({ 'FOR UPDATE': [] });
+      await jornadas.aplicarJornadas(conn, 50, [{ inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T20:00') }]);
+      expect(conn.ejecutadas.some(e => e.sql.startsWith('DELETE'))).toBe(false);
     });
   });
 

@@ -69,6 +69,11 @@ describe('utils/jornadas', () => {
       expect(errorHorario([dia('2026-10-21', ['10:00', '14:00'], ['15:00', '23:00'])], INI, FIN)).toBeNull();
       expect(errorHorario([], INI, FIN)).toBeNull();
     });
+    it('el mismo tope de tramos que el backend', () => {
+      const muchos = Array.from({ length: 32 }, (_, i) =>
+        dia(`2026-11-${String(i % 30 + 1).padStart(2, '0')}`, ['08:00', '12:00'], ['13:00', '20:00']));
+      expect(errorHorario(muchos, '2026-11-01T00:00', '2026-12-31T00:00')).toContain('como mucho 62 tramos');
+    });
     it.each([
       ['día sin tramos', [{ dia: '2026-10-21', tramos: [] }], 'ningún tramo'],
       ['hora a medias', [dia('2026-10-21', ['10:00', ''])], 'Completa las horas'],
@@ -144,6 +149,14 @@ describe('utils/jornadas', () => {
       const tarde = accionJornada([abierta, D22], new Date('2026-10-21T17:00:00Z'));
       expect(tarde).toMatchObject({ principal: 'fin', abierta, siguiente: D22 });
       expect(accionJornada([abierta, D22], new Date('2026-10-22T07:45:00Z')).principal).toBe('inicio');
+    });
+
+    it('con una abierta aún en su horario, el principal es su fin aunque la siguiente ya se pueda iniciar', () => {
+      const abierta = { ...D21, fin: '2026-10-21T14:00:00Z', inicio_real_at: '2026-10-21T08:00:00Z' };
+      const tarde = { ...D21, id: 9, inicio: '2026-10-21T14:00:00Z', fin: '2026-10-21T18:00:00Z' };
+      expect(accionJornada([abierta, tarde], new Date('2026-10-21T13:45:00Z')).principal).toBe('fin');
+      // pasada su hora ya es un olvido: se ofrece la siguiente (y la abierta se cerrará sola)
+      expect(accionJornada([abierta, tarde], new Date('2026-10-21T14:05:00Z')).principal).toBe('inicio');
     });
 
     it('sin nada que fichar: null', () => {

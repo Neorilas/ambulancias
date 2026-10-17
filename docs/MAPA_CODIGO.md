@@ -429,7 +429,9 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
   `index` lo importaba de forma estática. Comprobar tras tocarlo: `grep pdf
   dist/sw.js` vacío y el `index-*.js` sin `from"./pdf-`.
 
-**Jornadas por día (v39, 2026-10-17, `VERSION_INFORME` 3).** Con horario por
+**Jornadas por día (v39, 2026-10-17, `VERSION_INFORME` 3).** Sin ninguna
+jornada medida, las horas de asignación son null y no 0: un 0 contaba como
+«medida» (revisión del 2026-10-17). Con horario por
 días, las horas no salen de los sellos de la asignación (un congreso de tres
 días daba 61 h con las noches) sino de la **suma de las jornadas cerradas a
 mano** (decisión del usuario: los viajes no cuentan). `jornadasPorAsignacion`
@@ -1769,8 +1771,15 @@ trabajo); `asignacion_jornadas` son las filas que ficha cada ambulancia. Las
 fechas son instantes UTC y el «día» es la fecha española del inicio, así que un
 tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
 - **Una jornada fichada no se borra nunca** (su hora real es la evidencia).
-  Cambiar el horario rehace las no fichadas; si un tramo nuevo cae encima de
-  una fichada, se le mueve la hora prevista en vez de duplicarla.
+  `aplicarJornadas` **compara, no borra y recrea** (revisión del
+  2026-10-17): un tramo igual a una jornada sin fichar la deja intacta (id y
+  `aviso_sin_iniciar_at`), uno con el mismo inicio solo le cambia el fin, uno
+  encima de una fichada le mueve la hora prevista, y solo se borran las sin
+  fichar que ya no están. Recrearlas cambiaba los ids (quien tenía la ficha
+  abierta pulsaba sobre una jornada inexistente) y perdía el candado del push,
+  que volvía a sonar. Importa porque `AsignacionForm` manda `horario` en cada
+  edición de una ambulancia con horario propio, y cualquier cambio del horario
+  del trabajo pasa por todas las que lo siguen.
 - Una ambulancia que sigue al trabajo (`horario_propio = 0`) recibe solo los
   tramos que tocan **sus** fechas (`tramosDentro`): la que va dos de tres días
   hereda dos. Se recalcula al crearla, al cambiarle fechas o trabajo y al
@@ -1819,8 +1828,19 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
 - **Olvido del «Fin de jornada»** (decisión del usuario): al iniciar la
   siguiente, la abierta se cierra sola a su hora **prevista** con
   `cierre_auto = 1`, en la misma transacción, y la auditoría lo dice
-  (`cerradas_solas`). Sus horas no se dan por buenas (informe, F6). Si otra
-  pulsación selló antes, se deshace ese cierre (`JornadaYaSellada`).
+  (`cerradas_solas`). Sus horas no se dan por buenas en el informe. **Solo si
+  ya pasó su hora prevista**: una abierta aún dentro de su horario se está
+  trabajando, y cerrarla sola le ponía una hora de fin futura (pasaba al
+  iniciar la siguiente en su media hora previa con tramos pegados); entonces
+  400 «Antes pulsa «Fin de jornada»…», y en pantalla `accionJornada` deja
+  «Fin de jornada» como principal mientras siga en su horario.
+- **Todo se decide con las jornadas bloqueadas** (`SELECT … FOR UPDATE`
+  dentro de la transacción de `iniciarJornada`): la jornada posterior ya
+  iniciada, cuáles están olvidadas y si la pedida sigue existiendo. Si la
+  ganó otra pulsación, no-op 200; si ya no existe (cambio de horario), **409**
+  (`MSG_JORNADA_CAMBIADA`), no un «iniciada» falso. `finalizarJornada`,
+  igual: si no selló porque se cerró sola o desapareció, 409 (su motivo no se
+  guardó). Errores de dentro de la transacción: `FichajeRechazado`.
 - **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin
   previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
   como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por

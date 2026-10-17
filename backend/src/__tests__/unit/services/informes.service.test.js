@@ -408,6 +408,13 @@ describe('informes.service · jornadas por día (v39)', () => {
     expect(r.por_tecnico[0]).toMatchObject({ minutos_asignacion: 600, minutos_en_evento: 600 });
   });
 
+  it('finalizada sin ninguna jornada medida: no cuenta como medida con 0 h', async () => {
+    bd({ asignaciones: [congreso()], miembros: ANA,
+         jornadas: [jornada('10', { cierre_auto: 1 }), jornada('11', { inicio_real_at: null, fin_real_at: null })] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({ minutos_asignacion: 0, asignaciones_medidas: 0 });
+  });
+
   it('sin finalizar la asignación, las de asignación no suman y las de evento sí (lo abierto no cuenta)', async () => {
     bd({ asignaciones: [congreso({ estado: 'activa', finalizado_at: null })], miembros: ANA,
          jornadas: [jornada('10')] });

@@ -50,10 +50,12 @@ function jornada(id, desdeH, hastaH, over = {}) {
            inicio_real_at: null, fin_real_at: null, cierre_auto: 0, ...over };
 }
 
-function bd({ asig = fila(), jornadas = [], fotos = FOTOS_INICIO, updates = {} } = {}) {
+function bd({ asig = fila(), jornadas = [], fotos = FOTOS_INICIO, updates = {}, bloqueadas = jornadas } = {}) {
   query.mockImplementation(async (sql, params) => {
     if (sql.includes('trabajo_coordinador_apellidos')) return [[asig]];
     if (sql.includes('FROM asignacion_jornadas j')) return [jornadas];
+    // La relectura con bloqueo dentro de la transacción (puede diferir de la ficha)
+    if (sql.includes('FROM asignacion_jornadas') && sql.includes('FOR UPDATE')) return [bloqueadas];
     if (sql.includes('SELECT au.user_id, au.rol')) {
       return [[{ user_id: 2, rol: 'responsable', orden: 0, username: 'tec' },
                { user_id: 3, rol: 'personal', orden: 0, username: 'eva' }]];
@@ -126,13 +128,31 @@ describe('fichaje de jornadas (v39)', () => {
       expect(logAudit.mock.calls[0][0].details.cerradas_solas).toEqual([99]);
     });
 
-    it('si otra pulsación selló antes, no cierra las olvidadas ni audita', async () => {
-      bd({ jornadas: [
-        jornada(99, -20, -10, { inicio_real_at: new Date(ahora() - 20 * H) }),
-        jornada(100, 0, 8),
-      ], updates: { 'SET inicio_real_at = ?': { affectedRows: 0 } } });
+    it('si otra pulsación selló antes (se ve con el bloqueo), no cierra las olvidadas ni audita', async () => {
+      const olvidada = jornada(99, -20, -10, { inicio_real_at: new Date(ahora() - 20 * H) });
+      bd({ jornadas: [olvidada, jornada(100, 0, 8)],
+           bloqueadas: [olvidada, jornada(100, 0, 8, { inicio_real_at: new Date() })] });
       const res = await pulsar(iniciarJornada);
       expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('UPDATE asignacion_jornadas')).toHaveLength(0);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('una abierta que aún está en su horario no se cierra sola: 400 y nada tocado', async () => {
+      bd({ jornadas: [
+        jornada(99, -6, 0.3, { inicio_real_at: new Date(ahora() - 6 * H) }),
+        jornada(100, 0.4, 8),
+      ] });
+      const res = await pulsar(iniciarJornada);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('sigue en curso');
+      expect(llamadas('UPDATE asignacion_jornadas')).toHaveLength(0);
+    });
+
+    it('si la jornada desapareció por un cambio de horario: 409, no un «iniciada» falso', async () => {
+      bd({ jornadas: [jornada(100, 0, 8)], bloqueadas: [jornada(101, 0, 8)] });
+      const res = await pulsar(iniciarJornada);
+      expect(res.status).toHaveBeenCalledWith(409);
       expect(logAudit).not.toHaveBeenCalled();
     });
 
@@ -207,6 +227,23 @@ describe('fichaje de jornadas (v39)', () => {
     it('a menos de 30 min del fin no pide motivo', async () => {
       bd({ jornadas: [empezada(-8, 0.4)] });
       expect((await pulsar(finalizarJornada)).status).toHaveBeenCalledWith(200);
+    });
+
+    it('si mientras tanto se cerró sola al iniciar la siguiente: 409 (su motivo no se ha guardado)', async () => {
+      let lecturas = 0;
+      query.mockImplementation(async (sql) => {
+        if (sql.includes('trabajo_coordinador_apellidos')) return [[fila()]];
+        if (sql.includes('FROM asignacion_jornadas j')) {
+          lecturas++;
+          return [[empezada(-8, 0.25, lecturas > 1 ? { fin_real_at: new Date(), cierre_auto: 1 } : {})]];
+        }
+        if (sql.includes('created_at AS uploaded_at') || sql.includes('SELECT tipo_imagen')) return [FOTOS_INICIO];
+        if (sql.startsWith('UPDATE asignacion_jornadas')) return [{ affectedRows: 0 }];
+        return [[]];
+      });
+      const res = await pulsar(finalizarJornada);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(logAudit).not.toHaveBeenCalled();
     });
 
     it('ya terminada: 200 sin tocar nada', async () => {

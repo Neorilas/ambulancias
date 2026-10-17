@@ -127,11 +127,19 @@ async function jornadasDe(asignacionId, ejecutar = query) {
 
 const solapan = (a, b) => instanteUtc(a.inicio) < instanteUtc(b.fin) && instanteUtc(a.fin) > instanteUtc(b.inicio);
 
+const mismoInstante = (a, b) => instanteUtc(a).getTime() === instanteUtc(b).getTime();
+
 /**
- * Deja las jornadas de una ambulancia como `horario`, sin perder lo fichado:
- *  - las no fichadas se borran y se vuelven a crear desde el horario;
- *  - una fichada se queda siempre; si un tramo nuevo cae encima de ella, ese
- *    tramo no se duplica: se le pone a la fichada como hora prevista.
+ * Deja las jornadas de una ambulancia como `horario`, sin perder lo fichado.
+ * Compara con lo que hay en vez de borrar y recrear (revisión del 2026-10-17):
+ * recrear cambiaba los ids —quien tuviera la ficha abierta pulsaba sobre una
+ * jornada que ya no existía— y perdía `aviso_sin_iniciar_at`, así que el push
+ * urgente volvía a sonar por una jornada ya avisada. Por eso:
+ *  - un tramo igual a una jornada sin fichar la deja tal cual (id y candado);
+ *  - uno con el mismo inicio y otro fin le cambia el fin y conserva el candado;
+ *  - uno que cae encima de una fichada no se duplica: se le pone a la fichada
+ *    como hora prevista (lo fichado no se borra nunca);
+ *  - el resto se crea, y las sin fichar que ya no están en el horario se borran.
  * Dentro de la transacción de quien llama (bloquea las filas de la ambulancia).
  *
  * @returns {Promise<{conservadas: number}>} cuántas fichadas se han quedado
@@ -141,13 +149,23 @@ async function aplicarJornadas(conn, asignacionId, horario) {
     'SELECT id, inicio, fin, inicio_real_at FROM asignacion_jornadas WHERE asignacion_id = ? FOR UPDATE',
     [asignacionId]
   );
-  const fichadas = (actuales || []).filter(j => j.inicio_real_at);
-  await conn.execute(
-    'DELETE FROM asignacion_jornadas WHERE asignacion_id = ? AND inicio_real_at IS NULL',
-    [asignacionId]
-  );
+  const filas = actuales || [];
+  const fichadas = filas.filter(j => j.inicio_real_at);
+  const libres = filas.filter(j => !j.inicio_real_at);
   const usadas = new Set();
+  const libre = (cond) => libres.find(j => !usadas.has(j.id) && cond(j));
+
   for (const t of horario || []) {
+    const igual = libre(j => mismoInstante(j.inicio, t.inicio) && mismoInstante(j.fin, t.fin));
+    if (igual) { usadas.add(igual.id); continue; }
+
+    const mismoInicio = libre(j => mismoInstante(j.inicio, t.inicio));
+    if (mismoInicio) {
+      usadas.add(mismoInicio.id);
+      await conn.execute('UPDATE asignacion_jornadas SET fin = ? WHERE id = ?', [t.fin, mismoInicio.id]);
+      continue;
+    }
+
     const encima = fichadas.find(f => !usadas.has(f.id) && solapan(f, t));
     if (encima) {
       usadas.add(encima.id);
@@ -155,9 +173,21 @@ async function aplicarJornadas(conn, asignacionId, horario) {
         [t.inicio, t.fin, encima.id]);
       continue;
     }
+
     await conn.execute(
       'INSERT INTO asignacion_jornadas (asignacion_id, inicio, fin) VALUES (?, ?, ?)',
       [asignacionId, t.inicio, t.fin]
+    );
+  }
+
+  // Las sin fichar que el horario nuevo ya no lleva. `inicio_real_at IS NULL`
+  // otra vez en el WHERE: si se ficharon en el hueco, se quedan.
+  const sobran = libres.filter(j => !usadas.has(j.id)).map(j => j.id);
+  if (sobran.length) {
+    await conn.execute(
+      `DELETE FROM asignacion_jornadas
+        WHERE id IN (${sobran.map(() => '?').join(',')}) AND inicio_real_at IS NULL`,
+      sobran
     );
   }
   return { conservadas: fichadas.length };

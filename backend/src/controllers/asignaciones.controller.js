@@ -1524,9 +1524,12 @@ async function cargarJornada(req, res, accion) {
 /** «la jornada del 21/10 10:00», para los mensajes. */
 const textoJornada = (j) => `la jornada del ${diaYHoraEnEspana(instanteUtc(j.inicio))}`;
 
-// Otra pulsación selló antes: se deshace el cierre de las olvidadas que hizo
-// esta, que ya ha hecho la que ganó.
-class JornadaYaSellada extends Error {}
+// Lo que se descubre ya dentro de la transacción, con las jornadas bloqueadas:
+// se deshace lo hecho en ella y se contesta con `status` y el mensaje.
+class FichajeRechazado extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+const MSG_JORNADA_CAMBIADA = 'El horario de esta ambulancia ha cambiado: recarga la ficha';
 
 async function iniciarJornada(req, res, next) {
   try {
@@ -1558,32 +1561,51 @@ async function iniciarJornada(req, res, next) {
     if (instante >= instanteUtc(jornada.fin)) {
       return error(res, `${textoJornada(jornada)} ya ha terminado: no se puede iniciar ahora`, 400);
     }
-    if (asig.jornadas.some(j => j.inicio_real_at && instanteUtc(j.inicio) > instanteUtc(jornada.inicio))) {
-      return error(res, 'Ya hay iniciada una jornada posterior a esta', 400);
-    }
-
-    // Una anterior que se quedó abierta (olvido del «Fin de jornada») se
-    // cierra sola a su hora prevista y queda marcada para revisar (decisión
-    // del usuario, 2026-10-17): sus horas no se dan por buenas en el informe.
-    const olvidadas = asig.jornadas.filter(j => j.id !== jornada.id && j.inicio_real_at && !j.fin_real_at);
+    // El resto se decide con las jornadas de la ambulancia BLOQUEADAS (revisión
+    // del 2026-10-17): leídas fuera de la transacción, dos responsables
+    // pulsando jornadas distintas a la vez dejaban dos abiertas, y una jornada
+    // borrada por un cambio de horario contestaba «iniciada» sin sellar nada.
     let sellada = false;
+    let olvidadas = [];
     try {
       await transaction(async (conn) => {
+        const [filas] = await conn.execute(
+          `SELECT id, inicio, fin, inicio_real_at, fin_real_at FROM asignacion_jornadas
+            WHERE asignacion_id = ? FOR UPDATE`, [asig.id]);
+        const lista = filas || [];
+        const actual = lista.find(j => j.id === jornada.id);
+        if (!actual) throw new FichajeRechazado(409, MSG_JORNADA_CAMBIADA);
+        if (actual.inicio_real_at) return;   // la ganó otra pulsación: no-op
+        if (lista.some(j => j.inicio_real_at && instanteUtc(j.inicio) > instanteUtc(actual.inicio))) {
+          throw new FichajeRechazado(400, 'Ya hay iniciada una jornada posterior a esta');
+        }
+        const abiertas = lista.filter(j => j.id !== jornada.id && j.inicio_real_at && !j.fin_real_at);
+        // Una abierta que aún está dentro de su horario no es un olvido: se
+        // está trabajando en ella. Cerrarla sola le pondría una hora de fin
+        // futura y la dejaría sin horas en el informe (revisión del
+        // 2026-10-17); primero su «Fin de jornada».
+        const enCurso = abiertas.find(j => instanteUtc(j.fin) > instante);
+        if (enCurso) {
+          throw new FichajeRechazado(400, `Antes pulsa «Fin de jornada» en ${textoJornada(enCurso)}: sigue en curso`);
+        }
+        // Una anterior que se quedó abierta y ya pasó su hora (olvido del «Fin
+        // de jornada») se cierra sola a su hora prevista y queda marcada para
+        // revisar (decisión del usuario, 2026-10-17): sus horas no cuentan.
+        olvidadas = abiertas;
         for (const j of olvidadas) {
           await conn.execute(
             `UPDATE asignacion_jornadas SET fin_real_at = fin, cierre_auto = 1
               WHERE id = ? AND fin_real_at IS NULL`, [j.id]);
         }
-        // `IS NULL` en el WHERE: de dos pulsaciones cruzadas, una sola sella y audita
         const [r] = await conn.execute(
           `UPDATE asignacion_jornadas SET inicio_real_at = ?, inicio_por = ?
             WHERE id = ? AND asignacion_id = ? AND inicio_real_at IS NULL`,
           [instante, req.user.id, jornada.id, asig.id]);
         sellada = (r?.affectedRows || 0) > 0;
-        if (!sellada && olvidadas.length) throw new JornadaYaSellada();
       });
     } catch (err) {
-      if (!(err instanceof JornadaYaSellada)) throw err;
+      if (err instanceof FichajeRechazado) return error(res, err.message, err.status);
+      throw err;
     }
 
     if (sellada) {
@@ -1651,6 +1673,17 @@ async function finalizarJornada(req, res, next) {
     }
 
     const updated = await getAsignacionCompleta(asig.id);
+    // No selló: o la terminó otra pulsación (bien, no-op) o, mientras tanto,
+    // se cerró sola al iniciar la siguiente o desapareció con un cambio de
+    // horario. En esos dos casos, decirlo: un 200 haría creer que su hora y su
+    // motivo se han guardado (revisión del 2026-10-17).
+    if (!result?.affectedRows) {
+      const ahoraJ = updated?.jornadas.find(j => j.id === jornada.id);
+      if (!ahoraJ) return error(res, MSG_JORNADA_CAMBIADA, 409);
+      if (ahoraJ.cierre_auto) {
+        return error(res, 'Esta jornada se cerró sola al iniciar la siguiente: recarga la ficha', 409);
+      }
+    }
     return success(res, updated, 'Jornada terminada');
   } catch (err) {
     next(err);

@@ -192,7 +192,9 @@ function analizarServicio(a, limiteSinIniciar) {
     s.desplazamiento = inicio && primera ? minutosEntre(inicio, primera.inicio_real_at) : null;
     s.minutos_en_sitio = j.medidas ? j.minutos : null;
     s.evento_sin_fin   = j.abiertas > 0;
-    s.minutos_servicio = s.finalizado && inicio ? j.minutos : null;
+    // Sin ninguna jornada medida no hay horas que dar: null, no 0, o contaría
+    // como «medida» y rebajaría la suma de quien sí las tiene (revisión 2026-10-17)
+    s.minutos_servicio = s.finalizado && inicio && j.medidas ? j.minutos : null;
   }
   return s;
 }
