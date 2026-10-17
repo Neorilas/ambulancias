@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../../components/common/Modal.jsx';
 import ListaMiembros from '../../components/common/ListaMiembros.jsx';
+import HorarioJornadas from '../../components/trabajos/HorarioJornadas.jsx';
 import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
@@ -11,6 +12,7 @@ import {
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
 import { inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
 import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../utils/mapas.js';
+import { cruzaDias, horarioDentro, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 
 /**
  * Alta y edición de un trabajo (v33, el trabajo padre).
@@ -58,6 +60,28 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   };
 
   const setEquipo = (lista) => setForm(f => ({ ...f, usuarios: lista }));
+
+  const setHorario = (horario) => {
+    setForm(f => ({ ...f, horario }));
+    setErrors(er => ({ ...er, horario: '' }));
+  };
+  // El horario por días (v39) se ofrece cuando el trabajo ocupa más de un
+  // día, o si ya tiene uno (para poder quitarlo)
+  const conHorario = cruzaDias(form.fecha_inicio, form.fecha_fin) || form.horario.length > 0;
+  // Lo que hereda una ambulancia que sigue al trabajo: los días que tocan sus fechas
+  const fechasDe = (amb) => [amb.fecha_inicio || form.fecha_inicio, amb.fecha_fin || form.fecha_fin];
+  const heredado = (amb) => horarioDentro(form.horario, ...fechasDe(amb));
+  // «Horario propio»: arranca con una copia de lo que heredaba, para retocarla
+  const setHorarioPropio = (i, propio) => {
+    setForm(f => {
+      const lista = [...f.asignaciones];
+      const amb = lista[i];
+      lista[i] = { ...amb, horario_propio: propio,
+        horario: propio ? horarioDentro(f.horario, amb.fecha_inicio || f.fecha_inicio, amb.fecha_fin || f.fecha_fin) : [] };
+      return { ...f, asignaciones: lista };
+    });
+    setErrors(er => ({ ...er, asignaciones: '' }));
+  };
 
   // Sin enlace de Maps, quien vaya verá una búsqueda con el texto de la
   // ubicación, que puede no llevar al sitio exacto: se avisa y se deja
@@ -207,6 +231,21 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           </div>
         </div>
 
+        {/* Horario por días (v39): lo heredan las ambulancias, y en cada día
+            su responsable pulsa «Inicio de jornada» y «Fin de jornada» */}
+        {conHorario && (
+          <div>
+            <label className="label">Horario por días</label>
+            <p className="text-xs text-neutral-500 mb-2">
+              Cada día, el responsable de cada ambulancia pulsa «Inicio de jornada» y «Fin de jornada».
+              Las fotos de inicio se hacen una vez, el primer día en base, y las de fin al volver el
+              último. Todas las ambulancias siguen este horario salvo que se les ponga uno propio.
+            </p>
+            <HorarioJornadas value={form.horario} onChange={setHorario}
+              fechaInicio={form.fecha_inicio} fechaFin={form.fecha_fin} error={errors.horario} />
+          </div>
+        )}
+
         {/* Coordinadores (D1: cualquier usuario activo; no hace falta que vaya).
             Uno o varios (v35), todos con las mismas funciones */}
         <div>
@@ -320,6 +359,38 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                     {/* En blanco es la del trabajo: es la que guardará el backend */}
                     {inicioYaPasado(amb.fecha_inicio || form.fecha_inicio) && (
                       <p className="text-xs text-warn-700" data-testid="aviso-inicio-pasado">{AVISO_INICIO_PASADO}</p>
+                    )}
+                    {(form.horario.length > 0 || amb.horario_propio || cruzaDias(...fechasDe(amb))) && (
+                      <div data-testid={`horario-ambulancia-${i}`}>
+                        <label className="label text-xs">Horario por días de esta ambulancia</label>
+                        <div className="flex flex-wrap gap-4 text-sm mb-2">
+                          <label className="flex items-center gap-1.5">
+                            <input type="radio" checked={!amb.horario_propio}
+                              onChange={() => setHorarioPropio(i, false)} />
+                            Igual que el trabajo
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            <input type="radio" checked={!!amb.horario_propio}
+                              onChange={() => setHorarioPropio(i, true)} />
+                            Horario propio
+                          </label>
+                        </div>
+                        {amb.horario_propio ? (
+                          <HorarioJornadas value={amb.horario}
+                            onChange={h => setAmbulancia(i, 'horario', h)}
+                            fechaInicio={fechasDe(amb)[0]} fechaFin={fechasDe(amb)[1]} />
+                        ) : heredado(amb).length ? (
+                          <ul className="text-xs text-neutral-600 space-y-0.5">
+                            {heredado(amb).map(d => (
+                              <li key={d.dia}>{etiquetaDia(d.dia)}: {textoTramos(d.tramos)}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-neutral-500">
+                            El trabajo no tiene horario por días en las fechas de esta ambulancia.
+                          </p>
+                        )}
+                      </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>

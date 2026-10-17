@@ -1763,6 +1763,21 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
 - Auditoría: `create_trabajo` lleva `horario`; `update_trabajo`,
   `horario_antes`/`horario` si cambió; `update_asignacion`, `cambios.horario` y
   `cambios.horario_propio` (`cambiosAsignacion`).
+- **Pantalla del administrador:** `components/trabajos/HorarioJornadas.jsx`
+  (editor: un bloque por día; «Rellenar los N días» con una hora para todos,
+  luego se retoca cada uno; «+ Añadir tramo» para el turno partido; «(+1 día)»
+  si pasa de medianoche; lo fichado sale bloqueado) y la lógica pura en
+  `utils/jornadas.js` (`horarioDesdeApi`/`horarioAPayload` hacen de puente:
+  el formulario piensa en **días y tramos de hora española**, la API en
+  instantes UTC; `errorHorario` repite lo que valida el backend; `horarioDentro`
+  es el `tramosDentro` del backend). Sale en `TrabajoForm` cuando las fechas
+  cruzan de día (`cruzaDias`; lo que acaba a las 00:00 no cuenta) o ya hay
+  horario; en cada ambulancia del alta, «Igual que el trabajo» (lista lo que
+  hereda) / «Horario propio» (arranca con una copia de lo heredado). En
+  `AsignacionForm`, lo mismo solo si va en un trabajo; al editar, «propio»
+  arranca con sus jornadas actuales (fichadas incluidas) y volver a «igual»
+  manda `horario_propio: false`. `TrabajoDetail` enseña el horario en la ficha
+  y «Con horario por días propio» en la ambulancia que lo lleva.
 - **Fichar** (`iniciarJornada`/`finalizarJornada`, `POST
   /asignaciones/:id/jornadas/:jornadaId/inicio|fin`): responsable o gestión
   (`cargarJornada`, como la llegada; el equipo no). Calcados de la llegada:
@@ -2416,6 +2431,7 @@ solo actúa en el navegador no es un control de acceso.
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
 | El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo`) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
+| El editor del horario por días | `utils/jornadas.js` (formato de días y tramos ↔ API, validación espejo de `leerHorario`) → `components/trabajos/HorarioJornadas.jsx` → `TrabajoForm` (trabajo y ambulancias del alta, vía `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`), `AsignacionForm` y la ficha en `TrabajoDetail`. Si cambia una regla del horario, cambiarla también en `jornadas.service.leerHorario` (§6.1 «Jornadas por día») |
 | Fichar una jornada (ventana, motivo, olvido) | `asignaciones.controller` (`cargarJornada`, `iniciarJornada`, `finalizarJornada`; la guarda en `registrarLlegada`/`registrarFinServicio`/`finalizarAsignacion`) + rutas en `asignaciones.routes` (clasificadas en `ACCESO` de `autorizacion-rutas.test.js`) + `avisarInicioJornada`/`avisarFinJornada` + `ACTION_LABEL` de `AdminPanel`. Los cortes son `INICIO_ANTICIPADO_MAX_MINUTOS` (inicio) e `INICIO_TARDIO_MINUTOS` (motivo de fin) (§6.1 «Jornadas por día») |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
 | Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |

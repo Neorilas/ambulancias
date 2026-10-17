@@ -15,6 +15,7 @@ import { toInputDatetime, toUtcIso, formatDateTimeShort } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
+import { horarioDesdeApi, horarioAPayload, errorHorario } from './jornadas.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -27,6 +28,8 @@ export const estaCerrado = (estado) => CERRADOS.includes(estado);
 export const ambulanciaVacia = () => ({
   vehicle_id: '', responsables: [''], personal: [],
   fecha_inicio: '', fecha_fin: '', km_inicio: '', notas: '',
+  // Sin horario propio, hereda el del trabajo en sus fechas (v39)
+  horario_propio: false, horario: [],
 });
 
 /**
@@ -48,6 +51,8 @@ export function formularioInicial(trabajo) {
     // una fila vacía para elegirlo
     coordinadores: coordinadoresDe(trabajo).length ? coordinadoresDe(trabajo).map(c => c.id) : [''],
     usuarios:     (trabajo?.usuarios || []).map(u => u.user_id),
+    // El horario por días (v39), en días y tramos de hora española
+    horario:      horarioDesdeApi(trabajo?.horario),
     asignaciones: [],
   };
 }
@@ -68,6 +73,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
   if (!idsElegidos(form.coordinadores).length) {
     e.coordinadores = 'Elige quién coordina el trabajo';
   }
+  const malHorario = errorHorario(form.horario, form.fecha_inicio, form.fecha_fin);
+  if (malHorario) e.horario = malHorario;
   if (!alta) return e;
 
   // Las ambulancias son opcionales; las que se añadan, completas
@@ -84,6 +91,10 @@ export function validarTrabajo(form, { alta = false } = {}) {
     return ini && fin && fin <= ini;
   })) {
     e.asignaciones = 'En cada ambulancia, el fin tiene que ser posterior al inicio';
+  } else {
+    const propia = ambs.map(a => a.horario_propio && errorHorario(a.horario,
+      a.fecha_inicio || form.fecha_inicio, a.fecha_fin || form.fecha_fin)).find(Boolean);
+    if (propia) e.asignaciones = `Horario propio de una ambulancia: ${propia}`;
   }
   return e;
 }
@@ -104,6 +115,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     fecha_fin:    toUtcIso(form.fecha_fin),
     coordinadores: idsElegidos(form.coordinadores),
     usuarios:     idsElegidos(form.usuarios),
+    horario:      horarioAPayload(form.horario),
   };
   if (!alta) return datos;
   return {
@@ -117,6 +129,8 @@ export function payloadTrabajo(form, { alta = false } = {}) {
       ...(a.fecha_fin    ? { fecha_fin:    toUtcIso(a.fecha_fin) }    : {}),
       km_inicio:    parseKm(a.km_inicio),
       notas:        a.notas.trim() || null,
+      // Con `horario`, la ambulancia lleva el suyo; sin él, el del trabajo
+      ...(a.horario_propio ? { horario: horarioAPayload(a.horario) } : {}),
     })),
   };
 }
