@@ -85,7 +85,10 @@ export default function Sidebar({ isOpen, onClose }) {
           label: null,
           items: [
             { to: '/mis-trabajos',     label: 'Mis trabajos',     show: isFeatureEnabled('menu_mis_trabajos') },
-            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: true },
+            // Con su flag, como en el menú de gestión: con `show: true` el
+            // técnico la veía con el flag apagado y la guardia lo devolvía a
+            // la portada al pulsarla.
+            { to: '/mis-asignaciones', label: 'Mis asignaciones', show: isFeatureEnabled('menu_mis_asignaciones') },
           ],
         },
       ];
