@@ -443,7 +443,9 @@ las carga por id (sin ids no consulta) y `analizarJornadas` las resume. Horas
 de asignación = esa suma con la asignación finalizada (lo abierto no cuenta,
 como siempre); horas de evento = la misma suma, en cuanto hay alguna medida.
 La jornada que **se cerró sola** (`cierre_auto`) y la que **nadie inició** no
-suman. Avisos (`avisosServicio`, rama de jornadas, que sustituye a los del
+suman. Con la asignación ya finalizada, una sin fichar cuenta como «sin
+iniciar» aunque su hora sea posterior a hoy (`analizarJornadas(…, cerrada)`),
+igual que la pantalla la pinta «no consta». Avisos (`avisosServicio`, rama de jornadas, que sustituye a los del
 evento): graves `jornada_sin_iniciar`, `jornada_cerrada_sola`,
 `jornada_sin_fin` y `fin_jornada_pegado` (el último fin a ≤15 min del cierre,
 con la misma regla y quién la ve que «A revisar»); aviso

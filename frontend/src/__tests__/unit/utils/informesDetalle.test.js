@@ -81,6 +81,19 @@ describe('utils/pdfInformeTecnico', () => {
 
   it('sin servicios también genera el PDF', () => {
     const doc = construirPdfTecnico(jsPDF, autoTable, { mes: '2026-10', nombre: 'Ana', servicios: [] });
+    // Con jornadas por día (v39): una línea por jornada en la columna del evento
+    const conJornadas = construirPdfTecnico(jsPDF, autoTable, { mes: '2026-10', nombre: 'Ana', servicios: [{
+      ...servicio(), estado: 'finalizada', minutos_en_evento: 600, minutos_asignacion: 600,
+      jornadas: [
+        { inicio: '2026-10-20T08:00:00Z', fin: '2026-10-20T18:00:00Z', inicio_real_at: '2026-10-20T08:00:00Z', fin_real_at: '2026-10-20T18:00:00Z' },
+        { inicio: '2026-10-21T08:00:00Z', fin: '2026-10-21T18:00:00Z', inicio_real_at: null, fin_real_at: null },
+      ],
+      avisos: [{ codigo: 'jornada_sin_iniciar', nivel: 'grave', cuantas: 1 }],
+    }] });
+    expect(conJornadas.getNumberOfPages()).toBeGreaterThan(0);
+    expect(filasPdf([{ ...servicio(), estado: 'finalizada', jornadas: [
+      { inicio: '2026-10-21T08:00:00Z', fin: '2026-10-21T18:00:00Z', inicio_real_at: null, fin_real_at: null }] }])[0]
+      .celdas[3]).toBe('21/10 10:00–20:00 no consta');
     expect(doc.output()).toContain('No tuvo servicios este mes.');
   });
 });

@@ -463,12 +463,19 @@ describe('informes.service · jornadas por día (v39)', () => {
         jor('06', { cierre_auto: 1 }),
         jor('07', { motivo_fin: 'Se suspende la sesión' }),
       ]);
+      // (la fila está finalizada; ver el test siguiente para una sin fichar de después)
       const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
       expect(r.servicios[0].avisos).toEqual([
         { codigo: 'jornada_sin_iniciar', nivel: 'grave', cuantas: 1 },
         { codigo: 'jornada_cerrada_sola', nivel: 'grave', cuantas: 1 },
         { codigo: 'fin_jornada_anticipado', nivel: 'aviso', cuantas: 1 },
       ]);
+    });
+
+    it('finalizada: una jornada sin fichar cuenta aunque su hora sea posterior a hoy', async () => {
+      bdJornadas([jor('05'), { ...jor('28'), inicio_real_at: null, fin_real_at: null }]);
+      const r = await inf.detalleTecnico('2026-10', 7, 1, OCT);
+      expect(r.servicios[0].avisos).toContainEqual({ codigo: 'jornada_sin_iniciar', nivel: 'grave', cuantas: 1 });
     });
 
     it('el último «Fin de jornada» pegado al cierre sale como grave, con sus minutos', async () => {

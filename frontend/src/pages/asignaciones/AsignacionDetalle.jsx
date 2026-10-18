@@ -380,10 +380,15 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
       setAsig(await asignacionesService.iniciarJornada(id, jornada.id));
       notify.success('Jornada iniciada');
     } catch (err) {
-      notify.error(err.response?.data?.message || 'No se pudo iniciar la jornada');
       // 409: el horario cambió o la jornada se cerró sola; lo que hay en
-      // pantalla ya no vale, se recarga en vez de pedírselo al técnico
-      if (err.response?.status === 409) load();
+      // pantalla ya no vale, se recarga en vez de pedírselo al técnico (y el
+      // aviso lo dice así, no «recarga la ficha»)
+      if (err.response?.status === 409) {
+        notify.warning('El horario de esta ambulancia ha cambiado: la ficha se ha actualizado. Revisa la jornada y vuelve a pulsar.');
+        load();
+      } else {
+        notify.error(err.response?.data?.message || 'No se pudo iniciar la jornada');
+      }
     } finally {
       setFichandoJornada(false);
     }
@@ -399,8 +404,13 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
       notify.success('Jornada terminada');
     } catch (err) {
       if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivoJornada(true);
-      notify.error(err.response?.data?.message || 'No se pudo terminar la jornada');
-      if (err.response?.status === 409) load();
+      if (err.response?.status === 409) {
+        notify.warning(`${err.response?.data?.message?.includes('se cerró sola') ? 'Esta jornada se cerró sola al iniciar la siguiente'
+          : 'El horario de esta ambulancia ha cambiado'}: la ficha se ha actualizado.`);
+        load();
+      } else {
+        notify.error(err.response?.data?.message || 'No se pudo terminar la jornada');
+      }
     } finally {
       setFichandoJornada(false);
     }
@@ -1167,7 +1177,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
         onClose={() => setConfirmarFinConJornadas(false)}
         onConfirm={() => { setConfirmarFinConJornadas(false); abrirPaso('fin'); }}
         title="Quedan jornadas por fichar"
-        message={`Quedan ${jornadasPendientes.length === 1 ? '1 jornada' : `${jornadasPendientes.length} jornadas`} sin fichar`
+        message={(jornadasPendientes.length === 1 ? 'Queda 1 jornada' : `Quedan ${jornadasPendientes.length} jornadas`) + ' sin fichar'
           + (jornadasPendientes[0] ? ` (la próxima: ${textoJornada(jornadasPendientes[0])})` : '')
           + '. «Finalizar asignación» es para el último día, al volver a base con las fotos de fin: después ya no se'
           + ' podrán fichar. Para terminar el día de hoy, usa «Fin de jornada».'}

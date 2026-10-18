@@ -150,7 +150,7 @@ const PESTANAS_TECNICO = [
     orden: 'minutos_en_evento',
     columnas: [
       colTecnico,
-      { clave: 'et', titulo: 'Horas con evento/servicio activo', num: true,
+      { clave: 'et', titulo: 'Horas con evento/servicio activo (o en jornada)', num: true,
         pintar: t => (t.eventos_medidos ? fmtMin(t.minutos_en_evento) : '—'),
         total: f => (suma('eventos_medidos')(f) ? fmtMin(suma('minutos_en_evento')(f)) : '—') },
       { clave: 'em', titulo: 'Eventos/servicios completos', num: true,

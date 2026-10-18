@@ -131,7 +131,7 @@ async function jornadasPorAsignacion(ids) {
  * hora de fin no es real. Una jornada que terminó sin que nadie la iniciara
  * («no consta») tampoco suma y se cuenta aparte.
  */
-function analizarJornadas(jornadas, limite) {
+function analizarJornadas(jornadas, limite, cerrada = false) {
   const r = { minutos: 0, medidas: 0, sin_iniciar: 0, cerradas_solas: 0, abiertas: 0, anticipadas: 0 };
   for (const j of jornadas) {
     if (j.inicio_real_at && j.fin_real_at && !Number(j.cierre_auto)) {
@@ -140,7 +140,9 @@ function analizarJornadas(jornadas, limite) {
     }
     if (Number(j.cierre_auto)) r.cerradas_solas++;
     if (j.inicio_real_at && !j.fin_real_at) r.abiertas++;
-    if (!j.inicio_real_at && j.fin.getTime() <= limite.getTime()) r.sin_iniciar++;
+    // Con la asignación ya finalizada, una sin fichar ya no llegará aunque su
+    // hora sea posterior: cuenta (la pantalla la pinta «no consta»)
+    if (!j.inicio_real_at && (cerrada || j.fin.getTime() <= limite.getTime())) r.sin_iniciar++;
     if (j.motivo_fin) r.anticipadas++;
   }
   return r;
@@ -185,7 +187,7 @@ function analizarServicio(a, limiteSinIniciar) {
   // asignación, con la asignación finalizada (lo abierto no se cuenta, como
   // siempre); las de evento, en cuanto hay alguna jornada medida.
   if (a.jornadas?.length) {
-    const j = analizarJornadas(a.jornadas, limiteSinIniciar);
+    const j = analizarJornadas(a.jornadas, limiteSinIniciar, s.finalizado);
     s.jornadas = j;
     const primera = a.jornadas.find(x => x.inicio_real_at);
     s.con_llegada    = Boolean(inicio && primera);

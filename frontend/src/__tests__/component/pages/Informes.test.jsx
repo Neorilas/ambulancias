@@ -92,7 +92,7 @@ describe('Informes', () => {
     // La primera pestaña es la de evento/servicio
     expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Horas de evento/servicio');
     expect(screen.getByRole('tab', { name: 'Horas de evento/servicio' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('columnheader', { name: 'Horas con evento/servicio activo' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Horas con evento/servicio activo (o en jornada)' })).toBeInTheDocument();
     expect(filas()[0]).toMatch(/^Ana Ruiz33 h 15 min/);
     expect(filas()[2]).toMatch(/^Total43 h 15 min82$/);
 
