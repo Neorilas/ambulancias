@@ -177,7 +177,8 @@ export function textoEstadoAmbulancia(a) {
       if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Iniciada · faltan fotos de inicio';
       if (resumenJornadas(a).total) {
         const j = resumenJornadas(a);
-        return j.enCurso ? `En jornada · ${j.hechas + 1} de ${j.total}` : `Jornadas: ${j.hechas} de ${j.total} hechas`;
+        // «hechas», como la barra de pasos: las dos cuentan lo mismo
+        return j.enCurso ? `En jornada · ${j.hechas} de ${j.total} hechas` : `Jornadas: ${j.hechas} de ${j.total} hechas`;
       }
       if (a.fin_servicio_at) return 'De vuelta a base';
       if (a.llegada_servicio_at) return 'En el evento/servicio';

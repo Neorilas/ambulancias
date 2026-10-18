@@ -158,7 +158,7 @@ describe('fichaje de jornadas (v39)', () => {
 
     it.each([
       ['el equipo no ficha', { user: EQUIPO }, {}, 403],
-      ['jornada de otra asignación', { jornadaId: 555 }, {}, 404],
+      ['jornada que ya no está (ficha vieja): recargar', { jornadaId: 555 }, {}, 409],
       ['asignación cancelada', {}, { asig: fila({ estado: 'cancelada' }) }, 400],
       ['sin «Inicio de la asignación»', {}, { asig: fila({ inicio_real_at: null }) }, 400],
       ['sin las fotos de inicio', {}, { fotos: [] }, 400],

@@ -1517,7 +1517,9 @@ async function cargarJornada(req, res, accion) {
     return null;
   }
   const jornada = asig.jornadas.find(j => j.id === Number(req.params.jornadaId));
-  if (!jornada) { notFound(res, 'Jornada'); return null; }
+  // Lo normal es una ficha abierta desde antes de un cambio de horario: no es
+  // «no existe» sino «ha cambiado», y lo que toca es recargar
+  if (!jornada) { error(res, MSG_JORNADA_CAMBIADA, 409); return null; }
   return { asig, jornada };
 }
 

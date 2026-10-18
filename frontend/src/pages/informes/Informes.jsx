@@ -146,12 +146,12 @@ const PESTANAS_TECNICO = [
   {
     key: 'evento',
     label: 'Horas de evento/servicio',
-    nota: 'Suma del tiempo entre «Inicio evento/servicio» y «Fin evento/servicio» de todos sus servicios del mes, de responsable o de personal. Si falta alguno de los dos botones ese servicio no suma; los que tienen inicio y no fin salen en la última columna.',
+    nota: 'Suma del tiempo entre «Inicio evento/servicio» y «Fin evento/servicio» de todos sus servicios del mes, de responsable o de personal. Si falta alguno de los dos botones ese servicio no suma; los que tienen inicio y no fin salen en la última columna. En un trabajo con horario por días, la suma de sus jornadas («Inicio/Fin de jornada»).',
     orden: 'minutos_en_evento',
     columnas: [
       colTecnico,
       { clave: 'et', titulo: 'Horas con evento/servicio activo', num: true,
-        pintar: t => fmtMin(t.minutos_en_evento), total: f => fmtMin(suma('minutos_en_evento')(f)) },
+        pintar: t => (t.eventos_medidos ? fmtMin(t.minutos_en_evento) : '—'), total: f => fmtMin(suma('minutos_en_evento')(f)) },
       { clave: 'em', titulo: 'Eventos/servicios completos', num: true,
         pintar: t => fmt(t.eventos_medidos), total: f => fmt(suma('eventos_medidos')(f)) },
       { clave: 'es', titulo: 'Con inicio y sin fin', num: true,
@@ -161,12 +161,12 @@ const PESTANAS_TECNICO = [
   {
     key: 'asignacion',
     label: 'Horas de asignación',
-    nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna.',
+    nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna. En un trabajo con horario por días, la suma de sus jornadas cerradas a mano, sin los viajes.',
     orden: 'minutos_asignacion',
     columnas: [
       colTecnico,
       { clave: 'tt', titulo: 'Horas con asignación activa', num: true,
-        pintar: t => fmtMin(t.minutos_asignacion), total: f => fmtMin(suma('minutos_asignacion')(f)) },
+        pintar: t => (t.asignaciones_medidas ? fmtMin(t.minutos_asignacion) : '—'), total: f => fmtMin(suma('minutos_asignacion')(f)) },
       { clave: 'tm', titulo: 'Asignaciones finalizadas', num: true,
         pintar: t => fmt(t.asignaciones_medidas), total: f => fmt(suma('asignaciones_medidas')(f)) },
       { clave: 'ts', titulo: 'Iniciadas sin finalizar', num: true,

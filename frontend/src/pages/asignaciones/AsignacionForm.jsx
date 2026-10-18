@@ -3,6 +3,7 @@ import Modal from '../../components/common/Modal.jsx';
 import ListaMiembros from '../../components/common/ListaMiembros.jsx';
 import HorarioJornadas from '../../components/trabajos/HorarioJornadas.jsx';
 import { asignacionesService } from '../../services/asignaciones.service.js';
+import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
@@ -68,6 +69,17 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   });
   // Las jornadas que tiene ahora (al editar): lo que hereda, o las fichadas
   const [jornadasActuales, setJornadasActuales] = useState(asignacion?.jornadas || []);
+  // El horario del trabajo, para enseñar lo que heredaría «igual que el
+  // trabajo» con las fechas del formulario. Con el trabajo a mano (al añadirla
+  // desde su ficha) ya viene; al editar desde la ambulancia se pide.
+  const [horarioTrabajo, setHorarioTrabajo] = useState(trabajo?.horario ?? null);
+  const trabajoId = trabajo?.id || asignacion?.trabajo_id || null;
+  useEffect(() => {
+    if (trabajo?.horario || !trabajoId) return;
+    trabajosService.get(trabajoId)
+      .then(t => setHorarioTrabajo(t?.horario || []))
+      .catch(() => setHorarioTrabajo(null));
+  }, [trabajo, trabajoId]);
 
   useEffect(() => {
     vehiclesService.list({ limit: 100 }).then(r => setVehicles(r.data || [])).catch(console.error);
@@ -128,11 +140,11 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
 
   // ── Horario por días (v39) ──
   // Solo en una ambulancia de un trabajo. Lo que heredaría «igual que el
-  // trabajo»: con el trabajo a mano (al añadirla desde su ficha), su horario
-  // en las fechas del formulario; al editar sin él, lo que tiene ahora.
-  const enTrabajo = !!(trabajo || asignacion?.trabajo_id);
-  const heredado = trabajo
-    ? horarioDentro(horarioDesdeApi(trabajo.horario), form.fecha_inicio, form.fecha_fin)
+  // trabajo»: el horario del trabajo en las fechas del formulario (se
+  // recalcula si cambian). Mientras llega, lo que tiene ahora si ya lo seguía.
+  const enTrabajo = !!trabajoId;
+  const heredado = horarioTrabajo
+    ? horarioDentro(horarioDesdeApi(horarioTrabajo), form.fecha_inicio, form.fecha_fin)
     : (asignacion?.horario_propio ? [] : horarioDesdeApi(jornadasActuales));
   const conHorario = enTrabajo && (cruzaDias(form.fecha_inicio, form.fecha_fin)
     || heredado.length > 0 || form.horario_propio || jornadasActuales.length > 0);

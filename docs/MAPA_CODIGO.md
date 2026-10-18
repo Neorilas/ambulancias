@@ -431,7 +431,11 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
 
 **Jornadas por día (v39, 2026-10-17, `VERSION_INFORME` 3).** Sin ninguna
 jornada medida, las horas de asignación son null y no 0: un 0 contaba como
-«medida» (revisión del 2026-10-17). Con horario por
+«medida» (revisión del 2026-10-17). En pantalla, igual: sin nada medido la
+tabla del mes y los totales del detalle (`totalesDetalle`) pintan «—», no
+«0 min»; las notas de las pestañas explican que con horario por días se
+suman las jornadas; y en una asignación finalizada la jornada sin fichar sale
+«no consta», no «pendiente». Con horario por
 días, las horas no salen de los sellos de la asignación (un congreso de tres
 días daba 61 h con las noches) sino de la **suma de las jornadas cerradas a
 mano** (decisión del usuario: los viajes no cuentan). `jornadasPorAsignacion`
@@ -1814,6 +1818,21 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   arranca con sus jornadas actuales (fichadas incluidas) y volver a «igual»
   manda `horario_propio: false`. `TrabajoDetail` enseña el horario en la ficha
   y «Con horario por días propio» en la ambulancia que lo lleva.
+- **Lo que vio la prueba local del 2026-10-18** (corregido): «Rellenar»
+  recorta el primer y el último día a las horas del trabajo (antes proponía un
+  tramo que ya se salía de las fechas) y no propone un día sin hueco; el editor
+  valida **en vivo** (`errorHorario` dentro de `HorarioJornadas`), no solo al
+  guardar; `AsignacionForm` pide el horario del trabajo (`trabajosService.get`)
+  cuando no lo tiene a mano, para que «Igual que el trabajo» enseñe lo que
+  heredará con las fechas del formulario (antes, viniendo de horario propio,
+  decía que el trabajo no tenía horario). En la ficha: «Finalizar asignación»
+  con jornadas sin fichar pide **confirmación** (`ConfirmDialog` «Quedan
+  jornadas por fichar»): es fácil pulsarlo el primer día por error; y si la
+  anterior quedó abierta al llegar la siguiente, además de «Inicio de jornada»
+  sale «Fin de jornada de la anterior», para que quien acabó unos minutos
+  tarde la cierre con su hora real. La duración de la jornada se redondea como
+  en el informe (`minutosJornada`). La tarjeta dice «En jornada · n de m
+  hechas», lo mismo que cuenta la barra.
 - **Fichar** (`iniciarJornada`/`finalizarJornada`, `POST
   /asignaciones/:id/jornadas/:jornadaId/inicio|fin`): responsable o gestión
   (`cargarJornada`, como la llegada; el equipo no). Calcados de la llegada:
@@ -1838,7 +1857,8 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   dentro de la transacción de `iniciarJornada`): la jornada posterior ya
   iniciada, cuáles están olvidadas y si la pedida sigue existiendo. Si la
   ganó otra pulsación, no-op 200; si ya no existe (cambio de horario), **409**
-  (`MSG_JORNADA_CAMBIADA`), no un «iniciada» falso. `finalizarJornada`,
+  (`MSG_JORNADA_CAMBIADA`), no un «iniciada» falso. Lo mismo si el id ya no
+  está al cargar (`cargarJornada`): 409 «recarga la ficha», no 404. `finalizarJornada`,
   igual: si no selló porque se cerró sola o desapareció, 409 (su motivo no se
   guardó). Errores de dentro de la transacción: `FichajeRechazado`.
 - **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin

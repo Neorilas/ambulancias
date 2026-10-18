@@ -26,6 +26,16 @@ describe('utils/jornadas', () => {
     });
   });
 
+  it('rellenarDias recorta el primer y el último día a las horas del trabajo', () => {
+    const h = rellenarDias([], '2026-10-20T10:30', '2026-10-22T18:00', '09:00', '21:00');
+    expect(h.map(d => d.tramos[0])).toEqual([
+      { desde: '10:30', hasta: '21:00' }, { desde: '09:00', hasta: '21:00' }, { desde: '09:00', hasta: '18:00' }]);
+    expect(errorHorario(h, '2026-10-20T10:30', '2026-10-22T18:00')).toBeNull();
+    // un primer día que empieza después de la hora de fin no se propone
+    expect(rellenarDias([], '2026-10-20T22:00', '2026-10-21T20:00', '09:00', '21:00').map(d => d.dia))
+      .toEqual(['2026-10-21']);
+  });
+
   it('rellenarDias pone un tramo por día y conserva los que ya estaban', () => {
     const previo = [dia('2026-10-21', ['10:00', '14:00'], ['15:00', '23:00'])];
     const h = rellenarDias(previo, '2026-10-20T08:00', '2026-10-22T23:00', '09:00', '21:00');

@@ -701,6 +701,35 @@ describe('AsignacionDetalle — jornadas por día', () => {
     expect(await screen.findByRole('button', { name: /^Inicio de jornada · desde/ })).toBeDisabled();
   });
 
+  it('«Finalizar asignación» con jornadas por fichar pide confirmación antes de abrir el cierre', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16) }), jornada(11, 20, 30)] });
+    montar();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalizar asignación' }));
+    expect(await screen.findByText('Quedan jornadas por fichar')).toBeInTheDocument();
+    expect(screen.queryByText('revisión de fin')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar igualmente' }));
+    expect(await screen.findByText('revisión de fin')).toBeInTheDocument();
+  });
+
+  it('sin jornadas pendientes, «Finalizar asignación» va directo', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16) })] });
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalizar asignación' }));
+    expect(await screen.findByText('revisión de fin')).toBeInTheDocument();
+  });
+
+  it('con la anterior olvidada, también se puede cerrar ella con su hora real', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA,
+      jornadas: [jornada(10, -3, -0.05, { inicio_real_at: en(-3) }), jornada(11, 0.2, 10)] });
+    asignacionesService.finalizarJornada.mockResolvedValue({ ...ACTIVA, jornadas: [] });
+    montar();
+    fireEvent.click(await screen.findByTestId('fin-jornada-anterior'));
+    await waitFor(() => expect(asignacionesService.finalizarJornada).toHaveBeenCalledWith(5, 10, null));
+  });
+
   it('la lista marca la que se cerró sola para revisar', async () => {
     asignacionesService.get.mockResolvedValue({ ...ACTIVA, estado: 'finalizada', finalizado_at: en(-1),
       jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16), cierre_auto: true })] });

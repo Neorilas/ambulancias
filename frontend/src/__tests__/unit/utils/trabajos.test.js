@@ -182,7 +182,7 @@ describe('utils/trabajos', () => {
       ['sin progreso', { progreso_fotos: undefined }, /^En camino$/],
       ['en el evento', { llegada_servicio_at: 'x' }, /^En el evento\/servicio$/],
       ['de vuelta', { llegada_servicio_at: 'x', fin_servicio_at: 'y' }, /^De vuelta a base$/],
-      ['en jornada', { num_jornadas: 3, jornadas_hechas: 1, en_jornada: true }, /^En jornada · 2 de 3$/],
+      ['en jornada', { num_jornadas: 3, jornadas_hechas: 1, en_jornada: true }, /^En jornada · 1 de 3 hechas$/],
       ['entre jornadas', { num_jornadas: 3, jornadas_hechas: 1 }, /^Jornadas: 1 de 3 hechas$/],
       ['finalizada', { estado: 'finalizada' }, /^Finalizada$/],
     ])('textoEstadoAmbulancia %s', (_n, extra, esperado) => {

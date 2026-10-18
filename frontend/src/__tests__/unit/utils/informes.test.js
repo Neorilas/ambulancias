@@ -65,5 +65,8 @@ describe('informes con jornadas por día', () => {
     ] }, new Date('2026-10-23T00:00:00Z'))).toEqual(['20/10 10:02 – 20:00', '21/10 10:00 – 20:00 (se cerró sola)', '22/10 10:00–20:00 no consta']);
     expect(tramosEvento({ jornadas: [{ inicio: '2026-10-22T08:00:00Z', fin: '2026-10-22T18:00:00Z' }] },
       new Date('2026-10-22T09:00:00Z'))).toEqual(['22/10 10:00–20:00 pendiente']);
+    // Con la asignación ya finalizada, la que no se fichó ya no llegará
+    expect(tramosEvento({ estado: 'finalizada', jornadas: [{ inicio: '2026-10-22T08:00:00Z', fin: '2026-10-22T18:00:00Z' }] },
+      new Date('2026-10-22T09:00:00Z'))).toEqual(['22/10 10:00–20:00 no consta']);
   });
 });

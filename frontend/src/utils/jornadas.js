@@ -53,7 +53,21 @@ function extremos(dia, t) {
  */
 export function rellenarDias(horario, inicioLocal, finLocal, desde = DESDE_POR_DEFECTO, hasta = HASTA_POR_DEFECTO) {
   const previos = new Map((horario || []).map(d => [d.dia, d]));
-  return diasEntre(inicioLocal, finLocal).map(dia => previos.get(dia) || { dia, tramos: [{ desde, hasta }] });
+  const dias = diasEntre(inicioLocal, finLocal);
+  return dias.map((dia) => {
+    if (previos.has(dia)) return previos.get(dia);
+    // El primer y el último día, recortados a la hora de inicio y de fin: si
+    // no, el tramo propuesto ya se saldría de las fechas (lo vio la prueba
+    // local del 2026-10-18). Un tramo que pasa de medianoche no se recorta.
+    let d = desde;
+    let h = hasta;
+    if (dia === inicioLocal.slice(0, 10) && `${dia}T${d}` < inicioLocal) d = inicioLocal.slice(11, 16);
+    if (dia === finLocal.slice(0, 10) && h > d && `${dia}T${h}` > finLocal) h = finLocal.slice(11, 16);
+    // Recortado, un tramo normal que se queda sin hueco (el trabajo empieza
+    // después de la hora de fin del día) no se propone
+    if (hasta > desde && h <= d) return null;
+    return { dia, tramos: [{ desde: d, hasta: h }] };
+  }).filter(Boolean);
 }
 
 /**

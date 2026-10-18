@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  rellenarDias, pasaMedianoche, etiquetaDia, diasEntre,
+  rellenarDias, pasaMedianoche, etiquetaDia, errorHorario,
   DESDE_POR_DEFECTO, HASTA_POR_DEFECTO,
 } from '../../utils/jornadas.js';
 
@@ -17,8 +17,9 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   const [desde, setDesde] = useState(DESDE_POR_DEFECTO);
   const [hasta, setHasta] = useState(HASTA_POR_DEFECTO);
   const horario = value || [];
-  const diasPosibles = diasEntre(fechaInicio, fechaFin);
-  const faltan = diasPosibles.filter(d => !horario.some(h => h.dia === d)).length;
+  // Los que «Rellenar» añadiría de verdad (un día sin hueco tras recortarlo
+  // a las horas del trabajo no cuenta)
+  const faltan = rellenarDias(horario, fechaInicio, fechaFin, desde, hasta).length - horario.length;
 
   const cambiarTramo = (i, k, campo, valor) => onChange(horario.map((d, j) => (j !== i ? d : {
     ...d, tramos: d.tramos.map((t, m) => (m === k ? { ...t, [campo]: valor } : t)),
@@ -50,7 +51,9 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
           </div>
           <button type="button" className="btn-secondary text-xs px-2 py-2"
             onClick={() => onChange(rellenarDias(horario, fechaInicio, fechaFin, desde, hasta))}>
-            {horario.length ? `Añadir los ${faltan} días que faltan` : `Rellenar los ${faltan} días`}
+            {horario.length
+              ? (faltan === 1 ? 'Añadir el día que falta' : `Añadir los ${faltan} días que faltan`)
+              : (faltan === 1 ? 'Rellenar el día' : `Rellenar los ${faltan} días`)}
           </button>
         </div>
       )}
@@ -97,7 +100,11 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
           </div>
         );
       })}
-      {error && <p className="field-error">{error}</p>}
+      {/* El del formulario al guardar, o el de ahora mismo: un tramo que se
+          sale de las fechas o pisa a otro se dice mientras se escribe */}
+      {(error || errorHorario(horario, fechaInicio, fechaFin)) && (
+        <p className="field-error" data-testid="error-horario">{error || errorHorario(horario, fechaInicio, fechaFin)}</p>
+      )}
     </div>
   );
 }

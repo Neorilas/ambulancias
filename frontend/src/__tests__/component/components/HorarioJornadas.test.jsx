@@ -40,6 +40,15 @@ describe('HorarioJornadas', () => {
     expect(screen.getByRole('button', { name: 'Añadir los 2 días que faltan' })).toBeInTheDocument();
   });
 
+  it('un solo día que falta, en singular; y avisa en vivo de un tramo fuera de fechas', () => {
+    render(<Envoltorio inicial={[
+      { dia: '2026-10-20', tramos: [{ desde: '07:00', hasta: '22:00' }] },
+      { dia: '2026-10-21', tramos: [{ desde: '10:00', hasta: '22:00' }] },
+    ]} />);
+    expect(screen.getByRole('button', { name: 'Añadir el día que falta' })).toBeInTheDocument();
+    expect(screen.getByTestId('error-horario')).toHaveTextContent('se sale de las fechas');
+  });
+
   it('marca el tramo que pasa de medianoche', () => {
     render(<Envoltorio inicial={[{ dia: '2026-10-20', tramos: [{ desde: '20:00', hasta: '02:00' }] }]} />);
     expect(screen.getByText('(+1 día)')).toBeInTheDocument();

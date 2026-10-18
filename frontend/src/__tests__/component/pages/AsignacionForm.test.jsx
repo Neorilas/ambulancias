@@ -10,6 +10,10 @@ vi.mock('../../../services/vehicles.service.js', () => ({
 vi.mock('../../../services/users.service.js', () => ({
   usersService: { list: vi.fn().mockResolvedValue({ data: [] }) },
 }));
+vi.mock('../../../services/trabajos.service.js', () => ({
+  trabajosService: { get: vi.fn().mockResolvedValue({ horario: [] }) },
+}));
+import { trabajosService } from '../../../services/trabajos.service.js';
 
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import AsignacionForm from '../../../pages/asignaciones/AsignacionForm.jsx';
@@ -64,3 +68,24 @@ describe('AsignacionForm · hora de inicio y vuelta a programada', () => {
     expect(screen.queryByTestId('aviso-inicio-pasado')).not.toBeInTheDocument();
   });
 });
+
+// Jornadas por día (v39): lo que hereda «Igual que el trabajo» al editar una
+// ambulancia desde su ficha (sin el trabajo a mano) se pide al trabajo
+describe('AsignacionForm · horario por días', () => {
+  it('al pasar de horario propio a «Igual que el trabajo» enseña el horario del trabajo', async () => {
+    trabajosService.get.mockResolvedValueOnce({ horario: [
+      { inicio: '2026-10-20T08:00:00.000Z', fin: '2026-10-20T20:00:00.000Z' },
+      { inicio: '2026-10-21T08:00:00.000Z', fin: '2026-10-21T20:00:00.000Z' },
+    ] });
+    montar({ asignacion: asig({ trabajo_id: 40, horario_propio: true, estado: 'programada',
+      fecha_inicio: '2026-10-20T06:00:00.000Z', fecha_fin: '2026-10-21T21:00:00.000Z',
+      jornadas: [{ id: 1, inicio: '2026-10-20T09:00:00.000Z', fin: '2026-10-20T13:00:00.000Z', inicio_real_at: null }] }) });
+
+    fireEvent.click(await screen.findByLabelText('Igual que el trabajo'));
+    expect(trabajosService.get).toHaveBeenCalledWith(40);
+    expect(await screen.findByText(/Mar 20\/10: 10:00–22:00/)).toBeInTheDocument();
+    expect(screen.getByText(/Mié 21\/10: 10:00–22:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/no tiene horario por días/)).not.toBeInTheDocument();
+  });
+});
+

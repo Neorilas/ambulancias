@@ -135,12 +135,19 @@ export const horasDudosas = (servicio) => (servicio.avisos || []).some(a => a.ni
 export function totalesDetalle(servicios = []) {
   const t = { servicios: servicios.length, minutos_asignacion: 0, minutos_en_evento: 0,
               con_horas_dudosas: 0, con_avisos: 0 };
+  let conAsignacion = false;
+  let conEvento = false;
   for (const s of servicios) {
     t.minutos_asignacion += s.minutos_asignacion ?? 0;
     t.minutos_en_evento  += s.minutos_en_evento ?? 0;
+    conAsignacion ||= s.minutos_asignacion != null;
+    conEvento     ||= s.minutos_en_evento != null;
     if (horasDudosas(s)) t.con_horas_dudosas++;
     if (s.avisos?.length) t.con_avisos++;
   }
+  // Sin ningún servicio medido, «—» y no «0 min»: un 0 parecería un dato
+  if (!conAsignacion) t.minutos_asignacion = null;
+  if (!conEvento) t.minutos_en_evento = null;
   return t;
 }
 
@@ -167,8 +174,10 @@ export function tramosEvento(s, ahora = new Date()) {
     const dia = formatDate(j.inicio, 'dd/MM');
     // En el mes en curso, la que aún no ha terminado no «falta»: está por venir
     // Con su hora prevista: en un turno partido, los dos tramos del día se distinguen
+    // Con la asignación ya finalizada, una que no se fichó ya no llegará
     if (!j.inicio_real_at) {
-      return `${dia} ${formatHora(j.inicio)}–${formatHora(j.fin)} ${new Date(j.fin) > ahora ? 'pendiente' : 'no consta'}`;
+      const porVenir = s.estado !== 'finalizada' && new Date(j.fin) > ahora;
+      return `${dia} ${formatHora(j.inicio)}–${formatHora(j.fin)} ${porVenir ? 'pendiente' : 'no consta'}`;
     }
     return `${dia} ${tramo(j.inicio_real_at, j.fin_real_at)}${j.cierre_auto ? ' (se cerró sola)' : ''}`;
   });
