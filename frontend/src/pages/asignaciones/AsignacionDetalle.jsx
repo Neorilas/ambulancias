@@ -381,6 +381,9 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
       notify.success('Jornada iniciada');
     } catch (err) {
       notify.error(err.response?.data?.message || 'No se pudo iniciar la jornada');
+      // 409: el horario cambió o la jornada se cerró sola; lo que hay en
+      // pantalla ya no vale, se recarga en vez de pedírselo al técnico
+      if (err.response?.status === 409) load();
     } finally {
       setFichandoJornada(false);
     }
@@ -397,6 +400,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
     } catch (err) {
       if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivoJornada(true);
       notify.error(err.response?.data?.message || 'No se pudo terminar la jornada');
+      if (err.response?.status === 409) load();
     } finally {
       setFichandoJornada(false);
     }

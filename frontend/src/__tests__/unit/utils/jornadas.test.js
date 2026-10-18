@@ -36,6 +36,20 @@ describe('utils/jornadas', () => {
       .toEqual(['2026-10-21']);
   });
 
+  it('rellenarDias conserva los días que quedan fuera de las fechas (los señala la validación)', () => {
+    const fichado = { dia: '2026-10-19', tramos: [{ desde: '10:00', hasta: '20:00', fichada: true }] };
+    const h = rellenarDias([fichado], '2026-10-20T08:00', '2026-10-21T22:00', '09:00', '21:00');
+    expect(h.map(d => d.dia)).toEqual(['2026-10-19', '2026-10-20', '2026-10-21']);
+    expect(errorHorario(h, '2026-10-20T08:00', '2026-10-21T22:00')).toContain('se sale');
+  });
+
+  it('rellenarDias no propone un tramo de noche que se sale de las fechas', () => {
+    const h = rellenarDias([], '2026-10-20T18:00', '2026-10-22T18:00', '20:00', '02:00');
+    // el 20 y el 21 sí (acaban el 21 y el 22 a las 02:00); el 22 empezaría después del fin
+    expect(h.map(d => d.dia)).toEqual(['2026-10-20', '2026-10-21']);
+    expect(errorHorario(h, '2026-10-20T18:00', '2026-10-22T18:00')).toBeNull();
+  });
+
   it('rellenarDias pone un tramo por día y conserva los que ya estaban', () => {
     const previo = [dia('2026-10-21', ['10:00', '14:00'], ['15:00', '23:00'])];
     const h = rellenarDias(previo, '2026-10-20T08:00', '2026-10-22T23:00', '09:00', '21:00');

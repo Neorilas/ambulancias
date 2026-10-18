@@ -730,6 +730,15 @@ describe('AsignacionDetalle — jornadas por día', () => {
     await waitFor(() => expect(asignacionesService.finalizarJornada).toHaveBeenCalledWith(5, 10, null));
   });
 
+  it('tras un 409 («recarga la ficha») la ficha se recarga sola', async () => {
+    asignacionesService.get.mockResolvedValue({ ...ACTIVA, jornadas: [jornada(11, 0.2, 10)] });
+    asignacionesService.iniciarJornada.mockRejectedValue(
+      { response: { status: 409, data: { message: 'El horario de esta ambulancia ha cambiado: recarga la ficha' } } });
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Inicio de jornada' }));
+    await waitFor(() => expect(asignacionesService.get).toHaveBeenCalledTimes(2));
+  });
+
   it('la lista marca la que se cerró sola para revisar', async () => {
     asignacionesService.get.mockResolvedValue({ ...ACTIVA, estado: 'finalizada', finalizado_at: en(-1),
       jornadas: [jornada(10, -26, -16, { inicio_real_at: en(-26), fin_real_at: en(-16), cierre_auto: true })] });

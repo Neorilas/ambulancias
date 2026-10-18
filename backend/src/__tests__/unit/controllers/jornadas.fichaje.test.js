@@ -138,6 +138,16 @@ describe('fichaje de jornadas (v39)', () => {
       expect(logAudit).not.toHaveBeenCalled();
     });
 
+    it('si la asignación se acaba de finalizar (se ve con el bloqueo): 400 y nada tocado', async () => {
+      bd({ jornadas: [jornada(100, 0, 8)], updates: {} });
+      const previa = query.getMockImplementation();
+      query.mockImplementation(async (sql, p) => (sql.startsWith('SELECT estado FROM asignaciones_libres')
+        ? [[{ estado: 'finalizada' }]] : previa(sql, p)));
+      const res = await pulsar(iniciarJornada);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas('UPDATE asignacion_jornadas')).toHaveLength(0);
+    });
+
     it('una abierta que aún está en su horario no se cierra sola: 400 y nada tocado', async () => {
       bd({ jornadas: [
         jornada(99, -6, 0.3, { inicio_real_at: new Date(ahora() - 6 * H) }),
@@ -275,6 +285,18 @@ describe('fichaje de jornadas (v39)', () => {
       const res2 = mockRes();
       await registrarFinServicio(req(), res2, mockNext());
       expect(res2.status).toHaveBeenCalledWith(400);
+    });
+
+    it('tampoco si la jornada se abre en el hueco (se vuelve a mirar dentro de la transacción)', async () => {
+      bd({ jornadas: [jornada(100, -26, -16, { inicio_real_at: new Date(), fin_real_at: new Date() })],
+           fotos: [...FOTOS_INICIO, ...require('../../../config/constants').IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }))] });
+      const previa = query.getMockImplementation();
+      query.mockImplementation(async (sql, p) => (sql.includes('inicio_real_at IS NOT NULL AND fin_real_at IS NULL')
+        ? [[{ id: 101 }]] : previa(sql, p)));
+      const res = mockRes();
+      await finalizarAsignacion(req({ km_fin: 1000, material_usado: 'Nada', motivo_fin: 'Se acaba antes' }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas("estado         = 'finalizada'")).toHaveLength(0);
     });
 
     it('no se finaliza con una jornada abierta', async () => {

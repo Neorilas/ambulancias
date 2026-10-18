@@ -1777,9 +1777,11 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
 - **Una jornada fichada no se borra nunca** (su hora real es la evidencia).
   `aplicarJornadas` **compara, no borra y recrea** (revisión del
   2026-10-17): un tramo igual a una jornada sin fichar la deja intacta (id y
-  `aviso_sin_iniciar_at`), uno con el mismo inicio solo le cambia el fin, uno
-  encima de una fichada le mueve la hora prevista, y solo se borran las sin
-  fichar que ya no están. Recrearlas cambiaba los ids (quien tenía la ficha
+  `aviso_sin_iniciar_at`), uno encima de una fichada le mueve la hora prevista
+  (**esto se mira antes** que reutilizar una libre por el mismo inicio: al
+  revés, la libre estirada quedaba solapada con la fichada), uno con el mismo
+  inicio que una libre solo le cambia el fin, y solo se borran las sin fichar
+  que ya no están. Recrearlas cambiaba los ids (quien tenía la ficha
   abierta pulsaba sobre una jornada inexistente) y perdía el candado del push,
   que volvía a sonar. Importa porque `AsignacionForm` manda `horario` en cada
   edición de una ambulancia con horario propio, y cualquier cambio del horario
@@ -1820,7 +1822,10 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   y «Con horario por días propio» en la ambulancia que lo lleva.
 - **Lo que vio la prueba local del 2026-10-18** (corregido): «Rellenar»
   recorta el primer y el último día a las horas del trabajo (antes proponía un
-  tramo que ya se salía de las fechas) y no propone un día sin hueco; el editor
+  tramo que ya se salía de las fechas), no propone un día sin hueco ni un tramo
+  de noche que se salga, y **conserva los días que caen fuera de las fechas**
+  (antes los borraba en silencio, fichados incluidos; los señala la
+  validación); «faltan N días» cuenta los del rango sin tramo; el editor
   valida **en vivo** (`errorHorario` dentro de `HorarioJornadas`), no solo al
   guardar; `AsignacionForm` pide el horario del trabajo (`trabajosService.get`)
   cuando no lo tiene a mano, para que «Igual que el trabajo» enseñe lo que
@@ -1860,7 +1865,16 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   (`MSG_JORNADA_CAMBIADA`), no un «iniciada» falso. Lo mismo si el id ya no
   está al cargar (`cargarJornada`): 409 «recarga la ficha», no 404. `finalizarJornada`,
   igual: si no selló porque se cerró sola o desapareció, 409 (su motivo no se
-  guardó). Errores de dentro de la transacción: `FichajeRechazado`.
+  guardó). Errores de dentro de la transacción: `FichajeRechazado`. La
+  pantalla, ante un 409, recarga la ficha sola.
+- **Carrera «Inicio de jornada» / «Finalizar asignación»**: las dos bloquean
+  primero la fila de la asignación (`SELECT … FOR UPDATE`, mismo orden: sin
+  interbloqueos). `iniciarJornada` rechaza si ya no está `activa`;
+  `finalizarAsignacion`, con jornadas, vuelve a mirar dentro de la transacción
+  que no haya una abierta. **Trampa:** esa consulta lleva `FOR UPDATE` aunque
+  no necesite bloquear: una lectura sin él fijaría la foto de REPEATABLE READ
+  antes del bloqueo de `sincronizarEstadoTrabajo`, que tiene que ser la
+  primera lectura consistente de la transacción (ver «Estado del padre»).
 - **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin
   previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
   como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por

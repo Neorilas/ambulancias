@@ -1571,6 +1571,14 @@ async function iniciarJornada(req, res, next) {
     let olvidadas = [];
     try {
       await transaction(async (conn) => {
+        // Primero la asignación, como `finalizarAsignacion` (mismo orden de
+        // bloqueo, sin interbloqueos): si se acaba de finalizar, no se abre
+        // una jornada en ella (revisión del 2026-10-18)
+        const [estadoAhora] = await conn.execute(
+          'SELECT estado FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
+        if (estadoAhora?.[0] && estadoAhora[0].estado !== 'activa') {
+          throw new FichajeRechazado(400, `No se puede iniciar una jornada en una asignación ${estadoAhora[0].estado}`);
+        }
         const [filas] = await conn.execute(
           `SELECT id, inicio, fin, inicio_real_at, fin_real_at FROM asignacion_jornadas
             WHERE asignacion_id = ? FOR UPDATE`, [asig.id]);
@@ -1792,44 +1800,65 @@ async function finalizarAsignacion(req, res, next) {
     // congelada aunque la ambulancia lleve meses saliendo. Y el estado del
     // trabajo, también: la última en cerrar lo deja pendiente de cierre.
     let sincronizado = null;
-    await transaction(async (conn) => {
-      await conn.execute(
-        `UPDATE asignaciones_libres SET
-           estado         = 'finalizada',
-           km_fin         = ?,
-           motivo_fin     = COALESCE(?, motivo_fin),
-           material_usado = ?,
-           finalizado_por = ?,
-           finalizado_at  = ?
-         WHERE id = ?`,
-        // COALESCE: si no toca pedir motivo se manda NULL y se conserva el
-        // que dejó «Fin evento/servicio».
-        [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
-      );
-
-      // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
-      // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
-      // propagar. La validación de arriba ya rechaza un km_fin por debajo del
-      // actual; el guard `kilometros_actuales < ?` de aquí es la red de
-      // seguridad para la carrera entre esa lectura y este UPDATE (otra
-      // asignación que adelanta el contador justo en medio), no la regla en
-      // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
-      // último servicio tampoco se toca cuando la lectura no supera a la que
-      // ya había.
-      if (km_fin != null) {
+    try {
+      await transaction(async (conn) => {
+        // Con jornadas (v39): la asignación bloqueada y, con ella, volver a
+        // mirar que no haya una abierta. La comprobación de arriba se hizo fuera
+        // de la transacción y un «Inicio de jornada» cruzado cabía en el hueco.
+        if (asig.jornadas.length) {
+          await conn.execute('SELECT id FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
+          // FOR UPDATE también aquí, y no por bloquear: una lectura sin él fijaría
+          // la foto de REPEATABLE READ antes del bloqueo de
+          // sincronizarEstadoTrabajo, que tiene que ser la primera (§6.1)
+          const [abiertas] = await conn.execute(
+            `SELECT id FROM asignacion_jornadas
+              WHERE asignacion_id = ? AND inicio_real_at IS NOT NULL AND fin_real_at IS NULL
+              FOR UPDATE`, [asig.id]);
+          if (abiertas?.length) {
+            throw new FichajeRechazado(400, 'Antes de finalizar, pulsa «Fin de jornada»: se acaba de iniciar una');
+          }
+        }
         await conn.execute(
-          // Sin referencia de mantenimiento, la toma de esta lectura (v37)
-          `UPDATE vehicles SET kilometros_actuales   = ?,
-                               fecha_ultimo_servicio = ?,
-                               ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
-           WHERE id = ? AND kilometros_actuales < ?`,
-          [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
+          `UPDATE asignaciones_libres SET
+             estado         = 'finalizada',
+             km_fin         = ?,
+             motivo_fin     = COALESCE(?, motivo_fin),
+             material_usado = ?,
+             finalizado_por = ?,
+             finalizado_at  = ?
+           WHERE id = ?`,
+          // COALESCE: si no toca pedir motivo se manda NULL y se conserva el
+          // que dejó «Fin evento/servicio».
+          [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
         );
-      }
-      if (asig.trabajo_id) {
-        sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
-      }
-    });
+
+        // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
+        // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
+        // propagar. La validación de arriba ya rechaza un km_fin por debajo del
+        // actual; el guard `kilometros_actuales < ?` de aquí es la red de
+        // seguridad para la carrera entre esa lectura y este UPDATE (otra
+        // asignación que adelanta el contador justo en medio), no la regla en
+        // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
+        // último servicio tampoco se toca cuando la lectura no supera a la que
+        // ya había.
+        if (km_fin != null) {
+          await conn.execute(
+            // Sin referencia de mantenimiento, la toma de esta lectura (v37)
+            `UPDATE vehicles SET kilometros_actuales   = ?,
+                                 fecha_ultimo_servicio = ?,
+                                 ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
+             WHERE id = ? AND kilometros_actuales < ?`,
+            [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
+          );
+        }
+        if (asig.trabajo_id) {
+          sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
+        }
+      });
+    } catch (err) {
+      if (err instanceof FichajeRechazado) return error(res, err.message, err.status);
+      throw err;
+    }
 
     // Tras la transacción: si el cierre se hubiera deshecho, el aviso habría
     // anunciado un servicio que sigue abierto. Vale también por el aviso de

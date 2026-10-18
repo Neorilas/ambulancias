@@ -151,7 +151,8 @@ const PESTANAS_TECNICO = [
     columnas: [
       colTecnico,
       { clave: 'et', titulo: 'Horas con evento/servicio activo', num: true,
-        pintar: t => (t.eventos_medidos ? fmtMin(t.minutos_en_evento) : '—'), total: f => fmtMin(suma('minutos_en_evento')(f)) },
+        pintar: t => (t.eventos_medidos ? fmtMin(t.minutos_en_evento) : '—'),
+        total: f => (suma('eventos_medidos')(f) ? fmtMin(suma('minutos_en_evento')(f)) : '—') },
       { clave: 'em', titulo: 'Eventos/servicios completos', num: true,
         pintar: t => fmt(t.eventos_medidos), total: f => fmt(suma('eventos_medidos')(f)) },
       { clave: 'es', titulo: 'Con inicio y sin fin', num: true,
@@ -166,7 +167,8 @@ const PESTANAS_TECNICO = [
     columnas: [
       colTecnico,
       { clave: 'tt', titulo: 'Horas con asignación activa', num: true,
-        pintar: t => (t.asignaciones_medidas ? fmtMin(t.minutos_asignacion) : '—'), total: f => fmtMin(suma('minutos_asignacion')(f)) },
+        pintar: t => (t.asignaciones_medidas ? fmtMin(t.minutos_asignacion) : '—'),
+        total: f => (suma('asignaciones_medidas')(f) ? fmtMin(suma('minutos_asignacion')(f)) : '—') },
       { clave: 'tm', titulo: 'Asignaciones finalizadas', num: true,
         pintar: t => fmt(t.asignaciones_medidas), total: f => fmt(suma('asignaciones_medidas')(f)) },
       { clave: 'ts', titulo: 'Iniciadas sin finalizar', num: true,

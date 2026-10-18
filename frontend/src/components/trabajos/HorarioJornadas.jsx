@@ -19,7 +19,8 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   const horario = value || [];
   // Los que «Rellenar» añadiría de verdad (un día sin hueco tras recortarlo
   // a las horas del trabajo no cuenta)
-  const faltan = rellenarDias(horario, fechaInicio, fechaFin, desde, hasta).length - horario.length;
+  const faltan = rellenarDias(horario, fechaInicio, fechaFin, desde, hasta)
+    .filter(d => !horario.some(h => h.dia === d.dia)).length;
 
   const cambiarTramo = (i, k, campo, valor) => onChange(horario.map((d, j) => (j !== i ? d : {
     ...d, tramos: d.tramos.map((t, m) => (m === k ? { ...t, [campo]: valor } : t)),

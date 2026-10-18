@@ -147,6 +147,19 @@ describe('jornadas.service', () => {
       expect(ej.some(e => e.params?.includes(2) && !e.sql.includes('FOR UPDATE'))).toBe(false);
     });
 
+    it('un tramo que pisa una fichada es esa jornada, aunque empiece donde una libre', async () => {
+      const conn = conexion({ 'FOR UPDATE': [
+        fila(1, '2026-10-20T08:00', '2026-10-20T12:00'),                        // libre
+        fila(2, '2026-10-20T14:00', '2026-10-20T18:00', '2026-10-20T14:05'),   // fichada
+      ] });
+      await jornadas.aplicarJornadas(conn, 50, [{ inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T16:00') }]);
+      const ej = conn.ejecutadas;
+      // se mueve la fichada y la libre se borra: nada queda solapado
+      expect(ej.find(e => e.sql.startsWith('UPDATE asignacion_jornadas SET inicio = ?')).params[2]).toBe(2);
+      expect(ej.some(e => e.sql.startsWith('UPDATE asignacion_jornadas SET fin = ?'))).toBe(false);
+      expect(ej.find(e => e.sql.startsWith('DELETE')).params).toEqual([1]);
+    });
+
     it('sin horario borra las no fichadas y deja las fichadas', async () => {
       const conn = conexion({ 'FOR UPDATE': [
         fila(1, '2026-10-20T08:00', '2026-10-20T20:00', '2026-10-20T08:05'),

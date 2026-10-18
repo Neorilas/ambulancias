@@ -136,9 +136,10 @@ const mismoInstante = (a, b) => instanteUtc(a).getTime() === instanteUtc(b).getT
  * jornada que ya no existía— y perdía `aviso_sin_iniciar_at`, así que el push
  * urgente volvía a sonar por una jornada ya avisada. Por eso:
  *  - un tramo igual a una jornada sin fichar la deja tal cual (id y candado);
- *  - uno con el mismo inicio y otro fin le cambia el fin y conserva el candado;
  *  - uno que cae encima de una fichada no se duplica: se le pone a la fichada
  *    como hora prevista (lo fichado no se borra nunca);
+ *  - uno con el mismo inicio que una sin fichar le cambia el fin y conserva
+ *    el candado;
  *  - el resto se crea, y las sin fichar que ya no están en el horario se borran.
  * Dentro de la transacción de quien llama (bloquea las filas de la ambulancia).
  *
@@ -159,18 +160,21 @@ async function aplicarJornadas(conn, asignacionId, horario) {
     const igual = libre(j => mismoInstante(j.inicio, t.inicio) && mismoInstante(j.fin, t.fin));
     if (igual) { usadas.add(igual.id); continue; }
 
-    const mismoInicio = libre(j => mismoInstante(j.inicio, t.inicio));
-    if (mismoInicio) {
-      usadas.add(mismoInicio.id);
-      await conn.execute('UPDATE asignacion_jornadas SET fin = ? WHERE id = ?', [t.fin, mismoInicio.id]);
-      continue;
-    }
-
+    // Antes que reutilizar una libre: si pisa una fichada, el tramo es esa
+    // jornada. Al revés, una libre estirada encima de una fichada dejaba dos
+    // jornadas solapadas (revisión del 2026-10-18)
     const encima = fichadas.find(f => !usadas.has(f.id) && solapan(f, t));
     if (encima) {
       usadas.add(encima.id);
       await conn.execute('UPDATE asignacion_jornadas SET inicio = ?, fin = ? WHERE id = ?',
         [t.inicio, t.fin, encima.id]);
+      continue;
+    }
+
+    const mismoInicio = libre(j => mismoInstante(j.inicio, t.inicio));
+    if (mismoInicio) {
+      usadas.add(mismoInicio.id);
+      await conn.execute('UPDATE asignacion_jornadas SET fin = ? WHERE id = ?', [t.fin, mismoInicio.id]);
       continue;
     }
 

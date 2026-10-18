@@ -54,7 +54,7 @@ function extremos(dia, t) {
 export function rellenarDias(horario, inicioLocal, finLocal, desde = DESDE_POR_DEFECTO, hasta = HASTA_POR_DEFECTO) {
   const previos = new Map((horario || []).map(d => [d.dia, d]));
   const dias = diasEntre(inicioLocal, finLocal);
-  return dias.map((dia) => {
+  const nuevos = dias.map((dia) => {
     if (previos.has(dia)) return previos.get(dia);
     // El primer y el último día, recortados a la hora de inicio y de fin: si
     // no, el tramo propuesto ya se saldría de las fechas (lo vio la prueba
@@ -66,8 +66,16 @@ export function rellenarDias(horario, inicioLocal, finLocal, desde = DESDE_POR_D
     // Recortado, un tramo normal que se queda sin hueco (el trabajo empieza
     // después de la hora de fin del día) no se propone
     if (hasta > desde && h <= d) return null;
+    // Uno de noche que, aun así, se sale de las fechas (el último día, o un
+    // fin que cae antes de su hora del día siguiente) tampoco: se añade a mano
+    const { inicio, fin } = extremos(dia, { desde: d, hasta: h });
+    if (inicio < inicioLocal || fin > finLocal) return null;
     return { dia, tramos: [{ desde: d, hasta: h }] };
   }).filter(Boolean);
+  // Los días que ya estaban y caen fuera de las fechas se conservan: borrarlos
+  // en silencio se llevaba también lo fichado. Los señala `errorHorario`.
+  const fuera = (horario || []).filter(d => !dias.includes(d.dia));
+  return [...nuevos, ...fuera].sort((a, b) => (a.dia < b.dia ? -1 : 1));
 }
 
 /**
