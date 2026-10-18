@@ -2884,6 +2884,11 @@ describe('asignación dentro de un trabajo (v33)', () => {
         expect(res.status).toHaveBeenCalledWith(201);
         expect(insertadas()).toHaveLength(2);
         expect(llamadas('INSERT INTO asignaciones_libres')[0][1].slice(-1)).toEqual([0]);
+        // La plantilla se lee tras el bloqueo del trabajo (su foto no puede
+        // ser anterior a la de sincronizarEstadoTrabajo)
+        const sqls = query.mock.calls.map(([q]) => q);
+        expect(sqls.findIndex(q => q.includes('FROM trabajo_jornadas')))
+          .toBeGreaterThan(sqls.findIndex(q => q.includes('FROM trabajos WHERE id = ? FOR UPDATE')));
       });
 
       it('con horario lleva el suyo y queda marcado como propio', async () => {

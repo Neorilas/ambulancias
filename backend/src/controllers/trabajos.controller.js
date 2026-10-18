@@ -1257,25 +1257,34 @@ async function deleteTrabajo(req, res, next) {
     }
     // Con asignaciones: solo si ninguna ha empezado. Las fotos y la hora real
     // de una ambulancia que ya salió son la evidencia del servicio.
+    const MSG_EMPEZADA = 'No se puede eliminar: alguna de sus ambulancias ya ha empezado o ha terminado';
+    const empezada = (lista) => lista.some(a => a.estado === 'activa' || a.estado === 'finalizada');
     const [asigs] = await query(
       'SELECT estado FROM asignaciones_libres WHERE trabajo_id = ? AND deleted_at IS NULL', [id]
     );
-    if (asigs.some(a => a.estado === 'activa' || a.estado === 'finalizada')) {
-      return error(res, 'No se puede eliminar: alguna de sus ambulancias ya ha empezado o ha terminado', 400);
-    }
+    if (empezada(asigs)) return error(res, MSG_EMPEZADA, 400);
 
     // Sus ambulancias se van con él: un trabajo borrado no deja asignaciones
-    // programadas colgando en «Mis trabajos» ni en el listado.
+    // programadas colgando en «Mis trabajos» ni en el listado. Las ambulancias
+    // se bloquean LO PRIMERO y se vuelven a mirar con el bloqueo: es el orden
+    // de todo el proyecto (asignación → trabajo, §6.1) y cierra la carrera con
+    // un técnico que pulsa «Inicio» justo ahora (revisión del 2026-10-18).
     const instante = ahora();
+    let empezoEnMedio = false;
     await transaction(async (conn) => {
-      await conn.execute('UPDATE trabajos SET deleted_at = ? WHERE id = ?', [instante, id]);
-      if (asigs.length) {
+      const [bloqueadas] = await conn.execute(
+        `SELECT id, estado FROM asignaciones_libres
+          WHERE trabajo_id = ? AND deleted_at IS NULL ORDER BY id FOR UPDATE`, [id]);
+      if (empezada(bloqueadas || [])) { empezoEnMedio = true; return; }
+      if ((bloqueadas || []).length) {
         await conn.execute(
           'UPDATE asignaciones_libres SET deleted_at = ? WHERE trabajo_id = ? AND deleted_at IS NULL',
           [instante, id]
         );
       }
+      await conn.execute('UPDATE trabajos SET deleted_at = ? WHERE id = ?', [instante, id]);
     });
+    if (empezoEnMedio) return error(res, MSG_EMPEZADA, 409);
     logAudit({
       userId:   req.user.id,
       userInfo: req.user.username,

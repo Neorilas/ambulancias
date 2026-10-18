@@ -812,10 +812,15 @@ async function createAsignacion(req, res, next) {
         fecha_inicio, fecha_fin, km_inicio, notas, horario_propio: horario !== undefined,
       }, req.user.id);
       if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, id, horario);
-      else if (trabajoId) await jornadasSrv.heredarDelTrabajo(conn, id, trabajoId, fecha_inicio, fecha_fin);
       // Una ambulancia nueva puede devolver a «activo» un trabajo pendiente
       // de cierre, o dejarlo programado si es la primera.
       if (trabajoId) await estadoTrabajo.sincronizarEstadoTrabajo(conn, trabajoId);
+      // Heredar el horario DESPUÉS de sincronizar: lee la plantilla con una
+      // lectura plana, y antes del bloqueo del trabajo fijaría la foto de
+      // REPEATABLE READ con la que se calcula su estado (revisión 2026-10-18)
+      if (horario === undefined && trabajoId) {
+        await jornadasSrv.heredarDelTrabajo(conn, id, trabajoId, fecha_inicio, fecha_fin);
+      }
       return id;
     });
 
@@ -1144,11 +1149,7 @@ async function updateAsignacion(req, res, next) {
           await conn.execute('UPDATE asignaciones_libres SET horario_propio = ? WHERE id = ?',
             [propioFinal ? 1 : 0, asig.id]);
         }
-        if (horario !== undefined) {
-          await jornadasSrv.aplicarJornadas(conn, asig.id, horario);
-        } else if (reheredar) {
-          await jornadasSrv.heredarDelTrabajo(conn, asig.id, trabajoFinal, fechaIniFinal, fechaFinFinal);
-        }
+        if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, asig.id, horario);
 
         // El WHERE repite la regla de arriba con la fecha ya guardada: si el
         // técnico acaba de pulsar «Inicio» o subir una foto, no vuelve. Pedida
@@ -1165,10 +1166,19 @@ async function updateAsignacion(req, res, next) {
 
         // Cancelarla, moverla o devolverla a programada cambia el estado del
         // trabajo (o de los dos)
+        // En orden de id: dos ambulancias movidas a la vez en sentidos
+        // contrarios (X→Y e Y→X) bloquean los dos trabajos en el mismo orden
         if (tocaPadre && (estado || cambiaTrabajo || volvio)) {
-          for (const tid of new Set([asig.trabajo_id, trabajoDestino?.id].filter(Boolean))) {
+          const ids = [...new Set([asig.trabajo_id, trabajoDestino?.id].filter(Boolean))].sort((a, b) => a - b);
+          for (const tid of ids) {
             sincronizados.push([tid, await estadoTrabajo.sincronizarEstadoTrabajo(conn, tid)]);
           }
+        }
+        // Heredar el horario del trabajo DESPUÉS de sincronizar: es una
+        // lectura plana de la plantilla y, antes, fijaría la foto de
+        // REPEATABLE READ previa al bloqueo del trabajo (revisión 2026-10-18)
+        if (horario === undefined && reheredar) {
+          await jornadasSrv.heredarDelTrabajo(conn, asig.id, trabajoFinal, fechaIniFinal, fechaFinFinal);
         }
       });
     } catch (err) {
@@ -1827,7 +1837,7 @@ async function finalizarAsignacion(req, res, next) {
           [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
         );
         if (resFin?.affectedRows === 0) {
-          throw new FichajeRechazado(400, 'La asignación ya está finalizada');
+          throw new FichajeRechazado(400, 'La asignación ya no se puede finalizar: se acaba de finalizar o cancelar');
         }
 
         // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos

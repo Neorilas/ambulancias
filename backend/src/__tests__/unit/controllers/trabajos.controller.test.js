@@ -137,6 +137,10 @@ function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
       if (sql.includes('FROM asignaciones_libres WHERE trabajo_id')) {
         return [asignaciones.map(e => ({ estado: e, borrada: 0 }))];
       }
+      // Las ambulancias del trabajo bloqueadas (borrado y cambio de horario)
+      if (sql.includes('asignaciones_libres') && sql.includes('ORDER BY id FOR UPDATE')) {
+        return [asignaciones.map((e, i) => ({ id: 200 + i, estado: e }))];
+      }
       // Lecturas dentro de la transacción: las mismas reglas de bd()
       if (sql.includes('SELECT user_id FROM trabajo_coordinadores')) return (await query(sql, params)) || [[]];
       // Sin AUTO_INCREMENT, MySQL devuelve insertId 0
@@ -1314,20 +1318,37 @@ describe('trabajos.controller', () => {
       const res = mockRes();
       await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(ejecutadas[0].sql).toContain('UPDATE trabajos SET deleted_at');
-      expect(ejecutadas).toHaveLength(1);
+      // Primero se bloquean sus ambulancias (asignación → trabajo); sin ninguna, solo el trabajo
+      expect(ejecutadas[0].sql).toContain('FOR UPDATE');
+      expect(ejecutadas[1].sql).toContain('UPDATE trabajos SET deleted_at');
+      expect(ejecutadas).toHaveLength(2);
     });
 
     it('con ambulancias sin empezar: se borran con él', async () => {
       bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'programado' }]]],
           ['SELECT estado FROM asignaciones_libres', [[{ estado: 'programada' }, { estado: 'cancelada' }]]]]);
-      const { ejecutadas } = conexion();
+      const { ejecutadas } = conexion({ asignaciones: ['programada', 'cancelada'] });
       const res = mockRes();
       await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
-      const asigs = ejecutadas.find(e => e.sql.includes('UPDATE asignaciones_libres SET deleted_at'));
-      expect(asigs.sql).toContain('WHERE trabajo_id = ? AND deleted_at IS NULL');
-      expect(asigs.params[1]).toBe(1);
+      const sqls = ejecutadas.map(e => e.sql);
+      const iAsig = sqls.findIndex(q => q.includes('UPDATE asignaciones_libres SET deleted_at'));
+      const iTrab = sqls.findIndex(q => q.includes('UPDATE trabajos SET deleted_at'));
+      expect(ejecutadas[iAsig].sql).toContain('WHERE trabajo_id = ? AND deleted_at IS NULL');
+      expect(ejecutadas[iAsig].params[1]).toBe(1);
+      // asignaciones antes que el trabajo: el orden de todo el proyecto
+      expect(iAsig).toBeLessThan(iTrab);
+    });
+
+    it('409 si una ambulancia empieza entre la comprobación y el borrado (se ve con el bloqueo)', async () => {
+      bd([['SELECT id, estado FROM trabajos', [[{ id: 1, estado: 'programado' }]]],
+          ['SELECT estado FROM asignaciones_libres', [[{ estado: 'programada' }]]]]);
+      const { ejecutadas } = conexion({ asignaciones: ['activa'] });
+      const res = mockRes();
+      await deleteTrabajo(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(ejecutadas.some(e => e.sql.startsWith('UPDATE'))).toBe(false);
+      expect(logAudit).not.toHaveBeenCalled();
     });
 
     it.each(['activa', 'finalizada'])('400 si alguna ambulancia está %s: es evidencia del servicio', async (estado) => {

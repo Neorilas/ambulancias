@@ -1881,8 +1881,20 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   ambulancia, el cron). Por eso `updateTrabajo`, cuando cambia el horario,
   bloquea las asignaciones del trabajo (`ORDER BY id`) **antes** de tocar el
   trabajo: al revés, cambiar el horario a la vez que un técnico finalizaba
-  podía interbloquearse (revisión del 2026-10-18). Un camino nuevo que toque
-  asignaciones y su trabajo en la misma transacción tiene que respetarlo.
+  podía interbloquearse (revisión del 2026-10-18). `deleteTrabajo` también:
+  bloquea sus ambulancias, las vuelve a mirar (409 si una empezó en el hueco)
+  y borra ambulancias antes que el trabajo. Al sincronizar dos trabajos
+  (mover una ambulancia), en orden de id. La herencia del horario
+  (`heredarDelTrabajo`, lectura plana de la plantilla) va **después** de
+  `sincronizarEstadoTrabajo` en el alta y la edición de una ambulancia, para
+  no fijar la foto de REPEATABLE READ antes del bloqueo del trabajo. Un camino
+  nuevo que toque asignaciones y su trabajo en la misma transacción tiene que
+  respetar todo esto. **Pendiente, anterior a las jornadas:** el alta de una
+  ambulancia toma un bloqueo S sobre su trabajo por la clave foránea y luego X
+  al sincronizar; con un «Finalizar»/«Activar» cruzado del mismo trabajo
+  MySQL puede abortar una de las dos (1213, un 500 que se arregla
+  reintentando). Lo resolvería reintentar una vez ante `ER_LOCK_DEADLOCK` en
+  `transaction()` (`config/database.js`).
 - **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin
   previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
   como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por
