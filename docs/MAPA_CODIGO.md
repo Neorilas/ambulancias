@@ -1395,7 +1395,8 @@ idéntica a la local (23 tablas, 25 migraciones, 16 filas de `role_permissions`)
 y una segunda pasada no aplica nada. Repetido 2026-10-18 con la v40: 29 tablas,
 ninguna vista, una sola collation, 39 migraciones y 15 filas de `role_permissions`.
 
-**v40 (2026-10-18), la limpieza segura de la revisión de la BD.** Borra lo que
+**v40 (2026-10-18), la limpieza segura de la revisión de la BD — EN PRO
+`e3a50a4` (v5.0.2).** Borra lo que
 no usaba nadie: las dos vistas, el permiso `access_admin` (el panel del
 superadmin entra por rol) y el rol `test_rol_api` si no lo lleva nadie; y pasa
 `app_features` y `schema_migrations` a `utf8mb4_unicode_ci`, que nacieron con
@@ -1406,7 +1407,15 @@ cruzarlas con el resto. Trampas:
   tiene, ni en local ni en PRO. Por eso la v40 traga ese error concreto
   (errno 1227), avisa en el log y sigue: en las bases antiguas **las vistas
   siguen ahí** hasta que alguien haga `DROP VIEW` como root. Sin uso no
-  molestan. Cualquier otro error al borrarlas sí para la cadena.
+  molestan. Cualquier otro error al borrarlas sí para la cadena. En PRO se
+  borraron a mano como root el mismo 2026-10-18, tras el deploy (la definición
+  se guardó antes, fuera del repo): PRO queda con 0 vistas. Si otra base vieja
+  (una copia, PRE) da el aviso, se hace igual.
+- En el log salen **dos líneas `[ERROR] DB Error → DROP VIEW…`** antes del
+  `[WARN]` de la v40: las escribe el wrapper `query` antes de que la migración
+  trague el error. Son esperadas; la migración se aplica igual.
+- `database/migration_v4.sql` (copia legacy) sigue insertando `access_admin`:
+  aplicarlo a mano lo resucitaría. El runner no lo usa.
 - `test_api.mjs` crea `test_rol_api` contra la API que le digan, **por defecto
   la de PRO**: si se vuelve a lanzar, el rol reaparece.
 
@@ -1424,6 +1433,29 @@ cruzarlas con el resto. Trampas:
   (editados a mano) y `vehicle_revisiones` (1 fila en PRO).
 - `DATETIME DEFAULT CURRENT_TIMESTAMP` en tablas viejas: un `INSERT` a mano
   desde el contenedor (Europe/Madrid) escribe hora local, el fallo de la v16.
+- Ningún tope razonable para `km_fin` al cerrar: ver el km tecleado de más
+  justo abajo.
+
+**Coherencia de los datos en PRO (comprobado 2026-10-18, solo lectura).** 36
+comprobaciones cruzadas: estados de asignación y de trabajo contra sus horas y
+sus hijas (finalizada sin `finalizado_at`, trabajo finalizado con ambulancias
+abiertas, `activo` con todas cerradas…), principales contra sus listas, huérfanos,
+fotos/incidencias de otro vehículo, jornadas imposibles, solapes de un vehículo,
+sesiones y avisos de usuarios borrados. **34 a cero.** Las dos con casos son
+datos tecleados, no fallos de estructura:
+- **2 vehículos con `kilometros_actuales` por debajo del `km_fin` de una
+  asignación antigua** (asignación 83, `km_fin` 124.530 con el vehículo en
+  ~61.800; asignación 58, 44.712 con el vehículo en 43.311). Las lecturas
+  posteriores cuadran: son km mal tecleados al cerrar, pendientes de corregir a
+  mano si se quiere (afectan a lo que se sume de km).
+- **3 usuarios activos sin ningún rol.** No rompen nada (sin rol se ve lo
+  mínimo); falta decidir si se les da uno.
+Aparte, **texto con doble codificación** («GestiÃ³n»): 3 descripciones de
+`roles` y 2 de `permissions`, de la carga a mano de marzo, y la descripción de
+un trabajo (pegada desde fuera). Cosmético: la interfaz no enseña esas
+descripciones de rol. Se arregla con
+`CONVERT(CAST(CONVERT(col USING latin1) AS BINARY) USING utf8mb4)` sobre las
+filas afectadas.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
