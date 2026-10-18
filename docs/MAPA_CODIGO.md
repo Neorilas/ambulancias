@@ -1395,7 +1395,8 @@ idéntica a la local (23 tablas, 25 migraciones, 16 filas de `role_permissions`)
 y una segunda pasada no aplica nada. Repetido 2026-10-18 con la v40: 29 tablas,
 ninguna vista, una sola collation, 39 migraciones y 15 filas de `role_permissions`.
 
-**v40 (2026-10-18), la limpieza segura de la revisión de la BD.** Borra lo que
+**v40 (2026-10-18), la limpieza segura de la revisión de la BD — EN PRO
+`e3a50a4` (v5.0.2).** Borra lo que
 no usaba nadie: las dos vistas, el permiso `access_admin` (el panel del
 superadmin entra por rol) y el rol `test_rol_api` si no lo lleva nadie; y pasa
 `app_features` y `schema_migrations` a `utf8mb4_unicode_ci`, que nacieron con
@@ -1406,7 +1407,15 @@ cruzarlas con el resto. Trampas:
   tiene, ni en local ni en PRO. Por eso la v40 traga ese error concreto
   (errno 1227), avisa en el log y sigue: en las bases antiguas **las vistas
   siguen ahí** hasta que alguien haga `DROP VIEW` como root. Sin uso no
-  molestan. Cualquier otro error al borrarlas sí para la cadena.
+  molestan. Cualquier otro error al borrarlas sí para la cadena. En PRO se
+  borraron a mano como root el mismo 2026-10-18, tras el deploy (la definición
+  se guardó antes, fuera del repo): PRO queda con 0 vistas. Si otra base vieja
+  (una copia, PRE) da el aviso, se hace igual.
+- En el log salen **dos líneas `[ERROR] DB Error → DROP VIEW…`** antes del
+  `[WARN]` de la v40: las escribe el wrapper `query` antes de que la migración
+  trague el error. Son esperadas; la migración se aplica igual.
+- `database/migration_v4.sql` (copia legacy) sigue insertando `access_admin`:
+  aplicarlo a mano lo resucitaría. El runner no lo usa.
 - `test_api.mjs` crea `test_rol_api` contra la API que le digan, **por defecto
   la de PRO**: si se vuelve a lanzar, el rol reaparece.
 
@@ -1424,6 +1433,13 @@ cruzarlas con el resto. Trampas:
   (editados a mano) y `vehicle_revisiones` (1 fila en PRO).
 - `DATETIME DEFAULT CURRENT_TIMESTAMP` en tablas viejas: un `INSERT` a mano
   desde el contenedor (Europe/Madrid) escribe hora local, el fallo de la v16.
+- Ningún tope razonable para `km_fin` al cerrar: un km tecleado de más se
+  queda guardado, y el `kilometros_actuales` del vehículo queda por debajo del
+  `km_fin` de esa asignación.
+- Texto con doble codificación («GestiÃ³n») en filas cargadas a mano o
+  pegadas desde fuera: se arregla con
+  `CONVERT(CAST(CONVERT(col USING latin1) AS BINARY) USING utf8mb4)` sobre las
+  filas afectadas.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
