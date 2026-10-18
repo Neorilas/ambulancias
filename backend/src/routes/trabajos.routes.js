@@ -128,6 +128,8 @@ router.post('/',
     // controlador: el formulario viejo del v25 manda `vehiculos` y no trae
     // coordinador, y tiene que recibir el «recárgala», no un «falta el coordinador»
     ...validarCoordinadores,
+    // Previsto (v41): sin coordinador ni ambulancias, a la espera de saberlos
+    body('previsto').optional().isBoolean({ strict: true }).withMessage('previsto debe ser true o false'),
     ...validarCamposTrabajo,
     ...validarAmbulanciasAlta,
   ],

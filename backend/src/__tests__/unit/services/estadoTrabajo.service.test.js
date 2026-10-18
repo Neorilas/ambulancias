@@ -18,12 +18,15 @@ const {
 } = require('../../../services/estadoTrabajo.service');
 
 /** Conexión que contesta por SQL y apunta lo que se ejecuta. */
-function conexion({ asignaciones = [], borradas = [], vehiculos = [], afectadas = 1 } = {}) {
+function conexion({ asignaciones = [], borradas = [], vehiculos = [], afectadas = 1,
+                    estadoTrabajo = 'programado', coordinadores = 0 } = {}) {
   const ejecutadas = [];
   return {
     ejecutadas,
     execute: jest.fn(async (sql, params) => {
       ejecutadas.push({ sql, params });
+      if (sql.includes('FROM trabajos WHERE id = ? FOR UPDATE')) return [[{ id: params[0], estado: estadoTrabajo }]];
+      if (sql.includes('FROM trabajo_coordinadores')) return [[{ n: coordinadores }]];
       if (sql.includes('FROM asignaciones_libres')) {
         return [[...asignaciones.map(estado => ({ estado, borrada: 0 })),
                  ...borradas.map(estado => ({ estado, borrada: 1 }))]];
@@ -70,7 +73,7 @@ describe('estadoTrabajo.service', () => {
     it('lo primero es bloquear la fila del trabajo: dos cierres cruzados se sincronizan en fila', async () => {
       const conn = conexion({ asignaciones: ['finalizada'] });
       await sincronizarEstadoTrabajo(conn, 40);
-      expect(conn.ejecutadas[0]).toEqual({ sql: 'SELECT id FROM trabajos WHERE id = ? FOR UPDATE', params: [40] });
+      expect(conn.ejecutadas[0]).toEqual({ sql: 'SELECT id, estado FROM trabajos WHERE id = ? FOR UPDATE', params: [40] });
     });
 
     it('con asignaciones manda el modelo nuevo y no mira trabajo_vehiculos', async () => {
@@ -107,6 +110,41 @@ describe('estadoTrabajo.service', () => {
     it('si el UPDATE no toca la fila (ya estaba así, o cerrado) no hay cambio', async () => {
       const conn = conexion({ asignaciones: ['finalizada'], afectadas: 0 });
       expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'pendiente_cierre', cambia: false });
+    });
+
+    describe('previsto (v41)', () => {
+      it('con ambulancia pero sin coordinador sigue previsto y no escribe', async () => {
+        const conn = conexion({ estadoTrabajo: 'previsto', asignaciones: ['programada'], coordinadores: 0 });
+        expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'previsto', cambia: false });
+        expect(conn.ejecutadas.some(e => e.sql.startsWith('UPDATE'))).toBe(false);
+      });
+
+      it('con coordinador y una ambulancia viva pasa a programado', async () => {
+        const conn = conexion({ estadoTrabajo: 'previsto', asignaciones: ['programada'], coordinadores: 1 });
+        expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'programado', cambia: true });
+      });
+
+      it('las canceladas no cuentan como ambulancia: sigue previsto', async () => {
+        const conn = conexion({ estadoTrabajo: 'previsto', asignaciones: ['cancelada'], coordinadores: 1 });
+        expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'previsto', cambia: false });
+      });
+
+      it('sin ninguna ambulancia ni se mira: se queda como está', async () => {
+        const conn = conexion({ estadoTrabajo: 'previsto', coordinadores: 1 });
+        expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: null, cambia: false });
+        expect(conn.ejecutadas.some(e => e.sql.startsWith('UPDATE'))).toBe(false);
+      });
+
+      it('si una ambulancia ya ha arrancado, manda lo que pasa: deja de ser previsto', async () => {
+        const conn = conexion({ estadoTrabajo: 'previsto', asignaciones: ['activa'], coordinadores: 0 });
+        expect(await sincronizarEstadoTrabajo(conn, 40)).toEqual({ estado: 'activo', cambia: true });
+      });
+
+      it('a un programado no le pregunta por coordinadores', async () => {
+        const conn = conexion({ asignaciones: ['programada'] });
+        await sincronizarEstadoTrabajo(conn, 40);
+        expect(conn.ejecutadas.some(e => e.sql.includes('trabajo_coordinadores'))).toBe(false);
+      });
     });
 
     it('sin ninguna ambulancia no escribe nada', async () => {
