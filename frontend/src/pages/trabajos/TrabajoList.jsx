@@ -33,6 +33,9 @@ export default function TrabajoList() {
   // oficina, los mismos que abren esta pantalla; el backend vuelve a mirar el
   // rol y no cuenta los trabajos que coordina quien pregunta.
   const revisarFinEvento = url.revisar === 'fin_evento';
+  // Los previstos (v41) se filtran con el mismo `estado` del desplegable; el
+  // botón es un atajo para lo que hay que ir completando
+  const soloPrevistos = url.estado === 'previsto';
   const page    = paginaDeUrl(url.page);
   const filters = { search: url.search, estado: url.estado, tipo: url.tipo };
   // El buscador escribe en local y llega a la URL ya reposado (hook)
@@ -143,6 +146,7 @@ export default function TrabajoList() {
             />
             <select className="input w-auto" value={filters.estado} onChange={e => setFilter('estado', e.target.value)}>
               <option value="">Todos los estados</option>
+              <option value="previsto">Previsto</option>
               <option value="programado">Programado</option>
               <option value="activo">Activo</option>
               <option value="pendiente_cierre">Pendiente de cierre</option>
@@ -155,6 +159,20 @@ export default function TrabajoList() {
               <option value="cobertura_evento">Cobertura evento</option>
               <option value="otro">Otro</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setFilter('estado', soloPrevistos ? '' : 'previsto')}
+              aria-pressed={soloPrevistos}
+              title="Trabajos previstos: aún sin ambulancia o sin coordinador"
+              data-testid="filtro-previstos"
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
+                ${soloPrevistos
+                  ? 'bg-bad-600 text-white border-bad-600'
+                  : 'bg-white text-neutral-600 border-neutral-300 hover:border-bad-500'
+                }`}
+            >
+              Previstos
+            </button>
             <button
               type="button"
               onClick={() => cambiarUrl({ revisar: revisarFinEvento ? '' : 'fin_evento', page: 1 })}
@@ -182,7 +200,11 @@ export default function TrabajoList() {
                   {trabajos.map(t => (
                     <div
                       key={t.id}
+                      // Previsto (v41): fondo rojo, para que salte a la
+                      // vista lo que aún hay que completar (pedido del usuario)
+                      data-previsto={t.estado === 'previsto' || undefined}
                       className={`card hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
+                        t.estado === 'previsto'   ? 'bg-bad-50 border-bad-200 border-l-bad-500' :
                         t.estado === 'activo'     ? 'border-l-green-500' :
                         t.estado === 'programado' ? 'border-l-yellow-400' :
                         t.estado === 'pendiente_cierre' ? 'border-l-yellow-400' :

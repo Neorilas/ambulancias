@@ -66,12 +66,15 @@ export function entradasDelDia(entradas, dia) {
  */
 export function situacionEntrada(e) {
   const estado = e.asignacion_estado || e.trabajo_estado;
+  // Previsto (v41): coordina un trabajo que aún no tiene ambulancias
+  if (estado === 'previsto') return 'previsto';
   if (estado === 'programada' || estado === 'programado') return 'programado';
   if (['finalizada', 'finalizado', 'finalizado_anticipado'].includes(estado)) return 'terminado';
   return 'en_curso';
 }
 
 export const SITUACIONES = {
+  previsto:   { texto: 'Previsto',   punto: 'bg-bad-500' },
   programado: { texto: 'Programado', punto: 'bg-warn-500' },
   en_curso:   { texto: 'En curso',   punto: 'bg-primary-600' },
   terminado:  { texto: 'Terminado',  punto: 'bg-ok-500' },

@@ -54,7 +54,26 @@ export function formularioInicial(trabajo) {
     // El horario por días (v39), en días y tramos de hora española
     horario:      horarioDesdeApi(trabajo?.horario),
     asignaciones: [],
+    // Previsto (v41): entra a semanas vista sin ambulancia ni coordinador. En
+    // el alta lo marca quien lo crea; al editar, lo dice el estado del trabajo
+    previsto:     trabajo?.estado === TRABAJO_ESTADOS.PREVISTO,
   };
+}
+
+/** ¿Es un trabajo previsto (v41), aún sin coordinador o sin ambulancias? */
+export const esPrevisto = (trabajo) => trabajo?.estado === TRABAJO_ESTADOS.PREVISTO;
+
+/**
+ * Lo que le falta a un trabajo previsto para pasar a programado, que el
+ * backend hace solo en cuanto tiene las dos cosas (`previstoCompleto` en
+ * estadoTrabajo.service): ['coordinador', 'ambulancia'], o lo que quede.
+ */
+export function faltaParaProgramado(trabajo) {
+  if (!esPrevisto(trabajo)) return [];
+  const falta = [];
+  if (!coordinadoresDe(trabajo).length) falta.push('coordinador');
+  if (!(trabajo.asignaciones || []).some(a => a.estado !== 'cancelada')) falta.push('ambulancia');
+  return falta;
 }
 
 /** Errores del formulario, por campo. Vacío = se puede guardar. */
@@ -70,7 +89,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
   if ((form.ubicacion_url || '').trim() && !esEnlaceGoogleMaps(form.ubicacion_url)) {
     e.ubicacion_url = 'Tiene que ser un enlace de Google Maps (el de «Compartir»)';
   }
-  if (!idsElegidos(form.coordinadores).length) {
+  // Un previsto puede no tenerlo aún: es justo lo que le falta
+  if (!form.previsto && !idsElegidos(form.coordinadores).length) {
     e.coordinadores = 'Elige quién coordina el trabajo';
   }
   const malHorario = errorHorario(form.horario, form.fecha_inicio, form.fecha_fin);
@@ -103,6 +123,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
  * Lo que se manda al backend: los datos, los coordinadores y el equipo del
  * trabajo (`usuarios`); en el alta, además, sus ambulancias. Nunca
  * `vehiculos`: es el formato del modelo anterior y el backend daría 400.
+ * Sin coordinadores (solo un previsto) no se mandan: una lista vacía da 422,
+ * el backend exige al menos uno cuando viene.
  */
 export function payloadTrabajo(form, { alta = false } = {}) {
   const datos = {
@@ -113,13 +135,15 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     tipo:         form.tipo,
     fecha_inicio: toUtcIso(form.fecha_inicio),
     fecha_fin:    toUtcIso(form.fecha_fin),
-    coordinadores: idsElegidos(form.coordinadores),
     usuarios:     idsElegidos(form.usuarios),
     horario:      horarioAPayload(form.horario),
   };
+  const coordinadores = idsElegidos(form.coordinadores);
+  if (coordinadores.length) datos.coordinadores = coordinadores;
   if (!alta) return datos;
   return {
     ...datos,
+    ...(form.previsto ? { previsto: true } : {}),
     asignaciones: form.asignaciones.map(a => ({
       vehicle_id:   parseInt(a.vehicle_id, 10),
       responsables: idsElegidos(a.responsables),

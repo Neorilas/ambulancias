@@ -9,6 +9,7 @@ import { ESTADO_COLORS } from '../../utils/constants.js';
 import { PageLoading } from '../common/LoadingSpinner.jsx';
 
 const DOT_COLORS = {
+  previsto:              'bg-bad-500',
   programado:            'bg-warn-500',
   activo:                'bg-blue-500',
   finalizado:            'bg-ok-500',

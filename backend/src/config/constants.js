@@ -20,6 +20,9 @@ module.exports = {
 
   // ---- Estados de trabajos ----
   TRABAJO_ESTADOS: {
+    // Entra a semanas vista y aún sin ambulancia o sin coordinador (v41). Pasa
+    // a programado solo, en cuanto tiene las dos cosas (estadoTrabajo.service)
+    PREVISTO:            'previsto',
     PROGRAMADO:          'programado',
     ACTIVO:              'activo',
     // Todas sus ambulancias han finalizado; falta que el coordinador lo cierre (v33)

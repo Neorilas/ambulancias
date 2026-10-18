@@ -321,7 +321,7 @@ describe('fichaje de jornadas (v39)', () => {
       const bloqueo = sqls.findIndex(q => q.startsWith('SELECT id FROM asignaciones_libres WHERE id = ? FOR UPDATE'));
       const cierre  = sqls.findIndex(q => q.includes("estado         = 'finalizada'"));
       const relectura = sqls.findIndex(q => q.includes('inicio_real_at IS NOT NULL AND fin_real_at IS NULL'));
-      const lockTrabajo = sqls.findIndex(q => q.startsWith('SELECT id FROM trabajos WHERE id = ? FOR UPDATE'));
+      const lockTrabajo = sqls.findIndex(q => q.startsWith('SELECT id, estado FROM trabajos WHERE id = ? FOR UPDATE'));
       // asignación bloqueada antes del cierre; el trabajo, después; y la
       // relectura de jornadas, tras el bloqueo del trabajo (no antes)
       expect(bloqueo).toBeGreaterThan(-1);

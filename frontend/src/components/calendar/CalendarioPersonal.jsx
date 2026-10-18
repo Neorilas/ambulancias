@@ -141,11 +141,15 @@ export default function CalendarioPersonal({ dia, onCambiarDia, onAbrir }) {
 
         {/* Leyenda */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-neutral-500">
-          {Object.entries(SITUACIONES).map(([clave, { texto, punto }]) => (
-            <span key={clave} className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${punto}`} />{texto}
-            </span>
-          ))}
+          {/* «Previsto» solo si sale alguno: es raro (coordina un trabajo
+              aún sin ambulancias) y al resto le sobraría en la leyenda */}
+          {Object.entries(SITUACIONES)
+            .filter(([clave]) => clave !== 'previsto' || entradas.some(e => situacionEntrada(e) === 'previsto'))
+            .map(([clave, { texto, punto }]) => (
+              <span key={clave} className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${punto}`} />{texto}
+              </span>
+            ))}
         </div>
       </div>
 

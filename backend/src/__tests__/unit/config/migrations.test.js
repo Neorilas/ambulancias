@@ -910,7 +910,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema', 'v41_trabajo_previsto']);
     const vehiculo = ejecutadas.find(q => q.includes('ADD COLUMN vehicle_id'));
     expect(vehiculo).toContain('ALTER TABLE facturas');
     expect(vehiculo).toContain('NULL DEFAULT NULL');
@@ -935,7 +935,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema', 'v41_trabajo_previsto']);
     const veh = ejecutadas.find(q => q.includes('ADD COLUMN km_proximo_mantenimiento'));
     expect(veh).toContain('ALTER TABLE vehicles');
     expect(veh).toContain('INT UNSIGNED NULL DEFAULT NULL');
@@ -968,7 +968,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema', 'v41_trabajo_previsto']);
     const col = ejecutadas.find(q => q.includes('ADD COLUMN aviso_mantenimiento_km'));
     expect(col).toContain('ALTER TABLE vehicles');
     expect(col).toContain('INT UNSIGNED NULL DEFAULT NULL');
@@ -990,7 +990,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v39_jornadas', 'v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v39_jornadas', 'v40_limpieza_esquema', 'v41_trabajo_previsto']);
     const plantilla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS trabajo_jornadas'));
     expect(plantilla).toContain('REFERENCES trabajos(id) ON DELETE CASCADE');
     const jornadas = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS asignacion_jornadas'));
@@ -1018,7 +1018,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v40_limpieza_esquema', 'v41_trabajo_previsto']);
     expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_users_roles');
     expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_trabajos_activos');
     const reparto = ejecutadas.findIndex(q => q.includes('DELETE rp FROM role_permissions'));
@@ -1076,7 +1076,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v40_limpieza_esquema']);
+    expect(aplicadas).toEqual(['v40_limpieza_esquema', 'v41_trabajo_previsto']);
     expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_trabajos_activos');
     expect(ejecutadas.some(q => q.includes("DELETE FROM permissions WHERE nombre = 'access_admin'"))).toBe(true);
   });
@@ -1087,5 +1087,31 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
 
     expect(fallida).toBe('v40_limpieza_esquema');
     expect(aplicadas).toEqual([]);
+  });
+
+  it('v41 añade el estado previsto al trabajo sin perder los de siempre', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v40_limpieza_esquema') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v41_trabajo_previsto']);
+    const estado = ejecutadas.find(q => q.includes('MODIFY COLUMN estado'));
+    expect(estado).toContain('ALTER TABLE trabajos');
+    for (const e of ['previsto', 'programado', 'activo', 'pendiente_cierre', 'finalizado', 'finalizado_anticipado']) {
+      expect(estado).toContain(`'${e}'`);
+    }
+    // Lo que no dice que es previsto sigue naciendo programado
+    expect(estado).toContain("DEFAULT 'programado'");
+  });
+
+  it('v41 no repite el ALTER si el ENUM ya lo tiene', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v40_limpieza_esquema'),
+      columnas: ['vehicle_images.tipo_imagen@nuevo'],
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('MODIFY COLUMN estado'))).toBe(false);
   });
 });

@@ -66,6 +66,21 @@ function estadoTrabajoDesdeAsignaciones(estados) {
 }
 
 /**
+ * ¿Tiene ya un trabajo previsto lo que le faltaba para ser programado? Al
+ * menos un coordinador (la lista, nunca la columna: §6.2) y al menos una
+ * ambulancia viva (ni borrada ni cancelada). Lo pidió el usuario el
+ * 2026-10-18: «una vez se les asigne vehículos y coordinador».
+ */
+async function previstoCompleto(conn, trabajoId, asigs) {
+  const vivas = (Array.isArray(asigs) ? asigs : [])
+    .filter(r => !Number(r.borrada) && r.estado !== 'cancelada');
+  if (!vivas.length) return false;
+  const [coord] = await conn.execute(
+    'SELECT COUNT(*) AS n FROM trabajo_coordinadores WHERE trabajo_id = ?', [trabajoId]);
+  return Number(coord?.[0]?.n) > 0;
+}
+
+/**
  * Recalcula `trabajos.estado`. Se guarda en vez de calcularse al leer para que
  * el listado y el calendario sigan filtrando por una columna.
  *
@@ -79,6 +94,10 @@ function estadoTrabajoDesdeAsignaciones(estados) {
  * sin bloqueo antes fijaría la foto de la que lee el SELECT de abajo. Hoy los
  * llamadores solo escriben antes de llamar.
  *
+ * Un trabajo `previsto` (v41) sigue previsto mientras le falte coordinador
+ * o ambulancia (`previstoCompleto`); sin ninguna ambulancia ni se mira, como
+ * cualquier trabajo que nunca ha tenido una.
+ *
  * Un trabajo ya cerrado no se toca (`estado NOT IN` cerrados): el cierre es
  * un acto del coordinador y nada derivado lo deshace. Y el `estado <> ?` hace
  * que `cambia` diga si ESTA llamada movió el estado — con mysql2, que cuenta
@@ -89,7 +108,9 @@ function estadoTrabajoDesdeAsignaciones(estados) {
  * @returns {Promise<{estado: string|null, cambia: boolean}>}
  */
 async function sincronizarEstadoTrabajo(conn, trabajoId) {
-  await conn.execute('SELECT id FROM trabajos WHERE id = ? FOR UPDATE', [trabajoId]);
+  const [bloqueado] = await conn.execute(
+    'SELECT id, estado FROM trabajos WHERE id = ? FOR UPDATE', [trabajoId]);
+  const previsto = Array.isArray(bloqueado) && bloqueado[0]?.estado === TRABAJO_ESTADOS.PREVISTO;
   // Todas, también las borradas: basta con que haya tenido UNA para saber que
   // es del modelo nuevo, aunque ya no le quede ninguna viva. Un trabajo que
   // nunca ha tenido ninguna (recién creado sin ambulancias, o uno v25) no se
@@ -108,6 +129,12 @@ async function sincronizarEstadoTrabajo(conn, trabajoId) {
     estado = estadoTrabajoDesde((Array.isArray(rows) ? rows : []).map(r => r.estado));
   }
   if (!estado) return { estado: null, cambia: false };
+  // Previsto (v41): no pasa a programado hasta tener coordinador y alguna
+  // ambulancia viva. Si una ya ha arrancado (activo, pendiente de cierre),
+  // manda lo que pasa de verdad y deja de ser previsto.
+  if (previsto && estado === TRABAJO_ESTADOS.PROGRAMADO && !(await previstoCompleto(conn, trabajoId, asigs))) {
+    return { estado: TRABAJO_ESTADOS.PREVISTO, cambia: false };
+  }
 
   const [res] = await conn.execute(
     `UPDATE trabajos SET estado = ?
@@ -141,6 +168,7 @@ async function avisarSiPendienteCierre(trabajoId, resultado) {
 
 module.exports = {
   CERRADOS,
+  previstoCompleto,
   estadoTrabajoDesde,
   estadoTrabajoDesdeAsignaciones,
   sincronizarEstadoTrabajo,

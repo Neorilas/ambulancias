@@ -1421,6 +1421,27 @@ const MIGRATIONS = [
       }
     },
   },
+
+  {
+    name: 'v41_trabajo_previsto',
+    description: 'Trabajos: estado «previsto» (entra a semanas vista, sin ambulancia ni coordinador)',
+    async run() {
+      // Un trabajo que entra a semanas vista y aún no tiene previsión de
+      // ambulancias ni de personal. Pasa a `programado` solo, cuando tiene
+      // coordinador y al menos una ambulancia (estadoTrabajo.service). Como
+      // v33, se mira el COLUMN_TYPE: ensureColumn no sirve para un ENUM.
+      const [enumRows] = await query(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trabajos'
+           AND COLUMN_NAME = 'estado' AND COLUMN_TYPE LIKE '%previsto%'`
+      );
+      if (enumRows[0].c === 0) {
+        await query(`ALTER TABLE trabajos MODIFY COLUMN estado
+          ENUM('previsto','programado','activo','pendiente_cierre','finalizado','finalizado_anticipado')
+          NOT NULL DEFAULT 'programado'`);
+      }
+    },
+  },
 ];
 
 // ============================================================

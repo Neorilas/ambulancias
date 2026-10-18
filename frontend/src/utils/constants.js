@@ -34,6 +34,9 @@ export const PERMISSIONS = {
 };
 
 export const TRABAJO_ESTADOS = {
+  // Entra a semanas vista, aún sin ambulancia o sin coordinador (v41). Pasa a
+  // programado solo, cuando tiene las dos cosas (lo decide el backend)
+  PREVISTO:              'previsto',
   PROGRAMADO:            'programado',
   ACTIVO:                'activo',
   // Todas sus ambulancias han finalizado; falta que el coordinador lo cierre (v33)
@@ -115,6 +118,7 @@ export const IMAGEN_TIPO_LABELS = Object.fromEntries(
 );
 
 export const ESTADO_COLORS = {
+  previsto:              'badge-red',
   programado:            'badge-yellow',
   activo:                'badge-blue',
   pendiente_cierre:      'badge-yellow',
@@ -123,6 +127,7 @@ export const ESTADO_COLORS = {
 };
 
 export const ESTADO_LABELS = {
+  previsto:              'Previsto',
   programado:            'Programado',
   activo:                'Activo',
   pendiente_cierre:      'Pendiente de cierre',

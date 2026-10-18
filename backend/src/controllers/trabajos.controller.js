@@ -67,9 +67,11 @@ const veTodo = (user) =>
  * `cerrarTrabajo`, `puede_cerrar` y la pantalla (campo `v25` de la ficha, que
  * decide si se pinta la operación v25 o la del trabajo padre).
  * `num_asignaciones` cuenta también las borradas: haber tenido una ya lo hace
- * del modelo nuevo.
+ * del modelo nuevo. Un trabajo `previsto` (v41) nunca lo es, aunque aún no
+ * tenga coordinador ni ambulancias: se crea así a propósito, del modelo nuevo.
  */
-function esV25({ num_vehiculos_v25, coordinador_user_id, num_asignaciones }) {
+function esV25({ num_vehiculos_v25, coordinador_user_id, num_asignaciones, estado }) {
+  if (estado === TRABAJO_ESTADOS.PREVISTO) return false;
   return Number(num_vehiculos_v25) > 0 || (!coordinador_user_id && !Number(num_asignaciones));
 }
 
@@ -357,6 +359,7 @@ async function getTrabajoCompleto(id) {
       num_vehiculos_v25: vehicles.length,
       coordinador_user_id: t.coordinador_user_id,
       num_asignaciones: num_asignaciones ?? t.asignaciones.length,
+      estado: t.estado,
     }),
     vehiculos: vehicles.map(v => ({
       ...v,
@@ -378,6 +381,7 @@ async function getTrabajoCompleto(id) {
  *  - Sin ninguna viva (2026-10-10: un trabajo puede no tener ambulancias, o
  *    quedarse sin ellas), solo una vez empezado: antes, lo que toca si no se
  *    va a hacer es eliminarlo, no cerrarlo como hecho.
+ *  - Un trabajo previsto (v41) no ha tenido nada en marcha: se elimina.
  *  - Un trabajo v25 se cierra por su ciclo de siempre: con vehículos, por
  *    ellos; sin vehículos ni coordinador, con /finalize, que pide el motivo de
  *    fin anticipado (por aquí se lo saltaría).
@@ -387,6 +391,9 @@ async function getTrabajoCompleto(id) {
  */
 function motivoNoSeCierra(t, estados) {
   if (CERRADOS.includes(t.estado)) return 'El trabajo ya está cerrado';
+  if (t.estado === TRABAJO_ESTADOS.PREVISTO) {
+    return 'El trabajo está previsto y no se ha hecho nada: si no se va a hacer, elimínalo';
+  }
   if (t.v25) return 'Este trabajo es del modelo anterior: se cierra como hasta ahora, no con «Cerrar trabajo»';
   const abiertas = estados.filter(e => e === 'programada' || e === 'activa').length;
   if (abiertas) {
@@ -520,6 +527,7 @@ function vistaParaUsuario(t, user) {
     num_vehiculos_v25: (t.vehiculos || []).length,
     coordinador_user_id: t.coordinador_user_id,
     num_asignaciones: (t.asignaciones || []).length,
+    estado: t.estado,
   });
   return {
     ...t,
@@ -904,9 +912,14 @@ async function createTrabajo(req, res, next) {
 
     // 1..N coordinadores, todos con las mismas funciones (v35); el primero es
     // el principal. La PWA sin actualizar manda uno suelto y vale igual.
-    const { coordinadores: coordIds, error: errCoord } = coordinadores.leerCoordinadores(req.body);
+    const { coordinadores: coordLeidos, error: errCoord } = coordinadores.leerCoordinadores(req.body);
     if (errCoord) return error(res, errCoord, 400);
-    if (!coordIds) return error(res, 'Falta el coordinador del trabajo', 400);
+    // Previsto (v41): entra a semanas vista y aún no se sabe quién lo
+    // coordina ni qué ambulancias van. Pasa a programado solo cuando tiene
+    // las dos cosas (estadoTrabajo.service, `previstoCompleto`).
+    const previsto = req.body.previsto === true;
+    if (!coordLeidos && !previsto) return error(res, 'Falta el coordinador del trabajo', 400);
+    const coordIds = coordLeidos || [];
     const { ambulancias, error: errAmb } = leerAmbulancias(req.body.asignaciones, { fecha_inicio, fecha_fin });
     if (errAmb) return error(res, errAmb, 400);
     // El horario por días (v39), opcional: lo heredan las ambulancias sin uno propio
@@ -939,15 +952,16 @@ async function createTrabajo(req, res, next) {
     const { trabajoId, asignacionIds } = await transaction(async (conn) => {
       const [result] = await conn.execute(
         `INSERT INTO trabajos (identificador, nombre, descripcion, ubicacion, ubicacion_url, tipo,
-                               fecha_inicio, fecha_fin, coordinador_user_id, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               fecha_inicio, fecha_fin, coordinador_user_id, created_by, estado)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [identificador, nombre, textoOpcional(req.body.descripcion) ?? null,
          textoOpcional(req.body.ubicacion) ?? null, textoOpcional(req.body.ubicacion_url) ?? null,
          tipo, fecha_inicio, fecha_fin,
-         coordIds[0], req.user.id]
+         coordIds[0] ?? null, req.user.id,
+         previsto ? TRABAJO_ESTADOS.PREVISTO : TRABAJO_ESTADOS.PROGRAMADO]
       );
       const nuevoId = result.insertId;
-      await coordinadores.guardarCoordinadores(conn, nuevoId, coordIds);
+      if (coordIds.length) await coordinadores.guardarCoordinadores(conn, nuevoId, coordIds);
       for (const userId of equipo) {
         await conn.execute(
           'INSERT IGNORE INTO trabajo_usuarios (trabajo_id, user_id) VALUES (?, ?)', [nuevoId, userId]);
@@ -1007,6 +1021,7 @@ async function createTrabajo(req, res, next) {
       entityType: 'trabajo', entityId: trabajoId,
       details:  { identificador: t?.identificador, nombre, tipo,
                   coordinadores: coordIds, ambulancias: ambulancias.length,
+                  ...(previsto && { previsto: true }),
                   equipo: equipo.length,
                   ...(horario?.length && { horario: jornadas.resumenHorario(horario) }) },
       ip: req.ip,
@@ -1039,7 +1054,8 @@ async function updateTrabajo(req, res, next) {
     // Del modelo nuevo (con coordinador, o con asignaciones), las ambulancias
     // y quién va en ellas se cambian en cada asignación: `vehiculos` es del
     // v25. `usuarios` sí vale: es el equipo del trabajo (2026-10-10).
-    const modeloNuevo = Number(actual.num_asignaciones) > 0 || !!actual.coordinador_user_id;
+    const modeloNuevo = Number(actual.num_asignaciones) > 0 || !!actual.coordinador_user_id
+      || actual.estado === TRABAJO_ESTADOS.PREVISTO;
     if (modeloNuevo && req.body.vehiculos !== undefined) {
       return error(res, 'Las ambulancias de este trabajo y quién va en ellas se cambian en cada una de ellas', 400);
     }
@@ -1191,6 +1207,11 @@ async function updateTrabajo(req, res, next) {
           }
         }
         // Añadir o quitar vehículos puede cambiar el estado del conjunto
+        await sincronizarEstadoTrabajo(conn, id);
+      }
+      // Previsto (v41): con los coordinadores que acaban de ponerle puede
+      // tener ya lo que le faltaba y pasar a programado
+      if (actual.estado === TRABAJO_ESTADOS.PREVISTO && coordGuardados) {
         await sincronizarEstadoTrabajo(conn, id);
       }
 
@@ -1487,8 +1508,12 @@ const MSG_CON_VEHICULOS =
  * modelo nuevo (con coordinador, o que ha tenido ambulancias) arranca con su
  * primera ambulancia y lo cierra su coordinador: aunque se haya quedado sin
  * ambulancias (2026-10-10), por aquí gestión lo cerraría saltándose esa regla.
+ * Uno previsto (v41) tampoco: es del modelo nuevo aunque aún no tenga nada.
  */
 function motivoNoManual(trabajo) {
+  if (trabajo.estado === TRABAJO_ESTADOS.PREVISTO) {
+    return 'Este trabajo está previsto: arranca con su primera ambulancia cuando tenga coordinador y ambulancias';
+  }
   if (trabajo.coordinador_user_id) {
     return 'Este trabajo arranca con su primera ambulancia y lo cierra su coordinador con «Cerrar trabajo»';
   }

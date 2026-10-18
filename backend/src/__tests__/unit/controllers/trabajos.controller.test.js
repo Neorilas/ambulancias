@@ -126,11 +126,18 @@ function trabajoConAsignaciones({ trabajo = {}, asignaciones, miembros, fotosAsi
 }
 
 /** Conexión de transacción que registra lo que ejecuta. */
-function conexion({ estados = [], asignaciones = [], insertId = 500 } = {}) {
+function conexion({ estados = [], asignaciones = [], insertId = 500,
+                    estadoTrabajo = 'programado', numCoordinadores = 0 } = {}) {
   const ejecutadas = [];
   const conn = {
     execute: jest.fn(async (sql, params) => {
       ejecutadas.push({ sql, params });
+      // sincronizarEstadoTrabajo: el trabajo bloqueado y, si es previsto (v41),
+      // cuántos coordinadores tiene
+      if (sql.includes('SELECT id, estado FROM trabajos WHERE id = ? FOR UPDATE')) {
+        return [[{ id: params[0], estado: estadoTrabajo }]];
+      }
+      if (sql.includes('COUNT(*) AS n FROM trabajo_coordinadores')) return [[{ n: numCoordinadores }]];
       if (sql.includes('SELECT estado FROM trabajo_vehiculos')) {
         return [estados.map(e => ({ estado: e }))];
       }
@@ -414,6 +421,11 @@ describe('trabajos.controller', () => {
 
       it('con coordinador, no, aunque aún no lleve ambulancias', async () => {
         expect(await v25De(trabajoConAsignaciones({ asignaciones: [], trabajo: { num_asignaciones: 0 } }))).toBe(false);
+      });
+
+      it('previsto (v41), no, aunque aún no tenga coordinador ni ambulancias', async () => {
+        expect(await v25De(trabajoDosVehiculos({ vehiculos: [], trabajo: { estado: 'previsto', num_asignaciones: 0 } })))
+          .toBe(false);
       });
 
       it('sin coordinador pero con asignaciones que tuvo (aunque estén borradas), no', async () => {
@@ -888,6 +900,65 @@ describe('trabajos.controller', () => {
       expect(transaction).not.toHaveBeenCalled();
     });
 
+    describe('previsto (v41)', () => {
+      it('se crea sin coordinador ni ambulancias, en estado previsto', async () => {
+        bd(reglasOk());
+        const { ejecutadas } = conexion({ insertId: 10, estadoTrabajo: 'previsto' });
+        const res = mockRes();
+        await createTrabajo(mockReq({
+          body: body({ coordinador_user_id: undefined, asignaciones: undefined, previsto: true }), user: admin,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
+        expect(insTrab.params[8]).toBeNull();          // sin coordinador principal
+        expect(insTrab.params[10]).toBe('previsto');
+        expect(ejecutadas.some(e => e.sql.includes('INSERT INTO trabajo_coordinadores'))).toBe(false);
+        expect(ejecutadas.some(e => e.sql.startsWith('UPDATE trabajos SET estado'))).toBe(false);
+        expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+          action: 'create_trabajo', details: expect.objectContaining({ previsto: true, coordinadores: [] }),
+        }));
+      });
+
+      it('con ambulancia pero sin coordinador, sigue previsto', async () => {
+        bd(reglasOk());
+        const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'], estadoTrabajo: 'previsto' });
+        const res = mockRes();
+        await createTrabajo(mockReq({
+          body: body({ coordinador_user_id: undefined, previsto: true }), user: admin,
+        }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(ejecutadas.some(e => e.sql.startsWith('UPDATE trabajos SET estado'))).toBe(false);
+      });
+
+      it('con coordinador y ambulancia ya no hay nada que prever: queda programado', async () => {
+        bd(reglasOk());
+        const { ejecutadas } = conexion({
+          insertId: 10, asignaciones: ['programada'], estadoTrabajo: 'previsto', numCoordinadores: 1,
+        });
+        await createTrabajo(mockReq({ body: body({ previsto: true }), user: admin }), mockRes(), mockNext());
+
+        expect(ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET estado')).params[0]).toBe('programado');
+      });
+
+      it('sin marcarlo previsto, el coordinador sigue siendo obligatorio', async () => {
+        const res = mockRes();
+        await createTrabajo(mockReq({
+          body: body({ coordinador_user_id: undefined, previsto: false }), user: admin,
+        }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toContain('Falta el coordinador');
+      });
+
+      it('el trabajo normal nace programado', async () => {
+        bd(reglasOk());
+        const { ejecutadas } = conexion({ insertId: 10 });
+        await createTrabajo(mockReq({ body: body({ asignaciones: undefined }), user: admin }), mockRes(), mockNext());
+        expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos')).params[10]).toBe('programado');
+      });
+    });
+
     it('sin ambulancias y con su equipo: se crea, y al equipo le llega «nuevo trabajo»', async () => {
       bd(reglasOk());
       const { ejecutadas } = conexion({ insertId: 10 });
@@ -1183,6 +1254,50 @@ describe('trabajos.controller', () => {
       }));
     });
 
+    describe('previsto (v41)', () => {
+      const previsto = (extra = {}) => existente('previsto', extra);
+
+      it('ponerle coordinador con una ambulancia ya puesta lo pasa a programado', async () => {
+        bd([previsto({ num_asignaciones: 1 }), coordsActuales(), usuariosOk, ...trabajoDosVehiculos()]);
+        const { ejecutadas } = conexion({ asignaciones: ['programada'], estadoTrabajo: 'previsto', numCoordinadores: 1 });
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinadores: [50] }, user: admin }), res, mockNext());
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        const sinc = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET estado'));
+        expect(sinc.params[0]).toBe('programado');
+        // Antes del recálculo se ha escrito la lista de coordinadores
+        const coords = ejecutadas.findIndex(e => e.sql.includes('INSERT INTO trabajo_coordinadores'));
+        expect(coords).toBeGreaterThan(-1);
+        expect(coords).toBeLessThan(ejecutadas.indexOf(sinc));
+      });
+
+      it('ponerle coordinador sin ambulancias lo deja previsto', async () => {
+        bd([previsto(), coordsActuales(), usuariosOk, ...trabajoDosVehiculos()]);
+        const { ejecutadas } = conexion({ estadoTrabajo: 'previsto', numCoordinadores: 1 });
+        await updateTrabajo(mockReq({ params: { id: '1' }, body: { coordinadores: [50] }, user: admin }),
+          mockRes(), mockNext());
+        expect(ejecutadas.some(e => e.sql.startsWith('UPDATE trabajos SET estado'))).toBe(false);
+      });
+
+      it('se edita sin coordinador (no se le exige) y no recalcula nada', async () => {
+        bd([previsto(), usuariosOk, ...trabajoDosVehiculos()]);
+        const { ejecutadas } = conexion({ estadoTrabajo: 'previsto' });
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'Maratón 2027' }, user: admin }),
+          res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(ejecutadas.some(e => e.sql.includes('SELECT id, estado FROM trabajos'))).toBe(false);
+      });
+
+      it('es del modelo nuevo: no acepta los vehículos del v25', async () => {
+        bd([previsto()]);
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' }, body: { vehiculos: [] }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+    });
+
     it('la lista que manda es la releída dentro de la transacción, no la de antes', async () => {
       // Antes de bloquear había [50, 52]; dentro, otra edición ya ha quitado al 52
       let lecturas = 0;
@@ -1407,6 +1522,13 @@ describe('trabajos.controller', () => {
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
         action: 'close_trabajo', details: expect.objectContaining({ por_gestion: false }),
       }));
+    });
+
+    it('un previsto (v41) no se cierra: no se ha hecho nada, se elimina', async () => {
+      bd([fila({ estado: 'previsto', coordinador_user_id: null, num_asignaciones: 0 }, []), estados()]);
+      const res = await cerrar(admin);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('previsto');
     });
 
     it('el segundo coordinador también lo cierra, y no cuenta como gestión', async () => {
