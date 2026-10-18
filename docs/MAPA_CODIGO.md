@@ -1433,29 +1433,13 @@ cruzarlas con el resto. Trampas:
   (editados a mano) y `vehicle_revisiones` (1 fila en PRO).
 - `DATETIME DEFAULT CURRENT_TIMESTAMP` en tablas viejas: un `INSERT` a mano
   desde el contenedor (Europe/Madrid) escribe hora local, el fallo de la v16.
-- Ningún tope razonable para `km_fin` al cerrar: ver el km tecleado de más
-  justo abajo.
-
-**Coherencia de los datos en PRO (comprobado 2026-10-18, solo lectura).** 36
-comprobaciones cruzadas: estados de asignación y de trabajo contra sus horas y
-sus hijas (finalizada sin `finalizado_at`, trabajo finalizado con ambulancias
-abiertas, `activo` con todas cerradas…), principales contra sus listas, huérfanos,
-fotos/incidencias de otro vehículo, jornadas imposibles, solapes de un vehículo,
-sesiones y avisos de usuarios borrados. **34 a cero.** Las dos con casos son
-datos tecleados, no fallos de estructura:
-- **2 vehículos con `kilometros_actuales` por debajo del `km_fin` de una
-  asignación antigua** (asignación 83, `km_fin` 124.530 con el vehículo en
-  ~61.800; asignación 58, 44.712 con el vehículo en 43.311). Las lecturas
-  posteriores cuadran: son km mal tecleados al cerrar, pendientes de corregir a
-  mano si se quiere (afectan a lo que se sume de km).
-- **3 usuarios activos sin ningún rol.** No rompen nada (sin rol se ve lo
-  mínimo); falta decidir si se les da uno.
-Aparte, **texto con doble codificación** («GestiÃ³n»): 3 descripciones de
-`roles` y 2 de `permissions`, de la carga a mano de marzo, y la descripción de
-un trabajo (pegada desde fuera). Cosmético: la interfaz no enseña esas
-descripciones de rol. Se arregla con
-`CONVERT(CAST(CONVERT(col USING latin1) AS BINARY) USING utf8mb4)` sobre las
-filas afectadas.
+- Ningún tope razonable para `km_fin` al cerrar: un km tecleado de más se
+  queda guardado, y el `kilometros_actuales` del vehículo queda por debajo del
+  `km_fin` de esa asignación.
+- Texto con doble codificación («GestiÃ³n») en filas cargadas a mano o
+  pegadas desde fuera: se arregla con
+  `CONVERT(CAST(CONVERT(col USING latin1) AS BINARY) USING utf8mb4)` sobre las
+  filas afectadas.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
