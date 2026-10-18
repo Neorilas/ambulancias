@@ -15,6 +15,7 @@ import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
 import { horarioDesdeApi, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 import {
   estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, coordinadoresDe,
+  faltaParaProgramado,
 } from '../../utils/trabajos.js';
 import TrabajoForm from './TrabajoForm.jsx';
 import TrabajoV25 from './TrabajoV25.jsx';
@@ -210,6 +211,8 @@ export default function TrabajoDetail() {
   const equipo       = trabajo.usuarios || [];
   // En el equipo del trabajo pero en ninguna ambulancia (todavía, o nunca)
   const soloEquipo   = trabajo.mi_rol === 'equipo' && !mias.length;
+  // Previsto (v41): lo que le falta para pasar a programado ([] si no lo es)
+  const falta        = faltaParaProgramado(trabajo);
 
   const cerrarTrabajo = async () => {
     setCerrando(true);
@@ -269,6 +272,22 @@ export default function TrabajoDetail() {
           )}
         </div>
       </div>
+
+      {/* Previsto (v41): qué le falta para pasar a programado, que pasa
+          solo en cuanto lo tiene */}
+      {falta.length > 0 && (
+        <div className="card bg-bad-50 border-bad-200 text-sm text-bad-700" data-testid="trabajo-previsto">
+          <p className="font-semibold">Trabajo previsto</p>
+          <p className="mt-0.5">
+            Le falta {falta.map(f => (f === 'coordinador' ? 'el coordinador' : 'al menos una ambulancia')).join(' y ')}.
+            Pasa a programado solo, en cuanto {falta.length > 1 ? 'los tenga' : 'lo tenga'}
+            {gestion
+              ? `: ${[falta.includes('coordinador') && 'el coordinador se pone con «Editar»',
+                      falta.includes('ambulancia') && 'las ambulancias se añaden abajo'].filter(Boolean).join(' y ')}.`
+              : '.'}
+          </p>
+        </div>
+      )}
 
       {recienCreado && gestion && (
         <div className="card bg-ok-50 border-ok-200 flex flex-col sm:flex-row sm:items-center gap-3"

@@ -129,3 +129,41 @@ describe('TrabajoForm · varios coordinadores (v35)', () => {
     expect(trabajosService.create).not.toHaveBeenCalled();
   });
 });
+
+// Previsto (v41): entra a semanas vista, sin ambulancias ni coordinador
+describe('TrabajoForm · previsto (v41)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('marcado «Trabajo previsto», se crea sin coordinador y lo dice al backend', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    trabajosService.create.mockResolvedValueOnce({ id: 9 });
+    const user = userEvent.setup();
+    const { container } = montar();
+
+    await user.type(screen.getByPlaceholderText('Ej.: Cobertura maratón de Madrid'), 'Feria de abril');
+    const [ini, fin] = container.querySelectorAll('input[type="datetime-local"]');
+    fireEvent.change(ini, { target: { value: '2026-12-01T08:00' } });
+    fireEvent.change(fin, { target: { value: '2026-12-01T20:00' } });
+    await user.click(screen.getByRole('checkbox', { name: /Trabajo previsto/ }));
+    expect(screen.getByText('(cuando se sepa)')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Crear trabajo' }));
+
+    expect(screen.queryByText('Elige quién coordina el trabajo')).not.toBeInTheDocument();
+    const enviado = trabajosService.create.mock.calls[0][0];
+    expect(enviado.previsto).toBe(true);
+    expect(enviado).not.toHaveProperty('coordinadores');
+  });
+
+  it('al editar uno previsto, recuerda qué le falta y no exige coordinador', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    trabajosService.update.mockResolvedValueOnce({ id: 8 });
+    const user = userEvent.setup();
+    montar({ id: 8, nombre: 'Feria', estado: 'previsto', fecha_inicio: '2026-12-01T08:00:00Z',
+      fecha_fin: '2026-12-01T20:00:00Z', usuarios: [], coordinadores: [] });
+
+    expect(screen.getByTestId('aviso-previsto')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Trabajo previsto/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(trabajosService.update).toHaveBeenCalledWith(8, expect.not.objectContaining({ coordinadores: [] }));
+  });
+});

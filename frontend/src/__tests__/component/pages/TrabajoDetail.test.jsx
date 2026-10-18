@@ -377,6 +377,37 @@ describe('TrabajoDetail', () => {
     });
   });
 
+  // Previsto (v41): qué le falta para pasar a programado, que pasa solo
+  describe('trabajo previsto', () => {
+    const PREVISTO = {
+      ...TRABAJO, estado: 'previsto', asignaciones: [], coordinador_user_id: null, coordinador: null,
+      coordinadores: [], mi_rol: 'gestion',
+    };
+
+    it('a gestión le dice que le falta coordinador y ambulancia, y dónde se ponen', async () => {
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue(PREVISTO);
+      montar();
+      const aviso = await screen.findByTestId('trabajo-previsto');
+      expect(aviso).toHaveTextContent('Le falta el coordinador y al menos una ambulancia');
+      expect(aviso).toHaveTextContent('en cuanto los tenga: el coordinador se pone con «Editar» y las ambulancias se añaden abajo');
+    });
+
+    it('con coordinador ya puesto, solo le falta la ambulancia', async () => {
+      comoUsuario(GESTOR);
+      trabajosService.get.mockResolvedValue({ ...PREVISTO, coordinadores: [{ id: 50, nombre: 'Carla', apellidos: 'Ruiz' }] });
+      montar();
+      const aviso = await screen.findByTestId('trabajo-previsto');
+      expect(aviso).toHaveTextContent('Le falta al menos una ambulancia. Pasa a programado solo, en cuanto lo tenga: las ambulancias se añaden abajo.');
+    });
+
+    it('un programado no lo lleva', async () => {
+      montar();
+      await screen.findByText('Cobertura de la carrera');
+      expect(screen.queryByTestId('trabajo-previsto')).not.toBeInTheDocument();
+    });
+  });
+
   // 2026-10-10: los trabajos del modelo anterior a medias se tienen que poder
   // terminar. Conviven con el trabajo padre hasta la fase 6 (TrabajoV25).
   describe('trabajo del modelo anterior (v25)', () => {

@@ -266,3 +266,44 @@ describe('TrabajoList: ambulancias «A revisar»', () => {
     expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ revisar: undefined }));
   });
 });
+
+// Previstos (v41): entran a semanas vista sin ambulancia ni coordinador; van
+// en rojo y se filtran con `estado=previsto`, desde el desplegable o el botón.
+describe('TrabajoList: previstos', () => {
+  const fila = (id, estado) => ({
+    id, nombre: `Trabajo ${id}`, estado, tipo: 'traslado', identificador: `T-${id}`,
+    fecha_inicio: '2026-11-20T08:00:00Z', fecha_fin: '2026-11-20T10:00:00Z',
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    trabajosService.list.mockResolvedValue({
+      data: [fila(1, 'previsto'), fila(2, 'programado')], pagination: { total: 2, totalPages: 1 },
+    });
+  });
+
+  it('el previsto va con fondo rojo y su etiqueta; el programado no', async () => {
+    montar('/trabajos');
+    const previsto = (await screen.findByText('Trabajo 1')).closest('.card');
+    const programado = screen.getByText('Trabajo 2').closest('.card');
+    expect(previsto.className).toContain('bg-bad-50');
+    expect(previsto).toHaveAttribute('data-previsto', 'true');
+    expect(programado.className).not.toContain('bg-bad-50');
+    expect(previsto).toHaveTextContent('Previsto');
+  });
+
+  it('el botón «Previstos» filtra por estado, va en la URL y se quita con otra pulsación', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos?page=2');
+    await screen.findByText('Trabajo 1');
+    await user.click(screen.getByTestId('filtro-previstos'));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\?estado=previsto$/);
+    expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, estado: 'previsto' }));
+    expect(screen.getByTestId('filtro-previstos')).toHaveAttribute('aria-pressed', 'true');
+    // El desplegable dice lo mismo: es el mismo filtro
+    expect(screen.getByRole('option', { name: 'Previsto' }).selected).toBe(true);
+
+    await user.click(screen.getByTestId('filtro-previstos'));
+    expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ estado: undefined }));
+  });
+});

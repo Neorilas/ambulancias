@@ -3,7 +3,7 @@ import {
   estaCerrado, formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo,
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
   asociadosDeTrabajo, asociadosDeFormulario, coordinadoresDe, esCoordinadorDe,
-  accionesVehiculo, vehiculosConAcciones, ambulanciasDeFila,
+  accionesVehiculo, vehiculosConAcciones, ambulanciasDeFila, esPrevisto, faltaParaProgramado,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -30,8 +30,13 @@ describe('utils/trabajos', () => {
       expect(formularioInicial(null)).toEqual({
         nombre: '', descripcion: '', ubicacion: '', ubicacion_url: '', tipo: 'traslado',
         fecha_inicio: '', fecha_fin: '', coordinadores: [''],
-        usuarios: [], horario: [], asignaciones: [],
+        usuarios: [], horario: [], asignaciones: [], previsto: false,
       });
+    });
+
+    it('al editar un previsto (v41), el formulario lo sabe por el estado', () => {
+      expect(formularioInicial({ estado: 'previsto' }).previsto).toBe(true);
+      expect(formularioInicial({ estado: 'programado' }).previsto).toBe(false);
     });
 
     it('al editar, carga el horario por días en hora española, agrupado por día (v39)', () => {
@@ -106,6 +111,37 @@ describe('utils/trabajos', () => {
       expect(validarTrabajo(formValido({ ubicacion_url: 'https://maps.app.goo.gl/abc' })).ubicacion_url).toBeUndefined();
       expect(validarTrabajo(formValido({ ubicacion_url: 'https://ejemplo.com/maps' })).ubicacion_url)
         .toContain('Google Maps');
+    });
+  });
+
+  describe('previsto (v41)', () => {
+    it('no exige coordinador: es justo lo que le falta', () => {
+      const sin = formValido({ coordinadores: [''], asignaciones: [] });
+      expect(validarTrabajo(sin, { alta: true })).toHaveProperty('coordinadores');
+      expect(validarTrabajo({ ...sin, previsto: true }, { alta: true })).toEqual({});
+    });
+
+    it('en el alta manda previsto y, sin coordinadores, no manda la lista (vacía daría 422)', () => {
+      const p = payloadTrabajo(formValido({ coordinadores: [''], asignaciones: [], previsto: true }), { alta: true });
+      expect(p.previsto).toBe(true);
+      expect(p).not.toHaveProperty('coordinadores');
+      expect(p.asignaciones).toEqual([]);
+    });
+
+    it('un alta normal no manda previsto; al editar, nunca (lo decide el backend)', () => {
+      expect(payloadTrabajo(formValido(), { alta: true })).not.toHaveProperty('previsto');
+      expect(payloadTrabajo(formValido({ previsto: true }))).not.toHaveProperty('previsto');
+    });
+
+    it('faltaParaProgramado dice qué le falta, y nada si no es previsto', () => {
+      expect(faltaParaProgramado({ estado: 'previsto', coordinadores: [], asignaciones: [] }))
+        .toEqual(['coordinador', 'ambulancia']);
+      expect(faltaParaProgramado({ estado: 'previsto', coordinadores: [{ id: 50 }],
+        asignaciones: [{ estado: 'cancelada' }] })).toEqual(['ambulancia']);
+      expect(faltaParaProgramado({ estado: 'previsto', coordinadores: [],
+        asignaciones: [{ estado: 'programada' }] })).toEqual(['coordinador']);
+      expect(faltaParaProgramado({ estado: 'programado', coordinadores: [], asignaciones: [] })).toEqual([]);
+      expect(esPrevisto({ estado: 'previsto' })).toBe(true);
     });
   });
 

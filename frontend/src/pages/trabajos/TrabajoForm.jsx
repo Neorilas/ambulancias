@@ -23,6 +23,10 @@ import { cruzaDias, horarioDentro, etiquetaDia, textoTramos } from '../../utils/
  * asignación, con sus responsables y su equipo, elegidos del equipo del
  * trabajo (salen primero) o de fuera. Al EDITAR, las ambulancias se añaden y
  * se cambian una a una desde la ficha del trabajo, que es donde se ve su estado.
+ *
+ * PREVISTO (v41): un trabajo que entra a semanas vista se puede dar de alta
+ * sin coordinador ni ambulancias. Pasa a programado solo, cuando tiene
+ * coordinador y al menos una ambulancia (lo decide el backend).
  */
 export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const isEdit = !!trabajo;
@@ -43,6 +47,11 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const set = (field) => (e) => {
     setForm(f => ({ ...f, [field]: e.target.value }));
     setErrors(er => ({ ...er, [field]: '' }));
+  };
+
+  const setPrevisto = (e) => {
+    setForm(f => ({ ...f, previsto: e.target.checked }));
+    setErrors(er => ({ ...er, coordinadores: '' }));
   };
 
   const setCoordinadores = (lista) => {
@@ -151,6 +160,30 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Previsto (v41): en el alta lo elige quien lo crea; al editar uno
+            previsto, se recuerda qué le falta para pasar a programado */}
+        {alta ? (
+          <label className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer ${
+            form.previsto ? 'border-bad-200 bg-bad-50' : 'border-neutral-200'}`}
+            data-testid="marcar-previsto">
+            <input type="checkbox" className="mt-0.5" checked={form.previsto} onChange={setPrevisto} />
+            <span className="text-sm">
+              <span className="font-medium text-neutral-900">Trabajo previsto</span>
+              <span className="block text-xs text-neutral-500 mt-0.5">
+                Entra con tiempo y aún no se sabe qué ambulancias ni quién lo coordina. Se puede
+                crear sin ellos; pasa a programado solo en cuanto tenga coordinador y al menos
+                una ambulancia.
+              </span>
+            </span>
+          </label>
+        ) : form.previsto && (
+          <div className="rounded-lg border border-bad-200 bg-bad-50 px-3 py-2.5 text-xs text-bad-700"
+            data-testid="aviso-previsto">
+            Trabajo previsto: pasa a programado en cuanto tenga coordinador y al menos una
+            ambulancia. Las ambulancias se añaden desde la ficha del trabajo.
+          </div>
+        )}
+
         {/* Título */}
         <div>
           <label className="label">Título <span className="text-bad-500">*</span></label>
@@ -249,7 +282,11 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
         {/* Coordinadores (D1: cualquier usuario activo; no hace falta que vaya).
             Uno o varios (v35), todos con las mismas funciones */}
         <div>
-          <label className="label">Coordinadores <span className="text-bad-500">*</span></label>
+          <label className="label">
+            Coordinadores {form.previsto
+              ? <span className="text-neutral-400 font-normal">(cuando se sepa)</span>
+              : <span className="text-bad-500">*</span>}
+          </label>
           <ListaMiembros
             users={users}
             lista={form.coordinadores}
