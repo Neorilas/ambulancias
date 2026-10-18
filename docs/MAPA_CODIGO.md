@@ -934,7 +934,7 @@ portada la decide un solo sitio. Menú: `components/Layout/Sidebar.jsx` (usa
 `AuthContext` + `FeaturesContext`); «Mis trabajos» va **antes** que «Mis
 asignaciones», que se queda mientras haya asignaciones del modelo antiguo.
 El menú tiene **dos ramas** (gestión y el resto) y cada entrada repite su flag
-en las dos: hasta v5.0.1 la del técnico llevaba «Mis asignaciones» con
+en las dos: hasta v5.0.0 la del técnico llevaba «Mis asignaciones» con
 `show: true` fijo, y con `menu_mis_asignaciones` apagado en PRO se le seguía
 viendo y la guardia lo devolvía a la portada al pulsarla. Quien añada una
 entrada con flag, que la ponga en las dos ramas con su `isFeatureEnabled`; lo

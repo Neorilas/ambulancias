@@ -33,7 +33,7 @@ describe('Sidebar: «Mis asignaciones» obedece a su flag', () => {
   });
 
   it('técnico con los flags de PRO: «Mis trabajos» sí, «Mis asignaciones» no', () => {
-    estado.features = ['menu_mis_trabajos', 'menu_trabajos'];
+    estado.features = ['menu_mis_trabajos'];
     pintar();
     expect(screen.getByRole('link', { name: 'Mis trabajos' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Mis asignaciones' })).not.toBeInTheDocument();
@@ -46,10 +46,25 @@ describe('Sidebar: «Mis asignaciones» obedece a su flag', () => {
     expect(screen.queryByRole('link', { name: 'Mis trabajos' })).not.toBeInTheDocument();
   });
 
+  // Menú vacío a propósito: la portada cae en /perfil, que va en la barra de
+  // arriba. Mejor eso que un enlace que la guardia rebota.
+  it('técnico con los dos apagados: ningún enlace', () => {
+    pintar();
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+  });
+
   it('gestión con el flag apagado: tampoco la ve', () => {
     estado.gestion = true;
     estado.features = ['menu_mis_trabajos'];
     pintar();
+    expect(screen.getByRole('link', { name: 'Mis trabajos' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Mis asignaciones' })).not.toBeInTheDocument();
+  });
+
+  it('gestión con el flag encendido: la ve', () => {
+    estado.gestion = true;
+    estado.features = ['menu_mis_asignaciones'];
+    pintar();
+    expect(screen.getByRole('link', { name: 'Mis asignaciones' })).toBeInTheDocument();
   });
 });
