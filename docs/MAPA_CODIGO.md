@@ -1867,14 +1867,22 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   igual: si no selló porque se cerró sola o desapareció, 409 (su motivo no se
   guardó). Errores de dentro de la transacción: `FichajeRechazado`. La
   pantalla, ante un 409, recarga la ficha sola.
-- **Carrera «Inicio de jornada» / «Finalizar asignación»**: las dos bloquean
-  primero la fila de la asignación (`SELECT … FOR UPDATE`, mismo orden: sin
-  interbloqueos). `iniciarJornada` rechaza si ya no está `activa`;
-  `finalizarAsignacion`, con jornadas, vuelve a mirar dentro de la transacción
-  que no haya una abierta. **Trampa:** esa consulta lleva `FOR UPDATE` aunque
-  no necesite bloquear: una lectura sin él fijaría la foto de REPEATABLE READ
-  antes del bloqueo de `sincronizarEstadoTrabajo`, que tiene que ser la
-  primera lectura consistente de la transacción (ver «Estado del padre»).
+- **Carrera «Inicio de jornada» / «Finalizar asignación» y orden de
+  bloqueo.** Las dos bloquean primero la fila de la asignación (`SELECT …
+  FOR UPDATE`). `iniciarJornada` rechaza si ya no está `activa` (o 409 si ya
+  no existe); `finalizarAsignacion`, con jornadas, vuelve a mirar si hay una
+  abierta **después** de `sincronizarEstadoTrabajo` (lectura plana: el
+  bloqueo del trabajo tiene que ser la primera lectura consistente, «Estado
+  del padre»; y ninguna jornada nueva puede confirmarse en medio porque
+  `iniciarJornada` espera al bloqueo de la asignación). Su `UPDATE` lleva
+  `estado NOT IN ('finalizada','cancelada')`: dos «Finalizar» cruzados ya no
+  cierran, avisan y auditan dos veces (el segundo, 400). **Orden de bloqueo
+  de todo el proyecto: asignación → trabajo** (finalizar, activar, editar una
+  ambulancia, el cron). Por eso `updateTrabajo`, cuando cambia el horario,
+  bloquea las asignaciones del trabajo (`ORDER BY id`) **antes** de tocar el
+  trabajo: al revés, cambiar el horario a la vez que un técnico finalizaba
+  podía interbloquearse (revisión del 2026-10-18). Un camino nuevo que toque
+  asignaciones y su trabajo en la misma transacción tiene que respetarlo.
 - **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin
   previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
   como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por

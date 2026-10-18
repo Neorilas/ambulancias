@@ -14,6 +14,8 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarFinJornada:    jest.fn(),
   avisarLlegadaEvento: jest.fn(),
   avisarFinEvento:     jest.fn(),
+  avisarAsignacionFinalizada:   jest.fn(),
+  avisarTrabajoPendienteCierre: jest.fn(),
 }));
 
 const {
@@ -53,6 +55,8 @@ function jornada(id, desdeH, hastaH, over = {}) {
 function bd({ asig = fila(), jornadas = [], fotos = FOTOS_INICIO, updates = {}, bloqueadas = jornadas } = {}) {
   query.mockImplementation(async (sql, params) => {
     if (sql.includes('trabajo_coordinador_apellidos')) return [[asig]];
+    // El estado releído con bloqueo dentro de la transacción
+    if (sql.startsWith('SELECT estado FROM asignaciones_libres')) return [[{ estado: asig.estado }]];
     if (sql.includes('FROM asignacion_jornadas j')) return [jornadas];
     // La relectura con bloqueo dentro de la transacción (puede diferir de la ficha)
     if (sql.includes('FROM asignacion_jornadas') && sql.includes('FOR UPDATE')) return [bloqueadas];
@@ -145,6 +149,16 @@ describe('fichaje de jornadas (v39)', () => {
         ? [[{ estado: 'finalizada' }]] : previa(sql, p)));
       const res = await pulsar(iniciarJornada);
       expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas('UPDATE asignacion_jornadas')).toHaveLength(0);
+    });
+
+    it('si la asignación ya no existe al bloquearla: 409, no un 200 sin sellar', async () => {
+      bd({ jornadas: [jornada(100, 0, 8)] });
+      const previa = query.getMockImplementation();
+      query.mockImplementation(async (sql, p) => (sql.startsWith('SELECT estado FROM asignaciones_libres')
+        ? [[]] : previa(sql, p)));
+      const res = await pulsar(iniciarJornada);
+      expect(res.status).toHaveBeenCalledWith(409);
       expect(llamadas('UPDATE asignacion_jornadas')).toHaveLength(0);
     });
 
@@ -287,16 +301,51 @@ describe('fichaje de jornadas (v39)', () => {
       expect(res2.status).toHaveBeenCalledWith(400);
     });
 
-    it('tampoco si la jornada se abre en el hueco (se vuelve a mirar dentro de la transacción)', async () => {
-      bd({ jornadas: [jornada(100, -26, -16, { inicio_real_at: new Date(), fin_real_at: new Date() })],
-           fotos: [...FOTOS_INICIO, ...require('../../../config/constants').IMAGEN_TIPOS_FIN.map(t => ({ tipo_imagen: t, momento: 'fin' }))] });
+    const FOTOS_FIN = require('../../../config/constants').IMAGEN_TIPOS_FIN
+      .map(t => ({ tipo_imagen: t, momento: 'fin' }));
+    const cerrada = () => jornada(100, -26, -16, { inicio_real_at: new Date(), fin_real_at: new Date() });
+    const finalizar = async () => {
+      const res = mockRes();
+      await finalizarAsignacion(req({ km_fin: 1000, material_usado: 'Nada', motivo_fin: 'Se acaba antes' }), res, mockNext());
+      return res;
+    };
+
+    it('con todas las jornadas cerradas, finaliza (y vuelve a mirar dentro de la transacción)', async () => {
+      bd({ jornadas: [cerrada()], fotos: [...FOTOS_INICIO, ...FOTOS_FIN] });
+      const next = mockNext();
+      const res = mockRes();
+      await finalizarAsignacion(req({ km_fin: 1000, material_usado: 'Nada', motivo_fin: 'Se acaba antes' }), res, next);
+      if (next.mock.calls.length) throw next.mock.calls[0][0];
+      expect(res.status).toHaveBeenCalledWith(200);
+      const sqls = query.mock.calls.map(([sql]) => sql);
+      const bloqueo = sqls.findIndex(q => q.startsWith('SELECT id FROM asignaciones_libres WHERE id = ? FOR UPDATE'));
+      const cierre  = sqls.findIndex(q => q.includes("estado         = 'finalizada'"));
+      const relectura = sqls.findIndex(q => q.includes('inicio_real_at IS NOT NULL AND fin_real_at IS NULL'));
+      // la asignación se bloquea antes del cierre, y la relectura va después
+      expect(bloqueo).toBeGreaterThan(-1);
+      expect(bloqueo).toBeLessThan(cierre);
+      expect(relectura).toBeGreaterThan(cierre);
+      expect(sqls[cierre]).toContain("estado NOT IN ('finalizada', 'cancelada')");
+    });
+
+    it('si se abre una jornada en el hueco, la relectura lo ve: 400 y no se audita el cierre', async () => {
+      bd({ jornadas: [cerrada()], fotos: [...FOTOS_INICIO, ...FOTOS_FIN] });
       const previa = query.getMockImplementation();
       query.mockImplementation(async (sql, p) => (sql.includes('inicio_real_at IS NOT NULL AND fin_real_at IS NULL')
         ? [[{ id: 101 }]] : previa(sql, p)));
-      const res = mockRes();
-      await finalizarAsignacion(req({ km_fin: 1000, material_usado: 'Nada', motivo_fin: 'Se acaba antes' }), res, mockNext());
+      const res = await finalizar();
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(llamadas("estado         = 'finalizada'")).toHaveLength(0);
+      expect(res._json.message).toContain('Fin de jornada');
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('dos «Finalizar» a la vez: el segundo no cierra otra vez (400, sin auditar)', async () => {
+      bd({ jornadas: [cerrada()], fotos: [...FOTOS_INICIO, ...FOTOS_FIN],
+           updates: { "estado         = 'finalizada'": { affectedRows: 0 } } });
+      const res = await finalizar();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain('ya está finalizada');
+      expect(logAudit).not.toHaveBeenCalled();
     });
 
     it('no se finaliza con una jornada abierta', async () => {

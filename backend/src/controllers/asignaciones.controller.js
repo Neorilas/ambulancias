@@ -1576,7 +1576,8 @@ async function iniciarJornada(req, res, next) {
         // una jornada en ella (revisión del 2026-10-18)
         const [estadoAhora] = await conn.execute(
           'SELECT estado FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
-        if (estadoAhora?.[0] && estadoAhora[0].estado !== 'activa') {
+        if (!estadoAhora?.[0]) throw new FichajeRechazado(409, MSG_JORNADA_CAMBIADA);
+        if (estadoAhora[0].estado !== 'activa') {
           throw new FichajeRechazado(400, `No se puede iniciar una jornada en una asignación ${estadoAhora[0].estado}`);
         }
         const [filas] = await conn.execute(
@@ -1802,23 +1803,17 @@ async function finalizarAsignacion(req, res, next) {
     let sincronizado = null;
     try {
       await transaction(async (conn) => {
-        // Con jornadas (v39): la asignación bloqueada y, con ella, volver a
-        // mirar que no haya una abierta. La comprobación de arriba se hizo fuera
-        // de la transacción y un «Inicio de jornada» cruzado cabía en el hueco.
+        // Con jornadas (v39), la asignación bloqueada lo primero: así un
+        // «Inicio de jornada» cruzado (que también la bloquea antes que nada)
+        // espera a que esto termine, o esto le espera a él y luego lo ve
+        // abajo. Es una lectura con bloqueo: no fija la foto de REPEATABLE
+        // READ antes del de sincronizarEstadoTrabajo (§6.1).
         if (asig.jornadas.length) {
           await conn.execute('SELECT id FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
-          // FOR UPDATE también aquí, y no por bloquear: una lectura sin él fijaría
-          // la foto de REPEATABLE READ antes del bloqueo de
-          // sincronizarEstadoTrabajo, que tiene que ser la primera (§6.1)
-          const [abiertas] = await conn.execute(
-            `SELECT id FROM asignacion_jornadas
-              WHERE asignacion_id = ? AND inicio_real_at IS NOT NULL AND fin_real_at IS NULL
-              FOR UPDATE`, [asig.id]);
-          if (abiertas?.length) {
-            throw new FichajeRechazado(400, 'Antes de finalizar, pulsa «Fin de jornada»: se acaba de iniciar una');
-          }
         }
-        await conn.execute(
+        // `estado` en el WHERE: dos «Finalizar» a la vez (doble toque, o
+        // responsable y gestión) ya no cierran, avisan y auditan dos veces
+        const [resFin] = await conn.execute(
           `UPDATE asignaciones_libres SET
              estado         = 'finalizada',
              km_fin         = ?,
@@ -1826,11 +1821,14 @@ async function finalizarAsignacion(req, res, next) {
              material_usado = ?,
              finalizado_por = ?,
              finalizado_at  = ?
-           WHERE id = ?`,
+           WHERE id = ? AND estado NOT IN ('finalizada', 'cancelada')`,
           // COALESCE: si no toca pedir motivo se manda NULL y se conserva el
           // que dejó «Fin evento/servicio».
           [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
         );
+        if (resFin?.affectedRows === 0) {
+          throw new FichajeRechazado(400, 'La asignación ya está finalizada');
+        }
 
         // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
         // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
@@ -1853,6 +1851,17 @@ async function finalizarAsignacion(req, res, next) {
         }
         if (asig.trabajo_id) {
           sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
+        }
+        // Y ya con todo bloqueado (y tras el bloqueo del trabajo, que manda
+        // ser el primero), volver a mirar que no se abriera una jornada en el
+        // hueco desde la comprobación de arriba. Si la hay, se deshace todo.
+        if (asig.jornadas.length) {
+          const [abiertas] = await conn.execute(
+            `SELECT id FROM asignacion_jornadas
+              WHERE asignacion_id = ? AND inicio_real_at IS NOT NULL AND fin_real_at IS NULL`, [asig.id]);
+          if (abiertas?.length) {
+            throw new FichajeRechazado(400, 'Antes de finalizar, pulsa «Fin de jornada»: se acaba de iniciar una');
+          }
         }
       });
     } catch (err) {

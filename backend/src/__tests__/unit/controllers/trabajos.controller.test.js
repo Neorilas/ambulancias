@@ -2061,6 +2061,10 @@ describe('trabajos.controller', () => {
 
         expect(res.status).toHaveBeenCalledWith(200);
         expect(ejecutadas.some(e => e.sql.includes('DELETE FROM trabajo_jornadas'))).toBe(true);
+        // Las ambulancias del trabajo se bloquean lo primero, antes que el
+        // trabajo: mismo orden que finalizar o activar (asignación → trabajo)
+        expect(ejecutadas[0].sql).toContain('FROM asignaciones_libres WHERE trabajo_id = ?');
+        expect(ejecutadas[0].sql).toContain('FOR UPDATE');
         expect(ejecutadas.some(e => e.sql.includes('horario_propio = 0'))).toBe(true);
         const det = logAudit.mock.calls[0][0].details;
         expect(det.horario_antes).toEqual([]);

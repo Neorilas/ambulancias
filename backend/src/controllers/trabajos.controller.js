@@ -1134,6 +1134,15 @@ async function updateTrabajo(req, res, next) {
     }
 
     await transaction(async (conn) => {
+      // Un horario nuevo toca las jornadas de sus ambulancias: sus filas se
+      // bloquean LO PRIMERO, antes que el trabajo. Es el orden de todos los
+      // demás caminos (finalizar, activar, editar una ambulancia, el cron:
+      // asignación → trabajo); al revés, cambiar el horario a la vez que un
+      // técnico finaliza podía interbloquearse (revisión del 2026-10-18).
+      if (cambiaHorario) {
+        await conn.execute(
+          'SELECT id FROM asignaciones_libres WHERE trabajo_id = ? ORDER BY id FOR UPDATE', [id]);
+      }
       const updates = [];
       const vals    = [];
       if (nombre       !== undefined) { updates.push('nombre = ?');       vals.push(nombre); }
