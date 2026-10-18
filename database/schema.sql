@@ -3,6 +3,15 @@
 -- Base de Datos MySQL - Schema Completo
 -- Versión: 1.0.0
 -- ============================================================
+--
+-- ⚠ SOLO PARA UNA BASE VACÍA. Empieza con DROP TABLE y desactiva las
+-- claves foráneas: ejecutado contra una base con datos (PRO) borra
+-- usuarios, vehículos y trabajos sin preguntar.
+--
+-- Esto es solo la base de la v1. El esquema real es este fichero + las
+-- migraciones de backend/src/config/migrations.js; lo monta todo
+-- backend/scripts/setup-db.js.
+-- ============================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
 SET sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
@@ -251,46 +260,8 @@ CREATE TABLE `vehicle_images` (
 
 SET FOREIGN_KEY_CHECKS = 1;
 
--- ============================================================
--- VISTAS ÚTILES
--- ============================================================
-
--- Vista: usuarios con sus roles
-CREATE OR REPLACE VIEW `v_users_roles` AS
-SELECT
-  u.id,
-  u.username,
-  u.nombre,
-  u.apellidos,
-  u.email,
-  u.activo,
-  u.deleted_at,
-  GROUP_CONCAT(r.nombre ORDER BY r.nombre SEPARATOR ',') AS roles
-FROM users u
-LEFT JOIN user_roles ur ON u.id = ur.user_id
-LEFT JOIN roles r ON ur.role_id = r.id
-WHERE u.deleted_at IS NULL
-GROUP BY u.id;
-
--- Vista: trabajos activos con vehículos y responsables
-CREATE OR REPLACE VIEW `v_trabajos_activos` AS
-SELECT
-  t.id,
-  t.identificador,
-  t.nombre,
-  t.tipo,
-  t.fecha_inicio,
-  t.fecha_fin,
-  t.estado,
-  v.matricula,
-  v.alias AS vehiculo_alias,
-  CONCAT(u.nombre, ' ', u.apellidos) AS responsable
-FROM trabajos t
-JOIN trabajo_vehiculos tv ON t.id = tv.trabajo_id
-JOIN vehicles v ON tv.vehicle_id = v.id
-JOIN users u ON tv.responsable_user_id = u.id
-WHERE t.deleted_at IS NULL
-  AND t.estado IN ('programado', 'activo');
+-- Aquí iban las vistas v_users_roles y v_trabajos_activos. No las leía
+-- nadie y la migración v40 las borra; no se vuelven a crear.
 
 -- ============================================================
 -- EVENTO: limpieza automática de login_attempts (>30 días)

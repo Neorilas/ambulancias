@@ -31,7 +31,6 @@ export const PERMISSIONS = {
   MANAGE_TRABAJOS:    'manage_trabajos',
   VIEW_ALL_TRABAJOS:  'view_all_trabajos',
   MANAGE_INCIDENCIAS: 'manage_incidencias',
-  ACCESS_ADMIN:       'access_admin',
 };
 
 export const TRABAJO_ESTADOS = {
