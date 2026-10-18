@@ -12,6 +12,7 @@ import { formatDateTime, formatDateTimeShort, duration } from '../../utils/dateU
 import { ESTADO_LABELS } from '../../utils/constants.js';
 import { estadoVisible } from '../../utils/pasosAsignacion.js';
 import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
+import { horarioDesdeApi, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 import {
   estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, coordinadoresDe,
 } from '../../utils/trabajos.js';
@@ -93,6 +94,9 @@ function Ambulancia({ a, resaltada, onAbrir, refResaltada }) {
           </p>
           {a.personal?.length > 0 && (
             <p className="text-xs text-neutral-500">Equipo: {nombresDe(a.personal)}</p>
+          )}
+          {a.detalle && a.horario_propio && (
+            <p className="text-xs text-neutral-500" data-testid="horario-propio">Con horario por días propio</p>
           )}
         </div>
         {a.detalle && (
@@ -353,6 +357,19 @@ export default function TrabajoDetail() {
             <p className="text-neutral-500 text-xs">{coordinan.length > 1 ? 'Coordinan' : 'Coordina'}</p>
             <p className="font-medium">{coordinador || '—'}</p>
           </div>
+          {/* Horario por días (v39): cada día se ficha con «Inicio/Fin de jornada» */}
+          {trabajo.horario?.length > 0 && (
+            <div className="col-span-2" data-testid="horario-trabajo">
+              <p className="text-neutral-500 text-xs">Horario por días</p>
+              <ul className="font-medium space-y-0.5">
+                {horarioDesdeApi(trabajo.horario).map(d => (
+                  <li key={d.dia}>
+                    {etiquetaDia(d.dia)}: <span className="data">{textoTramos(d.tramos)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 

@@ -14,8 +14,15 @@ const CIRCULO = {
   no_consta: 'bg-neutral-100 text-neutral-400',
 };
 
+// Con jornadas por día (v39) son tres pasos. Clases enteras, no armadas con
+// el número: Tailwind solo emite las que encuentra escritas en el código.
+const COLUMNAS = { 3: 'grid-cols-3', 4: 'grid-cols-4' };
+
 function Detalle({ p }) {
-  if (p.situacion === 'hecho') return p.hora ? <span className="data">{formatHora(p.hora)}</span> : null;
+  if (p.situacion === 'hecho') {
+    if (p.clave === 'jornadas') return <span>{p.donde}</span>;
+    return p.hora ? <span className="data">{formatHora(p.hora)}</span> : null;
+  }
   if (p.situacion === 'no_consta') return <span>No consta</span>;
   if (p.aviso) return <span className="text-warn-600 font-medium">{p.aviso}</span>;
   // Sin «(opcional)» debajo: lo quitó el usuario el 2026-10-12. Que el evento
@@ -28,7 +35,8 @@ export default function PasosAsignacion({ asig }) {
   if (!pasos) return null;
 
   return (
-    <ol className="grid grid-cols-4" aria-label="Pasos de la asignación" data-testid="pasos-asignacion">
+    <ol className={`grid ${COLUMNAS[pasos.length] || 'grid-cols-4'}`} aria-label="Pasos de la asignación"
+      data-testid="pasos-asignacion">
       {pasos.map((p, i) => (
         <li key={p.clave} aria-current={p.situacion === 'actual' ? 'step' : undefined}
           className="flex flex-col items-center text-center min-w-0 px-0.5">

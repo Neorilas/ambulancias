@@ -89,6 +89,11 @@ export const IMAGEN_TIPOS_GENERAL = [DANOS];
 // backend/src/config/constants.js, que es quien manda.
 export const INICIO_ANTICIPADO_MAX_MINUTOS = 30;
 
+// «Fin de jornada» más de estos minutos antes de su hora prevista pide motivo
+// (v39). Espejo de INICIO_TARDIO_MINUTOS de backend/src/config/constants.js,
+// que es quien manda (finalizarJornada).
+export const FIN_JORNADA_ANTICIPADO_MINUTOS = 30;
+
 // Mantenimiento cada 15.000 km desde el último realizado; se avisa con 2.000
 // km o menos por delante. Espejo de backend/src/config/constants.js.
 export const MANTENIMIENTO_INTERVALO_KM = 15000;

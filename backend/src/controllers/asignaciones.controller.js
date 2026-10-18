@@ -9,7 +9,7 @@ const { query, transaction }    = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
 const { PAGINATION, IMAGEN_TIPOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, IMAGEN_TIPOS_GENERAL, PERMISSIONS,
-  INICIO_ANTICIPADO_MAX_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EN_BASE_MINUTOS,
+  INICIO_ANTICIPADO_MAX_MINUTOS, INICIO_TARDIO_MINUTOS, FOTOS_INICIO_TARDE_MINUTOS, FIN_EVENTO_EN_BASE_MINUTOS,
   FIN_EVENTO_EXIGIDO_DESDE, ROLES } =
   require('../config/constants');
 const { hasPermission, hasRole, isAdmin } = require('../middleware/roles.middleware');
@@ -23,6 +23,7 @@ const avisos                     = require('../services/avisosAsignacion.service
 const vigilancia                 = require('../services/vigilancia.service');
 const estadoTrabajo              = require('../services/estadoTrabajo.service');
 const coordinadores              = require('../services/coordinadores.service');
+const jornadasSrv                = require('../services/jornadas.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -107,6 +108,19 @@ function marcarFotosInicioTarde(asig, evidencias) {
 function marcarFinEventoEnBase(asig) {
   if (asig.estado !== 'finalizada' || !asig.finalizado_at) return null;
   const cierre = instanteUtc(asig.finalizado_at).getTime();
+  // Con jornadas por día (v39) no hay fin del evento que echar de menos: se
+  // revisa la jornada que se cerró sola (olvido del «Fin de jornada») y el
+  // último «Fin de jornada» pegado al cierre, con el mismo umbral.
+  if (asig.jornadas?.length) {
+    if (asig.jornadas.some(j => j.cierre_auto)) {
+      return { motivo: 'jornada_sola', umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
+    }
+    const fines = asig.jornadas.filter(j => j.fin_real_at).map(j => instanteUtc(j.fin_real_at).getTime());
+    if (!fines.length) return null;
+    const diffJ = cierre - Math.max(...fines);
+    if (diffJ > FIN_EVENTO_EN_BASE_MINUTOS * 60000) return null;
+    return { motivo: 'pegado', minutos: Math.max(0, Math.floor(diffJ / 60000)), umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
+  }
   if (!asig.fin_servicio_at) {
     const referencia = instanteUtc(asig.inicio_real_at || asig.finalizado_at).getTime();
     if (referencia < instanteUtc(FIN_EVENTO_EXIGIDO_DESDE).getTime()) return null;
@@ -156,13 +170,21 @@ const SQL_REVISAR_FIN_EVENTO = `
         AND NOT EXISTS (SELECT 1 FROM trabajo_coordinadores rc
                          WHERE rc.trabajo_id = al.trabajo_id AND rc.user_id = ?)
        THEN CASE
+         -- Jornadas por día (v39): la que se cerró sola, o el último fin
+         -- pegado al cierre; nunca 'sin_fin' (no hay fin del evento)
+         WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj WHERE rj.asignacion_id = al.id) THEN CASE
+           WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj
+                         WHERE rj.asignacion_id = al.id AND rj.cierre_auto = 1) THEN 'jornada_sola'
+           WHEN al.finalizado_at <= (SELECT MAX(rj.fin_real_at) FROM asignacion_jornadas rj
+                                      WHERE rj.asignacion_id = al.id) + INTERVAL ? MINUTE THEN 'pegado'
+         END
          WHEN al.fin_servicio_at IS NULL
           AND COALESCE(al.inicio_real_at, al.finalizado_at) >= ? THEN 'sin_fin'
          WHEN al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE THEN 'pegado'
        END
   END`;
 const paramsRevisarFinEvento = (userId) =>
-  [userId, userId, userId, FIN_EVENTO_EXIGIDO_DESDE, FIN_EVENTO_EN_BASE_MINUTOS];
+  [userId, userId, userId, FIN_EVENTO_EN_BASE_MINUTOS, FIN_EVENTO_EXIGIDO_DESDE, FIN_EVENTO_EN_BASE_MINUTOS];
 
 /**
  * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la
@@ -223,8 +245,16 @@ async function getAsignacionCompleta(id) {
   if (!rows.length) return null;
 
   const asig = trabajoAparte(rows[0]);
-  // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera
-  if (asig.trabajo) asig.trabajo.coordinadores = await coordinadores.coordinadoresDe(asig.trabajo_id);
+  asig.horario_propio = !!Number(asig.horario_propio);
+  // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera.
+  // Y sus jornadas por día (v39), que solo existen dentro de un trabajo. Las
+  // dos consultas solo con trabajo: los tests antiguos encolan las respuestas
+  // por orden y las asignaciones sin trabajo no las hacen.
+  asig.jornadas = [];
+  if (asig.trabajo) {
+    asig.trabajo.coordinadores = await coordinadores.coordinadoresDe(asig.trabajo_id);
+    asig.jornadas = await jornadasSrv.jornadasDe(id);
+  }
 
   // Quién va en la asignación: responsables (activan, evidencian y cierran) y
   // personal (solo la ven). Ver v23 en migrations.js.
@@ -416,13 +446,13 @@ function fueraDelTrabajo(trabajo, fechaInicio, fechaFin) {
  */
 async function insertarAsignacion(conn, datos, creadoPor) {
   const { trabajo_id = null, vehicle_id, responsables, personal = [],
-          fecha_inicio, fecha_fin, km_inicio, notas } = datos;
+          fecha_inicio, fecha_fin, km_inicio, notas, horario_propio = false } = datos;
   const [result] = await conn.execute(
     `INSERT INTO asignaciones_libres
-       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id, horario_propio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [vehicle_id, responsables[0], creadoPor, fecha_inicio, fecha_fin,
-     km_inicio || null, notas || null, trabajo_id]
+     km_inicio || null, notas || null, trabajo_id, horario_propio ? 1 : 0]
   );
   await guardarMiembros(conn, result.insertId, responsables, personal);
   return result.insertId;
@@ -768,14 +798,29 @@ async function createAsignacion(req, res, next) {
       }
     }
 
+    // Jornadas por día (v39): con `horario`, las suyas propias; sin él, las
+    // del trabajo que caen en sus fechas. Solo dentro de un trabajo.
+    const { horario, error: errHor } = jornadasSrv.leerHorario(req.body.horario, { fecha_inicio, fecha_fin });
+    if (errHor) return error(res, errHor, 400);
+    if (horario !== undefined && !trabajoId) {
+      return error(res, 'El horario por días solo existe en una ambulancia de un trabajo', 400);
+    }
+
     const asignacionId = await transaction(async (conn) => {
       const id = await insertarAsignacion(conn, {
         trabajo_id: trabajoId, vehicle_id, responsables, personal,
-        fecha_inicio, fecha_fin, km_inicio, notas,
+        fecha_inicio, fecha_fin, km_inicio, notas, horario_propio: horario !== undefined,
       }, req.user.id);
+      if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, id, horario);
       // Una ambulancia nueva puede devolver a «activo» un trabajo pendiente
       // de cierre, o dejarlo programado si es la primera.
       if (trabajoId) await estadoTrabajo.sincronizarEstadoTrabajo(conn, trabajoId);
+      // Heredar el horario DESPUÉS de sincronizar: lee la plantilla con una
+      // lectura plana, y antes del bloqueo del trabajo fijaría la foto de
+      // REPEATABLE READ con la que se calcula su estado (revisión 2026-10-18)
+      if (horario === undefined && trabajoId) {
+        await jornadasSrv.heredarDelTrabajo(conn, id, trabajoId, fecha_inicio, fecha_fin);
+      }
       return id;
     });
 
@@ -826,6 +871,8 @@ function cambiosAsignacion(antes, despues) {
     estado:       [a => a.estado],
     responsables: [a => nombres(a.responsables)],
     personal:     [a => nombres(a.personal)],
+    horario_propio: [a => !!a.horario_propio],
+    horario:      [a => jornadasSrv.resumenHorario(a.jornadas)],
   };
   const cambios = {};
   for (const [campo, [leer]] of Object.entries(campos)) {
@@ -1024,6 +1071,26 @@ async function updateAsignacion(req, res, next) {
     const tocaPadre = asig.trabajo_id || cambiaTrabajo;
     const sincronizados = [];
 
+    // ── Jornadas por día (v39) ───────────────────────────────
+    // `horario` = horario propio (aunque venga vacío); `horario_propio: false`
+    // = volver a seguir el del trabajo. Sin ninguno de los dos, si la
+    // ambulancia sigue al trabajo y cambian sus fechas o su trabajo, se
+    // recalculan las suyas. Lo fichado no se borra nunca (jornadas.service).
+    const fechaIniFinal = fecha_inicio || asig.fecha_inicio;
+    const fechaFinFinal = fecha_fin    || asig.fecha_fin;
+    const { horario, error: errHor } = jornadasSrv.leerHorario(req.body.horario,
+      { fecha_inicio: fechaIniFinal, fecha_fin: fechaFinFinal });
+    if (errHor) return error(res, errHor, 400);
+    const trabajoFinal = cambiaTrabajo ? Number(trabajoPedido) : asig.trabajo_id;
+    if (horario !== undefined && !trabajoFinal) {
+      return error(res, 'El horario por días solo existe en una ambulancia de un trabajo', 400);
+    }
+    const propioFinal = horario !== undefined ? true
+      : req.body.horario_propio === false ? false : asig.horario_propio;
+    const cambiaFin = !!fecha_fin && minuto(fecha_fin) !== minuto(asig.fecha_fin);
+    const reheredar = trabajoFinal && !propioFinal
+      && (asig.horario_propio || cambiaInicio || cambiaFin || cambiaTrabajo);
+
     const kmNuevo = km_inicio !== undefined ? km_inicio : null;
     let volvio = false;
     try {
@@ -1078,6 +1145,12 @@ async function updateAsignacion(req, res, next) {
         }
         if (cambiaMiembros) await guardarMiembros(conn, asig.id, responsables, personal);
 
+        if (propioFinal !== asig.horario_propio) {
+          await conn.execute('UPDATE asignaciones_libres SET horario_propio = ? WHERE id = ?',
+            [propioFinal ? 1 : 0, asig.id]);
+        }
+        if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, asig.id, horario);
+
         // El WHERE repite la regla de arriba con la fecha ya guardada: si el
         // técnico acaba de pulsar «Inicio» o subir una foto, no vuelve. Pedida
         // a mano, eso es un 409; al mover la hora, se queda activa y ya está.
@@ -1093,10 +1166,19 @@ async function updateAsignacion(req, res, next) {
 
         // Cancelarla, moverla o devolverla a programada cambia el estado del
         // trabajo (o de los dos)
+        // En orden de id: dos ambulancias movidas a la vez en sentidos
+        // contrarios (X→Y e Y→X) bloquean los dos trabajos en el mismo orden
         if (tocaPadre && (estado || cambiaTrabajo || volvio)) {
-          for (const tid of new Set([asig.trabajo_id, trabajoDestino?.id].filter(Boolean))) {
+          const ids = [...new Set([asig.trabajo_id, trabajoDestino?.id].filter(Boolean))].sort((a, b) => a - b);
+          for (const tid of ids) {
             sincronizados.push([tid, await estadoTrabajo.sincronizarEstadoTrabajo(conn, tid)]);
           }
+        }
+        // Heredar el horario del trabajo DESPUÉS de sincronizar: es una
+        // lectura plana de la plantilla y, antes, fijaría la foto de
+        // REPEATABLE READ previa al bloqueo del trabajo (revisión 2026-10-18)
+        if (horario === undefined && reheredar) {
+          await jornadasSrv.heredarDelTrabajo(conn, asig.id, trabajoFinal, fechaIniFinal, fechaFinFinal);
         }
       });
     } catch (err) {
@@ -1289,6 +1371,7 @@ async function registrarLlegada(req, res, next) {
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'Solo un responsable puede registrar el inicio del evento/servicio');
     }
+    if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
 
     // Ya sellada: no-op. Se mira antes que el estado para que repetir la
     // pulsación (doble toque, reintento con mala red) no dé error aunque la
@@ -1359,6 +1442,7 @@ async function registrarFinServicio(req, res, next) {
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'Solo un responsable puede registrar el fin del evento/servicio');
     }
+    if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
 
     // Ya sellado: no-op, antes que el estado (mismo motivo que la llegada).
     if (asig.fin_servicio_at) {
@@ -1418,6 +1502,216 @@ async function registrarFinServicio(req, res, next) {
 }
 
 // ============================================================
+// Jornadas por día (v39): POST /asignaciones/:id/jornadas/:jornadaId/inicio y /fin
+// ============================================================
+// En una ambulancia con horario por días, cada tramo se ficha con «Inicio de
+// jornada» y «Fin de jornada», que hacen de «Inicio/Fin evento/servicio» (los
+// de la asignación dan 400 aquí). Las fotos siguen siendo las de siempre: las
+// de inicio una vez, antes de la primera jornada; las de fin al «Finalizar
+// asignación». Reglas en §6.1 «Jornadas por día» del mapa.
+
+const MSG_FICHA_POR_JORNADAS =
+  'Esta ambulancia ficha por jornadas: usa «Inicio de jornada» y «Fin de jornada»';
+
+/**
+ * Carga la asignación y la jornada pedida, y comprueba quién puede fichar:
+ * responsable o gestión, como la llegada. Devuelve `{ asig, jornada }`, o
+ * `null` si ya ha contestado.
+ */
+async function cargarJornada(req, res, accion) {
+  const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
+  const asig = await getAsignacionCompleta(req.params.id);
+  if (!asig) { notFound(res, 'Asignación'); return null; }
+  if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    forbidden(res, `Solo un responsable puede registrar el ${accion} de jornada`);
+    return null;
+  }
+  const jornada = asig.jornadas.find(j => j.id === Number(req.params.jornadaId));
+  // Lo normal es una ficha abierta desde antes de un cambio de horario: no es
+  // «no existe» sino «ha cambiado», y lo que toca es recargar
+  if (!jornada) { error(res, MSG_JORNADA_CAMBIADA, 409); return null; }
+  return { asig, jornada };
+}
+
+/** «la jornada del 21/10 10:00», para los mensajes. */
+const textoJornada = (j) => `la jornada del ${diaYHoraEnEspana(instanteUtc(j.inicio))}`;
+
+// Lo que se descubre ya dentro de la transacción, con las jornadas bloqueadas:
+// se deshace lo hecho en ella y se contesta con `status` y el mensaje.
+class FichajeRechazado extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+const MSG_JORNADA_CAMBIADA = 'El horario de esta ambulancia ha cambiado: recarga la ficha';
+
+async function iniciarJornada(req, res, next) {
+  try {
+    const cargado = await cargarJornada(req, res, 'inicio');
+    if (!cargado) return;
+    const { asig, jornada } = cargado;
+
+    // Ya sellada: no-op antes que nada más (doble toque, reintento con mala red)
+    if (jornada.inicio_real_at) return success(res, asig, 'La jornada ya estaba iniciada');
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede iniciar una jornada en una asignación ${asig.estado}`, 400);
+    }
+    if (asig.estado !== 'activa' || !asig.inicio_real_at) {
+      return error(res, 'Primero hay que pulsar «Inicio de la asignación»', 400);
+    }
+    if (!asig.progreso.inicio.completo) {
+      return error(res,
+        `Antes de la primera jornada sube las fotos de inicio (faltan: ${asig.progreso.inicio.faltantes.join(', ')})`,
+        400);
+    }
+    // Como «Inicio de la asignación»: no antes de media hora de la prevista.
+    // Y no una que ya terminó: su hora real sería la de hoy, no la de ese día.
+    const instante = ahora();
+    const desde = new Date(instanteUtc(jornada.inicio).getTime() - INICIO_ANTICIPADO_MAX_MINUTOS * 60000);
+    if (instante < desde) {
+      return error(res, `${textoJornada(jornada)} se puede iniciar desde el ${diaYHoraEnEspana(desde)}`, 400);
+    }
+    if (instante >= instanteUtc(jornada.fin)) {
+      return error(res, `${textoJornada(jornada)} ya ha terminado: no se puede iniciar ahora`, 400);
+    }
+    // El resto se decide con las jornadas de la ambulancia BLOQUEADAS (revisión
+    // del 2026-10-17): leídas fuera de la transacción, dos responsables
+    // pulsando jornadas distintas a la vez dejaban dos abiertas, y una jornada
+    // borrada por un cambio de horario contestaba «iniciada» sin sellar nada.
+    let sellada = false;
+    let olvidadas = [];
+    try {
+      await transaction(async (conn) => {
+        // Primero la asignación, como `finalizarAsignacion` (mismo orden de
+        // bloqueo, sin interbloqueos): si se acaba de finalizar, no se abre
+        // una jornada en ella (revisión del 2026-10-18)
+        const [estadoAhora] = await conn.execute(
+          'SELECT estado FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
+        if (!estadoAhora?.[0]) throw new FichajeRechazado(409, MSG_JORNADA_CAMBIADA);
+        if (estadoAhora[0].estado !== 'activa') {
+          throw new FichajeRechazado(400, `No se puede iniciar una jornada en una asignación ${estadoAhora[0].estado}`);
+        }
+        const [filas] = await conn.execute(
+          `SELECT id, inicio, fin, inicio_real_at, fin_real_at FROM asignacion_jornadas
+            WHERE asignacion_id = ? FOR UPDATE`, [asig.id]);
+        const lista = filas || [];
+        const actual = lista.find(j => j.id === jornada.id);
+        if (!actual) throw new FichajeRechazado(409, MSG_JORNADA_CAMBIADA);
+        if (actual.inicio_real_at) return;   // la ganó otra pulsación: no-op
+        if (lista.some(j => j.inicio_real_at && instanteUtc(j.inicio) > instanteUtc(actual.inicio))) {
+          throw new FichajeRechazado(400, 'Ya hay iniciada una jornada posterior a esta');
+        }
+        const abiertas = lista.filter(j => j.id !== jornada.id && j.inicio_real_at && !j.fin_real_at);
+        // Una abierta que aún está dentro de su horario no es un olvido: se
+        // está trabajando en ella. Cerrarla sola le pondría una hora de fin
+        // futura y la dejaría sin horas en el informe (revisión del
+        // 2026-10-17); primero su «Fin de jornada».
+        const enCurso = abiertas.find(j => instanteUtc(j.fin) > instante);
+        if (enCurso) {
+          throw new FichajeRechazado(400, `Antes pulsa «Fin de jornada» en ${textoJornada(enCurso)}: sigue en curso`);
+        }
+        // Una anterior que se quedó abierta y ya pasó su hora (olvido del «Fin
+        // de jornada») se cierra sola a su hora prevista y queda marcada para
+        // revisar (decisión del usuario, 2026-10-17): sus horas no cuentan.
+        olvidadas = abiertas;
+        for (const j of olvidadas) {
+          await conn.execute(
+            `UPDATE asignacion_jornadas SET fin_real_at = fin, cierre_auto = 1
+              WHERE id = ? AND fin_real_at IS NULL`, [j.id]);
+        }
+        const [r] = await conn.execute(
+          `UPDATE asignacion_jornadas SET inicio_real_at = ?, inicio_por = ?
+            WHERE id = ? AND asignacion_id = ? AND inicio_real_at IS NULL`,
+          [instante, req.user.id, jornada.id, asig.id]);
+        sellada = (r?.affectedRows || 0) > 0;
+      });
+    } catch (err) {
+      if (err instanceof FichajeRechazado) return error(res, err.message, err.status);
+      throw err;
+    }
+
+    if (sellada) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'start_jornada',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula, jornada_id: jornada.id,
+                    ...(olvidadas.length && { cerradas_solas: olvidadas.map(j => j.id) }) },
+        ip: req.ip,
+      });
+      avisos.avisarInicioJornada(asig, jornada);
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    return success(res, updated, 'Jornada iniciada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function finalizarJornada(req, res, next) {
+  try {
+    const cargado = await cargarJornada(req, res, 'fin');
+    if (!cargado) return;
+    const { asig, jornada } = cargado;
+
+    if (jornada.fin_real_at) return success(res, asig, 'La jornada ya estaba terminada');
+
+    if (asig.estado === 'finalizada' || asig.estado === 'cancelada') {
+      return error(res, `No se puede terminar una jornada en una asignación ${asig.estado}`, 400);
+    }
+    if (!jornada.inicio_real_at) return error(res, 'Primero hay que pulsar «Inicio de jornada»', 400);
+
+    // Terminar más de INICIO_TARDIO_MINUTOS antes de la hora prevista pide el
+    // motivo (decisión del usuario, 2026-10-17: el mismo margen que los
+    // informes usan para «anticipado»; por acabar cinco minutos antes, no).
+    const instante = ahora();
+    const esAnticipado = instante < new Date(instanteUtc(jornada.fin).getTime() - INICIO_TARDIO_MINUTOS * 60000);
+    const motivo = typeof req.body?.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
+    if (esAnticipado && !motivo) {
+      return error(res, 'Hay que explicar el motivo: la jornada termina antes de la hora prevista', 400,
+        [{ field: 'motivo_fin', msg: 'obligatorio' }]);
+    }
+    const falloMotivo = esAnticipado && errorMotivo(motivo);
+    if (falloMotivo) return error(res, falloMotivo, 400, [{ field: 'motivo_fin', msg: falloMotivo }]);
+
+    const [result] = await query(
+      `UPDATE asignacion_jornadas SET fin_real_at = ?, fin_por = ?, motivo_fin = ?
+        WHERE id = ? AND asignacion_id = ? AND fin_real_at IS NULL`,
+      [instante, req.user.id, esAnticipado ? motivo : null, jornada.id, asig.id]);
+
+    if (result?.affectedRows) {
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'end_jornada',
+        entityType: 'asignacion', entityId: asig.id,
+        details:  { vehiculo: asig.matricula, jornada_id: jornada.id, anticipado: esAnticipado,
+                    motivo_fin: esAnticipado ? motivo : null },
+        ip: req.ip,
+      });
+      avisos.avisarFinJornada(asig, jornada);
+    }
+
+    const updated = await getAsignacionCompleta(asig.id);
+    // No selló: o la terminó otra pulsación (bien, no-op) o, mientras tanto,
+    // se cerró sola al iniciar la siguiente o desapareció con un cambio de
+    // horario. En esos dos casos, decirlo: un 200 haría creer que su hora y su
+    // motivo se han guardado (revisión del 2026-10-17).
+    if (!result?.affectedRows) {
+      const ahoraJ = updated?.jornadas.find(j => j.id === jornada.id);
+      if (!ahoraJ) return error(res, MSG_JORNADA_CAMBIADA, 409);
+      if (ahoraJ.cierre_auto) {
+        return error(res, 'Esta jornada se cerró sola al iniciar la siguiente: recarga la ficha', 409);
+      }
+    }
+    return success(res, updated, 'Jornada terminada');
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================
 // POST /asignaciones/:id/finalizar
 // ============================================================
 async function finalizarAsignacion(req, res, next) {
@@ -1436,6 +1730,12 @@ async function finalizarAsignacion(req, res, next) {
     }
     if (asig.estado === 'cancelada') {
       return error(res, 'No se puede finalizar una asignación cancelada', 400);
+    }
+    // Con jornadas (v39), la del día se cierra antes con su botón: cerrarla
+    // aquí sola le pondría la hora del cierre en base y no la del sitio
+    const abierta = asig.jornadas.find(j => j.inicio_real_at && !j.fin_real_at);
+    if (abierta) {
+      return error(res, `Antes de finalizar, pulsa «Fin de jornada» en ${textoJornada(abierta)}`, 400);
     }
 
     const { km_fin, material_usado } = req.body;
@@ -1511,44 +1811,73 @@ async function finalizarAsignacion(req, res, next) {
     // congelada aunque la ambulancia lleve meses saliendo. Y el estado del
     // trabajo, también: la última en cerrar lo deja pendiente de cierre.
     let sincronizado = null;
-    await transaction(async (conn) => {
-      await conn.execute(
-        `UPDATE asignaciones_libres SET
-           estado         = 'finalizada',
-           km_fin         = ?,
-           motivo_fin     = COALESCE(?, motivo_fin),
-           material_usado = ?,
-           finalizado_por = ?,
-           finalizado_at  = ?
-         WHERE id = ?`,
-        // COALESCE: si no toca pedir motivo se manda NULL y se conserva el
-        // que dejó «Fin evento/servicio».
-        [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
-      );
-
-      // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
-      // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
-      // propagar. La validación de arriba ya rechaza un km_fin por debajo del
-      // actual; el guard `kilometros_actuales < ?` de aquí es la red de
-      // seguridad para la carrera entre esa lectura y este UPDATE (otra
-      // asignación que adelanta el contador justo en medio), no la regla en
-      // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
-      // último servicio tampoco se toca cuando la lectura no supera a la que
-      // ya había.
-      if (km_fin != null) {
-        await conn.execute(
-          // Sin referencia de mantenimiento, la toma de esta lectura (v37)
-          `UPDATE vehicles SET kilometros_actuales   = ?,
-                               fecha_ultimo_servicio = ?,
-                               ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
-           WHERE id = ? AND kilometros_actuales < ?`,
-          [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
+    try {
+      await transaction(async (conn) => {
+        // Con jornadas (v39), la asignación bloqueada lo primero: así un
+        // «Inicio de jornada» cruzado (que también la bloquea antes que nada)
+        // espera a que esto termine, o esto le espera a él y luego lo ve
+        // abajo. Es una lectura con bloqueo: no fija la foto de REPEATABLE
+        // READ antes del de sincronizarEstadoTrabajo (§6.1).
+        if (asig.jornadas.length) {
+          await conn.execute('SELECT id FROM asignaciones_libres WHERE id = ? FOR UPDATE', [asig.id]);
+        }
+        // `estado` en el WHERE: dos «Finalizar» a la vez (doble toque, o
+        // responsable y gestión) ya no cierran, avisan y auditan dos veces
+        const [resFin] = await conn.execute(
+          `UPDATE asignaciones_libres SET
+             estado         = 'finalizada',
+             km_fin         = ?,
+             motivo_fin     = COALESCE(?, motivo_fin),
+             material_usado = ?,
+             finalizado_por = ?,
+             finalizado_at  = ?
+           WHERE id = ? AND estado NOT IN ('finalizada', 'cancelada')`,
+          // COALESCE: si no toca pedir motivo se manda NULL y se conserva el
+          // que dejó «Fin evento/servicio».
+          [km_fin ?? null, pideMotivo ? motivo : null, material, req.user.id, ahora(), asig.id]
         );
-      }
-      if (asig.trabajo_id) {
-        sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
-      }
-    });
+        if (resFin?.affectedRows === 0) {
+          throw new FichajeRechazado(400, 'La asignación ya no se puede finalizar: se acaba de finalizar o cancelar');
+        }
+
+        // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
+        // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
+        // propagar. La validación de arriba ya rechaza un km_fin por debajo del
+        // actual; el guard `kilometros_actuales < ?` de aquí es la red de
+        // seguridad para la carrera entre esa lectura y este UPDATE (otra
+        // asignación que adelanta el contador justo en medio), no la regla en
+        // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
+        // último servicio tampoco se toca cuando la lectura no supera a la que
+        // ya había.
+        if (km_fin != null) {
+          await conn.execute(
+            // Sin referencia de mantenimiento, la toma de esta lectura (v37)
+            `UPDATE vehicles SET kilometros_actuales   = ?,
+                                 fecha_ultimo_servicio = ?,
+                                 ${SQL_FIJAR_PROXIMO_MANTENIMIENTO}
+             WHERE id = ? AND kilometros_actuales < ?`,
+            [km_fin, fechaEnEspana(), asig.vehicle_id, km_fin]
+          );
+        }
+        if (asig.trabajo_id) {
+          sincronizado = await estadoTrabajo.sincronizarEstadoTrabajo(conn, asig.trabajo_id);
+        }
+        // Y ya con todo bloqueado (y tras el bloqueo del trabajo, que manda
+        // ser el primero), volver a mirar que no se abriera una jornada en el
+        // hueco desde la comprobación de arriba. Si la hay, se deshace todo.
+        if (asig.jornadas.length) {
+          const [abiertas] = await conn.execute(
+            `SELECT id FROM asignacion_jornadas
+              WHERE asignacion_id = ? AND inicio_real_at IS NOT NULL AND fin_real_at IS NULL`, [asig.id]);
+          if (abiertas?.length) {
+            throw new FichajeRechazado(400, 'Antes de finalizar, pulsa «Fin de jornada»: se acaba de iniciar una');
+          }
+        }
+      });
+    } catch (err) {
+      if (err instanceof FichajeRechazado) return error(res, err.message, err.status);
+      throw err;
+    }
 
     // Tras la transacción: si el cierre se hubiera deshecho, el aviso habría
     // anunciado un servicio que sigue abierto. Vale también por el aviso de
@@ -1767,6 +2096,8 @@ module.exports = {
   activarAsignacion,
   registrarLlegada,
   registrarFinServicio,
+  iniciarJornada,
+  finalizarJornada,
   finalizarAsignacion,
   uploadEvidencia,
   crearIncidenciaDesdeAsignacion,

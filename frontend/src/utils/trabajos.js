@@ -15,6 +15,7 @@ import { toInputDatetime, toUtcIso, formatDateTimeShort } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
+import { horarioDesdeApi, horarioAPayload, errorHorario, resumenJornadas } from './jornadas.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -27,6 +28,8 @@ export const estaCerrado = (estado) => CERRADOS.includes(estado);
 export const ambulanciaVacia = () => ({
   vehicle_id: '', responsables: [''], personal: [],
   fecha_inicio: '', fecha_fin: '', km_inicio: '', notas: '',
+  // Sin horario propio, hereda el del trabajo en sus fechas (v39)
+  horario_propio: false, horario: [],
 });
 
 /**
@@ -48,6 +51,8 @@ export function formularioInicial(trabajo) {
     // una fila vacía para elegirlo
     coordinadores: coordinadoresDe(trabajo).length ? coordinadoresDe(trabajo).map(c => c.id) : [''],
     usuarios:     (trabajo?.usuarios || []).map(u => u.user_id),
+    // El horario por días (v39), en días y tramos de hora española
+    horario:      horarioDesdeApi(trabajo?.horario),
     asignaciones: [],
   };
 }
@@ -68,6 +73,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
   if (!idsElegidos(form.coordinadores).length) {
     e.coordinadores = 'Elige quién coordina el trabajo';
   }
+  const malHorario = errorHorario(form.horario, form.fecha_inicio, form.fecha_fin);
+  if (malHorario) e.horario = malHorario;
   if (!alta) return e;
 
   // Las ambulancias son opcionales; las que se añadan, completas
@@ -84,6 +91,10 @@ export function validarTrabajo(form, { alta = false } = {}) {
     return ini && fin && fin <= ini;
   })) {
     e.asignaciones = 'En cada ambulancia, el fin tiene que ser posterior al inicio';
+  } else {
+    const propia = ambs.map(a => a.horario_propio && errorHorario(a.horario,
+      a.fecha_inicio || form.fecha_inicio, a.fecha_fin || form.fecha_fin)).find(Boolean);
+    if (propia) e.asignaciones = `Horario propio de una ambulancia: ${propia}`;
   }
   return e;
 }
@@ -104,6 +115,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     fecha_fin:    toUtcIso(form.fecha_fin),
     coordinadores: idsElegidos(form.coordinadores),
     usuarios:     idsElegidos(form.usuarios),
+    horario:      horarioAPayload(form.horario),
   };
   if (!alta) return datos;
   return {
@@ -117,6 +129,8 @@ export function payloadTrabajo(form, { alta = false } = {}) {
       ...(a.fecha_fin    ? { fecha_fin:    toUtcIso(a.fecha_fin) }    : {}),
       km_inicio:    parseKm(a.km_inicio),
       notas:        a.notas.trim() || null,
+      // Con `horario`, la ambulancia lleva el suyo; sin él, el del trabajo
+      ...(a.horario_propio ? { horario: horarioAPayload(a.horario) } : {}),
     })),
   };
 }
@@ -140,6 +154,12 @@ export function siguientePaso(a) {
   if (!a || a.estado === 'finalizada' || a.estado === 'cancelada') return null;
   if (!a.inicio_real_at) return 'Inicio de la asignación';
   if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Fotos de inicio';
+  // Con horario por días (v39), cada día «Inicio/Fin de jornada» en vez del evento
+  const j = resumenJornadas(a);
+  if (j.total) {
+    if (j.enCurso) return 'Fin de jornada';
+    return j.hechas < j.total ? 'Inicio de jornada' : 'Finalizar asignación';
+  }
   if (!a.llegada_servicio_at) return 'Inicio evento/servicio';
   if (!a.fin_servicio_at) return 'Fin evento/servicio';
   return 'Finalizar asignación';
@@ -155,6 +175,11 @@ export function textoEstadoAmbulancia(a) {
     default:
       if (!a.inicio_real_at) return 'Sin iniciar';
       if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Iniciada · faltan fotos de inicio';
+      if (resumenJornadas(a).total) {
+        const j = resumenJornadas(a);
+        // «hechas», como la barra de pasos: las dos cuentan lo mismo
+        return j.enCurso ? `En jornada · ${j.hechas} de ${j.total} hechas` : `Jornadas: ${j.hechas} de ${j.total} hechas`;
+      }
       if (a.fin_servicio_at) return 'De vuelta a base';
       if (a.llegada_servicio_at) return 'En el evento/servicio';
       return 'En camino';

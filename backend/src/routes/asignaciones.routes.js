@@ -60,6 +60,10 @@ router.post('/',
     body('fecha_fin').notEmpty().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
     body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+    // Horario propio por días (v39); sin él, sigue al del trabajo
+    body('horario').optional({ nullable: true }).isArray({ max: 62 }),
+    body('horario.*.inicio').isISO8601().withMessage('Hora de inicio de tramo inválida'),
+    body('horario.*.fin').isISO8601().withMessage('Hora de fin de tramo inválida'),
   ],
   handleValidation,
   ctrl.createAsignacion
@@ -83,6 +87,11 @@ router.put('/:id',
     body('km_inicio').optional({ nullable: true }).customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
     body('notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
     body('estado').optional().isIn(['programada', 'activa', 'cancelada']),
+    // Horario propio por días (v39); sin él, sigue al del trabajo
+    body('horario').optional({ nullable: true }).isArray({ max: 62 }),
+    body('horario.*.inicio').isISO8601().withMessage('Hora de inicio de tramo inválida'),
+    body('horario.*.fin').isISO8601().withMessage('Hora de fin de tramo inválida'),
+    body('horario_propio').optional().isBoolean().toBoolean(),
   ],
   handleValidation,
   ctrl.updateAsignacion
@@ -119,6 +128,24 @@ router.post('/:id/fin-servicio',
   ],
   handleValidation,
   ctrl.registrarFinServicio
+);
+
+// POST /asignaciones/:id/jornadas/:jornadaId/inicio y /fin  (jornadas por día,
+// v39; responsables o admin/gestor, el personal no: lo decide el controlador)
+router.post('/:id/jornadas/:jornadaId/inicio',
+  [param('id').isInt({ min: 1 }), param('jornadaId').isInt({ min: 1 })],
+  handleValidation,
+  ctrl.iniciarJornada
+);
+router.post('/:id/jornadas/:jornadaId/fin',
+  [
+    param('id').isInt({ min: 1 }),
+    param('jornadaId').isInt({ min: 1 }),
+    // Obligatorio solo si termina más de 30 min antes: lo decide el controlador
+    body('motivo_fin').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+  ],
+  handleValidation,
+  ctrl.finalizarJornada
 );
 
 // POST /asignaciones/:id/finalizar

@@ -79,7 +79,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/auth` | `auth.routes.js` | `auth.controller.js` | POST login · POST refresh · POST logout · GET me (con `impersonado_por`) · POST `/impersonacion/fin` (solo audita, §6.3) |
 | `/users` | `users.routes.js` | `users.controller.js` | GET/POST `/roles` · GET `/` (`?search`, `?role=<rol>` o `sin-rol`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/reset-password` |
 | `/vehicles` | `vehicles.routes.js` | `vehicles.controller.js` | CRUD `/` `/:id` (GET `/` añade `incidencias_abiertas` + `incidencias_gravedad_max` y acepta `?incidencias=abiertas`, solo para admin/gestor/super — §8; GET `/:id` añade `asignaciones: {total, activa}`) · GET `/alertas` · GET `/tarjeta-transporte/proximas` · GET/POST `/:id/images` · GET `/:id/historial` · incidencias `/:id/incidencias` (+PATCH `/:vehicleId/incidencias/:incId`, POST `.../comentarios`) · revisiones `/:id/revisiones` (+PUT/DELETE `/:vehicleId/revisiones/:revId`) |
-| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` (`?trabajo_id=N` o `sin`, v33) · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
+| `/asignaciones` | `asignaciones.routes.js` | `asignaciones.controller.js` | GET `/` (`?trabajo_id=N` o `sin`, v33) · GET `/alarmas` (alarma sonora, `MANAGE_TRABAJOS`; va antes de `/:id`) · GET/PUT/DELETE `/:id` · POST `/` · POST `/:id/activar` · POST `/:id/llegada` · POST `/:id/fin-servicio` · POST `/:id/jornadas/:jornadaId/inicio` y `/fin` (jornadas por día, v39, §6.1) · POST `/:id/finalizar` · POST `/:id/incidencias` · POST `/:id/evidencias` |
 | `/trabajos` | `trabajos.routes.js` | `trabajos.controller.js` | GET `/mis-trabajos` (una tarjeta por trabajo con `mi_asignacion`, v33; `?finalizados=1` añade los cerrados al final, §6.2) · GET `/calendario` (gestión ve todos) · GET `/mi-calendario` (lo suyo del mes, también para gestión; «Mis trabajos» → Calendario, §8) · GET `/` · CRUD `/:id` (el POST lleva `coordinador_user_id` y `asignaciones[]`, v33) · POST `/:id/cerrar` (v33: su coordinador o gestión, D3) · POST `/:id/volver-a-programado` (deshace una activación por error, `MANAGE_TRABAJOS`, §6.2) · del modelo v25, vivas hasta la fase 6: POST `/:id/vehiculos/:vehicleId/activar` · POST `/:id/vehiculos/:vehicleId/finalize` · POST `/:id/evidencias` · POST `/:id/activar` y `/:id/finalize` (**solo trabajos sin vehículos ni asignaciones**, `MANAGE_TRABAJOS`) |
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
@@ -140,6 +140,7 @@ de los listados, cuatro parámetros). El estado derivado vive en
 | `services/push.service.js` | Web Push (VAPID). Localiza a los admins, envía, borra la suscripción caducada (404/410). **Nunca lanza**: devuelve un resumen |
 | `services/avisosAsignacion.service.js` | Los textos y tags de los avisos de una asignación. Lo usan el cron y el controlador, para que digan lo mismo. Con trabajo (v33) el texto lo nombra («en «Maratón»») y la url es la del trabajo (`urlAsignacion`/`urlParaMiembros`). Incluye `avisarTrabajoPendienteCierre` (a todos los coordinadores) y `avisarCoordinadorTrabajo` (acepta una lista: a los que entran) |
 | `services/coordinadores.service.js` | Los coordinadores de un trabajo (v35, §6.2): `ES_COORDINADOR` (fragmento SQL, un parámetro, la tabla se tiene que llamar `t`), `NOMBRES_COORDINADORES` (para listados), `leerCoordinadores` (body nuevo `coordinadores` o viejo `coordinador_user_id`), `cambiarPrincipal`, `idsCoordinadores`, `coordinadoresDe` y `guardarCoordinadores` (lista + principal en la misma transacción). Vive fuera de los controladores porque lo leen trabajos, asignaciones y `estadoTrabajo.service`, y en un controlador crearía una dependencia circular |
+| `services/jornadas.service.js` | Jornadas por día (v39, §6.1 «Jornadas por día»): `leerHorario` (valida el horario del body: ordenado, sin solapes, ≤ 24 h por tramo, dentro de las fechas), `tramosDentro` (lo que hereda una ambulancia según sus fechas), `horarioDelTrabajo`/`guardarHorarioTrabajo` (la plantilla), `jornadasDe`, `aplicarJornadas` (rehace las no fichadas, **nunca borra una fichada**), `propagarHorarioDelTrabajo`, `heredarDelTrabajo` y `resumenHorario` (auditoría). Fuera de los controladores por lo mismo que `coordinadores.service` |
 | `services/estadoTrabajo.service.js` | El estado DERIVADO de un trabajo (v33): `sincronizarEstadoTrabajo` (lee sus asignaciones; si no tiene, `trabajo_vehiculos` del modelo v25), `estadoTrabajoDesdeAsignaciones`, `estadoTrabajoDesde` (el antiguo) y `avisarSiPendienteCierre`. Un único sitio porque lo cambian asignaciones, trabajos y el cron (§6.1) |
 | `services/vigilancia.service.js` | Los avisos que no dispara nadie: el cron mira el reloj y avisa de lo que NO ha pasado. `revisarAsignacionesSinIniciar` (marca y manda el push) y `listarAlarmasSinIniciar` (lo que la alarma sonora de la app tiene sonando) |
 | `services/retencion.service.js` | Purga las asignaciones cerradas (o con borrado lógico) hace más de `RETENCION_ASIGNACIONES_MESES`: fotos (fila **y** fichero), miembros y la asignación. Suma 1 a `vehicles.asignaciones_purgadas` por cada una que contaba. **Apagada por defecto (0)**; se enciende en el `.env` solo con el backup externo funcionando, porque lo purgado solo queda en Drive (cifrado). `server.js` la lanza al arrancar y cada 6 h. **Antes de purgar archiva en `informe_mensual` el informe de cada mes que va a tocar; si no puede, esa pasada no purga nada** (§2.7). Detalle y trampas: `docs/BACKUPS.md` §8 |
@@ -161,7 +162,7 @@ asignación. Sin app nativa ni Firebase.
 | Claves VAPID | Solo en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). **Nunca en el repo, que es público.** Se pasan en `docker-compose.yml` desde el `.env` del servidor; `.env.example` las documenta. Vacías = push apagado y el resto de la app igual |
 | Suscripciones | Tabla `push_subscriptions` (v17): **una fila por navegador**, no por usuario. `endpoint` es único. `guardarSuscripcion` **solo acepta endpoints de servicios de push conocidos** (`HOSTS_PUSH`: FCM, Mozilla, WNS, Apple; https y 443): el endpoint llega en el body y sin la lista `web-push` enviaría a cualquier host. Si un navegador nuevo da 400 al activar avisos, falta su host ahí. Tope de `MAX_DISPOSITIVOS` (10) por usuario: se descartan los más viejos, no se rechaza el alta. Un endpoint ya registrado **solo cambia de dueño si llegan las mismas claves** (el caso del ordenador compartido las repite); el propio dueño sí puede renovarlas. Cada envío lleva `timeout` de 10 s |
 | Destinatarios | Se calculan en CADA envío. Avisos de gestión (`notificarAdmins`): permiso `manage_trabajos` o rol `administrador`/`superadmin`, usuario activo; el responsable de la asignación se excluye. Aviso de «nuevo servicio» (`notificarUsuarios`): los miembros concretos, sea cual sea su rol, usuario activo |
-| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **nuevo trabajo**, a quien entra en el equipo del trabajo (`avisarEquipoTrabajo`, 2026-10-10; tag `trab-<id>-equipo`; quien además va en una ambulancia del alta ya recibe el «nuevo servicio» y no se le repite) · **coordinador del trabajo**, a quien se nombra al crearlo o al cambiarlo (`avisarCoordinadorTrabajo`, 2026-10-11; tag `trab-<id>-coordinador`; no a quien lo nombra; si a la vez entra en el equipo del trabajo, solo recibe este; si además va en una ambulancia, también el «nuevo servicio», que dice cuál lleva. Existe porque el coordinador puede ser un técnico que no va en ninguna ambulancia, y hasta entonces no se enteraba hasta el «listo para cerrar») · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) · **mantenimiento a 500 km o menos**, a administración (administrador y superadmin, **no** el gestor: `notificarAdministracion`; lo saca el cron, `vigilancia.revisarMantenimientoKm`; tag `veh-<id>-mantenimiento`, abre la ficha en Revisiones; 2026-10-14, §2.9) |
+| Eventos | Asignación activada (cron o botón) · fotos de inicio completas · **llegada** y **fin** del evento/servicio (desde 2026-10-03; solo la pulsación que sella la hora, un reintento no vuelve a sonar) · **inicio y fin de jornada** (v39, `avisarInicioJornada`/`avisarFinJornada`, tag `asig-<id>-jornada-<jid>-inicio|fin`: uno por jornada, el de cada día no sustituye al del anterior) · **asignación sin iniciar 30 min después de su hora** (además hace sonar la alarma de la app, abajo) · asignación finalizada (vale también por «fotos de fin», que no se manda aparte) · **nuevo servicio**, a los miembros (abajo) · **cambio de vehículo**, a los miembros que ya iban (`avisarCambioVehiculo`, desde 2026-10-03; mismo tag `asig-<id>-asignada` que el «nuevo servicio», §6.1 «El vehículo solo se puede reasignar…») · **nuevo trabajo**, a quien entra en el equipo del trabajo (`avisarEquipoTrabajo`, 2026-10-10; tag `trab-<id>-equipo`; quien además va en una ambulancia del alta ya recibe el «nuevo servicio» y no se le repite) · **coordinador del trabajo**, a quien se nombra al crearlo o al cambiarlo (`avisarCoordinadorTrabajo`, 2026-10-11; tag `trab-<id>-coordinador`; no a quien lo nombra; si a la vez entra en el equipo del trabajo, solo recibe este; si además va en una ambulancia, también el «nuevo servicio», que dice cuál lleva. Existe porque el coordinador puede ser un técnico que no va en ninguna ambulancia, y hasta entonces no se enteraba hasta el «listo para cerrar») · **trabajo pendiente de cierre**, al coordinador (v33, `avisarTrabajoPendienteCierre`; tag `trab-<id>-pendiente-cierre`; sin coordinador, a gestión) · **mantenimiento a 500 km o menos**, a administración (administrador y superadmin, **no** el gestor: `notificarAdministracion`; lo saca el cron, `vigilancia.revisarMantenimientoKm`; tag `veh-<id>-mantenimiento`, abre la ficha en Revisiones; 2026-10-14, §2.9) |
 | Asignación de un trabajo (v33) | Todos sus avisos **abren el trabajo** con esa ambulancia señalada, `/trabajos/<trabajo_id>?asignacion=<id>`, tanto los de gestión como los del técnico (D10), y el texto lo nombra. Las asignaciones sin trabajo conservan `/asignaciones?id=` y `/mis-asignaciones`. Trampa: en un entorno con `menu_trabajos`/`menu_mis_trabajos` apagados (los de la migración; en PRO están encendidos desde 2026-10-10, §7) ese enlace rebota a quien no es superadmin |
 | Aviso de «nuevo servicio» | Va al TÉCNICO, no a gestión (desde 2026-09-25; el de cambio de vehículo también). `avisarAsignacionNueva` en `avisosAsignacion.service.js`, disparado sin await desde `createAsignacion` (a todo el equipo) y `updateAsignacion` (solo a quien **entra**: quien ya iba, aunque pase de personal a responsable, no se entera de nada nuevo; si solo sale gente o la edición la cancela, no suena). Dos envíos, uno por papel, porque el texto cambia («como responsable» / «con <responsables>») + la hora de inicio en hora española. Se excluye a quien asigna (el admin que se pone a sí mismo). Abre `/mis-asignaciones`: el `/asignaciones` de los demás avisos es de gestión y al técnico le rebotaría. Tag `asig-<id>-asignada`. Para que llegue, el técnico tiene que haber pulsado «Activar avisos» en su perfil: por eso `/push` ya no exige `MANAGE_TRABAJOS` |
 | Aviso de «sin iniciar» | El único que no lo dispara una petición sino el reloj: `vigilancia.service.js`, en el tick del cron. **Iniciada = `inicio_real_at`**, o sea el botón «Inicio de la asignación»; el `estado` no sirve para esto, porque el cron pone en `activa` todo lo que llega a su hora y una activa con `inicio_real_at` a NULL es precisamente la que hay que vigilar: arrancó sola y nadie ha entrado. El umbral es `AVISO_SIN_INICIAR_MINUTOS` (30 por defecto; el 2026-09-25 pasó unas horas a 15 y se volvió a 30 a petición del usuario; bajarlo por entorno es la forma de probarlo sin esperar). **En PRO sale del default de `docker-compose.yml`**, no del `.env` del servidor (comprobado 2026-09-25): cambiar el default basta. Se manda **una vez por asignación**: el candado es la columna `aviso_sin_iniciar_at` (v19, renombrada desde la `aviso_fotos_pendientes_at` de la v18) |
@@ -427,6 +428,31 @@ el tramo y las horas de evento y de asignación, y **marca los que no cuadran**;
   `manualChunks`**: el chunk se lleva módulos que comparte con la app y el
   `index` lo importaba de forma estática. Comprobar tras tocarlo: `grep pdf
   dist/sw.js` vacío y el `index-*.js` sin `from"./pdf-`.
+
+**Jornadas por día (v39, 2026-10-17, `VERSION_INFORME` 3).** Sin ninguna
+jornada medida, las horas de asignación son null y no 0: un 0 contaba como
+«medida» (revisión del 2026-10-17). En pantalla, igual: sin nada medido la
+tabla del mes y los totales del detalle (`totalesDetalle`) pintan «—», no
+«0 min»; las notas de las pestañas explican que con horario por días se
+suman las jornadas; y en una asignación finalizada la jornada sin fichar sale
+«no consta», no «pendiente». Con horario por
+días, las horas no salen de los sellos de la asignación (un congreso de tres
+días daba 61 h con las noches) sino de la **suma de las jornadas cerradas a
+mano** (decisión del usuario: los viajes no cuentan). `jornadasPorAsignacion`
+las carga por id (sin ids no consulta) y `analizarJornadas` las resume. Horas
+de asignación = esa suma con la asignación finalizada (lo abierto no cuenta,
+como siempre); horas de evento = la misma suma, en cuanto hay alguna medida.
+La jornada que **se cerró sola** (`cierre_auto`) y la que **nadie inició** no
+suman. Con la asignación ya finalizada, una sin fichar cuenta como «sin
+iniciar» aunque su hora sea posterior a hoy (`analizarJornadas(…, cerrada)`),
+igual que la pantalla la pinta «no consta». Avisos (`avisosServicio`, rama de jornadas, que sustituye a los del
+evento): graves `jornada_sin_iniciar`, `jornada_cerrada_sola`,
+`jornada_sin_fin` y `fin_jornada_pegado` (el último fin a ≤15 min del cierre,
+con la misma regla y quién la ve que «A revisar»); aviso
+`fin_jornada_anticipado` (solo al responsable). Llevan `cuantas`, y
+`TEXTO_AVISO` lo pluraliza. En el detalle y el PDF la columna de evento lista
+una línea por jornada (`tramosEvento`: real, «se cerró sola», o la hora
+prevista con «pendiente»/«no consta»); `detalleTecnico` manda `jornadas`.
 
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
@@ -1302,7 +1328,7 @@ trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1314,6 +1340,8 @@ vehicles 1─N asignaciones_libres (user_id = responsable PRINCIPAL, created_by 
 trabajos 1─N asignaciones_libres (trabajo_id, v33; NULL = asignación del modelo antiguo)
 trabajos N─1 users (coordinador_user_id, v33: el coordinador PRINCIPAL, orden 0 de la lista)
 trabajos N:M users (trabajo_coordinadores, v35: orden; TODOS ven todas las ambulancias y cierran)
+trabajos 1─N trabajo_jornadas (v39: el horario por días, plantilla; CASCADE)
+asignaciones_libres 1─N asignacion_jornadas (v39: lo que se ficha cada día; CASCADE)
 asignaciones_libres N:M users (asignacion_usuarios: rol responsable|personal, orden)
 vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento inicio/fin/general)
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
@@ -1380,7 +1408,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v38_aviso_mantenimiento_km**. (En alguna BD local puede
+Última migración: **v39_jornadas**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1715,10 +1743,199 @@ No bloquea nada ni avisa a nadie: es una marca para revisar.
   calendario de trabajos no lo lleva. Dentro de la ambulancia sigue diciendo
   «A revisar». Trampa vista al subirlo: el usuario «no veía nada» y era la
   caché de la PWA; antes de investigar, pedir la versión del pie del menú.
+- **Con jornadas por día (v39)** no hay «sin fin del evento» que echar de
+  menos: el motivo es `jornada_sola` (alguna se cerró sola, olvido del «Fin de
+  jornada») o `pegado` con el **último** «Fin de jornada» (`MAX(fin_real_at)`).
+  Mismo cambio en `marcarFinEventoEnBase` (lee `asig.jornadas`) y en
+  `SQL_REVISAR_FIN_EVENTO`, que gana un `?` (el umbral, antes del corte de
+  fecha): `paramsRevisarFinEvento` devuelve ahora 6. Los tests que fijaban la
+  posición de los parámetros (listado de asignaciones, `listTrabajos`,
+  `detalleTecnico`) se movieron con él. En pantalla: aviso propio bajo la
+  lista de jornadas de `AsignacionDetalle` y badge «A revisar: jornada sin
+  cerrar» en `AsignacionList` (`TEXTO_REVISAR`/`TITULO_REVISAR`).
 - Se calcula al leer: vale para el pasado y un cambio de umbral también lo
   reescribe. La ficha del trabajo (`getTrabajoCompleto`) y `MisAsignaciones`
   no la llevan: las ven coordinadores y técnicos. Dentro del trabajo sale al
   abrir la ambulancia (`AsignacionDetalle`), y solo a la oficina.
+
+**Jornadas por día (v39, 2026-10-17).** Pedido del usuario a raíz de CONGRESO
+SEVILLA (TRB-2026-0034, 3 días) y MANIOBRAS CHINCHILLA (TRB-2026-0041, con el
+horario de cada día escrito a mano en las notas, turno partido incluido): una
+ambulancia de varios días era UNA asignación con un solo juego de sellos, y las
+«Horas de asignación» del informe salían de 61 h con las noches dentro.
+Decisiones del usuario:
+- El administrador define un **horario por día** en el trabajo (uno o varios
+  tramos; el turno partido es opcional). Lo **heredan todas** sus ambulancias
+  y se puede **personalizar en cada una** (`horario_propio`).
+- Cada tramo, el responsable pulsa «Inicio de jornada» / «Fin de jornada», sin
+  fotos. Las fotos de inicio van una vez (el primer día, en base) y las de fin
+  con «Finalizar asignación» el último, como siempre. En una asignación con
+  jornadas, la jornada **sustituye** a «Inicio/Fin evento/servicio».
+- Horas de asignación = **suma de jornadas** (los viajes no cuentan).
+Modelo: `trabajo_jornadas` es la plantilla (lo que se ve y se edita en el
+trabajo); `asignacion_jornadas` son las filas que ficha cada ambulancia. Las
+fechas son instantes UTC y el «día» es la fecha española del inicio, así que un
+tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
+- **Una jornada fichada no se borra nunca** (su hora real es la evidencia).
+  `aplicarJornadas` **compara, no borra y recrea** (revisión del
+  2026-10-17): un tramo igual a una jornada sin fichar la deja intacta (id y
+  `aviso_sin_iniciar_at`), uno encima de una fichada le mueve la hora prevista
+  (**esto se mira antes** que reutilizar una libre por el mismo inicio: al
+  revés, la libre estirada quedaba solapada con la fichada), uno con el mismo
+  inicio que una libre solo le cambia el fin, y solo se borran las sin fichar
+  que ya no están. Recrearlas cambiaba los ids (quien tenía la ficha
+  abierta pulsaba sobre una jornada inexistente) y perdía el candado del push,
+  que volvía a sonar. Importa porque `AsignacionForm` manda `horario` en cada
+  edición de una ambulancia con horario propio, y cualquier cambio del horario
+  del trabajo pasa por todas las que lo siguen.
+- Una ambulancia que sigue al trabajo (`horario_propio = 0`) recibe solo los
+  tramos que tocan **sus** fechas (`tramosDentro`): la que va dos de tres días
+  hereda dos. Se recalcula al crearla, al cambiarle fechas o trabajo y al
+  cambiar el horario del trabajo (`propagarHorarioDelTrabajo`, solo
+  `programada`/`activa`). Con horario propio no se toca nada de eso.
+- API: `horario: [{inicio, fin}]` en el trabajo (`POST`/`PUT /trabajos`) y en
+  cada ambulancia del alta (`asignaciones[].horario`, con él es propia); en
+  `POST`/`PUT /asignaciones`, `horario` (= propio, aunque venga vacío) y
+  `horario_propio: false` (= volver a seguir al trabajo). Sin el campo no se
+  toca nada. Solo dentro de un trabajo (400 en una suelta). Cada tramo dentro
+  de las fechas de quien lo lleva (400). Validador de ruta solo de forma
+  (`isISO8601`); orden, solapes y fechas, `leerHorario`.
+- Lectura: `getTrabajoCompleto` → `horario`, y `jornadas` +
+  `horario_propio` por ambulancia (`leerAsignacionesDelTrabajo`; de una ajena
+  no salen: `ambulanciaAjena` es lista blanca). `getAsignacionCompleta` →
+  `jornadas` (consulta solo si tiene trabajo, como los coordinadores).
+- Auditoría: `create_trabajo` lleva `horario`; `update_trabajo`,
+  `horario_antes`/`horario` si cambió; `update_asignacion`, `cambios.horario` y
+  `cambios.horario_propio` (`cambiosAsignacion`).
+- **Pantalla del administrador:** `components/trabajos/HorarioJornadas.jsx`
+  (editor: un bloque por día; «Rellenar los N días» con una hora para todos,
+  luego se retoca cada uno; «+ Añadir tramo» para el turno partido; «(+1 día)»
+  si pasa de medianoche; lo fichado sale bloqueado) y la lógica pura en
+  `utils/jornadas.js` (`horarioDesdeApi`/`horarioAPayload` hacen de puente:
+  el formulario piensa en **días y tramos de hora española**, la API en
+  instantes UTC; `errorHorario` repite lo que valida el backend; `horarioDentro`
+  es el `tramosDentro` del backend). Sale en `TrabajoForm` cuando las fechas
+  cruzan de día (`cruzaDias`; lo que acaba a las 00:00 no cuenta) o ya hay
+  horario; en cada ambulancia del alta, «Igual que el trabajo» (lista lo que
+  hereda) / «Horario propio» (arranca con una copia de lo heredado). En
+  `AsignacionForm`, lo mismo solo si va en un trabajo; al editar, «propio»
+  arranca con sus jornadas actuales (fichadas incluidas) y volver a «igual»
+  manda `horario_propio: false`. `TrabajoDetail` enseña el horario en la ficha
+  y «Con horario por días propio» en la ambulancia que lo lleva.
+- **Lo que vio la prueba local del 2026-10-18** (corregido): «Rellenar»
+  recorta el primer y el último día a las horas del trabajo (antes proponía un
+  tramo que ya se salía de las fechas), no propone un día sin hueco ni un tramo
+  de noche que se salga, y **conserva los días que caen fuera de las fechas**
+  (antes los borraba en silencio, fichados incluidos; los señala la
+  validación); «faltan N días» cuenta los del rango sin tramo; el editor
+  valida **en vivo** (`errorHorario` dentro de `HorarioJornadas`), no solo al
+  guardar; `AsignacionForm` pide el horario del trabajo (`trabajosService.get`)
+  cuando no lo tiene a mano, para que «Igual que el trabajo» enseñe lo que
+  heredará con las fechas del formulario (antes, viniendo de horario propio,
+  decía que el trabajo no tenía horario). En la ficha: «Finalizar asignación»
+  con jornadas sin fichar pide **confirmación** (`ConfirmDialog` «Quedan
+  jornadas por fichar»): es fácil pulsarlo el primer día por error; y si la
+  anterior quedó abierta al llegar la siguiente, además de «Inicio de jornada»
+  sale «Fin de jornada de la anterior», para que quien acabó unos minutos
+  tarde la cierre con su hora real. La duración de la jornada se redondea como
+  en el informe (`minutosJornada`). La tarjeta dice «En jornada · n de m
+  hechas», lo mismo que cuenta la barra.
+- **Fichar** (`iniciarJornada`/`finalizarJornada`, `POST
+  /asignaciones/:id/jornadas/:jornadaId/inicio|fin`): responsable o gestión
+  (`cargarJornada`, como la llegada; el equipo no). Calcados de la llegada:
+  no-op 200 si ya está sellada (antes de mirar el estado), `… IS NULL` en el
+  `WHERE` y auditoría (`start_jornada`/`end_jornada`, en `ACTION_LABEL`) y
+  push a gestión solo si selló. El inicio exige asignación `activa` con
+  `inicio_real_at` y las fotos de inicio completas (así `haEmpezado` y
+  `SQL_SIN_EMPEZAR` no cambian: no se puede fichar sin haber empezado), no
+  antes de `INICIO_ANTICIPADO_MAX_MINUTOS` de la prevista, **no una que ya ha
+  terminado** (su hora real sería la de hoy) ni una anterior a otra ya
+  iniciada.
+- **Olvido del «Fin de jornada»** (decisión del usuario): al iniciar la
+  siguiente, la abierta se cierra sola a su hora **prevista** con
+  `cierre_auto = 1`, en la misma transacción, y la auditoría lo dice
+  (`cerradas_solas`). Sus horas no se dan por buenas en el informe. **Solo si
+  ya pasó su hora prevista**: una abierta aún dentro de su horario se está
+  trabajando, y cerrarla sola le ponía una hora de fin futura (pasaba al
+  iniciar la siguiente en su media hora previa con tramos pegados); entonces
+  400 «Antes pulsa «Fin de jornada»…», y en pantalla `accionJornada` deja
+  «Fin de jornada» como principal mientras siga en su horario.
+- **Todo se decide con las jornadas bloqueadas** (`SELECT … FOR UPDATE`
+  dentro de la transacción de `iniciarJornada`): la jornada posterior ya
+  iniciada, cuáles están olvidadas y si la pedida sigue existiendo. Si la
+  ganó otra pulsación, no-op 200; si ya no existe (cambio de horario), **409**
+  (`MSG_JORNADA_CAMBIADA`), no un «iniciada» falso. Lo mismo si el id ya no
+  está al cargar (`cargarJornada`): 409 «recarga la ficha», no 404. `finalizarJornada`,
+  igual: si no selló porque se cerró sola o desapareció, 409 (su motivo no se
+  guardó). Errores de dentro de la transacción: `FichajeRechazado`. La
+  pantalla, ante un 409, recarga la ficha sola.
+- **Carrera «Inicio de jornada» / «Finalizar asignación» y orden de
+  bloqueo.** Las dos bloquean primero la fila de la asignación (`SELECT …
+  FOR UPDATE`). `iniciarJornada` rechaza si ya no está `activa` (o 409 si ya
+  no existe); `finalizarAsignacion`, con jornadas, vuelve a mirar si hay una
+  abierta **después** de `sincronizarEstadoTrabajo` (lectura plana: el
+  bloqueo del trabajo tiene que ser la primera lectura consistente, «Estado
+  del padre»; y ninguna jornada nueva puede confirmarse en medio porque
+  `iniciarJornada` espera al bloqueo de la asignación). Su `UPDATE` lleva
+  `estado NOT IN ('finalizada','cancelada')`: dos «Finalizar» cruzados ya no
+  cierran, avisan y auditan dos veces (el segundo, 400). **Orden de bloqueo
+  de todo el proyecto: asignación → trabajo** (finalizar, activar, editar una
+  ambulancia, el cron). Por eso `updateTrabajo`, cuando cambia el horario,
+  bloquea las asignaciones del trabajo (`ORDER BY id`) **antes** de tocar el
+  trabajo: al revés, cambiar el horario a la vez que un técnico finalizaba
+  podía interbloquearse (revisión del 2026-10-18). `deleteTrabajo` también:
+  bloquea sus ambulancias, las vuelve a mirar (409 si una empezó en el hueco)
+  y borra ambulancias antes que el trabajo. Al sincronizar dos trabajos
+  (mover una ambulancia), en orden de id. La herencia del horario
+  (`heredarDelTrabajo`, lectura plana de la plantilla) va **después** de
+  `sincronizarEstadoTrabajo` en el alta y la edición de una ambulancia, para
+  no fijar la foto de REPEATABLE READ antes del bloqueo del trabajo. Un camino
+  nuevo que toque asignaciones y su trabajo en la misma transacción tiene que
+  respetar todo esto. **Pendiente, anterior a las jornadas:** el alta de una
+  ambulancia toma un bloqueo S sobre su trabajo por la clave foránea y luego X
+  al sincronizar; con un «Finalizar»/«Activar» cruzado del mismo trabajo
+  MySQL puede abortar una de las dos (1213, un 500 que se arregla
+  reintentando). Lo resolvería reintentar una vez ante `ER_LOCK_DEADLOCK` en
+  `transaction()` (`config/database.js`).
+- **Fin anticipado:** más de `INICIO_TARDIO_MINUTOS` (30) antes del fin
+  previsto pide motivo (`errorMotivo`, 400 con `errors[{field:'motivo_fin'}]`
+  como el fin del evento), guardado en `asignacion_jornadas.motivo_fin`. Por
+  acabar cinco minutos antes, no (decisión del usuario).
+- **Pantalla del responsable:** en `AsignacionDetalle` la tarjeta de la
+  jornada del momento sale de `accionJornada` (`utils/jornadas.js`, misma
+  regla que el backend): `inicio` si la siguiente ya está en su media hora
+  previa (aunque haya una abierta: avisa de que se cerrará sola), `fin` si hay
+  una abierta (con motivo si `finJornadaAnticipado`, y `forzarMotivoJornada`
+  si el servidor lo pide), `esperar` (botón apagado «desde dd/MM HH:mm»).
+  Con jornadas no salen las tarjetas del evento, y «Finalizar asignación» va en
+  secundario mientras quede jornada y **no sale con una abierta** (el backend
+  da 400). Debajo de las horas, `ListaJornadas`: previsto, real, «No consta»,
+  «Pendiente», «Se cerró sola · a revisar» y el motivo. La barra de pasos pasa
+  a tres (Inicio → «Jornadas n de m» → Finalizar; `pasosAsignacion`, clases de
+  columnas escritas enteras en `PasosAsignacion` por la purga de Tailwind).
+  «Tu ambulancia» de `TrabajoDetail` y la tarjeta de `MisTrabajos` usan
+  `siguientePaso`/`textoEstadoAmbulancia` con `resumenJornadas`, que lee la
+  lista de la ficha o el resumen que trae `misTrab` (`num_jornadas`,
+  `jornadas_hechas`, `en_jornada`). `FIN_JORNADA_ANTICIPADO_MINUTOS` en
+  `frontend/utils/constants.js` es espejo de `INICIO_TARDIO_MINUTOS`.
+- **Jornada sin iniciar** (`vigilancia.revisarJornadasSinIniciar`, en el
+  tick del cron justo tras el de asignaciones): pasado
+  `AVISO_SIN_INICIAR_MINUTOS` de su hora prevista sin «Inicio de jornada»,
+  push urgente a gestión (`avisarJornadaSinIniciar`, tag
+  `asig-<id>-jornada-<jid>-sin-iniciar`) y alarma sonora. Candado propio
+  (`asignacion_jornadas.aviso_sin_iniciar_at`, dentro del `UPDATE` como el de
+  la asignación). Solo con la asignación `activa` **e iniciada** (si no, ya
+  suena la de la asignación: serían dos por lo mismo) y **mientras el tramo
+  no ha terminado** (después no se puede iniciar y la alarma no tendría
+  arreglo; queda «no consta» para el informe). `listarAlarmasSinIniciar`
+  devuelve también esas jornadas, con `jornada_id` y `fecha_inicio` = la de
+  la jornada; en la app, `claveAlarma` y `tagAviso` las distinguen de la
+  asignación (`<id>-j<jid>@…`) y la fila dice «Jornada · Prevista HH:mm».
+  Probado en local: avisó al primer tick y sonó en la app.
+- Con jornadas, `/llegada` y `/fin-servicio` dan 400
+  (`MSG_FICHA_POR_JORNADAS`): la jornada los sustituye. `finalizarAsignacion`
+  da 400 con una jornada abierta: cerrarla sola le pondría la hora de base.
+  Las que nadie pulsó quedan «no consta».
 
 **Editar una asignación (`programada` o `activa`) permite cambiar también los
 responsables**, no solo fechas/notas: `PUT /asignaciones/:id` ya aceptaba
@@ -2347,6 +2564,9 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
+| El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo`) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
+| El editor del horario por días | `utils/jornadas.js` (formato de días y tramos ↔ API, validación espejo de `leerHorario`) → `components/trabajos/HorarioJornadas.jsx` → `TrabajoForm` (trabajo y ambulancias del alta, vía `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`), `AsignacionForm` y la ficha en `TrabajoDetail`. Si cambia una regla del horario, cambiarla también en `jornadas.service.leerHorario` (§6.1 «Jornadas por día») |
+| Fichar una jornada (ventana, motivo, olvido) | Frontend: `accionJornada`/`finJornadaAnticipado`/`resumenJornadas` (`utils/jornadas.js`) → `AsignacionDetalle` (tarjeta y `ListaJornadas`), `pasosAsignacion`, `siguientePaso`/`textoEstadoAmbulancia` (+ el resumen de `misTrab`). Backend: `asignaciones.controller` (`cargarJornada`, `iniciarJornada`, `finalizarJornada`; la guarda en `registrarLlegada`/`registrarFinServicio`/`finalizarAsignacion`) + rutas en `asignaciones.routes` (clasificadas en `ACCESO` de `autorizacion-rutas.test.js`) + `avisarInicioJornada`/`avisarFinJornada` + `ACTION_LABEL` de `AdminPanel`. Los cortes son `INICIO_ANTICIPADO_MAX_MINUTOS` (inicio) e `INICIO_TARDIO_MINUTOS` (motivo de fin) (§6.1 «Jornadas por día») |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |
 | Quién está en un trabajo sin ir en una ambulancia | `trabajo_usuarios` (el equipo del trabajo) → `trabajos.controller` (`createTrabajo`/`updateTrabajo` con `usuarios`, `FILTRO_PROPIOS`, `vistaParaUsuario`, `misTrab.en_equipo`) + `avisarEquipoTrabajo` → `TrabajoForm` (`ListaMiembros`), `TrabajoDetail` («Equipo del trabajo», `solo-equipo`), `MisTrabajos`; los `destacados` de `ListaMiembros` en `TrabajoForm` y `AsignacionForm` (§6.2) |
 | Un campo de la ambulancia que ven los demás del trabajo | `ambulanciaAjena` en `trabajos.controller`: es una lista blanca, y lo que no esté ahí no lo ve nadie que no sea gestión, coordinador o de esa ambulancia (§6.2) |
@@ -2363,7 +2583,7 @@ solo actúa en el navegador no es un control de acceso.
 | Historial del vehículo | `vehicles.controller.getVehicleHistorial` → `VehicleHistory` (+ test `VehicleHistory.test.jsx`). **Trampa:** la clave React de cada tarjeta de la pestaña Fotos sale de `claveGrupo`, que repite la del backend (`t<id>`, `a<id>`, `sin_asignar`). Hasta 2026-10-03 era `trabajo_id ?? 'sin_trabajo'`: todas las asignaciones (sin `trabajo_id`) compartían clave y React avisaba de hijos duplicados. Sin prefijo, el trabajo 5 chocaría con la asignación 5. Si el backend cambia cómo agrupa, cambiar las dos |
 | El aviso de «cambios sin guardar» | `VehicleHistory`: cubre las pestañas, «Volver» y `beforeunload` (recarga/cierre). **No** cubre el menú lateral ni el botón atrás: haría falta `useBlocker`, y eso pide migrar a `createBrowserRouter` |
 | Las horas reales de un servicio | Cuatro sellos, todos con `ahora()`: `inicio_real_at` (`activarAsignacion`, botón «Inicio de la asignación», no el cron), `llegada_servicio_at` (v26, `registrarLlegada`, botón «Inicio evento/servicio»), `fin_servicio_at` (v29, `registrarFinServicio`, botón «Fin evento/servicio») y `finalizado_at` (`finalizarAsignacion`, botón «Finalizar asignación»). `getAsignacionCompleta` los devuelve con `al.*`; el listado (`listAsignaciones`) trae inicio, llegada y fin del evento/servicio, no el cierre. En `AsignacionDetalle` van bajo las previstas: «Inicio de la asignación» y «Fin de la asignación» en pareja (se llamaron «Inicio/Fin real de servicio» hasta el 2026-10-03: el usuario reserva «evento/servicio» para lo que pasa en el sitio —llegada y fin— y llama asignación a lo que va de las fotos de inicio a las de cierre) y debajo «Inicio evento/servicio» con lo que tardó desde el inicio (`duration`) y «Fin evento/servicio» con el tiempo en el sitio desde la llegada; `—` si falta una, y nada si faltan inicio y fin. `MisAsignaciones` pinta llegada y «Fin evento/servicio» en la tarjeta. Reglas de ambos en §6.1 |
-| La marca «A revisar» del fin del evento (umbral, corte de fecha, quién la ve) | `FIN_EVENTO_EN_BASE_MINUTOS` y `FIN_EVENTO_EXIGIDO_DESDE` en backend `config/constants.js` → `asignaciones.controller`: `marcarFinEventoEnBase` + `veRevisionFinEvento` (ficha, solo en `getAsignacion`; por rol admin/gestor/superadmin, nunca coordinador ni miembro) y `SQL_REVISAR_FIN_EVENTO` (listado y su filtro `?revisar=fin_evento`); los cortes tienen que ser los mismos en los dos → `AsignacionDetalle` (aviso) y `AsignacionList` (badge + chip). El recuento por trabajo reutiliza el mismo SQL en `trabajos.controller.listTrabajos` (`asignaciones_a_revisar`, `?revisar=fin_evento`) → `TrabajoList` (badge y botón «Tiempos que no cuadran»). §6.1 |
+| La marca «A revisar» del fin del evento (umbral, corte de fecha, quién la ve; con jornadas, `jornada_sola` y el último fin pegado) | `FIN_EVENTO_EN_BASE_MINUTOS` y `FIN_EVENTO_EXIGIDO_DESDE` en backend `config/constants.js` → `asignaciones.controller`: `marcarFinEventoEnBase` + `veRevisionFinEvento` (ficha, solo en `getAsignacion`; por rol admin/gestor/superadmin, nunca coordinador ni miembro) y `SQL_REVISAR_FIN_EVENTO` (listado y su filtro `?revisar=fin_evento`); los cortes tienen que ser los mismos en los dos → `AsignacionDetalle` (aviso) y `AsignacionList` (badge + chip). El recuento por trabajo reutiliza el mismo SQL en `trabajos.controller.listTrabajos` (`asignaciones_a_revisar`, `?revisar=fin_evento`) → `TrabajoList` (badge y botón «Tiempos que no cuadran»). §6.1 |
 | La hora de una foto de evidencia | La pone `ahora()` al subir/rehacer en `asignaciones.controller`, `trabajos.controller` y `vehicles.controller`; se pinta en `AsignacionDetalle` (tanda + hora por miniatura) y `VehicleHistory` (día+hora y badge de momento) |
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts`. Una alerta que no sea por fecha (como el mantenimiento por km, §2.9) necesita su umbral en `withThresholds`, su color en `thresholdStyle` y sus textos en `tituloAlerta`/`venceAlerta`/`margenAlerta` |
 | El mantenimiento por km (intervalo, aviso, qué lo mueve) | `MANTENIMIENTO_INTERVALO_KM`/`MANTENIMIENTO_AVISO_KM` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` → `utils/mantenimiento.utils.js` → `vehicles.controller` (`createVehicle`, `updateVehicle`, `createRevision`/`updateRevision` con `aplicarProximoMantenimiento`, `listAlertasVehiculos`). **Un UPDATE nuevo que escriba `kilometros_actuales` tiene que llevar `SQL_FIJAR_PROXIMO_MANTENIMIENTO` detrás del km**, o un vehículo sin referencia se queda sin aviso. Frontend: `TabRevisiones` y Resumen de `VehicleHistory`, `VehicleForm`. §2.9 |
@@ -2378,7 +2598,7 @@ solo actúa en el navegador no es un control de acceso.
 | Login / sesión | `auth.controller`, `jwt.utils`, `password.utils`, `rateLimiter`, `AuthContext`, `services/api.js`, `utils/destinoLogin.js` (adónde vuelve, §3.2) |
 | Impersonación (superadmin «Ver como») | `admin.controller.impersonar` + `jwt.utils.generateImpersonationToken` + `auth.middleware` (claim `imp`) + `logAudit` (vía `contextoPeticion`) + `push.routes` (bloqueo) → `utils/impersonacion.js`, `AuthContext`, `api.js` (401), `FranjaImpersonacion`, `UserList` (botón), `Perfil`. Un sitio nuevo que audite **fuera** de la petición (un `res.on('finish')`, un cron lanzado desde ella) tiene que pasar `impersonadoPor` a mano, como `auditoria403`. Una ruta de subida: `subirImagen` + `reabrirContexto` detrás. La sesión vive en `impersonaciones` (v31): lo que cambie su duración o su cierre toca `impersonar`, `auth.middleware` y `finImpersonacion` a la vez. §6.3 |
 | La retención de asignaciones (qué se borra, cuándo) | `RETENCION_ASIGNACIONES_MESES` en `config/constants.js` **y** en el `environment` de `docker-compose.yml` (si no está ahí, el `.env` no llega al contenedor) → `services/retencion.service.js` → el total de la ficha en `vehicles.controller` (`getVehicle`: vivas + `asignaciones_purgadas`). **Una tabla nueva que cuelgue de `asignaciones_libres` hay que borrarla en `purgarUna`** si su FK no es CASCADE, o queda huérfana (le pasa a `vehicle_images`, que es SET NULL). `docs/BACKUPS.md` §8 |
-| El informe mensual (qué se mide, umbral, quién lo ve) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. El detalle de un técnico: `avisosServicio`/`detalleTecnico` del servicio (códigos y cortes) → `TEXTO_AVISO` de `utils/informes.js` (lo que dicen, igual en pantalla y PDF) → `DetalleTecnico.jsx` y `utils/pdfInformeTecnico.js`; una ruta nueva va también en `ACCESO`/`NIVEL` de `autorizacion-rutas.test.js`. §2.7 |
+| El informe mensual (qué se mide, umbral, quién lo ve; con jornadas, `jornadasPorAsignacion`/`analizarJornadas` y `tramosEvento`) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. El detalle de un técnico: `avisosServicio`/`detalleTecnico` del servicio (códigos y cortes) → `TEXTO_AVISO` de `utils/informes.js` (lo que dicen, igual en pantalla y PDF) → `DetalleTecnico.jsx` y `utils/pdfInformeTecnico.js`; una ruta nueva va también en `ACCESO`/`NIVEL` de `autorizacion-rutas.test.js`. §2.7 |
 | Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `globIgnores` en `vite.config.js` (las tres cosas: está oculta, no solo prohibida) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → lo que se lee del PDF en el paso 1: `services/lectorFacturas.service.js` (`datosDelTexto`, `ALIAS`; usa `importeValido`/`fechaValida` del controlador) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar. Desde v33 excluye las cerradas de un trabajo **sin cerrar** (se quedaría pendiente de cierre para siempre, sin ambulancias que cerrar), y `purgarUna` se lleva el trabajo cerrado o borrado con su última ambulancia (`DELETE … NOT EXISTS`, tras borrar la asignación). El informe mensual no cambia: cuenta por asignación y las de un trabajo entran solas (`docs/BACKUPS.md` §8) |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una, y si tienen trabajo se sincroniza el padre (con su propio `catch`: un fallo ahí no deja sin activar al resto). Los trabajos solo arrancan por reloj si no tienen asignaciones (modelo v25). En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
@@ -2386,7 +2606,7 @@ solo actúa en el navegador no es un control de acceso.
 | Qué vale como motivo de fin anticipado | `errorMotivo` en backend `utils/motivo.utils.js` **y** su espejo `frontend/src/utils/motivo.js`. Lo usan `registrarFinServicio`, `finalizarAsignacion`, `finalizeVehiculo`, `finalizeTrabajo` (estos dos, del v25 y sin pantalla desde la fase 4) y las pantallas `AsignacionDetalle` y `FinalizacionAsignacion`. Si solo cambia uno, la pantalla deja pasar y la API da 400 (o al revés). Los mensajes no explican la regla de la letra repetida, a propósito (§6.1) |
 | Cuánto antes se puede pulsar «Inicio de la asignación» | `INICIO_ANTICIPADO_MAX_MINUTOS` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` (§6.1). Si solo cambia uno, la pantalla y la API discrepan |
 | El margen antes de avisar de una asignación sin iniciar | `AVISO_SIN_INICIAR_MINUTOS` en `config/constants.js` (leíble por entorno) + `docker-compose.yml` + `.env.example`. La lógica no cambia: solo el corte. Vale a la vez para el push y para la alarma sonora de la app |
-| La alarma sonora (sirena, cadencia, quién la oye) | `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
+| La alarma sonora (sirena, cadencia, quién la oye) | Con jornadas por día (v39) suenan también las jornadas sin iniciar: `vigilancia.revisarJornadasSinIniciar` + la segunda consulta de `listarAlarmasSinIniciar`, y `claveAlarma`/`tagAviso` con `jornada_id`. `components/common/AlarmaSinIniciar.jsx` (sonido, sondeo, UI) + `utils/alarmaSinIniciar.js` («Enterado») + `vigilancia.listarAlarmasSinIniciar` (qué suena) + ruta `GET /asignaciones/alarmas` (quién) + el `postMessage` de `sw.js`. §2.5 |
 | Un aviso push (texto, tag, a quién) | `services/avisosAsignacion.service.js` (texto y tag) + `services/push.service.js` (destinatarios y envío) + `frontend/src/sw.js` (cómo se pinta). Si el aviso va a técnicos: `notificarUsuarios` y url `urlParaMiembros` (la del trabajo, o `/mis-asignaciones` sin él), nunca `/asignaciones`. Una consulta nueva que alimente un aviso necesita `trabajo_id` y `trabajo_nombre` (como el cron y `vigilancia`), o el aviso pierde el enlace al trabajo |
 | El estado de un trabajo (qué lo mueve) | `services/estadoTrabajo.service.js` → quien lo llama: `asignaciones.controller` (create, activar, finalizar, `PUT` con estado o trabajo o al volver a programada, delete), `trabajos.controller` (ciclo antiguo, alta y `volverAProgramado`) y el cron de `server.js`. Un camino nuevo que cambie el estado de una asignación con trabajo **tiene que** sincronizar dentro de su transacción y, si puede dejarlo pendiente de cierre, llamar después a `avisarSiPendienteCierre` (§6.1) |
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) **y** `trabajos.controller.createTrabajo` (las ambulancias del alta) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |

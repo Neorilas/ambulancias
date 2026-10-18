@@ -279,7 +279,8 @@ export default function TrabajoList() {
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         title="Eliminar trabajo"
-        message="¿Seguro que deseas eliminar este trabajo?"
+        // Se lleva sus ambulancias (solo se puede si ninguna ha empezado): que se sepa
+        message="¿Seguro que deseas eliminar este trabajo? Se eliminan también sus ambulancias, que no han empezado."
         confirmText="Eliminar"
         danger
         loading={deleting}

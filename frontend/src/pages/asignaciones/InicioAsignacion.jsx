@@ -245,8 +245,15 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
           <div className="card bg-primary-50 border border-primary-200">
             <p className="text-primary-800 text-sm">
               Púlsalo en base, al recoger la ambulancia: se registra la fecha y la hora reales
-              y después se hacen las fotos del vehículo. La llegada al lugar del servicio se
-              marca más tarde, con <strong>Inicio evento/servicio</strong>.
+              y después se hacen las fotos del vehículo.{' '}
+              {asignacion?.jornadas?.length ? (
+                // Jornadas por día (v39): las fotos, una sola vez; cada día, su jornada
+                <>Son las únicas fotos de inicio del servicio: después, cada día, se marca
+                  <strong> Inicio de jornada</strong> y <strong>Fin de jornada</strong>.</>
+              ) : (
+                <>La llegada al lugar del servicio se marca más tarde, con
+                  <strong> Inicio evento/servicio</strong>.</>
+              )}
             </p>
           </div>
         )}

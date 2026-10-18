@@ -30,8 +30,17 @@ describe('utils/trabajos', () => {
       expect(formularioInicial(null)).toEqual({
         nombre: '', descripcion: '', ubicacion: '', ubicacion_url: '', tipo: 'traslado',
         fecha_inicio: '', fecha_fin: '', coordinadores: [''],
-        usuarios: [], asignaciones: [],
+        usuarios: [], horario: [], asignaciones: [],
       });
+    });
+
+    it('al editar, carga el horario por días en hora española, agrupado por día (v39)', () => {
+      const f = formularioInicial({ horario: [
+        { inicio: '2026-10-21T13:00:00.000Z', fin: '2026-10-21T21:00:00.000Z' },
+        { inicio: '2026-10-21T08:00:00.000Z', fin: '2026-10-21T12:00:00.000Z' },
+      ] });
+      expect(f.horario).toEqual([{ dia: '2026-10-21', tramos: [
+        { desde: '15:00', hasta: '23:00' }, { desde: '10:00', hasta: '14:00' }] }]);
     });
 
     it('al editar, carga el equipo del trabajo', () => {
@@ -155,6 +164,10 @@ describe('utils/trabajos', () => {
       ['de camino', {}, 'Inicio evento/servicio'],
       ['en el evento', { llegada_servicio_at: 'x' }, 'Fin evento/servicio'],
       ['de vuelta', { llegada_servicio_at: 'x', fin_servicio_at: 'y' }, 'Finalizar asignación'],
+      // Jornadas por día (v39): en vez del evento, cada día su jornada
+      ['con jornadas, ninguna en curso', { num_jornadas: 3, jornadas_hechas: 1 }, 'Inicio de jornada'],
+      ['con una jornada en curso', { jornadas: [{ inicio_real_at: 'x' }] }, 'Fin de jornada'],
+      ['con todas las jornadas hechas', { num_jornadas: 2, jornadas_hechas: 2 }, 'Finalizar asignación'],
       ['finalizada', { estado: 'finalizada' }, null],
       ['cancelada', { estado: 'cancelada' }, null],
     ])('siguientePaso %s → %s', (_n, extra, esperado) => {
@@ -169,6 +182,8 @@ describe('utils/trabajos', () => {
       ['sin progreso', { progreso_fotos: undefined }, /^En camino$/],
       ['en el evento', { llegada_servicio_at: 'x' }, /^En el evento\/servicio$/],
       ['de vuelta', { llegada_servicio_at: 'x', fin_servicio_at: 'y' }, /^De vuelta a base$/],
+      ['en jornada', { num_jornadas: 3, jornadas_hechas: 1, en_jornada: true }, /^En jornada · 1 de 3 hechas$/],
+      ['entre jornadas', { num_jornadas: 3, jornadas_hechas: 1 }, /^Jornadas: 1 de 3 hechas$/],
       ['finalizada', { estado: 'finalizada' }, /^Finalizada$/],
     ])('textoEstadoAmbulancia %s', (_n, extra, esperado) => {
       expect(textoEstadoAmbulancia({ ...base, ...extra })).toMatch(esperado);
@@ -271,5 +286,38 @@ describe('utils/trabajos', () => {
     expect(ambulanciasDeFila({ vehiculos_nombres: '' })).toBe('');
     expect(ambulanciasDeFila({})).toBe('');
     expect(ambulanciasDeFila(null)).toBe('');
+  });
+
+  describe('horario por días (v39)', () => {
+    const tresDias = (extra = {}) => formValido({
+      fecha_inicio: '2026-10-20T08:00', fecha_fin: '2026-10-22T23:00',
+      horario: [{ dia: '2026-10-20', tramos: [{ desde: '10:00', hasta: '22:00' }] }],
+      ...extra,
+    });
+
+    it('el payload lleva el horario del trabajo en UTC', () => {
+      expect(payloadTrabajo(tresDias()).horario).toEqual([{ inicio: '2026-10-20T08:00', fin: '2026-10-20T20:00' }]);
+      expect(payloadTrabajo(tresDias(), { alta: true }).horario).toHaveLength(1);
+    });
+
+    it('una ambulancia sin horario propio no manda `horario` (hereda); con él, sí', () => {
+      const amb = { ...ambulanciaVacia(), vehicle_id: '7', responsables: [20] };
+      const propio = { ...amb, vehicle_id: '8', horario_propio: true,
+        horario: [{ dia: '2026-10-21', tramos: [{ desde: '09:00', hasta: '13:00' }] }] };
+      const p = payloadTrabajo(tresDias({ asignaciones: [amb, propio] }), { alta: true });
+      expect(p.asignaciones[0]).not.toHaveProperty('horario');
+      expect(p.asignaciones[1].horario).toEqual([{ inicio: '2026-10-21T07:00', fin: '2026-10-21T11:00' }]);
+    });
+
+    it('valida el horario del trabajo y el propio de cada ambulancia', () => {
+      expect(validarTrabajo(tresDias())).toEqual({});
+      const fuera = tresDias({ horario: [{ dia: '2026-10-23', tramos: [{ desde: '10:00', hasta: '12:00' }] }] });
+      expect(validarTrabajo(fuera).horario).toContain('se sale de las fechas');
+
+      const malPropio = { ...ambulanciaVacia(), vehicle_id: '8', responsables: [21], horario_propio: true,
+        horario: [{ dia: '2026-10-21', tramos: [{ desde: '', hasta: '13:00' }] }] };
+      expect(validarTrabajo(tresDias({ asignaciones: [malPropio] }), { alta: true }).asignaciones)
+        .toContain('Horario propio');
+    });
   });
 });

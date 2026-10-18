@@ -13,7 +13,7 @@
  */
 
 import {
-  nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, horasDudosas, ROL_SERVICIO,
+  nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, tramosEvento, horasDudosas, ROL_SERVICIO,
 } from './informes.js';
 import { formatDate } from './dateUtils.js';
 
@@ -40,7 +40,7 @@ export function filasPdf(servicios = []) {
       [s.trabajo || `Asignación #${s.asignacion_id}`, `${s.alias || ''}${s.matricula ? ` (${s.matricula})` : ''}`]
         .filter(Boolean).join('\n'),
       ROL_SERVICIO[s.rol] || s.rol || '',
-      tramo(s.llegada_servicio_at, s.fin_servicio_at),
+      tramosEvento(s).join('\n'),
       fmtMin(s.minutos_en_evento),
       tramo(s.inicio_real_at, s.finalizado_at, { sinHasta: 'sin finalizar' }),
       fmtMin(s.minutos_asignacion),

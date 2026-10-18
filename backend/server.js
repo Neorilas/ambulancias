@@ -246,6 +246,7 @@ async function startServer() {
     // no compensa dejarlo al descubierto.
     try {
       await vigilancia.revisarAsignacionesSinIniciar();
+      await vigilancia.revisarJornadasSinIniciar();   // jornadas por día (v39)
     } catch (err) {
       logger.error('Error en vigilancia de asignaciones sin iniciar:', err.message);
     }

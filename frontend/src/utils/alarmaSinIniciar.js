@@ -19,9 +19,13 @@ import { getItem, setItem } from './sessionStorage.js';
 
 export const CLAVE_ATENDIDAS = 'alarmasSinIniciarAtendidas';
 
-/** Identidad de una alarma: asignación + momento en que se avisó. */
+/**
+ * Identidad de una alarma: asignación + momento en que se avisó. Una jornada
+ * sin iniciar (v39, `jornada_id`) es otra alarma de la misma asignación.
+ */
 export function claveAlarma(alarma) {
-  return `${alarma.id}@${alarma.aviso_sin_iniciar_at ?? ''}`;
+  const quien = alarma.jornada_id ? `${alarma.id}-j${alarma.jornada_id}` : alarma.id;
+  return `${quien}@${alarma.aviso_sin_iniciar_at ?? ''}`;
 }
 
 /**
@@ -30,6 +34,8 @@ export function claveAlarma(alarma) {
  * «Enterado» quita de la bandeja la notificación del sistema.
  */
 export function tagAviso(alarma) {
+  // La de una jornada (v39), el de `avisarJornadaSinIniciar`
+  if (alarma.jornada_id) return `asig-${alarma.id}-jornada-${alarma.jornada_id}-sin-iniciar`;
   return `asig-${alarma.id}-sin-iniciar`;
 }
 

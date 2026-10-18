@@ -64,6 +64,8 @@ const ACTION_LABEL = {
   activate_asignacion: 'Activó una asignación',
   arrive_asignacion:   'Registró el inicio del evento/servicio',
   end_service_asignacion: 'Registró el fin del evento/servicio',
+  start_jornada: 'Inició una jornada',
+  end_jornada: 'Terminó una jornada',
   finalize_asignacion: 'Finalizó una asignación',
   delete_asignacion:   'Eliminó una asignación',
   create_vehicle:      'Creó un vehículo',

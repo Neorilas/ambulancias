@@ -98,6 +98,7 @@ describe('asignaciones.controller', () => {
   describe('listAlarmas', () => {
     it('devuelve las alarmas sin incluir las del propio usuario', async () => {
       query.mockResolvedValueOnce([[{ id: 5, vehiculo_alias: 'AMB-1' }]]);
+      query.mockResolvedValueOnce([[]]);   // jornadas sin iniciar (v39)
       const res = mockRes();
       await listAlarmas(mockReq({ user: { id: 9, roles: ['administrador'] } }), res, mockNext());
 
@@ -2248,9 +2249,10 @@ describe('asignaciones.controller', () => {
       expect(sql).toContain('FROM trabajo_coordinadores rc');
       expect(sql).toMatch(/END AS revisar_fin_evento/);
       // SELECT: mi_rol, fotos, tres veces el usuario, corte y umbral; luego el WHERE
-      const revisar = [3, 3, 3, '2026-10-02 22:00:00', 15];
-      expect(params.slice(0, 7)).toEqual([3, 30, ...revisar]);
-      expect(params.slice(7, 12)).toEqual(revisar);
+      // v39: el umbral de las jornadas va antes del corte de fecha
+      const revisar = [3, 3, 3, 15, '2026-10-02 22:00:00', 15];
+      expect(params.slice(0, 8)).toEqual([3, 30, ...revisar]);
+      expect(params.slice(8, 14)).toEqual(revisar);
       expect(sqlCount).toContain('IS NOT NULL');
       expect(paramsCount).toEqual(revisar);
       expect(res._json.data[0].revisar_fin_evento).toBe('pegado');
@@ -2671,7 +2673,8 @@ describe('asignación dentro de un trabajo (v33)', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       const [, params] = llamadas('INSERT INTO asignaciones_libres')[0];
-      expect(params[params.length - 1]).toBe(40);
+      // trabajo_id, y detrás horario_propio (v39): sin horario, sigue al del trabajo
+      expect(params.slice(-2)).toEqual([40, 0]);
       expect(llamadas('UPDATE trabajos SET estado')).toHaveLength(1);
       expect(res._json.data.fuera_del_trabajo).toBe(false);
     });
@@ -2760,7 +2763,7 @@ describe('asignación dentro de un trabajo (v33)', () => {
       expect(params[params.length - 1]).toBe(1);
       expect(llamadas('UPDATE trabajos SET estado').map(([, p]) => p[1]).sort()).toEqual([40, 41]);
       // Cada sincronización bloquea antes la fila de su trabajo
-      expect(llamadas('FOR UPDATE').map(([, p]) => p[0]).sort()).toEqual([40, 41]);
+      expect(llamadas('FROM trabajos WHERE id = ? FOR UPDATE').map(([, p]) => p[0]).sort()).toEqual([40, 41]);
     });
 
     it('a otro trabajo, solo sin empezar y sin evidencia', async () => {
@@ -2836,6 +2839,118 @@ describe('asignación dentro de un trabajo (v33)', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       expect(avisos.avisarTrabajoPendienteCierre).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('jornadas por día (v39)', () => {
+    const PLANTILLA = [
+      { id: 1, inicio: new Date(T0 + 3600000), fin: new Date(T0 + 5 * 3600000) },
+      { id: 2, inicio: new Date(T0 + 86400000 + 3600000), fin: new Date(T0 + 86400000 + 5 * 3600000) },
+    ];
+    const plantilla = ['FROM trabajo_jornadas', [PLANTILLA]];
+    const insertadas = () => llamadas('INSERT INTO asignacion_jornadas');
+    const iso = (ms) => new Date(T0 + ms).toISOString().slice(0, 16);
+
+    it('la ficha trae las jornadas y si el horario es propio', async () => {
+      bd([['FROM asignacion_jornadas j', [[{ id: 3, inicio: new Date(T0), fin: new Date(T0 + 3600000), cierre_auto: 1 }]]]],
+        { asig: fila({ horario_propio: 1 }) });
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+      expect(res._json.data.horario_propio).toBe(true);
+      expect(res._json.data.jornadas).toEqual([expect.objectContaining({ id: 3, cierre_auto: true })]);
+    });
+
+    it('sin trabajo no hay jornadas ni se consultan', async () => {
+      bd([], { asig: fila({ trabajo_id: null, trabajo_nombre: null, trabajo_coordinador_id: null }) });
+      const res = mockRes();
+      await getAsignacion(mockReq({ params: { id: '10' }, user: ADMIN }), res, mockNext());
+      expect(res._json.data.jornadas).toEqual([]);
+      expect(llamadas('asignacion_jornadas')).toHaveLength(0);
+    });
+
+    describe('crear', () => {
+      const CUERPO = { trabajo_id: 40, vehicle_id: 7, responsables: [2],
+                       fecha_inicio: new Date(T0).toISOString().slice(0, 19).replace('T', ' '),
+                       fecha_fin: new Date(T0 + 2 * 86400000).toISOString().slice(0, 19).replace('T', ' ') };
+      const crear = async (body) => {
+        const res = mockRes();
+        await createAsignacion(mockReq({ body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('sin horario hereda el del trabajo', async () => {
+        bd([plantilla]);
+        const res = await crear(CUERPO);
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(insertadas()).toHaveLength(2);
+        expect(llamadas('INSERT INTO asignaciones_libres')[0][1].slice(-1)).toEqual([0]);
+        // La plantilla se lee tras el bloqueo del trabajo (su foto no puede
+        // ser anterior a la de sincronizarEstadoTrabajo)
+        const sqls = query.mock.calls.map(([q]) => q);
+        expect(sqls.findIndex(q => q.includes('FROM trabajo_jornadas')))
+          .toBeGreaterThan(sqls.findIndex(q => q.includes('FROM trabajos WHERE id = ? FOR UPDATE')));
+      });
+
+      it('con horario lleva el suyo y queda marcado como propio', async () => {
+        bd([plantilla]);
+        const res = await crear({ ...CUERPO, horario: [{ inicio: iso(7200000), fin: iso(3 * 3600000) }] });
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(insertadas()).toHaveLength(1);
+        expect(llamadas('INSERT INTO asignaciones_libres')[0][1].slice(-1)).toEqual([1]);
+        expect(llamadas('FROM trabajo_jornadas')).toHaveLength(0);
+      });
+
+      it('400 con horario y sin trabajo; 400 si se sale de sus fechas', async () => {
+        bd();
+        const { trabajo_id, ...suelta } = CUERPO;
+        const res = await crear({ ...suelta, horario: [] });
+        expect(res.status).toHaveBeenCalledWith(400);
+
+        const res2 = await crear({ ...CUERPO, horario: [{ inicio: iso(-7200000), fin: iso(-3600000) }] });
+        expect(res2.status).toHaveBeenCalledWith(400);
+        expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
+      });
+    });
+
+    describe('editar', () => {
+      const editar = async (body, asig = fila()) => {
+        bd([plantilla], { asig });
+        const res = mockRes();
+        await updateAsignacion(mockReq({ params: { id: '10' }, body, user: ADMIN }), res, mockNext());
+        return res;
+      };
+
+      it('mandar un horario lo hace propio', async () => {
+        const res = await editar({ horario: [{ inicio: iso(7200000), fin: iso(3 * 3600000) }] });
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(llamadas('SET horario_propio = ?')[0][1]).toEqual([1, 10]);
+        expect(insertadas()).toHaveLength(1);
+      });
+
+      it('«igual que el trabajo» vuelve a heredar', async () => {
+        const res = await editar({ horario_propio: false },
+          fila({ horario_propio: 1, fecha_fin: new Date(T0 + 2 * 86400000) }));
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(llamadas('SET horario_propio = ?')[0][1]).toEqual([0, 10]);
+        expect(insertadas()).toHaveLength(2);
+      });
+
+      it('si sigue al trabajo y cambian sus fechas, se recalculan sus jornadas', async () => {
+        const nuevoFin = new Date(T0 + 86400000 / 2).toISOString().slice(0, 16);
+        const res = await editar({ fecha_fin: nuevoFin });
+        expect(res.status).toHaveBeenCalledWith(200);
+        // ya no va el segundo día: solo hereda el primero
+        expect(insertadas()).toHaveLength(1);
+      });
+
+      it('editar solo las notas no toca las jornadas; con horario propio, cambiar fechas tampoco', async () => {
+        await editar({ notas: 'Camilla' });
+        expect(llamadas('DELETE FROM asignacion_jornadas')).toHaveLength(0);
+
+        const fin = new Date(T0 + 86400000 / 2).toISOString().slice(0, 16);
+        await editar({ fecha_fin: fin }, fila({ horario_propio: 1 }));
+        expect(llamadas('DELETE FROM asignacion_jornadas')).toHaveLength(0);
+      });
     });
   });
 });

@@ -62,6 +62,14 @@ const validarAmbulanciasAlta = [
   body('asignaciones.*.km_inicio').optional({ nullable: true })
     .customSanitizer(limpiarMilesKm).isInt({ min: 0 }),
   body('asignaciones.*.notas').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  // Horario por días (v39): del trabajo y, si una ambulancia lleva el suyo, de
+  // ella. Tope, orden y solapes los mira jornadas.service (leerHorario).
+  body('horario').optional({ nullable: true }).isArray({ max: 62 }),
+  body('horario.*.inicio').isISO8601().withMessage('Hora de inicio de tramo inválida'),
+  body('horario.*.fin').isISO8601().withMessage('Hora de fin de tramo inválida'),
+  body('asignaciones.*.horario').optional({ nullable: true }).isArray({ max: 62 }),
+  body('asignaciones.*.horario.*.inicio').isISO8601().withMessage('Hora de inicio de tramo inválida'),
+  body('asignaciones.*.horario.*.fin').isISO8601().withMessage('Hora de fin de tramo inválida'),
 ];
 
 // Coordinadores (v35): `coordinadores: [ids]`, 1..N, todos con las mismas

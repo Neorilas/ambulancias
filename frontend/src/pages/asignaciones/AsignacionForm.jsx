@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../../components/common/Modal.jsx';
 import ListaMiembros from '../../components/common/ListaMiembros.jsx';
+import HorarioJornadas from '../../components/trabajos/HorarioJornadas.jsx';
 import { asignacionesService } from '../../services/asignaciones.service.js';
+import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { toInputDatetime, toUtcIso, inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
 import { asociadosDeTrabajo } from '../../utils/trabajos.js';
+import {
+  cruzaDias, horarioDesdeApi, horarioDentro, horarioAPayload, errorHorario, etiquetaDia, textoTramos,
+} from '../../utils/jornadas.js';
 import {
   idsElegidos, miembrosIniciales, textoSolapes, textoVehiculoOcupado,
 } from '../../utils/miembrosAsignacion.js';
@@ -58,7 +63,23 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     fecha_fin:    asignacion ? toInputDatetime(asignacion.fecha_fin)    : toInputDatetime(trabajo?.fecha_fin),
     km_inicio:    asignacion?.km_inicio    ?? '',
     notas:        asignacion?.notas        || '',
+    // Jornadas por día (v39): sin horario propio, hereda el del trabajo
+    horario_propio: !!asignacion?.horario_propio,
+    horario:      asignacion?.horario_propio ? horarioDesdeApi(asignacion.jornadas) : [],
   });
+  // Las jornadas que tiene ahora (al editar): lo que hereda, o las fichadas
+  const [jornadasActuales, setJornadasActuales] = useState(asignacion?.jornadas || []);
+  // El horario del trabajo, para enseñar lo que heredaría «igual que el
+  // trabajo» con las fechas del formulario. Con el trabajo a mano (al añadirla
+  // desde su ficha) ya viene; al editar desde la ambulancia se pide.
+  const [horarioTrabajo, setHorarioTrabajo] = useState(trabajo?.horario ?? null);
+  const trabajoId = trabajo?.id || asignacion?.trabajo_id || null;
+  useEffect(() => {
+    if (trabajo?.horario || !trabajoId) return;
+    trabajosService.get(trabajoId)
+      .then(t => setHorarioTrabajo(t?.horario || []))
+      .catch(() => setHorarioTrabajo(null));
+  }, [trabajo, trabajoId]);
 
   useEffect(() => {
     vehiclesService.list({ limit: 100 }).then(r => setVehicles(r.data || [])).catch(console.error);
@@ -78,6 +99,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
       .then(full => {
         if (!asignacion.responsables) setForm(f => ({ ...f, ...miembrosIniciales(full) }));
         setVehiculoBloqueado(motivoVehiculoBloqueado(full));
+        setJornadasActuales(full.jornadas || []);
+        setForm(f => ({ ...f, horario_propio: !!full.horario_propio,
+          horario: full.horario_propio ? horarioDesdeApi(full.jornadas) : [] }));
       })
       .catch(console.error);
   }, [asignacion]);
@@ -114,6 +138,23 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     setErrors(prev => ({ ...prev, vehicle_id: '' }));
   };
 
+  // ── Horario por días (v39) ──
+  // Solo en una ambulancia de un trabajo. Lo que heredaría «igual que el
+  // trabajo»: el horario del trabajo en las fechas del formulario (se
+  // recalcula si cambian). Mientras llega, lo que tiene ahora si ya lo seguía.
+  const enTrabajo = !!trabajoId;
+  const heredado = horarioTrabajo
+    ? horarioDentro(horarioDesdeApi(horarioTrabajo), form.fecha_inicio, form.fecha_fin)
+    : (asignacion?.horario_propio ? [] : horarioDesdeApi(jornadasActuales));
+  const conHorario = enTrabajo && (cruzaDias(form.fecha_inicio, form.fecha_fin)
+    || heredado.length > 0 || form.horario_propio || jornadasActuales.length > 0);
+  const setHorarioPropio = (propio) => {
+    setForm(f => ({ ...f, horario_propio: propio,
+      // arranca con lo que tenía (las fichadas incluidas) o con lo heredado
+      horario: !propio ? [] : (jornadasActuales.length ? horarioDesdeApi(jornadasActuales) : heredado) }));
+    setErrors(prev => ({ ...prev, horario: '' }));
+  };
+
   const validate = () => {
     const errs = {};
     if (!form.vehicle_id)   errs.vehicle_id   = 'Selecciona un vehículo';
@@ -123,6 +164,8 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     if (form.fecha_inicio && form.fecha_fin && new Date(form.fecha_fin) <= new Date(form.fecha_inicio)) {
       errs.fecha_fin = 'Fecha fin debe ser posterior a fecha inicio';
     }
+    const malHorario = form.horario_propio && errorHorario(form.horario, form.fecha_inicio, form.fecha_fin);
+    if (malHorario) errs.horario = malHorario;
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -142,6 +185,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
         notas:        form.notas || null,
         // Solo al añadirla a un trabajo; al editar, el trabajo no se toca
         ...(!isEdit && trabajo ? { trabajo_id: trabajo.id } : {}),
+        // Horario propio (aunque quede vacío), o volver a seguir al del trabajo
+        ...(enTrabajo && form.horario_propio ? { horario: horarioAPayload(form.horario) } : {}),
+        ...(isEdit && !form.horario_propio && asignacion.horario_propio ? { horario_propio: false } : {}),
       };
       const guardada = isEdit
         ? await asignacionesService.update(asignacion.id, payload)
@@ -291,6 +337,41 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             {errors.fecha_fin && <p className="field-error">{errors.fecha_fin}</p>}
           </div>
         </div>
+
+        {/* Horario por días (v39) */}
+        {conHorario && (
+          <div data-testid="horario-asignacion">
+            <label className="label">Horario por días</label>
+            <div className="flex flex-wrap gap-4 text-sm mb-2">
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={!form.horario_propio} onChange={() => setHorarioPropio(false)} />
+                Igual que el trabajo
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={form.horario_propio} onChange={() => setHorarioPropio(true)} />
+                Horario propio de esta ambulancia
+              </label>
+            </div>
+            {form.horario_propio ? (
+              <HorarioJornadas value={form.horario} onChange={h => setForm(f => ({ ...f, horario: h }))}
+                fechaInicio={form.fecha_inicio} fechaFin={form.fecha_fin} error={errors.horario} />
+            ) : (
+              <>
+                {heredado.length ? (
+                  <ul className="text-xs text-neutral-600 space-y-0.5">
+                    {heredado.map(d => <li key={d.dia}>{etiquetaDia(d.dia)}: {textoTramos(d.tramos)}</li>)}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-neutral-500">El trabajo no tiene horario por días en estas fechas.</p>
+                )}
+                <p className="text-xs text-neutral-500 mt-1">
+                  Sigue el horario del trabajo en sus fechas: si cambian, sus jornadas se recalculan.
+                  Las ya fichadas no se tocan nunca.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Km inicio */}
         <div>

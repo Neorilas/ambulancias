@@ -72,6 +72,37 @@ describe('utils/pasosAsignacion', () => {
     });
   });
 
+  describe('con jornadas por día (v39)', () => {
+    const AHORA = new Date('2026-10-21T12:00:00Z');
+    const J = (id, dia, over = {}) => ({ id, inicio: `${dia}T08:00:00Z`, fin: `${dia}T18:00:00Z`,
+      inicio_real_at: null, fin_real_at: null, ...over });
+    const hecha = (id, dia) => J(id, dia, { inicio_real_at: `${dia}T08:00:00Z`, fin_real_at: `${dia}T18:00:00Z` });
+    const base = { estado: 'activa', inicio_real_at: '2026-10-20T06:00:00Z', progreso: fotos(true) };
+
+    it('tres pasos: los del evento se cambian por «Jornadas», con cuántas van', () => {
+      const pasos = pasosAsignacion({ ...base, jornadas: [hecha(1, '2026-10-20'), J(2, '2026-10-21'), J(3, '2026-10-22')] }, AHORA);
+      expect(pasos.map(p => p.clave)).toEqual(['inicio', 'jornadas', 'cierre']);
+      expect(pasos.map(p => p.situacion)).toEqual(['hecho', 'actual', 'pendiente']);
+      expect(pasos[1].donde).toBe('1 de 3');
+    });
+
+    it('sin nada por fichar, las jornadas están hechas y toca finalizar', () => {
+      const pasos = pasosAsignacion({ ...base, jornadas: [hecha(1, '2026-10-20'), hecha(2, '2026-10-21')] }, AHORA);
+      expect(pasos.map(p => p.situacion)).toEqual(['hecho', 'hecho', 'actual']);
+      expect(pasos[1].donde).toBe('2 de 2');
+    });
+
+    it('cerrada sin ninguna jornada fichada: no consta', () => {
+      const pasos = pasosAsignacion({ ...base, estado: 'finalizada', jornadas: [J(1, '2026-10-20')] }, AHORA);
+      expect(pasos[1].situacion).toBe('no_consta');
+    });
+
+    it('la tarjeta de «Mis trabajos» (sin la lista) también vale', () => {
+      const pasos = pasosAsignacion({ ...base, num_jornadas: 2, jornadas_hechas: 2 });
+      expect(pasos.map(p => p.situacion)).toEqual(['hecho', 'hecho', 'actual']);
+    });
+  });
+
   describe('estadoVisible', () => {
     it('activa se parte en «Sin iniciar» y «En curso»', () => {
       expect(estadoVisible({ estado: 'activa' })).toEqual({ texto: 'Sin iniciar', clase: 'badge-red' });

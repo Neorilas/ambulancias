@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
 import { formatDateTime, formatHora, duration, formatMinutos } from '../../utils/dateUtils.js';
+import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
@@ -20,6 +21,10 @@ import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.j
 import { errorMotivo } from '../../utils/motivo.js';
 import { coordinadoresDe, esCoordinadorDe, nombresDe } from '../../utils/trabajos.js';
 import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
+import useAhora from '../../hooks/useAhora.js';
+import {
+  accionJornada, finJornadaAnticipado, inicioJornadaDesde, textoJornada, situacionJornada,
+} from '../../utils/jornadas.js';
 
 const TIPO_INC_OPTS = [
   ['dano_exterior', 'Daño exterior'],
@@ -31,6 +36,48 @@ const TIPO_INC_OPTS = [
 ];
 
 const TIPO_INC_LABELS = Object.fromEntries(TIPO_INC_OPTS);
+
+// Las jornadas por día (v39) de la ambulancia: previsto, real y en qué quedó.
+// «Se cerró sola» es la jornada que se olvidó cerrar: se cerró a su hora
+// prevista al iniciar la siguiente y su hora de fin no es real.
+const SITUACION_JORNADA = {
+  hecha:        null,
+  en_curso:     { texto: 'En curso',  clase: 'text-primary-700' },
+  pendiente:    { texto: 'Pendiente', clase: 'text-neutral-500' },
+  no_consta:    { texto: 'No consta', clase: 'text-neutral-400' },
+  cerrada_sola: { texto: 'Se cerró sola · a revisar', clase: 'text-bad-600' },
+};
+
+// Minutos de una jornada, redondeados como en el informe (minutosEntre del
+// backend): con `duration`, que trunca, la ficha decía 0 min y el informe 1
+const minutosJornada = (j) =>
+  Math.max(0, Math.round((new Date(j.fin_real_at) - new Date(j.inicio_real_at)) / 60000));
+
+function ListaJornadas({ jornadas, ahora }) {
+  return (
+    <div className="col-span-2" data-testid="lista-jornadas">
+      <p className="text-neutral-400 text-xs mb-1">Jornadas</p>
+      <ul className="space-y-1.5">
+        {jornadas.map(j => {
+          const sit = SITUACION_JORNADA[situacionJornada(j, ahora)];
+          return (
+            <li key={j.id} className="text-sm">
+              <span className="text-neutral-900">{textoJornada(j)}</span>
+              {j.inicio_real_at && (
+                <span className="data text-neutral-600 ml-2">
+                  real {formatHora(j.inicio_real_at)}–{j.fin_real_at ? formatHora(j.fin_real_at) : '…'}
+                  {j.fin_real_at && !j.cierre_auto && ` (${formatMinutos(minutosJornada(j))})`}
+                </span>
+              )}
+              {sit && <span className={`text-xs ml-2 ${sit.clase}`}>{sit.texto}</span>}
+              {j.motivo_fin && <p className="text-xs text-neutral-500">Motivo de fin anticipado: {j.motivo_fin}</p>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 const GRAVEDAD_BADGE = {
   leve:     'bg-warn-50 text-warn-600',
@@ -226,6 +273,14 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   // El servidor exigió el motivo aunque el reloj del móvil decía que ya era la
   // hora prevista: se enseña el campo igual.
   const [forzarMotivo, setForzarMotivo] = useState(false);
+  // Jornadas por día (v39): qué jornada se está fichando y su motivo de fin
+  const [fichandoJornada, setFichandoJornada] = useState(false);
+  const [motivoJornada, setMotivoJornada] = useState('');
+  const [avisoMotivoJornada, setAvisoMotivoJornada] = useState(null);
+  const [forzarMotivoJornada, setForzarMotivoJornada] = useState(false);
+  // «Finalizar asignación» con jornadas aún por fichar: se confirma antes
+  const [confirmarFinConJornadas, setConfirmarFinConJornadas] = useState(false);
+  const ahora = useAhora();
   const [showIncForm, setShowIncForm] = useState(false);
   const emptyIncForm = { tipo: 'dano_exterior', gravedad: 'leve', descripcion: '', responsable_user_id: '' };
   const [incForm, setIncForm] = useState(emptyIncForm);
@@ -316,6 +371,51 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
     }
   };
 
+  // «Inicio de jornada» / «Fin de jornada» (v39). La hora la pone el
+  // servidor; el motivo, solo si termina más de 30 min antes de lo previsto
+  // (el servidor lo vuelve a mirar con su reloj y, si discrepa, pide el campo).
+  const handleInicioJornada = async (jornada) => {
+    setFichandoJornada(true);
+    try {
+      setAsig(await asignacionesService.iniciarJornada(id, jornada.id));
+      notify.success('Jornada iniciada');
+    } catch (err) {
+      // 409: el horario cambió o la jornada se cerró sola; lo que hay en
+      // pantalla ya no vale, se recarga en vez de pedírselo al técnico (y el
+      // aviso lo dice así, no «recarga la ficha»)
+      if (err.response?.status === 409) {
+        notify.warning('El horario de esta ambulancia ha cambiado: la ficha se ha actualizado. Revisa la jornada y vuelve a pulsar.');
+        load();
+      } else {
+        notify.error(err.response?.data?.message || 'No se pudo iniciar la jornada');
+      }
+    } finally {
+      setFichandoJornada(false);
+    }
+  };
+  const handleFinJornada = async (jornada, pideMotivo) => {
+    const fallo = pideMotivo && errorMotivo(motivoJornada);
+    if (fallo) { setAvisoMotivoJornada(fallo); return; }
+    setFichandoJornada(true);
+    try {
+      setAsig(await asignacionesService.finalizarJornada(id, jornada.id, pideMotivo ? motivoJornada.trim() : null));
+      setMotivoJornada('');
+      setForzarMotivoJornada(false);
+      notify.success('Jornada terminada');
+    } catch (err) {
+      if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivoJornada(true);
+      if (err.response?.status === 409) {
+        notify.warning(`${err.response?.data?.message?.includes('se cerró sola') ? 'Esta jornada se cerró sola al iniciar la siguiente'
+          : 'El horario de esta ambulancia ha cambiado'}: la ficha se ha actualizado.`);
+        load();
+      } else {
+        notify.error(err.response?.data?.message || 'No se pudo terminar la jornada');
+      }
+    } finally {
+      setFichandoJornada(false);
+    }
+  };
+
   // Evidencias indexadas por (momento, tipo)
   const evInicio = {};
   const evFin    = {};
@@ -361,14 +461,27 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   // Tras las fotos de inicio va el desplazamiento; al llegar se pulsa
   // «Inicio evento/servicio». Es OPCIONAL a propósito: quien se olvide tiene que
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
-  const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto
+  // Con horario por días (v39), la jornada sustituye a la pareja del evento
+  const conJornadas      = (asig?.jornadas || []).length > 0;
+  const faltaLlegada     = soyResponsable && asig?.estado === 'activa' && !inicioIncompleto && !conJornadas
                            && !!asig?.inicio_real_at && !asig?.llegada_servicio_at;
   // Y al terminar en el sitio, «Fin evento/servicio». Solo tras la llegada (sin
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
-  const faltaFinServicio = soyResponsable && asig?.estado === 'activa'
+  const faltaFinServicio = soyResponsable && asig?.estado === 'activa' && !conJornadas
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
   const finAnticipado    = faltaFinServicio && (forzarMotivo || new Date() < new Date(asig?.fecha_fin));
-  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto;
+  // Qué jornada toca: solo con la asignación iniciada y sus fotos de inicio
+  const jornadaAhora     = conJornadas && soyResponsable && asig?.estado === 'activa'
+                           && !!asig?.inicio_real_at && !inicioIncompleto
+                           ? accionJornada(asig.jornadas, ahora) : { principal: null };
+  const motivoJornadaPedido = jornadaAhora.principal === 'fin'
+    && (forzarMotivoJornada || finJornadaAnticipado(jornadaAhora.abierta, ahora));
+  // Con una jornada abierta no se finaliza (el backend da 400): primero su «Fin de jornada»
+  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto && !jornadaAhora.abierta;
+  // Las que aún no han terminado y nadie ha fichado: finalizar ahora las deja
+  // sin hacer. Es fácil pulsarlo el primer día por error (lo vio la prueba
+  // local del 2026-10-18), así que se pide confirmación.
+  const jornadasPendientes = (asig?.jornadas || []).filter(j => !j.inicio_real_at && new Date(j.fin) > ahora);
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -510,14 +623,83 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               </div>
             )}
 
+            {/* Jornadas por día (v39): la de ahora, con su botón */}
+            {jornadaAhora.principal === 'inicio' && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3" data-testid="jornada-inicio">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">Jornada · {textoJornada(jornadaAhora.siguiente)}</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Púlsalo al empezar la jornada en el sitio: se guarda la hora real.
+                  </p>
+                  {jornadaAhora.abierta && (
+                    <p className="text-xs text-warn-700 mt-1">
+                      La jornada del {textoJornada(jornadaAhora.abierta)} sigue abierta: al iniciar esta se
+                      cerrará sola a su hora prevista y quedará marcada para revisar.
+                    </p>
+                  )}
+                </div>
+                <button onClick={() => handleInicioJornada(jornadaAhora.siguiente)} disabled={fichandoJornada}
+                  className="btn-primary w-full">
+                  {fichandoJornada ? 'Registrando…' : 'Inicio de jornada'}
+                </button>
+                {/* Quien terminó la anterior unos minutos tarde la cierra él,
+                    con su hora real, en vez de dejar que se cierre sola */}
+                {jornadaAhora.abierta && (
+                  <button onClick={() => handleFinJornada(jornadaAhora.abierta, false)} disabled={fichandoJornada}
+                    className="btn-secondary w-full" data-testid="fin-jornada-anterior">
+                    Fin de jornada de la anterior ({textoJornada(jornadaAhora.abierta)})
+                  </button>
+                )}
+              </div>
+            )}
+            {jornadaAhora.principal === 'fin' && (
+              <div className="card bg-primary-50 border-primary-200 border-2 space-y-3" data-testid="jornada-fin">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">Jornada en curso · {textoJornada(jornadaAhora.abierta)}</p>
+                  <p className="text-xs text-primary-800 mt-0.5">
+                    Iniciada a las {formatHora(jornadaAhora.abierta.inicio_real_at)}. Púlsalo al terminar la
+                    jornada en el sitio{jornadaAhora.siguiente ? '' : ', antes de volver a base'}.
+                  </p>
+                </div>
+                {motivoJornadaPedido && (
+                  <div>
+                    <p className="text-xs text-warn-600 mb-1">
+                      Estaba prevista hasta las {formatHora(jornadaAhora.abierta.fin)}. Terminas antes de esa hora.
+                    </p>
+                    <label className="label">Motivo <span className="text-bad-500">*</span></label>
+                    <textarea className="input resize-none" rows={3}
+                      placeholder="Explica por qué terminas antes de lo previsto"
+                      value={motivoJornada}
+                      onChange={e => { setMotivoJornada(e.target.value); setAvisoMotivoJornada(null); }} />
+                    {avisoMotivoJornada && <p className="text-xs text-bad-500 mt-1">{avisoMotivoJornada}</p>}
+                  </div>
+                )}
+                <button onClick={() => handleFinJornada(jornadaAhora.abierta, motivoJornadaPedido)}
+                  disabled={fichandoJornada || (motivoJornadaPedido && !motivoJornada.trim())}
+                  className="btn-primary w-full">
+                  {fichandoJornada ? 'Registrando…' : 'Fin de jornada'}
+                </button>
+              </div>
+            )}
+            {jornadaAhora.principal === 'esperar' && (
+              <div className="card bg-neutral-50 border-neutral-200 space-y-2" data-testid="jornada-esperar">
+                <p className="text-sm text-neutral-700">
+                  Siguiente jornada: <strong>{textoJornada(jornadaAhora.siguiente)}</strong>
+                </p>
+                <button disabled className="btn-secondary w-full">
+                  Inicio de jornada · desde {formatDateTime(inicioJornadaDesde(jornadaAhora.siguiente))}
+                </button>
+              </div>
+            )}
+
             {/* Un solo botón principal cada vez: mientras esté por marcar el
                 evento/servicio, ese es el azul y «Finalizar» queda en secundario.
                 Sigue ahí porque el evento es opcional (§6.1): quien lo olvidó
                 tiene que poder cerrar igual. */}
             {puedeFin && (
               <div className="flex gap-2">
-                <button onClick={() => abrirPaso('fin')}
-                  className={`${faltaLlegada || faltaFinServicio ? 'btn-secondary' : 'btn-primary'} flex-1`}>
+                <button onClick={() => (jornadasPendientes.length ? setConfirmarFinConJornadas(true) : abrirPaso('fin'))}
+                  className={`${faltaLlegada || faltaFinServicio || jornadaAhora.principal ? 'btn-secondary' : 'btn-primary'} flex-1`}>
                   Finalizar asignación
                 </button>
               </div>
@@ -604,7 +786,9 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
-                      en el sitio empieza aquí, no en el «Inicio de la asignación». */}
+                      en el sitio empieza aquí, no en el «Inicio de la asignación».
+                      Con jornadas por día (v39) no se usa: van en su lista, abajo. */}
+                  {!conJornadas && <>
                   <div className="col-span-2">
                     <p className="text-neutral-400 text-xs mb-0.5">Inicio evento/servicio</p>
                     <p className="text-neutral-900">
@@ -653,7 +837,28 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                       </div>
                     )}
                   </div>
+                  </>}
                 </>
+              )}
+              {conJornadas && <ListaJornadas jornadas={asig.jornadas} ahora={ahora} />}
+              {/* «A revisar» con jornadas (v39): solo llega a la oficina, como el del evento */}
+              {conJornadas && asig.revisar_fin_evento && (
+                <div className="col-span-2 rounded-lg border border-bad-200 bg-bad-50 px-3 py-2 text-xs text-bad-600"
+                     data-testid="aviso-revisar-jornadas">
+                  <p className="font-semibold">A revisar</p>
+                  {asig.revisar_fin_evento.motivo === 'jornada_sola' ? (
+                    <p>
+                      Una jornada se quedó sin «Fin de jornada» y se cerró sola a su hora prevista al iniciar
+                      la siguiente: su hora de fin no es la real y sus horas no cuentan en el informe.
+                    </p>
+                  ) : (
+                    <p>
+                      El último «Fin de jornada» se pulsó {asig.revisar_fin_evento.minutos} min antes de finalizar
+                      la asignación (umbral: {asig.revisar_fin_evento.umbral_min} min). Probablemente ya en base:
+                      la hora de fin de esa jornada puede no ser la real.
+                    </p>
+                  )}
+                </div>
               )}
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Km inicio</p>
@@ -967,6 +1172,19 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
           </div>
         </div>
       )}
+      <ConfirmDialog
+        isOpen={confirmarFinConJornadas}
+        onClose={() => setConfirmarFinConJornadas(false)}
+        onConfirm={() => { setConfirmarFinConJornadas(false); abrirPaso('fin'); }}
+        title="Quedan jornadas por fichar"
+        message={(jornadasPendientes.length === 1 ? 'Queda 1 jornada' : `Quedan ${jornadasPendientes.length} jornadas`) + ' sin fichar'
+          + (jornadasPendientes[0] ? ` (la próxima: ${textoJornada(jornadasPendientes[0])})` : '')
+          + '. «Finalizar asignación» es para el último día, al volver a base con las fotos de fin: después ya no se'
+          + ' podrán fichar. Para terminar el día de hoy, usa «Fin de jornada».'}
+        confirmText="Finalizar igualmente"
+        cancelText="No, volver"
+        danger
+      />
     </div>
   );
 }

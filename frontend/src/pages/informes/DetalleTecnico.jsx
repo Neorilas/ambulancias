@@ -24,7 +24,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 import { formatDate } from '../../utils/dateUtils.js';
 import {
-  nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, horasDudosas, ROL_SERVICIO,
+  nombreMes, fmtMin, textoAviso, totalesDetalle, tramo, tramosEvento, horasDudosas, ROL_SERVICIO,
 } from '../../utils/informes.js';
 
 const FONDO_FILA = { grave: 'bg-bad-50', aviso: 'bg-warn-50' };
@@ -171,7 +171,9 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
                           </div>
                           <div className="text-xs text-neutral-400">{ROL_SERVICIO[s.rol] || s.rol}</div>
                         </td>
-                        <td className="px-3 py-2 font-mono whitespace-nowrap align-top">{tramo(s.llegada_servicio_at, s.fin_servicio_at)}</td>
+                        <td className="px-3 py-2 font-mono whitespace-nowrap align-top">
+                          {tramosEvento(s).map((t, i) => <div key={i}>{t}</div>)}
+                        </td>
                         <td className="px-3 py-2 font-mono whitespace-nowrap text-right align-top">{fmtMin(s.minutos_en_evento)}</td>
                         <td className="px-3 py-2 font-mono whitespace-nowrap align-top">
                           {tramo(s.inicio_real_at, s.finalizado_at, { sinHasta: 'sin finalizar' })}

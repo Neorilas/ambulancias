@@ -43,7 +43,9 @@ const { ahora, instanteEnEspana, anioMesEnEspana, instanteUtc } = require('../ut
 const { SQL_REVISAR_FIN_EVENTO, paramsRevisarFinEvento } = require('../controllers/asignaciones.controller');
 const logger = require('../utils/logger.utils');
 
-const VERSION_INFORME = 2;   // 2: tiempo por técnico (asignación y en el evento)
+// 2: tiempo por técnico (asignación y en el evento). 3: jornadas por día (v39):
+// con horario por días, las horas son la suma de las jornadas cerradas a mano.
+const VERSION_INFORME = 3;
 const MINUTO = 60000;
 // «Inicio evento/servicio» (la llegada, v26) llegó a PRO el 25-sep a las
 // 17:32: desde el 26 a las 00:00 en hora española se echa de menos. Antes, no
@@ -99,6 +101,53 @@ const minutosEntre = (a, b) => Math.round((b.getTime() - a.getTime()) / MINUTO);
 
 const nombreDe = (r) => [r.nombre, r.apellidos].filter(Boolean).join(' ').trim() || `Usuario ${r.user_id}`;
 
+// ── Jornadas por día (v39) ───────────────────────────────────
+
+/**
+ * Las jornadas de unas asignaciones, por asignación. Sin ids no consulta (un
+ * `IN ()` vacío es SQL inválido).
+ */
+async function jornadasPorAsignacion(ids) {
+  const mapa = new Map();
+  if (!ids.length) return mapa;
+  const [filas] = await query(
+    `SELECT asignacion_id, inicio, fin, inicio_real_at, fin_real_at, cierre_auto, motivo_fin
+       FROM asignacion_jornadas
+      WHERE asignacion_id IN (${ids.map(() => '?').join(',')})
+      ORDER BY inicio`,
+    ids
+  );
+  for (const j of filas || []) {
+    if (!mapa.has(j.asignacion_id)) mapa.set(j.asignacion_id, []);
+    mapa.get(j.asignacion_id).push(j);
+  }
+  return mapa;
+}
+
+/**
+ * Lo que dicen las jornadas de un servicio (decisiones del usuario,
+ * 2026-10-17): las horas son la SUMA de las jornadas cerradas a mano; la que
+ * se cerró sola al iniciar la siguiente (`cierre_auto`) no suma, porque su
+ * hora de fin no es real. Una jornada que terminó sin que nadie la iniciara
+ * («no consta») tampoco suma y se cuenta aparte.
+ */
+function analizarJornadas(jornadas, limite, cerrada = false) {
+  const r = { minutos: 0, medidas: 0, sin_iniciar: 0, cerradas_solas: 0, abiertas: 0, anticipadas: 0 };
+  for (const j of jornadas) {
+    if (j.inicio_real_at && j.fin_real_at && !Number(j.cierre_auto)) {
+      r.minutos += Math.max(0, minutosEntre(j.inicio_real_at, j.fin_real_at));
+      r.medidas++;
+    }
+    if (Number(j.cierre_auto)) r.cerradas_solas++;
+    if (j.inicio_real_at && !j.fin_real_at) r.abiertas++;
+    // Con la asignación ya finalizada, una sin fichar ya no llegará aunque su
+    // hora sea posterior: cuenta (la pantalla la pinta «no consta»)
+    if (!j.inicio_real_at && (cerrada || j.fin.getTime() <= limite.getTime())) r.sin_iniciar++;
+    if (j.motivo_fin) r.anticipadas++;
+  }
+  return r;
+}
+
 // ── Cálculo ──────────────────────────────────────────────────
 
 /**
@@ -130,6 +179,24 @@ function analizarServicio(a, limiteSinIniciar) {
     s.cierre_tardio     = margen > INICIO_TARDIO_MINUTOS;
     s.cierre_anticipado = margen < -INICIO_TARDIO_MINUTOS;
     if (inicio) s.minutos_servicio = Math.max(0, minutosEntre(inicio, a.finalizado_at));
+  }
+
+  // Con jornadas por día (v39) las horas no salen de los sellos de la
+  // asignación (61 h en un congreso de tres días, noches incluidas) sino de
+  // la suma de jornadas, y la jornada hace de «evento/servicio»: las de
+  // asignación, con la asignación finalizada (lo abierto no se cuenta, como
+  // siempre); las de evento, en cuanto hay alguna jornada medida.
+  if (a.jornadas?.length) {
+    const j = analizarJornadas(a.jornadas, limiteSinIniciar, s.finalizado);
+    s.jornadas = j;
+    const primera = a.jornadas.find(x => x.inicio_real_at);
+    s.con_llegada    = Boolean(inicio && primera);
+    s.desplazamiento = inicio && primera ? minutosEntre(inicio, primera.inicio_real_at) : null;
+    s.minutos_en_sitio = j.medidas ? j.minutos : null;
+    s.evento_sin_fin   = j.abiertas > 0;
+    // Sin ninguna jornada medida no hay horas que dar: null, no 0, o contaría
+    // como «medida» y rebajaría la suma de quien sí las tiene (revisión 2026-10-17)
+    s.minutos_servicio = s.finalizado && inicio && j.medidas ? j.minutos : null;
   }
   return s;
 }
@@ -191,6 +258,8 @@ async function calcularInforme(mes, instante = ahora()) {
       WHERE ${filtro}`,
     [FOTOS_INICIO_TARDE_MINUTOS, desde, hasta]
   );
+  const jornadas = await jornadasPorAsignacion(asignaciones.map(a => a.id));
+  for (const a of asignaciones) a.jornadas = jornadas.get(a.id) || [];
 
   const [miembros] = await query(
     `SELECT au.asignacion_id, au.user_id, au.rol, u.nombre, u.apellidos
@@ -366,6 +435,32 @@ function avisosServicio(a, s, limite) {
 
   if (s.sin_iniciar) avisos.push({ codigo: 'sin_iniciar', nivel: 'grave' });
   if (s.sin_finalizar && debioCerrar) avisos.push({ codigo: 'sin_finalizar', nivel: 'grave' });
+  // Con jornadas por día (v39), las del evento no aplican: la jornada las
+  // sustituye. Graves las que dejan horas sin sumar o falsas; el fin
+  // anticipado de una jornada, aviso (lleva motivo).
+  if (s.jornadas) {
+    const j = s.jornadas;
+    if (j.sin_iniciar) avisos.push({ codigo: 'jornada_sin_iniciar', nivel: 'grave', cuantas: j.sin_iniciar });
+    if (j.cerradas_solas) avisos.push({ codigo: 'jornada_cerrada_sola', nivel: 'grave', cuantas: j.cerradas_solas });
+    if (j.abiertas && debioCerrar) avisos.push({ codigo: 'jornada_sin_fin', nivel: 'grave', cuantas: j.abiertas });
+    // El último «Fin de jornada» pulsado ya en base (misma regla y quién la ve
+    // que «A revisar»: SQL_REVISAR_FIN_EVENTO con el id de quien mira)
+    if (a.revisar_fin_evento === 'pegado') {
+      const fines = a.jornadas.filter(x => x.fin_real_at).map(x => x.fin_real_at.getTime());
+      avisos.push({ codigo: 'fin_jornada_pegado', nivel: 'grave',
+                    minutos: Math.max(0, Math.floor((a.finalizado_at - Math.max(...fines)) / MINUTO)) });
+    }
+    if (a.rol === 'responsable' && j.anticipadas) {
+      avisos.push({ codigo: 'fin_jornada_anticipado', nivel: 'aviso', cuantas: j.anticipadas });
+    }
+    const responsableJ = a.rol === 'responsable';
+    if (responsableJ && s.tardio) avisos.push({ codigo: 'inicio_tardio', nivel: 'aviso', minutos: s.retraso_min });
+    if (responsableJ && (s.cierre_tardio || s.cierre_anticipado)) {
+      avisos.push({ codigo: s.cierre_tardio ? 'cierre_tardio' : 'cierre_anticipado', nivel: 'aviso',
+                    minutos: Math.abs(minutosEntre(a.fecha_fin, a.finalizado_at)) });
+    }
+    return avisos;
+  }
   if (s.iniciado && debioCerrar && !a.llegada_servicio_at && desde(LLEGADA_EXIGIDA_DESDE)) {
     avisos.push({ codigo: 'sin_inicio_evento', nivel: 'grave' });
   }
@@ -420,6 +515,8 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
     [...paramsRevisarFinEvento(viewerId), userId, desde, hasta]
   );
   const [archivo] = await query('SELECT 1 AS hay FROM informe_mensual WHERE mes = ?', [mes]);
+  const jornadas = await jornadasPorAsignacion(filas.map(a => a.id));
+  for (const a of filas) a.jornadas = jornadas.get(a.id) || [];
 
   const iso = (x) => (x ? x.toISOString() : null);
   const servicios = filas.map((a) => {
@@ -433,6 +530,11 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
       fin_servicio_at: iso(a.fin_servicio_at), finalizado_at: iso(a.finalizado_at),
       minutos_asignacion: s.minutos_servicio,
       minutos_en_evento: s.minutos_en_sitio,
+      // Las jornadas por día (v39), para listarlas en el detalle y el PDF
+      jornadas: a.jornadas.map(j => ({
+        inicio: iso(j.inicio), fin: iso(j.fin), inicio_real_at: iso(j.inicio_real_at),
+        fin_real_at: iso(j.fin_real_at), cierre_auto: !!Number(j.cierre_auto), motivo_fin: j.motivo_fin || null,
+      })),
       avisos: avisosServicio(a, s, limite),
     };
   });
