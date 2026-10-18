@@ -34,12 +34,14 @@ function hasta(nombre) {
  * @param {string[]} autoActualizan  columnas con ON UPDATE CURRENT_TIMESTAMP
  * @param {number}   permisosSembrados  filas en role_permissions
  * @param {boolean}  existeUser1 si users tiene el id 1
+ * @param {object}   colaciones  collation por tabla (v40); sin dato, la que pone MySQL 8 por defecto
+ * @param {number}   rolDePrueba id del rol test_rol_api sin usuarios (v40); null = no está
  * @param {string}   fallarEn   fragmento de SQL que debe lanzar error
  */
 function mockDb({
   aplicadas = [], columnas = [], indices = [], tablas = [], filas = {},
   autoActualizan = [],
-  permisosSembrados = 0, existeUser1 = false, fallarEn = null,
+  permisosSembrados = 0, existeUser1 = false, colaciones = {}, rolDePrueba = null, fallarEn = null,
 } = {}) {
   const ejecutadas = [];
   const ledger     = [...aplicadas];
@@ -51,6 +53,14 @@ function mockDb({
     ejecutadas.push(sql);
 
     if (fallarEn && sql.includes(fallarEn)) throw new Error('fallo SQL simulado');
+
+    // v40 mira la collation de la tabla antes de convertirla.
+    if (sql.includes('TABLE_COLLATION')) {
+      return [[{ collation: colaciones[params[0]] || 'utf8mb4_0900_ai_ci' }]];
+    }
+    if (sql.includes("r.nombre = 'test_rol_api'")) {
+      return [rolDePrueba ? [{ id: rolDePrueba }] : []];
+    }
 
     // v16 pregunta primero si la tabla existe, luego qué columnas DATETIME
     // tiene, lee las filas a corregir y las reescribe una a una.
@@ -900,7 +910,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas']);
+    expect(aplicadas).toEqual(['v36_facturas_mantenimiento', 'v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
     const vehiculo = ejecutadas.find(q => q.includes('ADD COLUMN vehicle_id'));
     expect(vehiculo).toContain('ALTER TABLE facturas');
     expect(vehiculo).toContain('NULL DEFAULT NULL');
@@ -925,7 +935,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas']);
+    expect(aplicadas).toEqual(['v37_mantenimiento_km', 'v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
     const veh = ejecutadas.find(q => q.includes('ADD COLUMN km_proximo_mantenimiento'));
     expect(veh).toContain('ALTER TABLE vehicles');
     expect(veh).toContain('INT UNSIGNED NULL DEFAULT NULL');
@@ -958,7 +968,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v38_aviso_mantenimiento_km', 'v39_jornadas']);
+    expect(aplicadas).toEqual(['v38_aviso_mantenimiento_km', 'v39_jornadas', 'v40_limpieza_esquema']);
     const col = ejecutadas.find(q => q.includes('ADD COLUMN aviso_mantenimiento_km'));
     expect(col).toContain('ALTER TABLE vehicles');
     expect(col).toContain('INT UNSIGNED NULL DEFAULT NULL');
@@ -980,7 +990,7 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
     const { aplicadas, fallida } = await runMigrations();
 
     expect(fallida).toBeNull();
-    expect(aplicadas).toEqual(['v39_jornadas']);
+    expect(aplicadas).toEqual(['v39_jornadas', 'v40_limpieza_esquema']);
     const plantilla = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS trabajo_jornadas'));
     expect(plantilla).toContain('REFERENCES trabajos(id) ON DELETE CASCADE');
     const jornadas = ejecutadas.find(q => q.includes('CREATE TABLE IF NOT EXISTS asignacion_jornadas'));
@@ -1002,5 +1012,80 @@ describe('v16_horas_a_utc · filas a caballo del corte', () => {
 
     expect(fallida).toBeNull();
     expect(ejecutadas.some(q => q.includes('ADD COLUMN'))).toBe(false);
+  });
+  it('v40 borra las vistas sin uso y el permiso access_admin con su reparto', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v39_jornadas') });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v40_limpieza_esquema']);
+    expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_users_roles');
+    expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_trabajos_activos');
+    const reparto = ejecutadas.findIndex(q => q.includes('DELETE rp FROM role_permissions'));
+    const permiso = ejecutadas.findIndex(q => q.includes("DELETE FROM permissions WHERE nombre = 'access_admin'"));
+    expect(reparto).toBeGreaterThan(-1);
+    // El reparto antes que el permiso: no depende de que la FK tenga CASCADE
+    expect(permiso).toBeGreaterThan(reparto);
+  });
+
+  it('v40 borra el rol test_rol_api solo si no lo lleva nadie', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v39_jornadas'), rolDePrueba: 8 });
+    await runMigrations();
+
+    const consulta = ejecutadas.find(q => q.includes("r.nombre = 'test_rol_api'"));
+    expect(consulta).toContain('NOT EXISTS (SELECT 1 FROM user_roles');
+    expect(ejecutadas).toContain('DELETE FROM role_permissions WHERE role_id = ?');
+    expect(ejecutadas).toContain('DELETE FROM roles WHERE id = ?');
+  });
+
+  it('v40 no toca roles si el de prueba no está o tiene usuarios', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v39_jornadas') });
+    await runMigrations();
+
+    expect(ejecutadas.some(q => q.includes('DELETE FROM roles'))).toBe(false);
+  });
+
+  it('v40 pasa a utf8mb4_unicode_ci las dos tablas que nacieron con otra collation', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v39_jornadas') });
+    await runMigrations();
+
+    expect(ejecutadas).toContain('ALTER TABLE app_features CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    expect(ejecutadas).toContain('ALTER TABLE schema_migrations CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+  });
+
+  it('v40 no convierte una tabla que ya tiene la collation buena', async () => {
+    const { ejecutadas } = mockDb({
+      aplicadas: hasta('v39_jornadas'),
+      colaciones: { app_features: 'utf8mb4_unicode_ci', schema_migrations: 'utf8mb4_unicode_ci' },
+    });
+    const { fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(ejecutadas.some(q => q.includes('CONVERT TO CHARACTER SET'))).toBe(false);
+  });
+  it('v40 sigue si no tiene permiso para borrar una vista de root, y la da por aplicada', async () => {
+    const { ejecutadas } = mockDb({ aplicadas: hasta('v39_jornadas') });
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.startsWith('DROP VIEW')) {
+        await base(sql, params);
+        throw Object.assign(new Error('Access denied; you need SYSTEM_USER'), { errno: 1227 });
+      }
+      return base(sql, params);
+    });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBeNull();
+    expect(aplicadas).toEqual(['v40_limpieza_esquema']);
+    expect(ejecutadas).toContain('DROP VIEW IF EXISTS v_trabajos_activos');
+    expect(ejecutadas.some(q => q.includes("DELETE FROM permissions WHERE nombre = 'access_admin'"))).toBe(true);
+  });
+
+  it('v40 se para ante cualquier otro error al borrar una vista', async () => {
+    mockDb({ aplicadas: hasta('v39_jornadas'), fallarEn: 'DROP VIEW IF EXISTS v_users_roles' });
+    const { aplicadas, fallida } = await runMigrations();
+
+    expect(fallida).toBe('v40_limpieza_esquema');
+    expect(aplicadas).toEqual([]);
   });
 });

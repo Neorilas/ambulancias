@@ -8,7 +8,7 @@ const adminUser = {
   nombre: 'Admin',
   apellidos: 'Test',
   roles: ['superadmin', 'administrador'],
-  permissions: ['manage_vehicles', 'manage_users', 'manage_trabajos', 'view_all_trabajos', 'manage_incidencias', 'access_admin'],
+  permissions: ['manage_vehicles', 'manage_users', 'manage_trabajos', 'view_all_trabajos', 'manage_incidencias'],
 };
 
 const gestorUser = {

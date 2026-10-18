@@ -187,7 +187,7 @@ async function usuariosNoValidos(ids, yaMiembros = []) {
 /**
  * Reescribe los responsables de un vehículo del trabajo y sincroniza el
  * principal (`trabajo_vehiculos.responsable_user_id`, el primero de la lista),
- * que siguen leyendo la vista v_trabajos_activos y el historial del vehículo.
+ * que sigue leyendo el historial del vehículo.
  */
 async function guardarResponsables(conn, trabajoVehiculoId, responsables) {
   await conn.execute(

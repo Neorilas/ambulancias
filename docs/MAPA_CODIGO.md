@@ -1326,8 +1326,8 @@ mismo `onComplete` que la cámara.
 
 Tablas (dónde se crean): `schema.sql` → `users, roles, user_roles,
 login_attempts, refresh_tokens, vehicles, trabajos, trabajo_vehiculos,
-trabajo_usuarios, vehicle_images` + vistas `v_users_roles`, `v_trabajos_activos`
-+ eventos de limpieza. Migraciones → `vehicle_revisiones`,
+trabajo_usuarios, vehicle_images` + eventos de limpieza (las vistas
+`v_users_roles` y `v_trabajos_activos` ya no se crean desde la v40). Migraciones → `vehicle_revisiones`,
 `vehicle_incidencias` (v2), `audit_logs`, `error_logs` (v3), `permissions`,
 `role_permissions` (v4), `asignaciones_libres` (v6), `app_features` (v9),
 `incidencia_comentarios` (v13), `push_subscriptions` (v17),
@@ -1385,13 +1385,45 @@ miembros, solo la ve su `user_id` (el listado y `ownership` lo aceptan de
 respaldo). Le pasó a `scripts/seed-local.js`, que corre después de las
 migraciones y por tanto no recibe el relleno de v23: ahora lo repite él.
 
-**Ojo:** `schema.sql` es solo la base (10 tablas de la v1); le faltan
-`asignaciones_libres` y otras 12. La fuente real es `schema.sql` +
+**Ojo:** `schema.sql` es solo la base (10 tablas de la v1) y empieza con
+`DROP TABLE`: solo sirve para una base vacía. Le faltan
+`asignaciones_libres` y las demás. La fuente real es `schema.sql` +
 `migrations.js`, que reescribe también las v2–v8 antiguas con guardas.
 `scripts/setup-db.js` hace las tres cosas (schema, seed y migraciones) y sale en
 rojo si una migración falla; comprobado 2026-09-26 contra una base vacía: queda
 idéntica a la local (23 tablas, 25 migraciones, 16 filas de `role_permissions`)
-y una segunda pasada no aplica nada.
+y una segunda pasada no aplica nada. Repetido 2026-10-18 con la v40: 29 tablas,
+ninguna vista, una sola collation, 39 migraciones y 15 filas de `role_permissions`.
+
+**v40 (2026-10-18), la limpieza segura de la revisión de la BD.** Borra lo que
+no usaba nadie: las dos vistas, el permiso `access_admin` (el panel del
+superadmin entra por rol) y el rol `test_rol_api` si no lo lleva nadie; y pasa
+`app_features` y `schema_migrations` a `utf8mb4_unicode_ci`, que nacieron con
+la de MySQL 8 por defecto (`0900_ai_ci`) y daban «Illegal mix of collations» al
+cruzarlas con el resto. Trampas:
+- **Las vistas son de `root`** (las creó `schema.sql`) y una vista con DEFINER
+  root solo la borra quien tenga `SYSTEM_USER`; el usuario de la app no lo
+  tiene, ni en local ni en PRO. Por eso la v40 traga ese error concreto
+  (errno 1227), avisa en el log y sigue: en las bases antiguas **las vistas
+  siguen ahí** hasta que alguien haga `DROP VIEW` como root. Sin uso no
+  molestan. Cualquier otro error al borrarlas sí para la cadena.
+- `test_api.mjs` crea `test_rol_api` contra la API que le digan, **por defecto
+  la de PRO**: si se vuelve a lanzar, el rol reaparece.
+
+**Lo que quedó pendiente de la revisión (2026-10-17), por tener riesgo:**
+- Retirar el **modelo v25** (`trabajo_vehiculos`, `trabajo_vehiculo_responsables`,
+  `trabajos.activado_por`/`motivo_finalizacion_anticipada`,
+  `vehicle_images.trabajo_id`, `vehicle_incidencias.trabajo_id`): todo a 0 filas
+  en PRO, pero arrastra mucho código (`esV25`, `motivoNoManual`…).
+- El tipo de foto legacy `niveles_liquidos` (0 fotos en PRO): quitarlo del ENUM
+  reconstruye `vehicle_images`.
+- Los «principales» duplicados (`asignaciones_libres.user_id`,
+  `trabajos.coordinador_user_id`): hoy cuadran con sus listas, pero hay que
+  mantener las dos.
+- Dos fuentes para la última ITV/ITS/revisión: los campos del vehículo
+  (editados a mano) y `vehicle_revisiones` (1 fila en PRO).
+- `DATETIME DEFAULT CURRENT_TIMESTAMP` en tablas viejas: un `INSERT` a mano
+  desde el contenedor (Europe/Madrid) escribe hora local, el fallo de la v16.
 
 **`users.email` es `UNIQUE` (`uq_email`) y el borrado lógico se olvidaba de
 liberarlo.** `deleteUser` sufija `username` y `dni` con `__del_<id>` para que
@@ -1414,7 +1446,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v39_jornadas**. (En alguna BD local puede
+Última migración: **v40_limpieza_esquema**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1425,7 +1457,10 @@ y no existe en el código.)
 Roles: `superadmin > administrador > gestor > tecnico / enfermero / medico /
 tes_conductor` (tabla `user_roles`, N:M). Permisos en BD (`permissions`, `role_permissions`):
 `manage_vehicles, manage_users, manage_trabajos, view_all_trabajos,
-manage_incidencias, access_admin`. Backend: `requirePermission(...)` /
+manage_incidencias` (`access_admin` se borró en la v40: no lo comprobaba nadie).
+En la práctica los cinco van juntos a administrador y gestor, y
+`view_all_trabajos` nunca cambia el resultado: quien lo tiene ya tiene
+`manage_trabajos`. Backend: `requirePermission(...)` /
 `requireRole`. Frontend: `hasPermission(...)` y `allowedRoles` en
 `ProtectedRoute`. El usuario normal queda acotado a **Mis Asignaciones**.
 

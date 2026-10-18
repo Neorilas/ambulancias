@@ -157,6 +157,5 @@ module.exports = {
     MANAGE_TRABAJOS:    'manage_trabajos',
     VIEW_ALL_TRABAJOS:  'view_all_trabajos',
     MANAGE_INCIDENCIAS: 'manage_incidencias',
-    ACCESS_ADMIN:       'access_admin',
   },
 };

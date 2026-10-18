@@ -1359,6 +1359,68 @@ const MIGRATIONS = [
              COMMENT '1 = jornadas propias, no siguen al horario del trabajo'`);
     },
   },
+
+  {
+    name: 'v40_limpieza_esquema',
+    description: 'Fuera lo que no usa nadie (dos vistas, el permiso access_admin, el rol test_rol_api) y una sola collation',
+    async run() {
+      // Revisión de la BD del 2026-10-17, comprobado contra PRO: ningún
+      // código lee estas vistas. v_users_roles era un atajo (los roles se
+      // leen siempre de user_roles); v_trabajos_activos se apoya en
+      // trabajo_vehiculos, el modelo v25, que está vacío en PRO.
+      //
+      // Trampa: las creó schema.sql ejecutado como root, y una vista con
+      // DEFINER root solo la borra quien tenga SYSTEM_USER, que el usuario de
+      // la app no tiene (ni en local ni en PRO; probado). Sin uso no molestan,
+      // así que la falta de permiso no para la cadena: se avisa y quedan para
+      // borrarlas a mano como root. Cualquier otro error sí la para.
+      for (const vista of ['v_users_roles', 'v_trabajos_activos']) {
+        try {
+          await query(`DROP VIEW IF EXISTS ${vista}`);
+        } catch (err) {
+          if (err.errno !== 1227) throw err; // ER_SPECIFIC_ACCESS_DENIED_ERROR
+          logger.warn(`v40: sin permiso para borrar la vista ${vista} (es de root); ` +
+                      `queda sin uso, borrarla a mano como root: DROP VIEW ${vista}`);
+        }
+      }
+
+      // access_admin no lo comprueba nadie: el panel del superadmin entra por
+      // ROL (hasPermission deja pasar al superadmin sin mirar permisos).
+      // role_permissions va en CASCADE, pero se borra explícito por si alguna
+      // base vieja tuviera la FK sin la regla.
+      await query(`DELETE rp FROM role_permissions rp
+                     JOIN permissions p ON p.id = rp.permission_id
+                    WHERE p.nombre = 'access_admin'`);
+      await query(`DELETE FROM permissions WHERE nombre = 'access_admin'`);
+
+      // Lo dejó test_api.mjs, que crea un rol contra la API que le digan (por
+      // defecto, la de PRO). Solo se borra si nadie lo lleva: un rol con
+      // usuarios ya no sería «de prueba» y no se toca.
+      const [rolPrueba] = await query(
+        `SELECT r.id FROM roles r
+          WHERE r.nombre = 'test_rol_api'
+            AND NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.role_id = r.id)`
+      );
+      if (rolPrueba.length) {
+        await query('DELETE FROM role_permissions WHERE role_id = ?', [rolPrueba[0].id]);
+        await query('DELETE FROM roles WHERE id = ?', [rolPrueba[0].id]);
+      }
+
+      // app_features (v9) y schema_migrations se crearon sin COLLATE y
+      // MySQL 8 les dio utf8mb4_0900_ai_ci; el resto va en
+      // utf8mb4_unicode_ci. Cruzar texto de unas con otras daría «Illegal
+      // mix of collations». Son tablas de pocas filas: el ALTER es inmediato.
+      for (const tabla of ['app_features', 'schema_migrations']) {
+        const [rows] = await query(
+          `SELECT TABLE_COLLATION AS collation FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [tabla]
+        );
+        if (rows.length && rows[0].collation !== 'utf8mb4_unicode_ci') {
+          await query(`ALTER TABLE ${tabla} CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+        }
+      }
+    },
+  },
 ];
 
 // ============================================================
