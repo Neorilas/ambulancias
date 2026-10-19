@@ -325,16 +325,177 @@ async function obtenerEstados() {
   return { vehiculos: [], origen: 'ninguno', actualizado: null, error, configurado: true };
 }
 
+// ============================================================
+// Recorrido: los puntos que Cartrack guardó de un vehículo
+// ============================================================
+
+/**
+ * Lo que deja pedir la API de golpe. `/vehicles/events` admite como mucho 24 h
+ * por llamada y 1000 eventos por página; en marcha llega un `PERIODIC_EVENT`
+ * cada ~10 s, así que un día movido de una UVI son ~2.500 eventos: 3 páginas.
+ * El tope de páginas por tramo de 24 h es la red para el día raro en que el
+ * terminal se vuelva loco y no nos coma el cupo.
+ */
+const VENTANA_EVENTOS_MS = 24 * 60 * 60 * 1000;
+const PAGINAS_MAX_POR_VENTANA = 10;
+
+/**
+ * Plazo por página de eventos. Mucho más largo que el del mapa (8 s): son
+ * hasta 1000 filas y Cartrack, medido, tarda de 2 a más de 16 s según la hora.
+ * Aquí no hay un refresco cada 30 s esperando; hay alguien que ha pulsado
+ * «Ver recorrido» y prefiere esperar a quedarse sin ruta.
+ */
+const TIMEOUT_EVENTOS_MS = 30 * 1000;
+
+/**
+ * Caché de recorridos, por vehículo y ventana.
+ *
+ * Una ventana ya cerrada (el servicio terminó) no va a cambiar: se guarda una
+ * hora, y reabrir el mismo servicio no vuelve a llamar. Una abierta (servicio
+ * en curso) solo un minuto, que es lo que tarda en haber puntos nuevos que
+ * merezcan la pena. Acotada en número para que no crezca sin fin en memoria.
+ */
+const RECORRIDO_CERRADO_MS = 60 * 60 * 1000;
+const RECORRIDO_ABIERTO_MS = 60 * 1000;
+const RECORRIDOS_MAX = 100;
+const cacheRecorridos = new Map(); // clave → { puntos, at, ttl }
+
+/**
+ * 'YYYY-MM-DD HH:MM:SS' en hora de España. La API toma las ventanas en la
+ * zona de la CUENTA, no en UTC: pasarle UTC desplazaba el recorrido 1-2 h.
+ */
+const _formatoEspana = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Madrid', hour12: false,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+function enHoraDeLaCuenta(instante) {
+  const p = Object.fromEntries(_formatoEspana.formatToParts(instante).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day} ${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`;
+}
+
+/**
+ * El instante de un evento. Llega en `event_ts` como '2026-10-19 10:24:19+02':
+ * la zona SIN minutos, que `Date.parse` rechaza en silencio (NaN) y el
+ * recorrido se quedaba sin orden. Se completa a '+02:00'.
+ */
+function instanteDeEvento(valor) {
+  if (!valor) return null;
+  const t = Date.parse(String(valor).trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Un evento → `{ lat, lng, t, v }`, o null si no sirve como punto. */
+function puntoDeEvento(e) {
+  const lat = aNumero(e?.latitude);
+  const lng = aNumero(e?.longitude);
+  const t = instanteDeEvento(e?.event_ts);
+  // 0,0 es lo que manda un GPS sin fix: un punto en el golfo de Guinea
+  if (lat === null || lng === null || (lat === 0 && lng === 0) || t === null) return null;
+  return { lat, lng, t, v: aNumero(e?.speed) ?? 0 };
+}
+
+async function pedirEventos({ cartrackId, registration }, desde, hasta) {
+  const puntos = [];
+  for (let inicio = desde.getTime(); inicio < hasta.getTime(); inicio += VENTANA_EVENTOS_MS) {
+    const fin = Math.min(inicio + VENTANA_EVENTOS_MS, hasta.getTime());
+    for (let pagina = 1; pagina <= PAGINAS_MAX_POR_VENTANA; pagina += 1) {
+      const qs = new URLSearchParams({
+        start_timestamp: enHoraDeLaCuenta(new Date(inicio)),
+        end_timestamp: enHoraDeLaCuenta(new Date(fin)),
+        // `registration` y NO `vehicle_id`: con la cuenta real (2026-10-19),
+        // `vehicle_id` se IGNORA y devuelve eventos de otras ambulancias
+        // mezclados (pedida la UVI-3, 280 de 282 eran de la UVI-5). Se
+        // filtra por el texto crudo de Cartrack, no por nuestra matrícula.
+        registration: String(registration),
+        limit: '1000',
+        page: String(pagina),
+      });
+      const res = await fetch(`${BASE_URL}/vehicles/events?${qs}`, {
+        method: 'GET',
+        headers: { Authorization: cabeceraAuth(), Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT_EVENTOS_MS),
+      });
+      if (!res.ok) {
+        const err = new Error(res.status === 429
+          ? 'Cartrack: límite de llamadas alcanzado'
+          : `Cartrack: respuesta ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      const cuerpo = await res.json();
+      const filas = extraerLista(cuerpo);
+      for (const f of filas) {
+        // Red por si el filtro de la API vuelve a fallar: la ruta de otra
+        // ambulancia pintada como esta parecería un dato bueno
+        if (cartrackId != null && f?.vehicle_id != null && String(f.vehicle_id) !== String(cartrackId)) continue;
+        if (f?.registration != null && String(f.registration) !== String(registration)) continue;
+        const p = puntoDeEvento(f);
+        if (p) puntos.push(p);
+      }
+      const ultima = cuerpo?.meta?.last_page;
+      if (!filas.length || !ultima || pagina >= ultima) break;
+    }
+  }
+  return puntos.sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Puntos GPS de un vehículo entre dos instantes.
+ *
+ * Nunca lanza, igual que `obtenerEstados`: devuelve `{ puntos, error }`. Aquí
+ * no se guarda nada en la BD: Cartrack ya guarda ~5 años de puntos y basta con
+ * pedírselos al abrir el servicio (ver MAPA_CODIGO §2.6, «Recorrido»).
+ */
+async function obtenerRecorrido({ cartrackId, registration, desde, hasta }) {
+  if (!estaConfigurado()) return { puntos: [], error: null, configurado: false };
+  if (!registration) return { puntos: [], error: 'vehículo sin identificar en Cartrack', configurado: true };
+
+  const ahoraMs = ahora().getTime();
+  // Abierta = el fin está en el último minuto: se redondea al minuto para que
+  // dos peticiones seguidas compartan clave
+  const abierta = hasta.getTime() > ahoraMs - RECORRIDO_ABIERTO_MS;
+  const hastaClave = abierta ? Math.floor(hasta.getTime() / 60000) * 60000 : hasta.getTime();
+  const clave = `${registration}|${desde.getTime()}|${abierta ? 'abierta' : hastaClave}`;
+
+  const guardado = cacheRecorridos.get(clave);
+  if (guardado && ahoraMs - guardado.at < guardado.ttl) {
+    return { puntos: guardado.puntos, error: null, configurado: true };
+  }
+
+  try {
+    const puntos = await pedirEventos({ cartrackId, registration }, desde, hasta);
+    if (cacheRecorridos.size >= RECORRIDOS_MAX) {
+      cacheRecorridos.delete(cacheRecorridos.keys().next().value);
+    }
+    cacheRecorridos.set(clave, {
+      puntos, at: ahoraMs, ttl: abierta ? RECORRIDO_ABIERTO_MS : RECORRIDO_CERRADO_MS,
+    });
+    return { puntos, error: null, configurado: true };
+  } catch (err) {
+    const mensaje = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+      ? 'Cartrack no respondió a tiempo'
+      : (err?.message || 'error desconocido');
+    logger.warn(`Cartrack: no se pudo leer el recorrido — ${mensaje}`);
+    return { puntos: [], error: mensaje, configurado: true };
+  }
+}
+
 /** Vacía la caché. Solo para los tests: en producción nadie la invalida a mano. */
 function _vaciarCache() {
   cache = null;
   enVuelo = null;
+  cacheRecorridos.clear();
 }
 
 module.exports = {
   estaConfigurado,
   obtenerEstados,
+  obtenerRecorrido,
   // Expuestos para los tests
+  instanteDeEvento,
+  puntoDeEvento,
+  enHoraDeLaCuenta,
   normalizarVehiculo,
   nombreConductor,
   extraerLista,

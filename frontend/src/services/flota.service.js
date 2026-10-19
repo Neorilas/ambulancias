@@ -17,4 +17,13 @@ export const flotaService = {
   getUbicaciones() {
     return api.get('/flota/ubicaciones').then(r => r.data.data);
   },
+
+  /**
+   * Ruta de un servicio según Cartrack. Devuelve
+   * `{ estado, ventana, recorrido: { tramos, inicio, fin, km, puntos }, fuente }`;
+   * `estado` es `ok`, `sin_empezar` o `sin_gps`.
+   */
+  getRecorrido(asignacionId) {
+    return api.get(`/flota/recorrido/${asignacionId}`).then(r => r.data.data);
+  },
 };

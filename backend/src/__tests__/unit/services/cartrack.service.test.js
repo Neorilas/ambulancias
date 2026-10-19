@@ -331,3 +331,73 @@ describe('obtenerEstados', () => {
     delete process.env.CARTRACK_BASE_URL;
   });
 });
+
+// ============================================================
+describe('obtenerRecorrido', () => {
+  /** Evento REAL de /vehicles/events (sonda, 2026-10-19), recortado. */
+  const evento = (over = {}) => ({
+    vehicle_id: 454742160, registration: 'UVI-3-7740MZB',
+    latitude: 40.317759, longitude: -3.681321, speed: 0,
+    event_ts: '2026-10-19 10:24:19+02', event_description: 'PERIODIC_EVENT',
+    ...over,
+  });
+  const ventana = { cartrackId: 454742160, registration: 'UVI-3-7740MZB',
+    desde: new Date('2026-10-19T08:00:00Z'), hasta: new Date('2026-10-19T10:00:00Z') };
+
+  it('`event_ts` llega con la zona sin minutos (+02) y se lee bien', () => {
+    expect(cargar().instanteDeEvento('2026-10-19 10:24:19+02')).toBe(Date.parse('2026-10-19T08:24:19Z'));
+  });
+
+  it('pide por `registration` (vehicle_id no filtra) y con la ventana en hora de España', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValueOnce(respuesta({ data: [evento()], meta: { last_page: 1 } }));
+    const r = await s.obtenerRecorrido(ventana);
+    const url = new URL(global.fetch.mock.calls[0][0]);
+    expect(url.pathname).toMatch(/\/vehicles\/events$/);
+    expect(url.searchParams.get('registration')).toBe('UVI-3-7740MZB');
+    expect(url.searchParams.has('vehicle_id')).toBe(false);
+    expect(url.searchParams.get('start_timestamp')).toBe('2026-10-19 10:00:00');
+    expect(r.puntos).toHaveLength(1);
+  });
+
+  it('descarta eventos de otra ambulancia aunque la API los cuele', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValueOnce(respuesta({ data: [
+      evento(), evento({ vehicle_id: 454742170, registration: 'UVI-5-1071NBV' }),
+    ], meta: { last_page: 1 } }));
+    expect((await s.obtenerRecorrido(ventana)).puntos).toHaveLength(1);
+  });
+
+  it('sigue las páginas y parte en tramos de 24 h', async () => {
+    const s = cargar();
+    global.fetch
+      .mockResolvedValueOnce(respuesta({ data: [evento()], meta: { last_page: 2 } }))
+      .mockResolvedValueOnce(respuesta({ data: [evento({ event_ts: '2026-10-19 11:00:00+02' })], meta: { last_page: 2 } }))
+      .mockResolvedValueOnce(respuesta({ data: [], meta: { last_page: 1 } }));
+    const r = await s.obtenerRecorrido({ ...ventana, hasta: new Date('2026-10-20T10:00:00Z') });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(r.puntos).toHaveLength(2);
+  });
+
+  it('una ventana cerrada se sirve de caché la segunda vez', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValueOnce(respuesta({ data: [evento()], meta: { last_page: 1 } }));
+    await s.obtenerRecorrido(ventana);
+    await s.obtenerRecorrido(ventana);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('nunca lanza: Cartrack caído → sin puntos y con el error', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValueOnce(respuesta({}, { ok: false, status: 500 }));
+    const r = await s.obtenerRecorrido(ventana);
+    expect(r).toMatchObject({ puntos: [], configurado: true });
+    expect(r.error).toMatch(/500/);
+  });
+
+  it('sin credenciales no llama a nadie', async () => {
+    const s = cargar({ credenciales: false });
+    expect(await s.obtenerRecorrido(ventana)).toEqual({ puntos: [], error: null, configurado: false });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

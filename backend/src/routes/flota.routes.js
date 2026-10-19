@@ -24,6 +24,8 @@ const { authenticate }    = require('../middleware/auth.middleware');
 const { requireRole }     = require('../middleware/roles.middleware');
 const { requireFeature }  = require('../middleware/features.middleware');
 const { ROLES }           = require('../config/constants');
+const { param }           = require('express-validator');
+const { handleValidation } = require('../middleware/validate.middleware');
 
 const router = express.Router();
 
@@ -36,5 +38,9 @@ router.use(requireFeature('menu_flota'));
 
 // GET /flota/ubicaciones
 router.get('/ubicaciones', ctrl.getUbicaciones);
+
+// GET /flota/recorrido/:asignacionId — la ruta de un servicio (Cartrack).
+// Mismo acceso que el mapa: es el mismo dato, mirado hacia atrás.
+router.get('/recorrido/:asignacionId', param('asignacionId').isInt({ min: 1 }), handleValidation, ctrl.getRecorrido);
 
 module.exports = router;

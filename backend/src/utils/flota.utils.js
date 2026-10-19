@@ -195,8 +195,100 @@ function construirEntrada({ clave, vehiculo, gps, vinculo, ambigua, ahora, minut
   };
 }
 
+// ============================================================
+// Recorrido de un servicio
+// ============================================================
+
+/** Distancia en km entre dos puntos (haversine). */
+function kmEntre(a, b) {
+  const rad = (g) => (g * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Menos de esto entre dos puntos seguidos no se pinta: un GPS parado oscila
+ * unos metros y, con un punto cada 10 s, una hora en la puerta de un hospital
+ * eran 360 puntos dibujando un ovillo.
+ */
+const METROS_MIN_ENTRE_PUNTOS = 15;
+
+/**
+ * Un hueco de más de esto en el que además el vehículo aparece en otro sitio
+ * se CORTA en vez de unirse: la línea recta entre dos puntos separados por un
+ * túnel o un garaje sin cobertura dibujaría un camino que no se hizo.
+ */
+const HUECO_MAX_SEGUNDOS = 5 * 60;
+const SALTO_MIN_KM_PARA_CORTAR = 0.3;
+
+/**
+ * Un punto al que habría que llegar a más de esto desde el anterior no es de
+ * este viaje y se descarta. Se vio con datos reales (2026-10-19): con puntos
+ * de dos ambulancias mezclados (el filtro `vehicle_id` de Cartrack no filtra,
+ * ver `cartrack.service`) un día de 600 km sumaba 174.000. El servicio ya
+ * filtra bien; esto es la segunda red, y la de un GPS que salte sin fix.
+ */
+const VELOCIDAD_IMPOSIBLE_KMH = 250;
+
+/**
+ * Puntos GPS ordenados → lo que pinta el mapa del servicio.
+ *
+ * Devuelve `tramos` (listas de `[lat, lng]` con 5 decimales, ~1 m: más es
+ * peso sin precisión real), el primer y último punto con su hora, los km
+ * (sumados solo dentro de los tramos: un salto cortado no se cuenta como
+ * recorrido) y cuántos puntos llegaron de Cartrack.
+ */
+function construirRecorrido(puntos) {
+  const lista = (puntos || []).filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) && Number.isFinite(p?.t));
+  if (!lista.length) return { tramos: [], inicio: null, fin: null, km: 0, puntos: 0 };
+
+  const redondear = (n) => Math.round(n * 1e5) / 1e5;
+  const tramos = [];
+  let tramo = [];
+  let ultimo = null;
+  let km = 0;
+
+  for (const p of lista) {
+    if (!ultimo) {
+      tramo.push([redondear(p.lat), redondear(p.lng)]);
+      ultimo = p;
+      continue;
+    }
+    const d = kmEntre(ultimo, p);
+    const hueco = (p.t - ultimo.t) / 1000;
+    // Mismo segundo y en otro sitio, o demasiado lejos para el tiempo pasado
+    if (d > 0.05 && (hueco <= 0 || d / (hueco / 3600) > VELOCIDAD_IMPOSIBLE_KMH)) continue;
+    if (hueco > HUECO_MAX_SEGUNDOS && d > SALTO_MIN_KM_PARA_CORTAR) {
+      if (tramo.length) tramos.push(tramo);
+      tramo = [[redondear(p.lat), redondear(p.lng)]];
+      ultimo = p;
+      continue;
+    }
+    if (d * 1000 < METROS_MIN_ENTRE_PUNTOS) continue;
+    tramo.push([redondear(p.lat), redondear(p.lng)]);
+    km += d;
+    ultimo = p;
+  }
+  if (tramo.length) tramos.push(tramo);
+
+  const primero = lista[0];
+  const final = lista[lista.length - 1];
+  return {
+    tramos,
+    inicio: { lat: primero.lat, lng: primero.lng, at: new Date(primero.t).toISOString() },
+    fin:    { lat: final.lat,   lng: final.lng,   at: new Date(final.t).toISOString() },
+    km: Math.round(km * 10) / 10,
+    puntos: lista.length,
+  };
+}
+
 module.exports = {
   cruzarFlota,
+  construirRecorrido,
+  kmEntre,
   estadoDeGps,
   minutosDesde,
   ESTADOS,

@@ -317,6 +317,26 @@ saber antes de construirlo:
 - Hay huecos de horas con velocidad > 0 en un extremo (un GPS que pierde
   cobertura conserva la última velocidad): un tramo así no se dibuja como línea
   recta, se corta.
+- **`vehicle_id` NO filtra** en `/vehicles/events`: pedida la UVI-3, 280 de
+  282 eventos eran de la UVI-5. Se filtra por `registration` (el texto crudo
+  de Cartrack, `matriculaOriginal`) y además se descartan en nuestro lado los
+  eventos de otro vehículo. Mezclados, un día de 600 km sumaba 174.000.
+
+**Sección «Recorrido» del servicio (2026-10-19).** En `AsignacionDetalle`,
+`components/flota/RecorridoServicio.jsx` + `MapaRecorrido.jsx` →
+`flota.service.getRecorrido` → `GET /flota/recorrido/:asignacionId`
+(`flota.controller.getRecorrido`, mismo `requireRole` + `menu_flota` que el
+mapa; en el frontend, la misma condición `puedeVerMapa` que `VehicleHistory`).
+Solo en activas y finalizadas. Ventana = `inicio_real_at` (o `fecha_inicio`)
+→ `finalizado_at` (o ahora si sigue en curso), **como mucho los últimos 7
+días** (`recortado`). `cartrack.obtenerRecorrido` parte en tramos de 24 h y
+pagina; caché en memoria 1 h si la ventana está cerrada, 1 min si está abierta.
+Plazo por página 30 s (Cartrack, medido, tarda de 2 a más de 16 s).
+`flota.utils.construirRecorrido` salta puntos a < 15 m (un parado no hace un
+ovillo), descarta los que exigirían > 250 km/h y corta el tramo en huecos de
+> 5 min con salto de > 300 m. **Se carga al pulsar «Ver recorrido»**, no al
+abrir el panel, y en curso se refresca cada minuto con la pestaña visible.
+Respuesta de un día real: ~2.400 puntos pintados, ~47 KB. No se guarda nada.
 
 **Los estados y sus colores** los decide el backend (`estadoDeGps`) y el
 frontend solo los pinta: `movimiento` (verde) · `parado_contacto` (ámbar) ·
