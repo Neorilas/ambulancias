@@ -295,6 +295,29 @@ hay que correr si el mapa empieza a salir vacío o si Cartrack cambia algo:
 
     cd backend && node scripts/sonda-cartrack.js       # + --crudo vuelca la 1ª fila
 
+**Ruta de un servicio: la tiene Cartrack, no hace falta guardarla
+(2026-10-19).** `--ruta [matrícula] [--desde "AAAA-MM-DD HH:MM"] [--horas N]`
+pide `GET /vehicles/events` y mide si los puntos dan para pintar un recorrido.
+Contra la cuenta real: el terminal manda un `PERIODIC_EVENT` con coordenadas
+**cada ~10 s en marcha** (p90 ~20-40 s), unos 7.000 eventos al día para toda la
+flota, y Cartrack los guarda ~5 años. O sea que trazar la ruta de un servicio
+activo o pasado es pedírsela a Cartrack con su ventana, sin tabla nuestra —que
+es además lo que pide la fila «Sin tabla propia» de arriba. Lo que hay que
+saber antes de construirlo:
+
+- La ventana es de **24 h como máximo** por llamada y la página de 1000: un
+  servicio largo son varias llamadas. Filtrar por `registration` (el texto
+  crudo de Cartrack, no nuestra matrícula) para no bajarse la flota entera.
+- `event_ts` llega como `'2026-10-19 10:24:19+02'`: **la zona sin minutos**, que
+  `Date.parse` rechaza en silencio (sale `NaN` y el recorrido queda sin orden).
+  Hay que completarla a `+02:00`. La ventana que se pide va en hora de la cuenta
+  (España).
+- Además de los periódicos vienen intermitentes, puertas, marcha atrás,
+  contacto… todos con coordenadas: sirven igual como puntos.
+- Hay huecos de horas con velocidad > 0 en un extremo (un GPS que pierde
+  cobertura conserva la última velocidad): un tramo así no se dibuja como línea
+  recta, se corta.
+
 **Los estados y sus colores** los decide el backend (`estadoDeGps`) y el
 frontend solo los pinta: `movimiento` (verde) · `parado_contacto` (ámbar) ·
 `apagado` (gris) · `sin_senal` (rojo, más de 30 min sin dar señal) · `sin_gps`.
