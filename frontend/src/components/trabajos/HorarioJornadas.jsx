@@ -12,6 +12,11 @@ import {
  * `value` es el horario del formulario (`utils/jornadas.js`). Los tramos ya
  * fichados (`fichada`) no se pueden tocar: su hora real es la evidencia del
  * servicio y el backend no los borra aunque se quiten de aquí.
+ *
+ * Con horario, **cada día de las fechas sale en la lista**: los que no tienen
+ * tramo, como «Sin horario» con «+ Poner horario este día» (2026-10-19: al
+ * alargar CHINCHILLA un día, el día nuevo no salía en ninguna parte y solo se
+ * podía añadir con la barra de «Rellenar», que nadie veía como el sitio).
  */
 export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin, error }) {
   const [desde, setDesde] = useState(DESDE_POR_DEFECTO);
@@ -25,7 +30,26 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   // cualquier hora tecleada: si dependiera de `faltan`, al escribir una hora
   // que deja el día sin hueco (de 21:00 a 21:00) desaparecía la barra entera
   // y ya no se podía corregir (prueba local del 2026-10-19)
-  const diasSinTramo = diasEntre(fechaInicio, fechaFin).filter(d => !horario.some(h => h.dia === d)).length;
+  const sinTramo = diasEntre(fechaInicio, fechaFin).filter(d => !horario.some(h => h.dia === d));
+  // Sin tocar las horas, la barra solo sale si de verdad añadiría algún día:
+  // si no, en un trabajo que acaba de madrugada (CHINCHILLA, a las 02:30) se
+  // veía apagada desde el principio por ese último trozo de día
+  const [tocada, setTocada] = useState(false);
+  const conBarra = sinTramo.length > 0 && (faltan > 0 || tocada);
+  // La lista: los días con horario y, si ya hay alguno, los del rango sin él
+  const dias = horario.length
+    ? [...horario.map((d, i) => ({ dia: d.dia, i })), ...sinTramo.map(dia => ({ dia, i: -1 }))]
+      .sort((a, b) => (a.dia < b.dia ? -1 : 1))
+    : [];
+  // «+ Poner horario este día»: copia los tramos del día anterior más cercano
+  // (lo normal es que se repitan), o lo que propondría «Rellenar», o vacío
+  const ponerDia = (dia) => {
+    const previo = [...horario].filter(d => d.dia < dia).sort((a, b) => (a.dia < b.dia ? 1 : -1))[0];
+    const sugerido = rellenarDias([], fechaInicio, fechaFin, desde, hasta).find(d => d.dia === dia);
+    const tramos = previo ? previo.tramos.map(({ desde: de, hasta: ha }) => ({ desde: de, hasta: ha }))
+      : sugerido ? sugerido.tramos : [{ desde: '', hasta: '' }];
+    onChange([...horario, { dia, tramos }].sort((a, b) => (a.dia < b.dia ? -1 : 1)));
+  };
 
   const cambiarTramo = (i, k, campo, valor) => onChange(horario.map((d, j) => (j !== i ? d : {
     ...d, tramos: d.tramos.map((t, m) => (m === k ? { ...t, [campo]: valor } : t)),
@@ -43,17 +67,17 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   return (
     <div className="space-y-3" data-testid="horario-jornadas">
       {/* Rellenar: una hora para todos los días; luego se retoca cada uno */}
-      {diasSinTramo > 0 && (
+      {conBarra && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2">
           <div>
             <label className="label text-xs">Cada día de</label>
             <input type="time" className="input text-sm w-28" value={desde}
-              onChange={e => setDesde(e.target.value)} aria-label="Hora de inicio de cada día" />
+              onChange={e => { setDesde(e.target.value); setTocada(true); }} aria-label="Hora de inicio de cada día" />
           </div>
           <div>
             <label className="label text-xs">a</label>
             <input type="time" className="input text-sm w-28" value={hasta}
-              onChange={e => setHasta(e.target.value)} aria-label="Hora de fin de cada día" />
+              onChange={e => { setHasta(e.target.value); setTocada(true); }} aria-label="Hora de fin de cada día" />
           </div>
           <button type="button" className="btn-secondary text-xs px-2 py-2" disabled={faltan === 0}
             onClick={() => onChange(rellenarDias(horario, fechaInicio, fechaFin, desde, hasta))}>
@@ -71,7 +95,23 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
         </p>
       )}
 
-      {horario.map((d, i) => {
+      {dias.map(({ dia, i }) => {
+        if (i < 0) {
+          return (
+            <div key={dia} className="rounded-lg border border-dashed border-neutral-300 p-2 flex flex-wrap items-center justify-between gap-2"
+              data-testid={`dia-sin-horario-${dia}`}>
+              <span className="text-sm">
+                <span className="font-medium text-neutral-800">{etiquetaDia(dia)}</span>
+                <span className="text-neutral-500"> · Sin horario</span>
+              </span>
+              <button type="button" onClick={() => ponerDia(dia)}
+                className="text-xs text-primary-600 hover:text-primary-700 font-medium">
+                + Poner horario este día
+              </button>
+            </div>
+          );
+        }
+        const d = horario[i];
         const conFichadas = d.tramos.some(t => t.fichada);
         return (
           <div key={d.dia} className="rounded-lg border border-neutral-200 p-2 space-y-2">

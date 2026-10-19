@@ -81,4 +81,47 @@ describe('HorarioJornadas', () => {
     fireEvent.change(screen.getByLabelText('Hora de inicio de cada día'), { target: { value: '09:00' } });
     expect(screen.getByRole('button', { name: 'Rellenar el día' })).toBeEnabled();
   });
+
+  // 2026-10-19, CHINCHILLA alargado un día: el día nuevo no salía en la lista
+  describe('cada día de las fechas sale en la lista', () => {
+    const DOS_DIAS = [
+      { dia: '2026-10-20', tramos: [{ desde: '10:00', hasta: '14:00' }, { desde: '15:00', hasta: '23:00' }] },
+    ];
+
+    it('el día sin horario sale como tal y «Poner horario» copia el día anterior', async () => {
+      const alCambiar = vi.fn();
+      render(<Envoltorio alCambiar={alCambiar} inicial={DOS_DIAS}
+        fechaInicio="2026-10-20T08:00" fechaFin="2026-10-21T23:30" />);
+      expect(screen.getByTestId('dia-sin-horario-2026-10-21')).toHaveTextContent('Mié 21/10 · Sin horario');
+
+      await userEvent.click(screen.getByRole('button', { name: '+ Poner horario este día' }));
+      const h = alCambiar.mock.calls.at(-1)[0];
+      expect(h.map(d => d.dia)).toEqual(['2026-10-20', '2026-10-21']);
+      expect(h[1].tramos).toEqual(DOS_DIAS[0].tramos);
+      expect(screen.queryByTestId('dia-sin-horario-2026-10-21')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Inicio del tramo 2 del Mié 21/10')).toHaveValue('15:00');
+    });
+
+    it('lo fichado del día anterior se copia como horas, no como fichado', async () => {
+      const alCambiar = vi.fn();
+      render(<Envoltorio alCambiar={alCambiar}
+        inicial={[{ dia: '2026-10-20', tramos: [{ desde: '16:00', hasta: '23:00', fichada: true }] }]}
+        fechaInicio="2026-10-20T08:00" fechaFin="2026-10-21T23:30" />);
+      await userEvent.click(screen.getByRole('button', { name: '+ Poner horario este día' }));
+      expect(alCambiar.mock.calls.at(-1)[0][1].tramos).toEqual([{ desde: '16:00', hasta: '23:00' }]);
+    });
+
+    it('sin horario ninguno no pinta los días: se empieza por «Rellenar»', () => {
+      render(<Envoltorio />);
+      expect(screen.queryByText(/Sin horario$/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ Poner horario este día' })).not.toBeInTheDocument();
+    });
+
+    it('un trabajo que acaba de madrugada no enseña la barra apagada', () => {
+      render(<Envoltorio inicial={DOS_DIAS} fechaInicio="2026-10-20T08:00" fechaFin="2026-10-21T02:30" />);
+      expect(screen.queryByLabelText('Hora de inicio de cada día')).not.toBeInTheDocument();
+      // pero el día sale, por si también se trabaja ese rato
+      expect(screen.getByTestId('dia-sin-horario-2026-10-21')).toBeInTheDocument();
+    });
+  });
 });

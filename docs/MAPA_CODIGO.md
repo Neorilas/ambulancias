@@ -1868,7 +1868,11 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
     ni antes de su última jornada fichada (`MAX(COALESCE(fin_real_at,
     inicio_real_at))`): se quedan como están y se devuelven en
     `ambulancias_no_alargadas` (`{id, nombre}`), que la pantalla avisa
-    («No se ha cambiado el fin de …»). La casilla sale marcada por defecto,
+    («No se ha cambiado el fin de …»). **Esas no se tocan en nada**: el
+    reparto del horario se las salta (`saltar` de
+    `propagarHorarioDelTrabajo`); antes, si seguían al trabajo, perdían las
+    jornadas de los días quitados y a la fichada se le recortaba la hora
+    prevista (prueba local del 2026-10-19). La casilla sale marcada por defecto,
     así que esto no podía depender de que alguien la desmarcara (revisión
     del 2026-10-19: guardar sin más dejaba intervalos invertidos y borraba
     sus jornadas sin fichar).
@@ -1946,13 +1950,22 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   tarde la cierre con su hora real. La duración de la jornada se redondea como
   en el informe (`minutosJornada`). La tarjeta dice «En jornada · n de m
   hechas», lo mismo que cuenta la barra.
-- **La barra «Cada día de … a … / Rellenar» (`HorarioJornadas`)** sale
-  mientras haya días del rango sin ningún tramo (`diasEntre`), no según lo
-  que añadiría con las horas tecleadas: con `faltan > 0`, escribir una hora
-  de inicio igual a la de fin dejaba el día sin hueco y la barra
-  desaparecía con el campo dentro, sin forma de corregirlo (prueba local
-  del 2026-10-19). Ahora el botón se desactiva («Con esas horas no cabe
-  ningún día»).
+- **Cada día de las fechas sale en el editor (`HorarioJornadas`,
+  2026-10-19).** Con horario, los días del rango sin tramo salen en la lista
+  como «Sin horario» con «+ Poner horario este día», que copia los tramos
+  del día anterior más cercano (sin la marca de fichado), o lo que
+  propondría «Rellenar», o un tramo vacío. Pedido tras subir «Alargar un
+  trabajo»: el usuario alargó CHINCHILLA un día y no supo dónde ponerle el
+  horario, porque el día nuevo no salía en ninguna parte y solo se añadía
+  con la barra de «Rellenar». Sin ningún horario no se pintan (se empieza
+  por «Rellenar»).
+- **La barra «Cada día de … a … / Rellenar»** sale si añadiría algún día
+  con las horas que tiene, o si ya se han tocado sus horas y queda algún día
+  sin tramo (`tocada`): con solo `faltan > 0`, escribir una hora de inicio
+  igual a la de fin la escondía con el campo dentro (prueba local del
+  2026-10-19), y con solo «hay días sin tramo» salía apagada desde el
+  principio en un trabajo que acaba de madrugada (CHINCHILLA, a las 02:30).
+  Sin hueco, el botón se desactiva («Con esas horas no cabe ningún día»).
 - **Fichar** (`iniciarJornada`/`finalizarJornada`, `POST
   /asignaciones/:id/jornadas/:jornadaId/inicio|fin`): responsable o gestión
   (`cargarJornada`, como la llegada; el equipo no). Calcados de la llegada:

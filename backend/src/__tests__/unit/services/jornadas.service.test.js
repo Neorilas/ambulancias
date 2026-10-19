@@ -256,6 +256,17 @@ describe('jornadas.service', () => {
       });
     });
 
+    it('a las que se saltan (no cabían en el fin nuevo) no se les toca nada', async () => {
+      const conn = conexion({
+        'FROM asignaciones_libres': [
+          { id: 60, fecha_inicio: T('2026-10-20T06:00'), fecha_fin: T('2026-10-23T23:00'), horario_propio: 0 },
+        ],
+        'FOR UPDATE': [{ id: 9, inicio: T('2026-10-22T08:00'), fin: T('2026-10-22T20:00'), inicio_real_at: null }],
+      });
+      await jornadas.propagarHorarioDelTrabajo(conn, 7, [], { saltar: [60] });
+      expect(conn.ejecutadas).toHaveLength(1);
+    });
+
     it('diasNuevos: los días que el horario nuevo tiene y el anterior no', () => {
       const antes = [{ inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T20:00') }];
       const despues = [...antes,

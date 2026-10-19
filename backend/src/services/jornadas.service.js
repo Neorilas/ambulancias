@@ -227,8 +227,11 @@ function diasNuevos(antes, despues) {
  *
  * @param {string[]} [opciones.nuevos]   días ('yyyy-MM-dd') recién añadidos al trabajo
  * @param {number[]} [opciones.recortar] ambulancias a las que se acaba de mover el fin
+ * @param {number[]} [opciones.saltar]   ambulancias que no se tocan: las que no cabían en
+ *   el fin nuevo al acortar el trabajo «se quedan como están», también su horario
+ *   (prueba local del 2026-10-19: perdían las jornadas de los días quitados)
  */
-async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = [], recortar = [] } = {}) {
+async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = [], recortar = [], saltar = [] } = {}) {
   const [asigs] = await conn.execute(
     `SELECT id, fecha_inicio, fecha_fin, horario_propio FROM asignaciones_libres
       WHERE trabajo_id = ? AND deleted_at IS NULL
@@ -236,6 +239,7 @@ async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = []
     [trabajoId]
   );
   for (const a of asigs || []) {
+    if (saltar.includes(a.id)) continue;
     const suyos = tramosDentro(horario, a.fecha_inicio, a.fecha_fin);
     if (!Number(a.horario_propio)) {
       await aplicarJornadas(conn, a.id, suyos);

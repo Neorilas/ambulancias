@@ -1276,7 +1276,7 @@ async function updateTrabajo(req, res, next) {
         if (cambiaHorario && guardado.length) nuevos = jornadas.diasNuevos(guardado, horario);
         if (cambiaHorario) await jornadas.guardarHorarioTrabajo(conn, id, horario);
         await jornadas.propagarHorarioDelTrabajo(conn, id, cambiaHorario ? horario : guardado,
-          { nuevos, recortar: movidas.map(a => a.id) });
+          { nuevos, recortar: movidas.map(a => a.id), saltar: noMovidas.map(a => a.id) });
       }
 
       if (equipo !== undefined) {
