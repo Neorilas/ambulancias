@@ -89,3 +89,42 @@ describe('AsignacionForm · horario por días', () => {
   });
 });
 
+// 2026-10-19: alargado el trabajo un día, la ambulancia con horario propio
+// no tenía forma clara de llevar el día nuevo
+describe('AsignacionForm · alargar una ambulancia con horario propio', () => {
+  const HORARIO_TRABAJO = [
+    { inicio: '2026-10-20T08:00:00.000Z', fin: '2026-10-20T20:00:00.000Z' },
+    { inicio: '2026-10-21T08:00:00.000Z', fin: '2026-10-21T20:00:00.000Z' },
+  ];
+  const PROPIA = asig({ trabajo_id: 40, horario_propio: true, inicio_real_at: '2026-10-20T06:00:00.000Z',
+    fecha_inicio: '2026-10-20T06:00:00.000Z', fecha_fin: '2026-10-20T21:00:00.000Z',
+    jornadas: [{ id: 1, inicio: '2026-10-20T09:00:00.000Z', fin: '2026-10-20T13:00:00.000Z',
+      inicio_real_at: '2026-10-20T09:00:00.000Z' }] });
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('activa, deja cambiar el fin y lo dice', () => {
+    montar({ asignacion: PROPIA });
+    expect(screen.getByText(/la fecha de fin \(para alargarlo más días\)/)).toBeInTheDocument();
+  });
+
+  it('dice que el trabajo tiene horario fuera de sus fechas y, al alargarla, copia ese día', async () => {
+    trabajosService.get.mockResolvedValueOnce({ horario: HORARIO_TRABAJO });
+    const { container } = montar({ asignacion: PROPIA });
+
+    expect(await screen.findByTestId('horario-fuera-de-fechas')).toHaveTextContent('Mié 21/10');
+    expect(screen.queryByTestId('copiar-del-trabajo')).not.toBeInTheDocument();
+
+    const [, fin] = container.querySelectorAll('input[type="datetime-local"]');
+    fireEvent.change(fin, { target: { value: '2026-10-21T23:00' } });
+    expect(screen.queryByTestId('horario-fuera-de-fechas')).not.toBeInTheDocument();
+    const copiar = screen.getByTestId('copiar-del-trabajo');
+    expect(copiar).toHaveTextContent('Mié 21/10 (10:00–22:00)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar ese día' }));
+    expect(screen.queryByTestId('copiar-del-trabajo')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Inicio del tramo 1 del Mié 21/10')).toHaveValue('10:00');
+    // lo ya fichado sigue ahí, sin tocar
+    expect(screen.getByLabelText('Inicio del tramo 1 del Mar 20/10')).toBeDisabled();
+  });
+});

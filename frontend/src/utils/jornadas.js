@@ -152,6 +152,26 @@ export function horarioDentro(horario, inicioLocal, finLocal) {
     .filter(d => d.tramos.length);
 }
 
+/**
+ * Los días de `heredado` (el horario del trabajo en las fechas de una
+ * ambulancia) que el horario propio de esa ambulancia no tiene: lo que ofrece
+ * «Copiar del trabajo» en `AsignacionForm` cuando se le alarga el fin.
+ */
+export function diasQueFaltanDelTrabajo(heredado, horario) {
+  const tiene = new Set((horario || []).map(d => d.dia));
+  return (heredado || []).filter(d => !tiene.has(d.dia));
+}
+
+/**
+ * Los días del horario del trabajo (formulario) que caen fuera de las fechas
+ * de una ambulancia: para decir que hay que ampliarle las fechas si también
+ * va esos días.
+ */
+export function diasFueraDeLasFechas(horarioTrabajo, inicioLocal, finLocal) {
+  const dentro = new Set(horarioDentro(horarioTrabajo, inicioLocal, finLocal).map(d => d.dia));
+  return (horarioTrabajo || []).filter(d => !dentro.has(d.dia));
+}
+
 /** El horario del trabajo de la API, en hora local de formulario, recortado a unas fechas. */
 export function horarioDelTrabajoPara(trabajoHorario, fechaInicio, fechaFin) {
   return horarioDentro(horarioDesdeApi(trabajoHorario), toInputDatetime(fechaInicio), toInputDatetime(fechaFin));

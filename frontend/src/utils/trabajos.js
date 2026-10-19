@@ -60,6 +60,19 @@ export function formularioInicial(trabajo) {
   };
 }
 
+/**
+ * Las ambulancias abiertas (programada o activa) que acaban a la vez que el
+ * trabajo: las que se alargan con él si se le cambia el fin con la casilla
+ * de «Editar trabajo» (`mover_fin_ambulancias`, mismo criterio que
+ * `updateTrabajo`: al minuto).
+ */
+export function ambulanciasQueAcabanConElTrabajo(trabajo) {
+  const fin = toInputDatetime(trabajo?.fecha_fin);
+  if (!fin) return [];
+  return (trabajo.asignaciones || []).filter(a =>
+    (a.estado === 'programada' || a.estado === 'activa') && toInputDatetime(a.fecha_fin) === fin);
+}
+
 /** ¿Es un trabajo previsto (v41), aún sin coordinador o sin ambulancias? */
 export const esPrevisto = (trabajo) => trabajo?.estado === TRABAJO_ESTADOS.PREVISTO;
 

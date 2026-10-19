@@ -11,6 +11,7 @@ import { toInputDatetime, toUtcIso, inicioYaPasado, AVISO_INICIO_PASADO } from '
 import { asociadosDeTrabajo } from '../../utils/trabajos.js';
 import {
   cruzaDias, horarioDesdeApi, horarioDentro, horarioAPayload, errorHorario, etiquetaDia, textoTramos,
+  diasQueFaltanDelTrabajo, diasFueraDeLasFechas,
 } from '../../utils/jornadas.js';
 import {
   idsElegidos, miembrosIniciales, textoSolapes, textoVehiculoOcupado,
@@ -148,6 +149,17 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     : (asignacion?.horario_propio ? [] : horarioDesdeApi(jornadasActuales));
   const conHorario = enTrabajo && (cruzaDias(form.fecha_inicio, form.fecha_fin)
     || heredado.length > 0 || form.horario_propio || jornadasActuales.length > 0);
+  // Con horario propio, los días del trabajo que no tiene (se le ha alargado
+  // el fin): se copian de un toque. Y los del trabajo fuera de sus fechas: se
+  // dice que hay que ampliarlas (2026-10-19, trabajos alargados un día)
+  const faltanDelTrabajo = form.horario_propio ? diasQueFaltanDelTrabajo(heredado, form.horario) : [];
+  const fueraDeSusFechas = horarioTrabajo && form.fecha_inicio && form.fecha_fin
+    ? diasFueraDeLasFechas(horarioDesdeApi(horarioTrabajo), form.fecha_inicio, form.fecha_fin) : [];
+  const copiarDelTrabajo = () => {
+    setForm(f => ({ ...f, horario: [...f.horario, ...diasQueFaltanDelTrabajo(heredado, f.horario)]
+      .sort((a, b) => (a.dia < b.dia ? -1 : 1)) }));
+    setErrors(prev => ({ ...prev, horario: '' }));
+  };
   const setHorarioPropio = (propio) => {
     setForm(f => ({ ...f, horario_propio: propio,
       // arranca con lo que tenía (las fichadas incluidas) o con lo heredado
@@ -247,7 +259,8 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
         )}
         {isEdit && asignacion.estado === 'activa' && !activaSinEmpezar && (
           <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
-            Servicio en curso. Puedes cambiar responsables, equipo y notas;
+            Servicio en curso. Puedes cambiar responsables, equipo, notas,
+            la fecha de fin (para alargarlo más días) y su horario por días;
             las fotos ya subidas se quedan en la asignación y el nuevo
             responsable sigue desde donde está. El vehículo solo mientras no
             haya fotos ni incidencias; al cambiarlo se avisa al equipo.
@@ -353,8 +366,22 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
               </label>
             </div>
             {form.horario_propio ? (
-              <HorarioJornadas value={form.horario} onChange={h => setForm(f => ({ ...f, horario: h }))}
-                fechaInicio={form.fecha_inicio} fechaFin={form.fecha_fin} error={errors.horario} />
+              <>
+                {faltanDelTrabajo.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2 mb-2 text-xs"
+                    data-testid="copiar-del-trabajo">
+                    <span className="flex-1 text-neutral-600">
+                      El trabajo tiene horario {faltanDelTrabajo.map(d => `el ${etiquetaDia(d.dia)} (${textoTramos(d.tramos)})`).join(', ')},
+                      que esta ambulancia no lleva.
+                    </span>
+                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={copiarDelTrabajo}>
+                      {faltanDelTrabajo.length === 1 ? 'Copiar ese día' : `Copiar esos ${faltanDelTrabajo.length} días`}
+                    </button>
+                  </div>
+                )}
+                <HorarioJornadas value={form.horario} onChange={h => setForm(f => ({ ...f, horario: h }))}
+                  fechaInicio={form.fecha_inicio} fechaFin={form.fecha_fin} error={errors.horario} />
+              </>
             ) : (
               <>
                 {heredado.length ? (
@@ -369,6 +396,13 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
                   Las ya fichadas no se tocan nunca.
                 </p>
               </>
+            )}
+            {fueraDeSusFechas.length > 0 && (
+              <p className="text-xs text-neutral-500 mt-2" data-testid="horario-fuera-de-fechas">
+                El trabajo también tiene horario {fueraDeSusFechas.map(d => `el ${etiquetaDia(d.dia)}`).join(', ')},
+                fuera de las fechas de esta ambulancia. Si también va {fueraDeSusFechas.length === 1 ? 'ese día' : 'esos días'}, amplía su fecha de
+                {' '}{fueraDeSusFechas.some(d => d.dia < (form.fecha_inicio || '').slice(0, 10)) ? 'inicio o de fin' : 'fin'}.
+              </p>
             )}
           </div>
         )}

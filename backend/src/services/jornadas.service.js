@@ -22,7 +22,7 @@
 'use strict';
 
 const { query } = require('../config/database');
-const { instanteUtc, diaYHoraEnEspana } = require('../utils/fecha.utils');
+const { instanteUtc, diaYHoraEnEspana, fechaEnEspana } = require('../utils/fecha.utils');
 
 /** Tope de tramos por horario: dos meses con un tramo al día, de sobra. */
 const MAX_TRAMOS = 62;
@@ -197,20 +197,71 @@ async function aplicarJornadas(conn, asignacionId, horario) {
   return { conservadas: fichadas.length };
 }
 
+/** El día español ('yyyy-MM-dd') en que empieza un tramo: el «día» del horario. */
+const diaDe = (t) => fechaEnEspana(instanteUtc(t.inicio));
+
 /**
- * Lleva el horario del trabajo a sus ambulancias que lo siguen
- * (`horario_propio = 0`) y siguen abiertas, cada una con los tramos que caen
- * en sus fechas. Las de horario propio no se tocan.
+ * Los días que tiene `despues` y no tenía `antes` (dos horarios de trabajo):
+ * los días que se acaban de añadir al trabajo.
  */
-async function propagarHorarioDelTrabajo(conn, trabajoId, horario) {
+function diasNuevos(antes, despues) {
+  const habia = new Set((antes || []).map(diaDe));
+  return [...new Set((despues || []).map(diaDe))].filter(d => !habia.has(d));
+}
+
+/**
+ * Lleva el horario del trabajo a sus ambulancias abiertas (`programada` o
+ * `activa`), cada una con los tramos que caen en sus fechas:
+ *  - Las que lo siguen (`horario_propio = 0`) quedan con eso, sin más.
+ *  - Las de horario propio no se tocan en los días que ya tienen, pero
+ *    reciben los `nuevos` días del trabajo que caen en sus fechas y en los
+ *    que no tienen ninguna jornada (2026-10-19, CONGRESO SEVILLA y
+ *    CHINCHILLA ampliados un día: con horario propio, el día añadido al
+ *    trabajo no llegaba a la ambulancia y no había forma clara de ponérselo).
+ *    Personalizar es por día: un día que el administrador le quitó a mano no
+ *    vuelve, porque solo cuentan los días que el trabajo no tenía. Y si se le
+ *    acaba de mover el fin con el del trabajo (`recortar`), las sin fichar que
+ *    se han quedado fuera de sus fechas se quitan; las fichadas, nunca. Sin
+ *    eso no se le borra nada (revisión del 2026-10-19).
+ * Dentro de la transacción de quien llama, con las ambulancias ya bloqueadas.
+ *
+ * @param {string[]} [opciones.nuevos]   días ('yyyy-MM-dd') recién añadidos al trabajo
+ * @param {number[]} [opciones.recortar] ambulancias a las que se acaba de mover el fin
+ */
+async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = [], recortar = [] } = {}) {
   const [asigs] = await conn.execute(
-    `SELECT id, fecha_inicio, fecha_fin FROM asignaciones_libres
-      WHERE trabajo_id = ? AND deleted_at IS NULL AND horario_propio = 0
+    `SELECT id, fecha_inicio, fecha_fin, horario_propio FROM asignaciones_libres
+      WHERE trabajo_id = ? AND deleted_at IS NULL
         AND estado IN ('programada', 'activa')`,
     [trabajoId]
   );
   for (const a of asigs || []) {
-    await aplicarJornadas(conn, a.id, tramosDentro(horario, a.fecha_inicio, a.fecha_fin));
+    const suyos = tramosDentro(horario, a.fecha_inicio, a.fecha_fin);
+    if (!Number(a.horario_propio)) {
+      await aplicarJornadas(conn, a.id, suyos);
+      continue;
+    }
+    if (!nuevos.length && !recortar.includes(a.id)) continue;
+    const [tiene] = await conn.execute(
+      'SELECT id, inicio, fin, inicio_real_at FROM asignacion_jornadas WHERE asignacion_id = ? FOR UPDATE', [a.id]);
+    const actuales = tiene || [];
+    const fuera = !recortar.includes(a.id) ? [] : actuales.filter(j => !j.inicio_real_at
+      && tramosDentro([j], a.fecha_inicio, a.fecha_fin).length === 0).map(j => j.id);
+    if (fuera.length) {
+      await conn.execute(
+        `DELETE FROM asignacion_jornadas
+          WHERE id IN (${fuera.map(() => '?').join(',')}) AND inicio_real_at IS NULL`, fuera);
+    }
+    const quedan = actuales.filter(j => !fuera.includes(j.id));
+    const diasSuyos = new Set(quedan.map(diaDe));
+    const anadir = suyos.filter(t => nuevos.includes(diaDe(t)) && !diasSuyos.has(diaDe(t))
+      && !quedan.some(j => solapan(j, t)));
+    for (const t of anadir) {
+      await conn.execute(
+        'INSERT INTO asignacion_jornadas (asignacion_id, inicio, fin) VALUES (?, ?, ?)',
+        [a.id, t.inicio, t.fin]
+      );
+    }
   }
 }
 
@@ -236,6 +287,7 @@ module.exports = {
   guardarHorarioTrabajo,
   jornadasDe,
   aplicarJornadas,
+  diasNuevos,
   propagarHorarioDelTrabajo,
   heredarDelTrabajo,
   resumenHorario,
