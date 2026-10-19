@@ -167,3 +167,55 @@ describe('TrabajoForm · previsto (v41)', () => {
     expect(trabajosService.update).toHaveBeenCalledWith(8, expect.not.objectContaining({ coordinadores: [] }));
   });
 });
+
+// 2026-10-19: CONGRESO SEVILLA y CHINCHILLA se alargaron un día y el día
+// nuevo no llegaba a sus ambulancias, que seguían con su fin
+describe('TrabajoForm · alargar el trabajo', () => {
+  const TRABAJO = {
+    id: 34, nombre: 'Congreso', estado: 'activo', usuarios: [],
+    fecha_inicio: '2026-10-20T06:00:00Z', fecha_fin: '2026-10-22T20:00:00Z',
+    coordinador_user_id: 50, coordinadores: [{ id: 50, nombre: 'Carla', apellidos: 'Ruiz' }],
+    asignaciones: [
+      { id: 167, estado: 'activa', vehiculo_alias: 'UVI-1', fecha_fin: '2026-10-22T20:00:00Z' },
+      { id: 168, estado: 'programada', vehiculo_alias: 'SVB-2', fecha_fin: '2026-10-21T20:00:00Z' },
+      { id: 169, estado: 'finalizada', vehiculo_alias: 'SVB-3', fecha_fin: '2026-10-22T20:00:00Z' },
+    ],
+  };
+  const finInput = (container) => container.querySelectorAll('input[type="datetime-local"]')[1];
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sin cambiar el fin no ofrece nada', () => {
+    montar(TRABAJO);
+    expect(screen.queryByTestId('mover-fin-ambulancias')).not.toBeInTheDocument();
+  });
+
+  it('al alargarlo ofrece mover las abiertas que acababan con él, marcado, y lo manda', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    trabajosService.update.mockResolvedValueOnce({ id: 34, ambulancias_alargadas: 1 });
+    const user = userEvent.setup();
+    const { container } = montar(TRABAJO);
+
+    fireEvent.change(finInput(container), { target: { value: '2026-10-23T22:00' } });
+    const casilla = screen.getByTestId('mover-fin-ambulancias');
+    expect(casilla).toHaveTextContent('Cambiar también el fin de su ambulancia');
+    expect(casilla).toHaveTextContent('UVI-1 acababa con el trabajo');
+    expect(casilla).not.toHaveTextContent('SVB-2');
+    expect(screen.getByRole('checkbox', { name: /Cambiar también el fin/ })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(trabajosService.update).toHaveBeenCalledWith(34, expect.objectContaining({ mover_fin_ambulancias: true }));
+  });
+
+  it('desmarcada, no se mueve ninguna', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    trabajosService.update.mockResolvedValueOnce({ id: 34 });
+    const user = userEvent.setup();
+    const { container } = montar(TRABAJO);
+
+    fireEvent.change(finInput(container), { target: { value: '2026-10-23T22:00' } });
+    await user.click(screen.getByRole('checkbox', { name: /Cambiar también el fin/ }));
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(trabajosService.update.mock.calls[0][1]).not.toHaveProperty('mover_fin_ambulancias');
+  });
+});

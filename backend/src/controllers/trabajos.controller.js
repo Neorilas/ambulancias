@@ -1095,10 +1095,20 @@ async function updateTrabajo(req, res, next) {
     const { horario, error: errHor } = jornadas.leerHorario(req.body.horario,
       { fecha_inicio: inicio, fecha_fin: fin });
     if (errHor) return error(res, errHor, 400);
-    const horarioAntes = horario !== undefined
-      ? jornadas.resumenHorario(await jornadas.horarioDelTrabajo(id)) : null;
+    const filasHorarioAntes = horario !== undefined ? await jornadas.horarioDelTrabajo(id) : null;
+    const horarioAntes = filasHorarioAntes ? jornadas.resumenHorario(filasHorarioAntes) : null;
     const horarioNuevo = horario !== undefined ? jornadas.resumenHorario(horario) : null;
     const cambiaHorario = horario !== undefined && JSON.stringify(horarioAntes) !== JSON.stringify(horarioNuevo);
+
+    // Alargar (o acortar) el trabajo arrastra el fin de sus ambulancias
+    // abiertas que acababan con él, si se pide (`mover_fin_ambulancias`, la
+    // casilla del formulario). Sin eso, el día añadido al trabajo no llegaba a
+    // ninguna: cada una seguía con su fin y no heredaba el horario de ese día
+    // (2026-10-19, CONGRESO SEVILLA y CHINCHILLA ampliados un día).
+    const minutoDe = (f) => Math.floor(instanteUtc(f).getTime() / 60000);
+    const cambiaFin = fecha_fin !== undefined && minutoDe(fecha_fin) !== minutoDe(actual.fecha_fin);
+    const moverFin = cambiaFin && req.body.mover_fin_ambulancias === true;
+    let movidas = [];
 
     const equipo = idsDe(usuarios);
     if (equipo && equipo.some(id => !Number.isInteger(id) || id < 1)) {
@@ -1155,9 +1165,21 @@ async function updateTrabajo(req, res, next) {
       // demás caminos (finalizar, activar, editar una ambulancia, el cron:
       // asignación → trabajo); al revés, cambiar el horario a la vez que un
       // técnico finaliza podía interbloquearse (revisión del 2026-10-18).
-      if (cambiaHorario) {
-        await conn.execute(
-          'SELECT id FROM asignaciones_libres WHERE trabajo_id = ? ORDER BY id FOR UPDATE', [id]);
+      if (cambiaHorario || moverFin) {
+        const [bloqueadas] = await conn.execute(
+          'SELECT id, vehicle_id, estado, fecha_fin, deleted_at FROM asignaciones_libres WHERE trabajo_id = ? ORDER BY id FOR UPDATE',
+          [id]);
+        if (moverFin) {
+          movidas = (bloqueadas || []).filter(a => !a.deleted_at
+            && ['programada', 'activa'].includes(a.estado)
+            && minutoDe(a.fecha_fin) === minutoDe(actual.fecha_fin));
+          if (movidas.length) {
+            await conn.execute(
+              `UPDATE asignaciones_libres SET fecha_fin = ?
+                WHERE id IN (${movidas.map(() => '?').join(',')})`,
+              [fecha_fin, ...movidas.map(a => a.id)]);
+          }
+        }
       }
       const updates = [];
       const vals    = [];
@@ -1215,9 +1237,15 @@ async function updateTrabajo(req, res, next) {
         await sincronizarEstadoTrabajo(conn, id);
       }
 
-      if (cambiaHorario) {
-        await jornadas.guardarHorarioTrabajo(conn, id, horario);
-        await jornadas.propagarHorarioDelTrabajo(conn, id, horario);
+      // Un horario nuevo, o ambulancias con otro fin: cada una, con los
+      // tramos que tocan sus fechas. Los días recién añadidos al trabajo
+      // llegan también a las de horario propio (`propagarHorarioDelTrabajo`)
+      if (cambiaHorario || movidas.length) {
+        if (cambiaHorario) await jornadas.guardarHorarioTrabajo(conn, id, horario);
+        const plantilla = cambiaHorario ? horario
+          : await jornadas.horarioDelTrabajo(id, (sql, p) => conn.execute(sql, p));
+        await jornadas.propagarHorarioDelTrabajo(conn, id, plantilla,
+          { nuevos: cambiaHorario ? jornadas.diasNuevos(filasHorarioAntes, horario) : [] });
       }
 
       if (equipo !== undefined) {
@@ -1232,6 +1260,37 @@ async function updateTrabajo(req, res, next) {
     });
 
     const t = await getTrabajoCompleto(id);
+    // Las ambulancias que se han alargado con el trabajo: su historial lo
+    // dice, y quien edita recibe los mismos avisos que al cambiarles las
+    // fechas a mano (gente ocupada, ambulancia ocupada). Ya guardado: un
+    // fallo aquí solo se registra.
+    const avisosAlta = [];
+    for (const m of movidas) {
+      try {
+        const asig = await asignaciones.getAsignacionCompleta(m.id);
+        if (!asig) continue;
+        logAudit({
+          userId:   req.user.id,
+          userInfo: req.user.username,
+          action:   'update_asignacion',
+          entityType: 'asignacion', entityId: m.id,
+          details:  { vehiculo: asig.matricula, con_el_trabajo: id,
+                      cambios: { fecha_fin: { antes: m.fecha_fin, despues: asig.fecha_fin } } },
+          ip: req.ip,
+        });
+        const gente = [...asig.responsables, ...asig.personal].map(p => p.id);
+        avisosAlta.push({
+          asignacion_id: m.id,
+          vehicle_id: m.vehicle_id,
+          solapes: await asignaciones.buscarSolapes(gente, asig.fecha_inicio, asig.fecha_fin, m.id),
+          vehiculo_ocupado: await asignaciones.buscarVehiculoOcupado(
+            m.vehicle_id, asig.fecha_inicio, asig.fecha_fin, m.id),
+          fuera_del_trabajo: false,
+        });
+      } catch (err) {
+        logger.error(`Ambulancia ${m.id} alargada con el trabajo ${id}: ${err.message}`);
+      }
+    }
     // Coordinadores que ENTRAN: se les avisa a ellos; ni a quien ya lo era ni
     // a quien deja de serlo
     const entranCoord = (coordGuardados || []).filter(c => !coordAntes.includes(c));
@@ -1253,10 +1312,13 @@ async function updateTrabajo(req, res, next) {
       // Quién coordina decide quién ve y cierra el trabajo: queda dicho
       details:  { nombre: t.nombre, estado: t.estado,
                   ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }),
+                  ...(cambiaFin && { fecha_fin: { antes: actual.fecha_fin, despues: t.fecha_fin } }),
+                  ...(movidas.length && { ambulancias_alargadas: movidas.map(m => m.id) }),
                   ...(cambiaHorario && { horario_antes: horarioAntes, horario: horarioNuevo }) },
       ip: req.ip,
     });
-    return success(res, t, 'Trabajo actualizado');
+    return success(res, { ...t, ambulancias_alargadas: movidas.length, avisos_alta: avisosAlta },
+      'Trabajo actualizado');
   } catch (err) {
     next(err);
   }

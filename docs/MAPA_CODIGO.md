@@ -1849,7 +1849,41 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   tramos que tocan **sus** fechas (`tramosDentro`): la que va dos de tres días
   hereda dos. Se recalcula al crearla, al cambiarle fechas o trabajo y al
   cambiar el horario del trabajo (`propagarHorarioDelTrabajo`, solo
-  `programada`/`activa`). Con horario propio no se toca nada de eso.
+  `programada`/`activa`). Con horario propio, sus días no se tocan, **salvo
+  los días nuevos del trabajo** (abajo, «Alargar un trabajo»).
+- **Alargar un trabajo (2026-10-19).** CONGRESO SEVILLA y MANIOBRAS
+  CHINCHILLA se ampliaron un día y no había forma clara de darles horario a
+  sus ambulancias ese día: cada ambulancia tiene su propio fin (no se movía
+  con el del trabajo, así que `tramosDentro` no le daba el día nuevo) y las
+  dos tenían horario propio, al que el trabajo no llega. Arreglo:
+  - `PUT /trabajos/:id` con `mover_fin_ambulancias: true` y un `fecha_fin`
+    distinto (al minuto) mueve el fin de sus ambulancias **abiertas**
+    (`programada`/`activa`, también en curso) que acababan **justo** con el
+    trabajo. Las que acababan antes o después, las cerradas y las borradas se
+    quedan. Se bloquean primero (asignación → trabajo, como el cambio de
+    horario). Sin la casilla no se mueve nada (una PWA vieja no la manda).
+    Audita `update_trabajo` con `fecha_fin` y `ambulancias_alargadas`, y un
+    `update_asignacion` por cada una con `con_el_trabajo`, para que su
+    historial lo diga. Devuelve `ambulancias_alargadas` (cuántas) y
+    `avisos_alta` (gente o ambulancia ocupada con el fin nuevo, como el alta).
+  - Con ambulancias movidas o el horario cambiado, se reparte el horario
+    (`propagarHorarioDelTrabajo`) **después** de mover los fines: las que lo
+    siguen heredan el día nuevo por sus fechas. A las de horario propio les
+    llegan los `diasNuevos` del trabajo (días que el horario nuevo tiene y el
+    anterior no) que caen en sus fechas y en los que **no tienen ninguna
+    jornada**: personalizar es por día, y un día que se le quitó a mano no
+    vuelve porque no es nuevo en el trabajo. Da igual hacerlo en una edición
+    (fin + día) o en dos (primero el fin, luego el día). Si el fin se acorta,
+    a una propia se le quitan las jornadas **sin fichar** que quedan fuera de
+    sus fechas.
+  - En pantalla: `TrabajoForm`, al cambiar el fin, enseña la casilla «Cambiar
+    también el fin de su(s) ambulancia(s)» (marcada, con sus nombres) si hay
+    alguna que acababa con él (`ambulanciasQueAcabanConElTrabajo` de
+    `utils/trabajos.js`). `AsignacionForm` de una activa ya dice que se puede
+    alargar (el backend siempre lo dejó, pero el texto decía «responsables,
+    equipo y notas»); con horario propio ofrece «Copiar ese día» con los días
+    del trabajo que no lleva (`diasQueFaltanDelTrabajo`), y dice cuándo el
+    trabajo tiene horario fuera de sus fechas (`diasFueraDeLasFechas`).
 - API: `horario: [{inicio, fin}]` en el trabajo (`POST`/`PUT /trabajos`) y en
   cada ambulancia del alta (`asignaciones[].horario`, con él es propia); en
   `POST`/`PUT /asignaciones`, `horario` (= propio, aunque venga vacío) y
@@ -2259,7 +2293,9 @@ quedarse en solo lectura).
 - **Editar:** los coordinadores se cambian, añaden y quitan, pero siempre queda uno; el equipo del trabajo
   (`usuarios`) se rehace entero, y solo avisa a quien entra. En un trabajo del
   modelo nuevo (con coordinador o con asignaciones) `vehiculos` da 400: las
-  ambulancias y quién va en ellas se cambian en cada una.
+  ambulancias y quién va en ellas se cambian en cada una. Las fechas se
+  cambian también activo; con `mover_fin_ambulancias`, el fin arrastra a las
+  ambulancias abiertas que acababan con él (§6.1, «Alargar un trabajo»).
 - **Borrar:** solo si ninguna ambulancia ha empezado ni terminado (sus fotos y
   horas son la evidencia del servicio); sus asignaciones se borran con él, en
   la misma transacción, para no dejar tarjetas colgando.
@@ -2653,7 +2689,8 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo de vehículo | migración → `vehicles.controller` → `vehicles.routes` (validadores) → **dos formularios**: `VehicleForm` (modal del listado) y la edición en línea del Resumen en `VehicleHistory` (`CAMPOS_FICHA` + `formDesdeVehiculo`, que deciden si hay cambios sin guardar; el km en blanco **se omite del payload**, mandarlo como 0 borraba el cuentakilómetros) → `VehicleList` → `vehicleAlerts.js` si es fecha de caducidad |
 | El mínimo de km al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (compara con `vehiculo_km_actual`, añadido a `getAsignacionCompleta`) → `FinalizacionAsignacion.jsx` (min del input y aviso en el paso de kilometraje) → `utils/kmUtils.js` (`parseKm`, usado también en `VehicleForm`/`VehicleHistory` al editar el vehículo). Bajarlo a propósito: solo desde la ficha del vehículo, con `ConfirmDialog`. Detalle y porqué en §6.1 |
 | El material utilizado al cerrar un servicio | `asignaciones.controller.finalizarAsignacion` (es quien lo exige) + `asignaciones.routes` (solo acota el tamaño) → paso `material` de `FinalizacionAsignacion` (el **primero** del cierre, antes de las fotos de fin; por eso el botón izquierdo de cada paso es `BotonVolver`: «Cancelar» en el paso 0, «Atrás» en el resto) → dónde se lee: `AsignacionDetalle` y el grupo de la asignación en `getVehicleHistorial` → `VehicleHistory`. La columna es NULL-able a propósito (§4) |
-| El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo`) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
+| El horario por días de un trabajo (qué hereda cada ambulancia) | `services/jornadas.service.js` (`leerHorario`, `tramosDentro`, `aplicarJornadas`, `propagarHorarioDelTrabajo` + `diasNuevos`, que también llegan a las de horario propio) ← `trabajos.controller` (`leerAmbulancias`, `createTrabajo`, `updateTrabajo`, `getTrabajoCompleto`, `leerAsignacionesDelTrabajo`) y `asignaciones.controller` (`createAsignacion`, `updateAsignacion`, `getAsignacionCompleta`, `cambiosAsignacion`) + validadores `horario` de `trabajos.routes`/`asignaciones.routes`. **Nunca borrar una fila de `asignacion_jornadas` con `inicio_real_at`** (§6.1 «Jornadas por día») |
+| Alargar un trabajo (y sus ambulancias) | Backend: `updateTrabajo` (`mover_fin_ambulancias`, validador en `trabajos.routes`) → `jornadas.propagarHorarioDelTrabajo` con `diasNuevos`. Frontend: casilla de `TrabajoForm` (`ambulanciasQueAcabanConElTrabajo`), «Copiar ese día» de `AsignacionForm` (`diasQueFaltanDelTrabajo`, `diasFueraDeLasFechas` de `utils/jornadas.js`). El criterio «acaba con el trabajo» es al minuto en los dos lados (§6.1 «Alargar un trabajo») |
 | El editor del horario por días | `utils/jornadas.js` (formato de días y tramos ↔ API, validación espejo de `leerHorario`) → `components/trabajos/HorarioJornadas.jsx` → `TrabajoForm` (trabajo y ambulancias del alta, vía `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`), `AsignacionForm` y la ficha en `TrabajoDetail`. Si cambia una regla del horario, cambiarla también en `jornadas.service.leerHorario` (§6.1 «Jornadas por día») |
 | Fichar una jornada (ventana, motivo, olvido) | Frontend: `accionJornada`/`finJornadaAnticipado`/`resumenJornadas` (`utils/jornadas.js`) → `AsignacionDetalle` (tarjeta y `ListaJornadas`), `pasosAsignacion`, `siguientePaso`/`textoEstadoAmbulancia` (+ el resumen de `misTrab`). Backend: `asignaciones.controller` (`cargarJornada`, `iniciarJornada`, `finalizarJornada`; la guarda en `registrarLlegada`/`registrarFinServicio`/`finalizarAsignacion`) + rutas en `asignaciones.routes` (clasificadas en `ACCESO` de `autorizacion-rutas.test.js`) + `avisarInicioJornada`/`avisarFinJornada` + `ACTION_LABEL` de `AdminPanel`. Los cortes son `INICIO_ANTICIPADO_MAX_MINUTOS` (inicio) e `INICIO_TARDIO_MINUTOS` (motivo de fin) (§6.1 «Jornadas por día») |
 | Un campo de trabajo | migración → `trabajos.controller` (`createTrabajo`/`updateTrabajo`; `getTrabajoCompleto` lo trae con `t.*`) → `trabajos.routes` (`validarCamposTrabajo`) → `utils/trabajos.js` (`formularioInicial`, `payloadTrabajo`) → `TrabajoForm`/`TrabajoDetail` → ¿lo ve el equipo? (`vistaParaUsuario` recorta por ambulancia, no por campo del trabajo) → ¿lo necesita la cabecera de la asignación? (`trabajoAparte` en `asignaciones.controller`, que lo trae por `LEFT JOIN`) |

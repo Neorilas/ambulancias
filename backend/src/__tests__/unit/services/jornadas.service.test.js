@@ -180,9 +180,9 @@ describe('jornadas.service', () => {
   describe('propagarHorarioDelTrabajo y heredarDelTrabajo', () => {
     it('lleva a cada ambulancia que sigue al trabajo los tramos de sus fechas', async () => {
       const conn = conexion({
-        'horario_propio = 0': [
-          { id: 60, fecha_inicio: T('2026-10-20T06:00'), fecha_fin: T('2026-10-20T23:00') },
-          { id: 61, fecha_inicio: T('2026-10-21T06:00'), fecha_fin: T('2026-10-21T23:00') },
+        'FROM asignaciones_libres': [
+          { id: 60, fecha_inicio: T('2026-10-20T06:00'), fecha_fin: T('2026-10-20T23:00'), horario_propio: 0 },
+          { id: 61, fecha_inicio: T('2026-10-21T06:00'), fecha_fin: T('2026-10-21T23:00'), horario_propio: 0 },
         ],
         'FOR UPDATE': [],
       });
@@ -194,6 +194,72 @@ describe('jornadas.service', () => {
       expect(sel.sql).toContain("estado IN ('programada', 'activa')");
       const inserts = conn.ejecutadas.filter(e => e.sql.includes('INSERT INTO asignacion_jornadas'));
       expect(inserts.map(e => e.params[0])).toEqual([60, 61]);
+    });
+
+    describe('ambulancia con horario propio (2026-10-19)', () => {
+      const HORARIO = [
+        { inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T20:00') },
+        { inicio: T('2026-10-21T08:00'), fin: T('2026-10-21T20:00') },
+        { inicio: T('2026-10-22T06:00'), fin: T('2026-10-22T12:00') },
+      ];
+      const propia = (jornadasSuyas, fin = T('2026-10-22T22:00')) => conexion({
+        'FROM asignaciones_libres': [
+          { id: 70, fecha_inicio: T('2026-10-20T06:00'), fecha_fin: fin, horario_propio: 1 },
+        ],
+        'FROM asignacion_jornadas WHERE asignacion_id': jornadasSuyas,
+      });
+      const insertadas = (conn) => conn.ejecutadas
+        .filter(e => e.sql.includes('INSERT INTO asignacion_jornadas')).map(e => e.params);
+
+      it('recibe el día nuevo del trabajo, con sus horas', async () => {
+        const conn = propia([
+          { id: 1, inicio: T('2026-10-20T09:00'), fin: T('2026-10-20T13:00'), inicio_real_at: T('2026-10-20T09:01') },
+          { id: 2, inicio: T('2026-10-21T09:00'), fin: T('2026-10-21T13:00'), inicio_real_at: null },
+        ]);
+        await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO, { nuevos: ['2026-10-22'] });
+        expect(insertadas(conn)).toEqual([[70, HORARIO[2].inicio, HORARIO[2].fin]]);
+        // lo suyo no se toca
+        expect(conn.ejecutadas.some(e => /UPDATE|DELETE/.test(e.sql))).toBe(false);
+      });
+
+      it('sin días nuevos, o en un día que ya tiene, no se le añade nada', async () => {
+        const suyas = [{ id: 3, inicio: T('2026-10-22T07:00'), fin: T('2026-10-22T10:00'), inicio_real_at: null }];
+        const sinNuevos = propia(suyas);
+        await jornadas.propagarHorarioDelTrabajo(sinNuevos, 7, HORARIO);
+        expect(insertadas(sinNuevos)).toEqual([]);
+        const yaLoTiene = propia(suyas);
+        await jornadas.propagarHorarioDelTrabajo(yaLoTiene, 7, HORARIO, { nuevos: ['2026-10-22'] });
+        expect(insertadas(yaLoTiene)).toEqual([]);
+      });
+
+      it('un día nuevo fuera de sus fechas no le llega', async () => {
+        const conn = propia([], T('2026-10-21T22:00'));
+        await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO, { nuevos: ['2026-10-22'] });
+        expect(insertadas(conn)).toEqual([]);
+      });
+
+      it('con el fin acortado, quita las sin fichar que se quedan fuera; las fichadas, nunca', async () => {
+        const conn = propia([
+          { id: 4, inicio: T('2026-10-22T06:00'), fin: T('2026-10-22T12:00'), inicio_real_at: null },
+          { id: 5, inicio: T('2026-10-23T06:00'), fin: T('2026-10-23T12:00'), inicio_real_at: T('2026-10-23T06:00') },
+        ], T('2026-10-21T22:00'));
+        await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO);
+        const borrar = conn.ejecutadas.find(e => e.sql.includes('DELETE FROM asignacion_jornadas'));
+        expect(borrar.params).toEqual([4]);
+        expect(borrar.sql).toContain('inicio_real_at IS NULL');
+      });
+    });
+
+    it('diasNuevos: los días que el horario nuevo tiene y el anterior no', () => {
+      const antes = [{ inicio: T('2026-10-20T08:00'), fin: T('2026-10-20T20:00') }];
+      const despues = [...antes,
+        { inicio: T('2026-10-21T06:00'), fin: T('2026-10-21T10:00') },
+        { inicio: T('2026-10-21T12:00'), fin: T('2026-10-21T16:00') },
+        // 23:30 UTC del 21 ya es el 22 en España
+        { inicio: T('2026-10-21T23:30'), fin: T('2026-10-22T03:00') }];
+      expect(jornadas.diasNuevos(antes, despues)).toEqual(['2026-10-21', '2026-10-22']);
+      expect(jornadas.diasNuevos(despues, antes)).toEqual([]);
+      expect(jornadas.diasNuevos(null, antes)).toEqual(['2026-10-20']);
     });
 
     it('heredarDelTrabajo lee la plantilla dentro de la transacción', async () => {

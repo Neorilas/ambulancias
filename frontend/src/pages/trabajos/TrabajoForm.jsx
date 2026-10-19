@@ -8,9 +8,10 @@ import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import {
   formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
+  ambulanciasQueAcabanConElTrabajo,
 } from '../../utils/trabajos.js';
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
-import { inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
+import { inicioYaPasado, AVISO_INICIO_PASADO, toInputDatetime } from '../../utils/dateUtils.js';
 import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../utils/mapas.js';
 import { cruzaDias, horarioDentro, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 
@@ -38,6 +39,13 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   const [saving,   setSaving]   = useState(false);
   const [errors,   setErrors]   = useState({});
   const [form,     setForm]     = useState(() => formularioInicial(trabajo));
+  // Al cambiarle el fin a un trabajo, sus ambulancias abiertas que acababan
+  // con él se mueven con él salvo que se desmarque (2026-10-19: alargado un
+  // día, el día nuevo no llegaba a ninguna ambulancia)
+  const [moverFin, setMoverFin] = useState(true);
+  const acabanConEl = isEdit ? ambulanciasQueAcabanConElTrabajo(trabajo) : [];
+  const cambiaFin = isEdit && !!form.fecha_fin && form.fecha_fin !== toInputDatetime(trabajo.fecha_fin);
+  const ofrecerMoverFin = cambiaFin && acabanConEl.length > 0;
 
   useEffect(() => {
     vehiclesService.list({ limit: 100 }).then(r => setVehicles(r.data || [])).catch(console.error);
@@ -119,12 +127,20 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
     if (Object.keys(e).length) return;
     setSaving(true);
     try {
-      const payload = payloadTrabajo(form, { alta });
+      const payload = {
+        ...payloadTrabajo(form, { alta }),
+        ...(ofrecerMoverFin && moverFin ? { mover_fin_ambulancias: true } : {}),
+      };
       const guardado = isEdit
         ? await trabajosService.update(trabajo.id, payload)
         : await trabajosService.create(payload);
 
       notify.success(isEdit ? 'Trabajo actualizado' : 'Trabajo creado');
+      const alargadas = guardado?.ambulancias_alargadas || 0;
+      if (alargadas) {
+        notify.info(alargadas === 1 ? 'Su ambulancia termina ahora con el trabajo'
+          : `Sus ${alargadas} ambulancias terminan ahora con el trabajo`, 8000);
+      }
       // Avisos por ambulancia, como al crear una asignación: lo guardado,
       // guardado está; solo se cuenta.
       for (const a of guardado?.avisos_alta || []) {
@@ -263,6 +279,25 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
             {errors.fecha_fin && <p className="field-error">{errors.fecha_fin}</p>}
           </div>
         </div>
+        {ofrecerMoverFin && (
+          <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer"
+            data-testid="mover-fin-ambulancias">
+            <input type="checkbox" className="mt-0.5" checked={moverFin}
+              onChange={e => setMoverFin(e.target.checked)} />
+            <span className="text-sm">
+              <span className="font-medium text-neutral-900">
+                Cambiar también el fin de {acabanConEl.length === 1 ? 'su ambulancia'
+                  : `sus ${acabanConEl.length} ambulancias`}
+              </span>
+              <span className="block text-xs text-neutral-500 mt-0.5">
+                {acabanConEl.map(a => a.vehiculo_alias || a.matricula).join(', ')}
+                {acabanConEl.length === 1 ? ' acababa' : ' acababan'} con el trabajo, también en curso.
+                Con el fin nuevo reciben el horario de los días añadidos, también las que tienen horario
+                propio. Lo ya fichado no se toca.
+              </span>
+            </span>
+          </label>
+        )}
 
         {/* Horario por días (v39): lo heredan las ambulancias, y en cada día
             su responsable pulsa «Inicio de jornada» y «Fin de jornada» */}

@@ -146,6 +146,8 @@ router.put('/:id',
     body('tipo').optional().isIn(Object.values(TRABAJO_TIPOS)),
     body('fecha_inicio').optional().isISO8601().withMessage('fecha_inicio inválida').customSanitizer(fechaApiAMysql),
     body('fecha_fin').optional().isISO8601().withMessage('fecha_fin inválida').customSanitizer(fechaApiAMysql),
+    // Al cambiar el fin, que las ambulancias que acababan con el trabajo se muevan con él
+    body('mover_fin_ambulancias').optional().isBoolean({ strict: true }),
     // Se pueden cambiar, no quitar todos: todo trabajo nuevo tiene quien lo cierre
     ...validarCoordinadores,
     ...validarCamposTrabajo,
