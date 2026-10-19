@@ -219,14 +219,16 @@ function diasNuevos(antes, despues) {
  *    CHINCHILLA ampliados un día: con horario propio, el día añadido al
  *    trabajo no llegaba a la ambulancia y no había forma clara de ponérselo).
  *    Personalizar es por día: un día que el administrador le quitó a mano no
- *    vuelve, porque solo cuentan los días que el trabajo no tenía. Y las sin
- *    fichar que se han quedado fuera de sus fechas (se le acortó el fin con
- *    el del trabajo) se quitan; las fichadas, nunca.
+ *    vuelve, porque solo cuentan los días que el trabajo no tenía. Y si se le
+ *    acaba de mover el fin con el del trabajo (`recortar`), las sin fichar que
+ *    se han quedado fuera de sus fechas se quitan; las fichadas, nunca. Sin
+ *    eso no se le borra nada (revisión del 2026-10-19).
  * Dentro de la transacción de quien llama, con las ambulancias ya bloqueadas.
  *
- * @param {string[]} [opciones.nuevos] días ('yyyy-MM-dd') recién añadidos al trabajo
+ * @param {string[]} [opciones.nuevos]   días ('yyyy-MM-dd') recién añadidos al trabajo
+ * @param {number[]} [opciones.recortar] ambulancias a las que se acaba de mover el fin
  */
-async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = [] } = {}) {
+async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = [], recortar = [] } = {}) {
   const [asigs] = await conn.execute(
     `SELECT id, fecha_inicio, fecha_fin, horario_propio FROM asignaciones_libres
       WHERE trabajo_id = ? AND deleted_at IS NULL
@@ -239,10 +241,11 @@ async function propagarHorarioDelTrabajo(conn, trabajoId, horario, { nuevos = []
       await aplicarJornadas(conn, a.id, suyos);
       continue;
     }
+    if (!nuevos.length && !recortar.includes(a.id)) continue;
     const [tiene] = await conn.execute(
-      'SELECT id, inicio, fin, inicio_real_at FROM asignacion_jornadas WHERE asignacion_id = ?', [a.id]);
+      'SELECT id, inicio, fin, inicio_real_at FROM asignacion_jornadas WHERE asignacion_id = ? FOR UPDATE', [a.id]);
     const actuales = tiene || [];
-    const fuera = actuales.filter(j => !j.inicio_real_at
+    const fuera = !recortar.includes(a.id) ? [] : actuales.filter(j => !j.inicio_real_at
       && tramosDentro([j], a.fecha_inicio, a.fecha_fin).length === 0).map(j => j.id);
     if (fuera.length) {
       await conn.execute(

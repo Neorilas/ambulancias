@@ -1861,10 +1861,21 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
     (`programada`/`activa`, también en curso) que acababan **justo** con el
     trabajo. Las que acababan antes o después, las cerradas y las borradas se
     quedan. Se bloquean primero (asignación → trabajo, como el cambio de
-    horario). Sin la casilla no se mueve nada (una PWA vieja no la manda).
-    Audita `update_trabajo` con `fecha_fin` y `ambulancias_alargadas`, y un
-    `update_asignacion` por cada una con `con_el_trabajo`, para que su
-    historial lo diga. Devuelve `ambulancias_alargadas` (cuántas) y
+    horario) y el fin «de antes» se **relee con el trabajo bloqueado**: con
+    el leído al principio, dos ediciones cruzadas perdían la casilla sin
+    decirlo. Sin la casilla no se mueve nada (una PWA vieja no la manda).
+    **Al acortar**, no se mueve la que quedaría con el fin antes de su inicio
+    ni antes de su última jornada fichada (`MAX(COALESCE(fin_real_at,
+    inicio_real_at))`): se quedan como están y se devuelven en
+    `ambulancias_no_alargadas` (`{id, nombre}`), que la pantalla avisa
+    («No se ha cambiado el fin de …»). La casilla sale marcada por defecto,
+    así que esto no podía depender de que alguien la desmarcara (revisión
+    del 2026-10-19: guardar sin más dejaba intervalos invertidos y borraba
+    sus jornadas sin fichar).
+    Audita `update_trabajo` con `fecha_fin`, `ambulancias_alargadas` y
+    `ambulancias_no_alargadas`, y un `update_asignacion` por cada movida con
+    `con_el_trabajo` (antes de cualquier relectura, para que un fallo no la
+    deje sin rastro). Devuelve `ambulancias_alargadas` (cuántas) y
     `avisos_alta` (gente o ambulancia ocupada con el fin nuevo, como el alta).
   - Con ambulancias movidas o el horario cambiado, se reparte el horario
     (`propagarHorarioDelTrabajo`) **después** de mover los fines: las que lo
@@ -1873,9 +1884,13 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
     anterior no) que caen en sus fechas y en los que **no tienen ninguna
     jornada**: personalizar es por día, y un día que se le quitó a mano no
     vuelve porque no es nuevo en el trabajo. Da igual hacerlo en una edición
-    (fin + día) o en dos (primero el fin, luego el día). Si el fin se acorta,
-    a una propia se le quitan las jornadas **sin fichar** que quedan fuera de
-    sus fechas.
+    (fin + día) o en dos (primero el fin, luego el día). **El primer horario
+    de un trabajo no cuenta como días nuevos** (`nuevos` vacío si no tenía
+    ninguno): si no, metía todos sus días en las de horario propio,
+    también los que se les quitaron a mano. El «antes» se lee dentro de la
+    transacción. Solo a una propia **a la que se acaba de mover el fin**
+    (`recortar`) se le quitan las jornadas sin fichar que quedan fuera de
+    sus fechas; en cualquier otra propagación no se le borra nada.
   - En pantalla: `TrabajoForm`, al cambiar el fin, enseña la casilla «Cambiar
     también el fin de su(s) ambulancia(s)» (marcada, con sus nombres) si hay
     alguna que acababa con él (`ambulanciasQueAcabanConElTrabajo` de

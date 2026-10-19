@@ -2245,23 +2245,26 @@ describe('trabajos.controller', () => {
       describe('alargar el trabajo (mover_fin_ambulancias)', () => {
         const FIN_VIEJO = new Date('2026-10-22T22:00:00Z');
         /** Transacción con las ambulancias del trabajo al bloquearlas. */
-        const conAmbulancias = (filas) => {
+        const conAmbulancias = (filas, fichadas = []) => {
           const ejecutadas = [];
           transaction.mockImplementation(async (cb) => cb({
             execute: jest.fn(async (sql, params) => {
               ejecutadas.push({ sql, params });
               if (sql.includes('ORDER BY id FOR UPDATE')) return [filas];
+              if (sql.includes('SELECT fecha_fin FROM trabajos WHERE id = ? FOR UPDATE')) return [[{ fecha_fin: FIN_VIEJO }]];
+              if (sql.includes('MAX(COALESCE(fin_real_at')) return [fichadas];
               if (sql.trimStart().startsWith('SELECT')) return [[]];
               return [{ affectedRows: 1 }];
             }),
           }));
           return ejecutadas;
         };
+        const INICIO = new Date('2026-10-20T06:00:00Z');
         const FILAS = [
-          { id: 201, vehicle_id: 7, estado: 'activa', fecha_fin: FIN_VIEJO, deleted_at: null },
-          { id: 202, vehicle_id: 8, estado: 'programada', fecha_fin: new Date('2026-10-21T20:00:00Z'), deleted_at: null },
-          { id: 203, vehicle_id: 9, estado: 'finalizada', fecha_fin: FIN_VIEJO, deleted_at: null },
-          { id: 204, vehicle_id: 10, estado: 'programada', fecha_fin: FIN_VIEJO, deleted_at: new Date() },
+          { id: 201, vehicle_id: 7, estado: 'activa', fecha_inicio: INICIO, fecha_fin: FIN_VIEJO, deleted_at: null },
+          { id: 202, vehicle_id: 8, estado: 'programada', fecha_inicio: INICIO, fecha_fin: new Date('2026-10-21T20:00:00Z'), deleted_at: null },
+          { id: 203, vehicle_id: 9, estado: 'finalizada', fecha_inicio: INICIO, fecha_fin: FIN_VIEJO, deleted_at: null },
+          { id: 204, vehicle_id: 10, estado: 'programada', fecha_inicio: INICIO, fecha_fin: FIN_VIEJO, deleted_at: new Date() },
         ];
 
         it('alarga solo las abiertas que acababan con el trabajo, y lo audita', async () => {
@@ -2299,6 +2302,26 @@ describe('trabajos.controller', () => {
           const ejecutadas = conAmbulancias(FILAS);
           await editar({ fecha_fin: '2026-10-22 22:00:00', mover_fin_ambulancias: true });
           expect(ejecutadas.some(e => e.sql.includes('UPDATE asignaciones_libres'))).toBe(false);
+        });
+
+        it('al acortarlo no deja ninguna con el fin antes de su inicio ni de lo fichado', async () => {
+          bd([existente, ...reglas]);
+          const ejecutadas = conAmbulancias([
+            ...FILAS,
+            // empieza después del fin nuevo
+            { id: 205, vehicle_id: 11, estado: 'programada', fecha_inicio: new Date('2026-10-22T08:00:00Z'),
+              fecha_fin: FIN_VIEJO, deleted_at: null },
+            // ya fichó más tarde del fin nuevo
+            { id: 206, vehicle_id: 12, estado: 'activa', fecha_inicio: INICIO, fecha_fin: FIN_VIEJO, deleted_at: null },
+          ], [{ asignacion_id: 206, ultimo: new Date('2026-10-21T21:00:00Z') }]);
+          const res = await editar({ fecha_fin: '2026-10-21 20:00:00', mover_fin_ambulancias: true });
+
+          expect(res.status).toHaveBeenCalledWith(200);
+          const mover = ejecutadas.find(e => e.sql.includes('UPDATE asignaciones_libres SET fecha_fin'));
+          expect(mover.params).toEqual(['2026-10-21 20:00:00', 201]);
+          expect(res._json.data.ambulancias_no_alargadas.map(a => a.id)).toEqual([205, 206]);
+          const det = logAudit.mock.calls.find(c => c[0].action === 'update_trabajo')[0].details;
+          expect(det.ambulancias_no_alargadas).toEqual([205, 206]);
         });
 
         it('mueve el fin de las ambulancias antes de repartirles el horario nuevo', async () => {

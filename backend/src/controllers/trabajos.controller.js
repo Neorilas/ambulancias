@@ -1109,6 +1109,11 @@ async function updateTrabajo(req, res, next) {
     const cambiaFin = fecha_fin !== undefined && minutoDe(fecha_fin) !== minutoDe(actual.fecha_fin);
     const moverFin = cambiaFin && req.body.mover_fin_ambulancias === true;
     let movidas = [];
+    // Las que acababan con el trabajo pero no caben en el fin nuevo (al
+    // acortarlo): empiezan después, o ya tienen jornadas fichadas más tarde
+    let noMovidas = [];
+    // Los días que el horario nuevo añade al trabajo (para las de horario propio)
+    let nuevos = [];
 
     const equipo = idsDe(usuarios);
     if (equipo && equipo.some(id => !Number.isInteger(id) || id < 1)) {
@@ -1167,12 +1172,35 @@ async function updateTrabajo(req, res, next) {
       // técnico finaliza podía interbloquearse (revisión del 2026-10-18).
       if (cambiaHorario || moverFin) {
         const [bloqueadas] = await conn.execute(
-          'SELECT id, vehicle_id, estado, fecha_fin, deleted_at FROM asignaciones_libres WHERE trabajo_id = ? ORDER BY id FOR UPDATE',
+          'SELECT id, vehicle_id, estado, fecha_inicio, fecha_fin, deleted_at FROM asignaciones_libres WHERE trabajo_id = ? ORDER BY id FOR UPDATE',
           [id]);
         if (moverFin) {
-          movidas = (bloqueadas || []).filter(a => !a.deleted_at
+          // El fin de antes, releído con el trabajo bloqueado (después de sus
+          // ambulancias: asignación → trabajo). Con el leído al principio, dos
+          // ediciones cruzadas comparaban con un fin ya cambiado y la casilla
+          // se perdía sin decir nada (revisión del 2026-10-19).
+          const [filasTrab] = await conn.execute('SELECT fecha_fin FROM trabajos WHERE id = ? FOR UPDATE', [id]);
+          const finAntes = filasTrab[0].fecha_fin;
+          const candidatas = (bloqueadas || []).filter(a => !a.deleted_at
             && ['programada', 'activa'].includes(a.estado)
-            && minutoDe(a.fecha_fin) === minutoDe(actual.fecha_fin));
+            && minutoDe(a.fecha_fin) === minutoDe(finAntes));
+          // Acortar no puede dejar una ambulancia con el fin antes que su
+          // inicio, ni antes de lo que ya se ha fichado: esas se quedan como
+          // están y se dice cuáles (revisión del 2026-10-19)
+          const ultimoFichado = new Map();
+          if (candidatas.length) {
+            const [fichadas] = await conn.execute(
+              `SELECT asignacion_id, MAX(COALESCE(fin_real_at, inicio_real_at)) AS ultimo
+                 FROM asignacion_jornadas
+                WHERE asignacion_id IN (${candidatas.map(() => '?').join(',')}) AND inicio_real_at IS NOT NULL
+                GROUP BY asignacion_id`,
+              candidatas.map(a => a.id));
+            for (const f of fichadas || []) ultimoFichado.set(f.asignacion_id, f.ultimo);
+          }
+          const cabe = (a) => minutoDe(a.fecha_inicio) < minutoDe(fecha_fin)
+            && (!ultimoFichado.get(a.id) || minutoDe(ultimoFichado.get(a.id)) <= minutoDe(fecha_fin));
+          movidas = candidatas.filter(cabe);
+          noMovidas = candidatas.filter(a => !cabe(a));
           if (movidas.length) {
             await conn.execute(
               `UPDATE asignaciones_libres SET fecha_fin = ?
@@ -1241,11 +1269,14 @@ async function updateTrabajo(req, res, next) {
       // tramos que tocan sus fechas. Los días recién añadidos al trabajo
       // llegan también a las de horario propio (`propagarHorarioDelTrabajo`)
       if (cambiaHorario || movidas.length) {
+        const guardado = await jornadas.horarioDelTrabajo(id, (sql, p) => conn.execute(sql, p));
+        // Días nuevos solo si el trabajo ya tenía horario: el primero no
+        // «añade» días, y metería en las de horario propio días que se les
+        // quitaron a mano (revisión del 2026-10-19)
+        if (cambiaHorario && guardado.length) nuevos = jornadas.diasNuevos(guardado, horario);
         if (cambiaHorario) await jornadas.guardarHorarioTrabajo(conn, id, horario);
-        const plantilla = cambiaHorario ? horario
-          : await jornadas.horarioDelTrabajo(id, (sql, p) => conn.execute(sql, p));
-        await jornadas.propagarHorarioDelTrabajo(conn, id, plantilla,
-          { nuevos: cambiaHorario ? jornadas.diasNuevos(filasHorarioAntes, horario) : [] });
+        await jornadas.propagarHorarioDelTrabajo(conn, id, cambiaHorario ? horario : guardado,
+          { nuevos, recortar: movidas.map(a => a.id) });
       }
 
       if (equipo !== undefined) {
@@ -1265,19 +1296,21 @@ async function updateTrabajo(req, res, next) {
     // fechas a mano (gente ocupada, ambulancia ocupada). Ya guardado: un
     // fallo aquí solo se registra.
     const avisosAlta = [];
+    const deLaFicha = (aid) => (t.asignaciones || []).find(a => a.id === aid) || {};
     for (const m of movidas) {
+      // La auditoría primero y sin depender de más lecturas: el cambio ya está hecho
+      logAudit({
+        userId:   req.user.id,
+        userInfo: req.user.username,
+        action:   'update_asignacion',
+        entityType: 'asignacion', entityId: m.id,
+        details:  { vehiculo: deLaFicha(m.id).matricula || null, con_el_trabajo: id,
+                    cambios: { fecha_fin: { antes: m.fecha_fin, despues: t.fecha_fin } } },
+        ip: req.ip,
+      });
       try {
         const asig = await asignaciones.getAsignacionCompleta(m.id);
         if (!asig) continue;
-        logAudit({
-          userId:   req.user.id,
-          userInfo: req.user.username,
-          action:   'update_asignacion',
-          entityType: 'asignacion', entityId: m.id,
-          details:  { vehiculo: asig.matricula, con_el_trabajo: id,
-                      cambios: { fecha_fin: { antes: m.fecha_fin, despues: asig.fecha_fin } } },
-          ip: req.ip,
-        });
         const gente = [...asig.responsables, ...asig.personal].map(p => p.id);
         avisosAlta.push({
           asignacion_id: m.id,
@@ -1314,11 +1347,15 @@ async function updateTrabajo(req, res, next) {
                   ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }),
                   ...(cambiaFin && { fecha_fin: { antes: actual.fecha_fin, despues: t.fecha_fin } }),
                   ...(movidas.length && { ambulancias_alargadas: movidas.map(m => m.id) }),
+                  ...(noMovidas.length && { ambulancias_no_alargadas: noMovidas.map(m => m.id) }),
                   ...(cambiaHorario && { horario_antes: horarioAntes, horario: horarioNuevo }) },
       ip: req.ip,
     });
-    return success(res, { ...t, ambulancias_alargadas: movidas.length, avisos_alta: avisosAlta },
-      'Trabajo actualizado');
+    return success(res, { ...t, ambulancias_alargadas: movidas.length, avisos_alta: avisosAlta,
+      ambulancias_no_alargadas: noMovidas.map(m => {
+        const a = deLaFicha(m.id);
+        return { id: m.id, nombre: a.vehiculo_alias || a.matricula || `#${m.id}` };
+      }) }, 'Trabajo actualizado');
   } catch (err) {
     next(err);
   }

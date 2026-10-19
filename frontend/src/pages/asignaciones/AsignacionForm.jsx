@@ -153,7 +153,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   // el fin): se copian de un toque. Y los del trabajo fuera de sus fechas: se
   // dice que hay que ampliarlas (2026-10-19, trabajos alargados un día)
   const faltanDelTrabajo = form.horario_propio ? diasQueFaltanDelTrabajo(heredado, form.horario) : [];
-  const fueraDeSusFechas = horarioTrabajo
+  const fueraDeSusFechas = horarioTrabajo && form.fecha_inicio && form.fecha_fin
     ? diasFueraDeLasFechas(horarioDesdeApi(horarioTrabajo), form.fecha_inicio, form.fecha_fin) : [];
   const copiarDelTrabajo = () => {
     setForm(f => ({ ...f, horario: [...f.horario, ...diasQueFaltanDelTrabajo(heredado, f.horario)]

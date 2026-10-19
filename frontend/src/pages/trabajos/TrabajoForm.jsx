@@ -136,6 +136,12 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
         : await trabajosService.create(payload);
 
       notify.success(isEdit ? 'Trabajo actualizado' : 'Trabajo creado');
+      const quedan = guardado?.ambulancias_no_alargadas || [];
+      if (quedan.length) {
+        notify.warning(`No se ha cambiado el fin de ${quedan.map(a => a.nombre).join(', ')}: empieza${
+          quedan.length > 1 ? 'n' : ''} después del fin nuevo o ya tiene${quedan.length > 1 ? 'n' : ''
+        } jornadas fichadas más tarde. Revísal${quedan.length > 1 ? 'as' : 'a'} a mano.`, 12000);
+      }
       const alargadas = guardado?.ambulancias_alargadas || 0;
       if (alargadas) {
         notify.info(alargadas === 1 ? 'Su ambulancia termina ahora con el trabajo'

@@ -219,7 +219,7 @@ describe('jornadas.service', () => {
         await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO, { nuevos: ['2026-10-22'] });
         expect(insertadas(conn)).toEqual([[70, HORARIO[2].inicio, HORARIO[2].fin]]);
         // lo suyo no se toca
-        expect(conn.ejecutadas.some(e => /UPDATE|DELETE/.test(e.sql))).toBe(false);
+        expect(conn.ejecutadas.some(e => /^\s*(UPDATE|DELETE)/.test(e.sql))).toBe(false);
       });
 
       it('sin días nuevos, o en un día que ya tiene, no se le añade nada', async () => {
@@ -239,14 +239,20 @@ describe('jornadas.service', () => {
       });
 
       it('con el fin acortado, quita las sin fichar que se quedan fuera; las fichadas, nunca', async () => {
-        const conn = propia([
+        const suyas = [
           { id: 4, inicio: T('2026-10-22T06:00'), fin: T('2026-10-22T12:00'), inicio_real_at: null },
           { id: 5, inicio: T('2026-10-23T06:00'), fin: T('2026-10-23T12:00'), inicio_real_at: T('2026-10-23T06:00') },
-        ], T('2026-10-21T22:00'));
-        await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO);
+        ];
+        const conn = propia(suyas, T('2026-10-21T22:00'));
+        await jornadas.propagarHorarioDelTrabajo(conn, 7, HORARIO, { recortar: [70] });
         const borrar = conn.ejecutadas.find(e => e.sql.includes('DELETE FROM asignacion_jornadas'));
         expect(borrar.params).toEqual([4]);
         expect(borrar.sql).toContain('inicio_real_at IS NULL');
+
+        // Si no se le ha movido el fin en esta llamada, no se le borra nada
+        const otra = propia(suyas, T('2026-10-21T22:00'));
+        await jornadas.propagarHorarioDelTrabajo(otra, 7, HORARIO, { nuevos: ['2026-10-22'] });
+        expect(otra.ejecutadas.some(e => e.sql.includes('DELETE'))).toBe(false);
       });
     });
 
