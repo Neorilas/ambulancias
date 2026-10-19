@@ -1946,6 +1946,13 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   tarde la cierre con su hora real. La duración de la jornada se redondea como
   en el informe (`minutosJornada`). La tarjeta dice «En jornada · n de m
   hechas», lo mismo que cuenta la barra.
+- **La barra «Cada día de … a … / Rellenar» (`HorarioJornadas`)** sale
+  mientras haya días del rango sin ningún tramo (`diasEntre`), no según lo
+  que añadiría con las horas tecleadas: con `faltan > 0`, escribir una hora
+  de inicio igual a la de fin dejaba el día sin hueco y la barra
+  desaparecía con el campo dentro, sin forma de corregirlo (prueba local
+  del 2026-10-19). Ahora el botón se desactiva («Con esas horas no cabe
+  ningún día»).
 - **Fichar** (`iniciarJornada`/`finalizarJornada`, `POST
   /asignaciones/:id/jornadas/:jornadaId/inicio|fin`): responsable o gestión
   (`cargarJornada`, como la llegada; el equipo no). Calcados de la llegada:

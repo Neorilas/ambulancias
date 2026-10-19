@@ -289,6 +289,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer"
             data-testid="mover-fin-ambulancias">
             <input type="checkbox" className="mt-0.5" checked={moverFin}
+              aria-label={`Cambiar también el fin de ${acabanConEl.length === 1 ? 'su ambulancia' : `sus ${acabanConEl.length} ambulancias`}`}
               onChange={e => setMoverFin(e.target.checked)} />
             <span className="text-sm">
               <span className="font-medium text-neutral-900">
@@ -297,9 +298,12 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
               </span>
               <span className="block text-xs text-neutral-500 mt-0.5">
                 {acabanConEl.map(a => a.vehiculo_alias || a.matricula).join(', ')}
-                {acabanConEl.length === 1 ? ' acababa' : ' acababan'} con el trabajo, también en curso.
-                Con el fin nuevo reciben el horario de los días añadidos, también las que tienen horario
-                propio. Lo ya fichado no se toca.
+                {acabanConEl.length === 1 ? ' acababa' : ' acababan'} con el trabajo
+                {acabanConEl.some(a => a.estado === 'activa') ? ' (aunque esté en curso)' : ''}.
+                {form.fecha_fin > toInputDatetime(trabajo.fecha_fin)
+                  ? ' Con el fin nuevo reciben el horario de los días que añadas, también con horario propio.'
+                  : ' La que empiece después del fin nuevo o ya haya fichado más tarde se queda como está.'}
+                {' '}Lo ya fichado no se toca.
               </span>
             </span>
           </label>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  rellenarDias, pasaMedianoche, etiquetaDia, errorHorario,
+  rellenarDias, pasaMedianoche, etiquetaDia, errorHorario, diasEntre,
   DESDE_POR_DEFECTO, HASTA_POR_DEFECTO,
 } from '../../utils/jornadas.js';
 
@@ -21,6 +21,11 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   // a las horas del trabajo no cuenta)
   const faltan = rellenarDias(horario, fechaInicio, fechaFin, desde, hasta)
     .filter(d => !horario.some(h => h.dia === d.dia)).length;
+  // La barra sale mientras haya días del rango sin ningún tramo, con
+  // cualquier hora tecleada: si dependiera de `faltan`, al escribir una hora
+  // que deja el día sin hueco (de 21:00 a 21:00) desaparecía la barra entera
+  // y ya no se podía corregir (prueba local del 2026-10-19)
+  const diasSinTramo = diasEntre(fechaInicio, fechaFin).filter(d => !horario.some(h => h.dia === d)).length;
 
   const cambiarTramo = (i, k, campo, valor) => onChange(horario.map((d, j) => (j !== i ? d : {
     ...d, tramos: d.tramos.map((t, m) => (m === k ? { ...t, [campo]: valor } : t)),
@@ -38,7 +43,7 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
   return (
     <div className="space-y-3" data-testid="horario-jornadas">
       {/* Rellenar: una hora para todos los días; luego se retoca cada uno */}
-      {faltan > 0 && (
+      {diasSinTramo > 0 && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2">
           <div>
             <label className="label text-xs">Cada día de</label>
@@ -50,11 +55,12 @@ export default function HorarioJornadas({ value, onChange, fechaInicio, fechaFin
             <input type="time" className="input text-sm w-28" value={hasta}
               onChange={e => setHasta(e.target.value)} aria-label="Hora de fin de cada día" />
           </div>
-          <button type="button" className="btn-secondary text-xs px-2 py-2"
+          <button type="button" className="btn-secondary text-xs px-2 py-2" disabled={faltan === 0}
             onClick={() => onChange(rellenarDias(horario, fechaInicio, fechaFin, desde, hasta))}>
-            {horario.length
-              ? (faltan === 1 ? 'Añadir el día que falta' : `Añadir los ${faltan} días que faltan`)
-              : (faltan === 1 ? 'Rellenar el día' : `Rellenar los ${faltan} días`)}
+            {faltan === 0 ? 'Con esas horas no cabe ningún día'
+              : horario.length
+                ? (faltan === 1 ? 'Añadir el día que falta' : `Añadir los ${faltan} días que faltan`)
+                : (faltan === 1 ? 'Rellenar el día' : `Rellenar los ${faltan} días`)}
           </button>
         </div>
       )}

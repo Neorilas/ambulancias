@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import HorarioJornadas from '../../../components/trabajos/HorarioJornadas.jsx';
 
@@ -68,5 +68,17 @@ describe('HorarioJornadas', () => {
     expect(screen.getByText('Algo va mal')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Quitar día' }));
     expect(alCambiar.mock.calls.at(-1)[0]).toEqual([]);
+  });
+
+  // Prueba local del 2026-10-19: teclear una hora de inicio igual a la de
+  // fin dejaba el día sin hueco y la barra desaparecía con el campo dentro
+  it('la barra no desaparece mientras se teclea una hora que no deja hueco', () => {
+    render(<HorarioJornadas value={[]} onChange={vi.fn()}
+      fechaInicio="2026-10-20T06:00" fechaFin="2026-10-20T23:00" />);
+    fireEvent.change(screen.getByLabelText('Hora de inicio de cada día'), { target: { value: '21:00' } });
+    expect(screen.getByLabelText('Hora de fin de cada día')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Con esas horas no cabe ningún día' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Hora de inicio de cada día'), { target: { value: '09:00' } });
+    expect(screen.getByRole('button', { name: 'Rellenar el día' })).toBeEnabled();
   });
 });

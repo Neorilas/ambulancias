@@ -400,7 +400,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             {fueraDeSusFechas.length > 0 && (
               <p className="text-xs text-neutral-500 mt-2" data-testid="horario-fuera-de-fechas">
                 El trabajo también tiene horario {fueraDeSusFechas.map(d => `el ${etiquetaDia(d.dia)}`).join(', ')},
-                fuera de las fechas de esta ambulancia. Si también va esos días, amplía su fecha de
+                fuera de las fechas de esta ambulancia. Si también va {fueraDeSusFechas.length === 1 ? 'ese día' : 'esos días'}, amplía su fecha de
                 {' '}{fueraDeSusFechas.some(d => d.dia < (form.fecha_inicio || '').slice(0, 10)) ? 'inicio o de fin' : 'fin'}.
               </p>
             )}
