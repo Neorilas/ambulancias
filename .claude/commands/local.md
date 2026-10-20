@@ -1,5 +1,6 @@
 ---
 description: Levanta el entorno local (MySQL + backend + frontend) y lo deja listo para probar
+model: haiku
 ---
 
 Levanta el entorno local completo. Runbook: `docs/LOCAL.md`.

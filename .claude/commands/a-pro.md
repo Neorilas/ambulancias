@@ -1,5 +1,6 @@
 ---
 description: Sube a producción lo verificado en local y comprueba que el deploy ha llegado de verdad
+model: sonnet
 ---
 
 Sube a producción. **Solo después de que `/verifica` haya dado verde**: si no
