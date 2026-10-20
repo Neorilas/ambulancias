@@ -338,6 +338,23 @@ ovillo), descarta los que exigirían > 250 km/h y corta el tramo en huecos de
 abrir el panel, y en curso se refresca cada minuto con la pestaña visible.
 Respuesta de un día real: ~2.400 puntos pintados, ~47 KB. No se guarda nada.
 
+Lo que añadió la revisión antes de subir (2026-10-20):
+- **Caché.** Una ventana abierta (o cerrada hace < 10 min: Cartrack sube los
+  eventos con retraso) redondea `desde` al minuto en la clave. Sin eso, un
+  servicio de más de 7 días (`desde` = ahora − 7 d) estrenaba clave en cada
+  petición y cada refresco volvía a pedir siete días a Cartrack. Y hay
+  *single-flight* (`recorridosEnVuelo`), como en `refrescar`: una petición
+  tarda hasta ~20 s y se solapaba con el refresco de un minuto.
+- **`construirRecorrido`.** La salida y el final salen de los puntos que se
+  pintan, no del primer y último evento crudo. Un tramo de un solo punto no se
+  pinta: sin línea pero con `puntos > 0`, la pantalla dice «no se ha movido» y
+  no «sin datos». Tres puntos seguidos «imposibles» respecto al último bueno
+  significan que el raro era él (un primer punto sin fix): se corta y se
+  recuperan esos tres.
+- **Frontend.** Un refresco que trae `fuente.error` no pisa la ruta buena (la
+  línea desaparecía un minuto y el mapa se reencuadraba al volver). El panel
+  lleva `key={asig.id}` para no enseñar la ruta de otra asignación.
+
 **También en `/flota` (2026-10-20, pedido del usuario).** Al elegir una
 ambulancia con asignación activa (marcador o lista), `MapaFlota` pide
 `getRecorrido` de esa asignación y `MapaLeaflet` lo pinta (prop `recorrido`,

@@ -56,7 +56,11 @@ function TextoRecorrido({ recorrido }) {
     return <p className="text-[12px] text-neutral-500 mt-1">El GPS no contesta ahora mismo: sin recorrido.</p>;
   }
   if (!r?.tramos?.length) {
-    return <p className="text-[12px] text-neutral-500 mt-1">Aún no hay recorrido de este servicio.</p>;
+    return (
+      <p className="text-[12px] text-neutral-500 mt-1">
+        {r?.puntos > 0 ? 'No se ha movido en este servicio.' : 'Aún no hay recorrido de este servicio.'}
+      </p>
+    );
   }
   return (
     <p className="text-[12px] text-neutral-600 mt-1">
@@ -331,7 +335,12 @@ export default function MapaFlota() {
     let vivo = true;
     setRecorrido({ id: asignacionElegida, cargando: true });
     const pedir = () => flotaService.getRecorrido(asignacionElegida)
-      .then((d) => { if (vivo) setRecorrido({ id: asignacionElegida, datos: d }); })
+      // Un fallo puntual en un refresco no borra la línea que ya había
+      .then((d) => {
+        if (!vivo) return;
+        setRecorrido(r => (d?.fuente?.error && r?.datos?.recorrido?.tramos?.length
+          ? r : { id: asignacionElegida, datos: d }));
+      })
       .catch(() => { if (vivo) setRecorrido(r => (r?.datos ? r : { id: asignacionElegida, error: true })); });
     pedir();
     const t = setInterval(() => { if (!document.hidden) pedir(); }, REFRESCO_RECORRIDO_MS);

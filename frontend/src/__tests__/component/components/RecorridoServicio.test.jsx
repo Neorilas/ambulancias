@@ -60,6 +60,13 @@ describe('RecorridoServicio', () => {
     expect(screen.queryByText(/no tiene puntos/)).not.toBeInTheDocument();
   });
 
+  it('con puntos pero sin línea dice que no se ha movido, no que no hay datos', async () => {
+    flotaService.getRecorrido.mockResolvedValue({ ...ok, recorrido: { tramos: [], inicio: null, fin: null, km: 0, puntos: 120 } });
+    render(<RecorridoServicio asignacionId={7} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Ver recorrido' }));
+    expect(await screen.findByText(/no se ha movido/)).toBeInTheDocument();
+  });
+
   it('un servicio de más de 7 días avisa de que solo enseña los últimos', async () => {
     flotaService.getRecorrido.mockResolvedValue({ ...ok, ventana: { ...ventana, recortado: true } });
     render(<RecorridoServicio asignacionId={7} />);

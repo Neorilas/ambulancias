@@ -38,7 +38,9 @@ export default function RecorridoServicio({ asignacionId }) {
   const cargar = (silencioso = false) => {
     if (!silencioso) setCargando(true);
     return flotaService.getRecorrido(asignacionId)
-      .then((d) => { setDatos(d); setFallo(false); })
+      // En un refresco, un fallo puntual de Cartrack (200 con `fuente.error`)
+      // no pisa la ruta buena: la línea desaparecía un minuto y volvía.
+      .then((d) => { setDatos(prev => (silencioso && d?.fuente?.error && prev ? prev : d)); setFallo(false); })
       .catch(() => { if (!silencioso) setFallo(true); })
       .finally(() => { if (!silencioso) setCargando(false); });
   };
@@ -67,7 +69,11 @@ export default function RecorridoServicio({ asignacionId }) {
       ? 'Este entorno no tiene el GPS configurado.'
       : 'Esta ambulancia no tiene GPS vinculado en Cartrack (o su matrícula sale dos veces).';
   } else if (datos?.fuente?.error) aviso = 'El GPS no contesta ahora mismo. Prueba en un rato.';
-  else if (datos?.estado === 'ok' && !hayRuta) aviso = 'Cartrack no tiene puntos de esta ambulancia en el horario del servicio.';
+  else if (datos?.estado === 'ok' && !hayRuta) {
+    aviso = recorrido?.puntos > 0
+      ? 'La ambulancia no se ha movido en el horario del servicio.'
+      : 'Cartrack no tiene puntos de esta ambulancia en el horario del servicio.';
+  }
 
   return (
     <div className="space-y-3">

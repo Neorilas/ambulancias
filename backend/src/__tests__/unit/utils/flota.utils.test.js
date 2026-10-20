@@ -257,10 +257,22 @@ describe('construirRecorrido', () => {
     expect(r.inicio.at).toBe('2026-10-17T08:00:00.000Z');
   });
 
-  it('un vehículo parado no dibuja un ovillo: los puntos a < 15 m se saltan', () => {
+  it('un vehículo parado no dibuja un ovillo: sin línea, pero cuenta los puntos', () => {
     const r = construirRecorrido([0, 1, 2, 3].map(i => p(i, 40 + i * 0.00001)));
-    expect(r.tramos[0]).toHaveLength(1);
-    expect(r.puntos).toBe(4);
+    expect(r.tramos).toEqual([]);
+    expect(r.puntos).toBe(4);   // la pantalla dice «no se ha movido», no «sin datos»
+  });
+
+  it('un PRIMER punto malo no tira la ruta entera', () => {
+    const r = construirRecorrido([p(0, 45), p(1, 40), p(2, 40.001), p(3, 40.002), p(4, 40.003)]);
+    expect(r.tramos).toHaveLength(1);
+    expect(r.tramos[0][0]).toEqual([40, -3.7]);
+    expect(r.inicio.lat).toBe(40);
+  });
+
+  it('la salida y el final salen de lo que se pinta, no del evento crudo', () => {
+    const r = construirRecorrido([p(0, 40), p(1, 40.001), p(2, 40.002), p(3, 41)]);
+    expect(r.fin.lat).toBe(40.002);
   });
 
   it('un hueco sin cobertura con salto de sitio CORTA el tramo y no suma esos km', () => {

@@ -359,6 +359,9 @@ const RECORRIDO_CERRADO_MS = 60 * 60 * 1000;
 const RECORRIDO_ABIERTO_MS = 60 * 1000;
 const RECORRIDOS_MAX = 100;
 const cacheRecorridos = new Map(); // clave → { puntos, at, ttl }
+const recorridosEnVuelo = new Map(); // clave → promesa de la petición en curso
+// Una ventana cerrada hace menos de esto se trata como abierta (TTL corto)
+const RECIEN_CERRADA_MS = 10 * 60 * 1000;
 
 /**
  * 'YYYY-MM-DD HH:MM:SS' en hora de España. La API toma las ventanas en la
@@ -452,33 +455,50 @@ async function obtenerRecorrido({ cartrackId, registration, desde, hasta }) {
   if (!registration) return { puntos: [], error: 'vehículo sin identificar en Cartrack', configurado: true };
 
   const ahoraMs = ahora().getTime();
-  // Abierta = el fin está en el último minuto: se redondea al minuto para que
-  // dos peticiones seguidas compartan clave
-  const abierta = hasta.getTime() > ahoraMs - RECORRIDO_ABIERTO_MS;
-  const hastaClave = abierta ? Math.floor(hasta.getTime() / 60000) * 60000 : hasta.getTime();
-  const clave = `${registration}|${desde.getTime()}|${abierta ? 'abierta' : hastaClave}`;
+  // Abierta = sigue en curso o acaba de cerrarse: Cartrack sube los eventos
+  // con algo de retraso y un cierre de hace 2 minutos aún puede crecer, así
+  // que no se congela una hora.
+  const abierta = hasta.getTime() > ahoraMs - RECIEN_CERRADA_MS;
+  // En una abierta, `hasta` es «ahora» y cambia en cada petición; y en un
+  // servicio de más de 7 días también `desde` (son los últimos 7 días). Los dos
+  // se redondean al minuto: sin eso la clave no se repetía nunca y cada
+  // refresco volvía a pedir días enteros a Cartrack.
+  const minuto = (ms) => Math.floor(ms / 60000) * 60000;
+  const clave = abierta
+    ? `${registration}|${minuto(desde.getTime())}|abierta`
+    : `${registration}|${desde.getTime()}|${hasta.getTime()}`;
 
   const guardado = cacheRecorridos.get(clave);
   if (guardado && ahoraMs - guardado.at < guardado.ttl) {
     return { puntos: guardado.puntos, error: null, configurado: true };
   }
 
-  try {
-    const puntos = await pedirEventos({ cartrackId, registration }, desde, hasta);
-    if (cacheRecorridos.size >= RECORRIDOS_MAX) {
-      cacheRecorridos.delete(cacheRecorridos.keys().next().value);
-    }
-    cacheRecorridos.set(clave, {
-      puntos, at: ahoraMs, ttl: abierta ? RECORRIDO_ABIERTO_MS : RECORRIDO_CERRADO_MS,
-    });
-    return { puntos, error: null, configurado: true };
-  } catch (err) {
-    const mensaje = err?.name === 'TimeoutError' || err?.name === 'AbortError'
-      ? 'Cartrack no respondió a tiempo'
-      : (err?.message || 'error desconocido');
-    logger.warn(`Cartrack: no se pudo leer el recorrido — ${mensaje}`);
-    return { puntos: [], error: mensaje, configurado: true };
-  }
+  // Single-flight, como `refrescar`: una petición lenta (hasta 20 s medidos)
+  // se solapa con el refresco de un minuto o con otro administrador mirando lo
+  // mismo, y cada una gastaba su cupo de Cartrack para el mismo dato.
+  if (recorridosEnVuelo.has(clave)) return recorridosEnVuelo.get(clave);
+
+  const promesa = pedirEventos({ cartrackId, registration }, desde, hasta)
+    .then((puntos) => {
+      if (cacheRecorridos.size >= RECORRIDOS_MAX) {
+        cacheRecorridos.delete(cacheRecorridos.keys().next().value);
+      }
+      cacheRecorridos.set(clave, {
+        puntos, at: ahoraMs, ttl: abierta ? RECORRIDO_ABIERTO_MS : RECORRIDO_CERRADO_MS,
+      });
+      return { puntos, error: null, configurado: true };
+    })
+    .catch((err) => {
+      const mensaje = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+        ? 'Cartrack no respondió a tiempo'
+        : (err?.message || 'error desconocido');
+      logger.warn(`Cartrack: no se pudo leer el recorrido — ${mensaje}`);
+      return { puntos: [], error: mensaje, configurado: true };
+    })
+    .finally(() => { recorridosEnVuelo.delete(clave); });
+
+  recorridosEnVuelo.set(clave, promesa);
+  return promesa;
 }
 
 /** Vacía la caché. Solo para los tests: en producción nadie la invalida a mano. */
@@ -486,6 +506,7 @@ function _vaciarCache() {
   cache = null;
   enVuelo = null;
   cacheRecorridos.clear();
+  recorridosEnVuelo.clear();
 }
 
 module.exports = {

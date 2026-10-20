@@ -387,6 +387,29 @@ describe('obtenerRecorrido', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('dos peticiones a la vez de lo mismo hacen UNA llamada (single-flight)', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValueOnce(respuesta({ data: [evento()], meta: { last_page: 1 } }));
+    const [a, b] = await Promise.all([s.obtenerRecorrido(ventana), s.obtenerRecorrido(ventana)]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(a.puntos).toHaveLength(1);
+    expect(b.puntos).toHaveLength(1);
+  });
+
+  it('en curso, `desde` y `hasta` se redondean al minuto: dos refrescos seguidos comparten caché', async () => {
+    const s = cargar();
+    global.fetch.mockResolvedValue(respuesta({ data: [evento()], meta: { last_page: 1 } }));
+    const ahora = Date.now();
+    const minuto = Math.floor(ahora / 60000) * 60000;
+    // Un servicio de más de 7 días: `desde` = ahora - 7 d, distinto en cada ms
+    await s.obtenerRecorrido({ ...ventana, desde: new Date(minuto - 7 * 864e5 + 1000), hasta: new Date(minuto + 1000) });
+    await s.obtenerRecorrido({ ...ventana, desde: new Date(minuto - 7 * 864e5 + 2000), hasta: new Date(minuto + 2000) });
+    const llamadas = global.fetch.mock.calls.length;
+    expect(llamadas).toBeGreaterThan(0);
+    await s.obtenerRecorrido({ ...ventana, desde: new Date(minuto - 7 * 864e5 + 3000), hasta: new Date(minuto + 3000) });
+    expect(global.fetch.mock.calls.length).toBe(llamadas);
+  });
+
   it('nunca lanza: Cartrack caído → sin puntos y con el error', async () => {
     const s = cargar();
     global.fetch.mockResolvedValueOnce(respuesta({}, { ok: false, status: 500 }));

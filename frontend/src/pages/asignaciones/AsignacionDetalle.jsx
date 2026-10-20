@@ -894,7 +894,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
 
             {/* ── Recorrido (GPS de Cartrack) ────────────────────── */}
             {puedeVerMapa && ['activa', 'finalizada'].includes(asig.estado) && (
-              <RecorridoServicio asignacionId={asig.id} />
+              <RecorridoServicio key={asig.id} asignacionId={asig.id} />
             )}
 
             {/* ── Incidencias de la asignación ───────────────────── */}
