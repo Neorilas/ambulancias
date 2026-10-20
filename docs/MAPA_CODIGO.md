@@ -329,8 +329,8 @@ saber antes de construirlo:
 mapa; en el frontend, la misma condición `puedeVerMapa` que `VehicleHistory`).
 Solo en activas y finalizadas. Ventana = `inicio_real_at` (o `fecha_inicio`)
 → `finalizado_at` (o ahora si sigue en curso), **como mucho los últimos 7
-días** (`recortado`). `cartrack.obtenerRecorrido` parte en tramos de 24 h y
-pagina; caché en memoria 1 h si la ventana está cerrada, 1 min si está abierta.
+días** (`recortado`). `cartrack.obtenerRecorrido` va **por días de calendario
+español** con caché en memoria por día (ver «Caché por días» abajo) y pagina.
 Plazo por página 30 s (Cartrack, medido, tarda de 2 a más de 16 s).
 `flota.utils.construirRecorrido` salta puntos a < 15 m (un parado no hace un
 ovillo), descarta los que exigirían > 250 km/h y corta el tramo en huecos de
@@ -339,12 +339,45 @@ abrir el panel, y en curso se refresca cada minuto con la pestaña visible.
 Respuesta de un día real: ~2.400 puntos pintados, ~47 KB. No se guarda nada.
 
 Lo que añadió la revisión antes de subir (2026-10-20):
-- **Caché.** Una ventana abierta (o cerrada hace < 10 min: Cartrack sube los
-  eventos con retraso) redondea `desde` al minuto en la clave. Sin eso, un
-  servicio de más de 7 días (`desde` = ahora − 7 d) estrenaba clave en cada
-  petición y cada refresco volvía a pedir siete días a Cartrack. Y hay
-  *single-flight* (`recorridosEnVuelo`), como en `refrescar`: una petición
-  tarda hasta ~20 s y se solapaba con el refresco de un minuto.
+- **Caché.** *Single-flight* (`recorridosEnVuelo`), como en `refrescar`: una
+  petición tarda hasta ~20 s y se solapaba con el refresco de un minuto. (La
+  clave por ventana redondeada al minuto que se puso aquí no bastaba: la
+  sustituyó la caché por días.)
+
+**Caché por días (2026-10-20).** Con la caché por ventana, un servicio en curso
+de más de 7 días caducaba cada minuto y el refresco volvía a pedir los siete
+días enteros (7+ llamadas, 20-60 s, cupo de la cuenta) aunque seis eran pasado.
+Ahora `diasDeLaVentana` parte [desde, hasta] en días de **Europe/Madrid** (la
+API toma las horas en hora de España) y cada día es una entrada
+`registration|AAAA-MM-DD` con su propio *single-flight*:
+- **Se guarda el día completo** (00:00 → 24:00) y se recorta a la ventana al
+  leer. Cachear solo el trozo pedido volvía a romperlo: el primer día de un
+  servicio de > 7 días empieza en «ahora − 7 d», un instante nuevo cada
+  minuto. De paso, dos servicios de la misma ambulancia el mismo día comparten
+  bloque. El precio: un servicio corto ya cerrado baja el día entero (2-3
+  páginas en vez de 1), una vez.
+- **TTL**: hoy, o un día cerrado hace < 10 min (`RECIEN_CERRADA_MS`), 1 min. Un
+  día terminado, **6 h**: los puntos de un día pasado no cambian salvo cuando
+  un terminal sin cobertura (garaje, túnel) sube eventos guardados horas
+  después; 6 h corrige eso en media jornada y cuesta una relectura cada 6 h.
+- **Medianoches y cambio de hora.** El día de octubre tiene 25 h y pasa del
+  tope de 24 h por llamada: `pedirEventos` lo parte en dos tramos. La API
+  incluye los dos extremos de la ventana, así que el segundo frontera (entre
+  tramos y entre días) se queda solo en el siguiente: sin eso salía repetido.
+- **Si un día falla** se devuelven los puntos de los buenos **con** `error`, y
+  los días que faltan solo se sirven si ya están en caché (con Cartrack caído,
+  pedir cada uno serían 30 s de plazo). El fallo no se cachea.
+- **El «ahora» es de cada bloque**, no de la petición: una carga en frío de 7
+  días tarda minutos, y con el inicial hoy se pedía hasta una hora atrasada y
+  su minuto de caché nacía caducado. Por lo mismo, `at` es cuando LLEGÓ la
+  respuesta. Y un día que agota las 10 páginas por tramo (`incompleto`) avisa
+  en el log y se guarda solo 1 min: cortado, no puede quedarse 6 h.
+- **Memoria**: `RECORRIDOS_MAX` = 100 **bloques** (un servicio de 7 días ocupa
+  8), desalojo del menos usado, y los puntos empaquetados en `Float64Array`
+  `[t, lat, lng, v]` (32 B por punto frente a ~100 de un objeto).
+- Medido contra Cartrack (UVI-3, 14→20-oct): en frío 9 llamadas y 13 s; el
+  refresco pasado el minuto, **1 llamada** (la de hoy) y 0,2 s. El 17-oct sigue
+  dando 596,9 km.
 - **`construirRecorrido`.** La salida y el final salen de los puntos que se
   pintan, no del primer y último evento crudo. Un tramo de un solo punto no se
   pinta: sin línea pero con `puntos > 0`, la pantalla dice «no se ha movido» y

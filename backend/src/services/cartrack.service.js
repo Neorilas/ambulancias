@@ -18,7 +18,7 @@
 'use strict';
 
 const logger = require('../utils/logger.utils');
-const { ahora } = require('../utils/fecha.utils');
+const { ahora, inicioDelDiaEnEspana, instanteEnEspana, fechaEnEspana } = require('../utils/fecha.utils');
 const { extraerMatricula } = require('../utils/matricula.utils');
 
 // ============================================================
@@ -348,20 +348,41 @@ const PAGINAS_MAX_POR_VENTANA = 10;
 const TIMEOUT_EVENTOS_MS = 30 * 1000;
 
 /**
- * Caché de recorridos, por vehículo y ventana.
+ * Caché de recorridos, por vehículo y DÍA de calendario español.
  *
- * Una ventana ya cerrada (el servicio terminó) no va a cambiar: se guarda una
- * hora, y reabrir el mismo servicio no vuelve a llamar. Una abierta (servicio
- * en curso) solo un minuto, que es lo que tarda en haber puntos nuevos que
- * merezcan la pena. Acotada en número para que no crezca sin fin en memoria.
+ * Por días y no por ventana: un servicio en curso de más de 7 días pide «los
+ * últimos 7 días» y, con la caché por ventana, cada refresco de un minuto
+ * volvía a bajarse los siete enteros (7+ llamadas, 20-60 s, cupo de la cuenta)
+ * aunque seis fueran pasado. Así, un refresco solo pide el día de hoy.
+ *
+ * Se guarda el día COMPLETO (00:00 → 24:00 de España) y se recorta a la
+ * ventana al leer. Cachear solo el trozo pedido haría que el primer día de un
+ * servicio de más de 7 días (que empieza en «ahora − 7 d», un instante nuevo en
+ * cada petición) cambiara de clave cada minuto, que es justo el fallo de antes;
+ * y dos servicios de la misma ambulancia el mismo día comparten el bloque.
+ *
+ * - Día de hoy, o cerrado hace menos de `RECIEN_CERRADA_MS` (Cartrack sube los
+ *   eventos con retraso): 1 min, lo que tarda en haber puntos nuevos.
+ * - Día terminado: 6 h. Los puntos de un día pasado no cambian salvo por una
+ *   cosa: un terminal que se queda sin cobertura (garaje, túnel, zona muerta)
+ *   guarda los eventos y los sube al recuperarla, a veces horas después. 6 h
+ *   deja que ese caso se corrija solo en media jornada y cuesta una relectura
+ *   de seis días cada 6 h en un servicio largo mirado sin parar: nada.
+ *
+ * El tope es de BLOQUES (un servicio de 7 días ocupa 8) y se desaloja el menos
+ * usado (un acierto lo pasa al final del Map). Los puntos se guardan
+ * empaquetados en un `Float64Array` [t, lat, lng, v, …], 32 bytes por punto
+ * frente a los ~100 de un objeto: un día movido de UVI son ~2.500 puntos
+ * (80 KB) y 100 bloques no llegan a 25 MB ni en el peor día del terminal.
  */
-const RECORRIDO_CERRADO_MS = 60 * 60 * 1000;
+const RECORRIDO_DIA_CERRADO_MS = 6 * 60 * 60 * 1000;
 const RECORRIDO_ABIERTO_MS = 60 * 1000;
 const RECORRIDOS_MAX = 100;
-const cacheRecorridos = new Map(); // clave → { puntos, at, ttl }
-const recorridosEnVuelo = new Map(); // clave → promesa de la petición en curso
-// Una ventana cerrada hace menos de esto se trata como abierta (TTL corto)
+const cacheRecorridos = new Map(); // registration|día → { datos, at, ttl }
+const recorridosEnVuelo = new Map(); // registration|día → promesa de la petición en curso
+// Un día cerrado hace menos de esto se trata como abierto (TTL corto)
 const RECIEN_CERRADA_MS = 10 * 60 * 1000;
+const CAMPOS_PUNTO = 4;
 
 /**
  * 'YYYY-MM-DD HH:MM:SS' en hora de España. La API toma las ventanas en la
@@ -400,8 +421,12 @@ function puntoDeEvento(e) {
 
 async function pedirEventos({ cartrackId, registration }, desde, hasta) {
   const puntos = [];
+  // Si un tramo agota las páginas, lo que llega está cortado: que no se
+  // cachee 6 h como si fuera el día entero
+  let incompleto = false;
   for (let inicio = desde.getTime(); inicio < hasta.getTime(); inicio += VENTANA_EVENTOS_MS) {
     const fin = Math.min(inicio + VENTANA_EVENTOS_MS, hasta.getTime());
+    const ultimoTramo = fin >= hasta.getTime();
     for (let pagina = 1; pagina <= PAGINAS_MAX_POR_VENTANA; pagina += 1) {
       const qs = new URLSearchParams({
         start_timestamp: enHoraDeLaCuenta(new Date(inicio)),
@@ -434,13 +459,105 @@ async function pedirEventos({ cartrackId, registration }, desde, hasta) {
         if (cartrackId != null && f?.vehicle_id != null && String(f.vehicle_id) !== String(cartrackId)) continue;
         if (f?.registration != null && String(f.registration) !== String(registration)) continue;
         const p = puntoDeEvento(f);
-        if (p) puntos.push(p);
+        // El segundo frontera entre dos tramos lo pueden devolver los dos (la
+        // API incluye ambos extremos): se queda en el tramo siguiente
+        if (p && (ultimoTramo || p.t < fin)) puntos.push(p);
       }
       const ultima = cuerpo?.meta?.last_page;
       if (!filas.length || !ultima || pagina >= ultima) break;
+      if (pagina === PAGINAS_MAX_POR_VENTANA) incompleto = true;
     }
   }
-  return puntos.sort((a, b) => a.t - b.t);
+  puntos.sort((a, b) => a.t - b.t);
+  if (incompleto) {
+    logger.warn(`Cartrack: ${registration} pasa de ${PAGINAS_MAX_POR_VENTANA} páginas por tramo; recorrido cortado`);
+    puntos.incompleto = true;
+  }
+  return puntos;
+}
+
+/**
+ * Los días de calendario español que toca [desde, hasta], cada uno con su
+ * medianoche de inicio y de fin. Los domingos del cambio de hora el día dura
+ * 23 o 25 h: por eso se sale de la fecha y no de sumar 24 h. (El de 25 h pasa
+ * del tope de 24 h por llamada; `pedirEventos` ya lo parte en dos tramos.)
+ */
+function diasDeLaVentana(desde, hasta) {
+  const dias = [];
+  let inicio = inicioDelDiaEnEspana(desde).getTime();
+  while (inicio < hasta.getTime()) {
+    const dia = fechaEnEspana(new Date(inicio));
+    const [a, m, d] = dia.split('-').map(Number);
+    const fin = instanteEnEspana(a, m, d + 1).getTime();
+    dias.push({ dia, inicio, fin });
+    inicio = fin;
+  }
+  return dias;
+}
+
+/** Puntos → Float64Array [t, lat, lng, v, …]. Ver la caché arriba. */
+function empaquetar(puntos) {
+  const datos = new Float64Array(puntos.length * CAMPOS_PUNTO);
+  puntos.forEach((p, i) => {
+    const o = i * CAMPOS_PUNTO;
+    datos[o] = p.t; datos[o + 1] = p.lat; datos[o + 2] = p.lng; datos[o + 3] = p.v;
+  });
+  return datos;
+}
+
+/** El bloque de ese día está en caché y aún vale. */
+function bloqueVigente(clave, ahoraMs) {
+  const guardado = cacheRecorridos.get(clave);
+  return guardado && ahoraMs - guardado.at < guardado.ttl ? guardado : null;
+}
+
+/**
+ * El bloque de un día: de caché si vale, y si no se pide a Cartrack. Lanza si
+ * Cartrack falla (lo recoge `obtenerRecorrido`). Un fallo no se cachea.
+ */
+function bloqueDelDia({ cartrackId, registration }, { dia, inicio, fin }) {
+  // El «ahora» de CADA bloque, no el del principio de la petición: una carga
+  // en frío de 7 días tarda minutos y, con el inicial, hoy se pedía hasta una
+  // hora atrasada y su minuto de caché nacía caducado
+  const ahoraMs = ahora().getTime();
+  const clave = `${registration}|${dia}`;
+  const guardado = bloqueVigente(clave, ahoraMs);
+  if (guardado) {
+    // Al final del Map: el desalojo se lleva el menos usado, no el más viejo
+    cacheRecorridos.delete(clave);
+    cacheRecorridos.set(clave, guardado);
+    return Promise.resolve(guardado.datos);
+  }
+
+  // Single-flight por bloque, como `refrescar`: una petición lenta (hasta 20 s
+  // medidos) se solapa con el refresco de un minuto o con otro administrador
+  // mirando lo mismo, y cada una gastaba su cupo de Cartrack para el mismo dato.
+  if (recorridosEnVuelo.has(clave)) return recorridosEnVuelo.get(clave);
+
+  const cerrado = fin <= ahoraMs - RECIEN_CERRADA_MS;
+  // Hoy se pide hasta ahora: del futuro no hay nada que dar
+  const hasta = Math.min(fin, ahoraMs);
+  const promesa = pedirEventos({ cartrackId, registration }, new Date(inicio), new Date(hasta))
+    .then((puntos) => {
+      // Lo que no es de este día no entra en su bloque: el segundo de las
+      // 00:00 lo pueden devolver el día y el siguiente
+      const datos = empaquetar(puntos.filter(p => p.t >= inicio && p.t < fin));
+      cacheRecorridos.delete(clave);
+      while (cacheRecorridos.size >= RECORRIDOS_MAX) {
+        cacheRecorridos.delete(cacheRecorridos.keys().next().value);
+      }
+      cacheRecorridos.set(clave, {
+        // Desde que llegó, no desde que se pidió: si no, una respuesta lenta
+        // de más de un minuto se guardaba ya caducada
+        datos, at: ahora().getTime(),
+        ttl: cerrado && !puntos.incompleto ? RECORRIDO_DIA_CERRADO_MS : RECORRIDO_ABIERTO_MS,
+      });
+      return datos;
+    })
+    .finally(() => { recorridosEnVuelo.delete(clave); });
+
+  recorridosEnVuelo.set(clave, promesa);
+  return promesa;
 }
 
 /**
@@ -449,56 +566,47 @@ async function pedirEventos({ cartrackId, registration }, desde, hasta) {
  * Nunca lanza, igual que `obtenerEstados`: devuelve `{ puntos, error }`. Aquí
  * no se guarda nada en la BD: Cartrack ya guarda ~5 años de puntos y basta con
  * pedírselos al abrir el servicio (ver MAPA_CODIGO §2.6, «Recorrido»).
+ *
+ * Va día a día (ver la caché arriba). Si un día falla, se devuelven los puntos
+ * de los que sí se tienen JUNTO con el `error`, y los días que faltan solo se
+ * sirven si ya están en caché: con Cartrack caído, pedirlos serían 30 s de
+ * plazo por cada uno. El frontend ya trata un `error` en un refresco como «no
+ * pises la ruta buena», y en una primera carga avisa de que el GPS no contesta.
  */
 async function obtenerRecorrido({ cartrackId, registration, desde, hasta }) {
   if (!estaConfigurado()) return { puntos: [], error: null, configurado: false };
   if (!registration) return { puntos: [], error: 'vehículo sin identificar en Cartrack', configurado: true };
 
-  const ahoraMs = ahora().getTime();
-  // Abierta = sigue en curso o acaba de cerrarse: Cartrack sube los eventos
-  // con algo de retraso y un cierre de hace 2 minutos aún puede crecer, así
-  // que no se congela una hora.
-  const abierta = hasta.getTime() > ahoraMs - RECIEN_CERRADA_MS;
-  // En una abierta, `hasta` es «ahora» y cambia en cada petición; y en un
-  // servicio de más de 7 días también `desde` (son los últimos 7 días). Los dos
-  // se redondean al minuto: sin eso la clave no se repetía nunca y cada
-  // refresco volvía a pedir días enteros a Cartrack.
-  const minuto = (ms) => Math.floor(ms / 60000) * 60000;
-  const clave = abierta
-    ? `${registration}|${minuto(desde.getTime())}|abierta`
-    : `${registration}|${desde.getTime()}|${hasta.getTime()}`;
+  const desdeMs = desde.getTime();
+  const hastaMs = hasta.getTime();
+  const puntos = [];
+  let error = null;
 
-  const guardado = cacheRecorridos.get(clave);
-  if (guardado && ahoraMs - guardado.at < guardado.ttl) {
-    return { puntos: guardado.puntos, error: null, configurado: true };
-  }
-
-  // Single-flight, como `refrescar`: una petición lenta (hasta 20 s medidos)
-  // se solapa con el refresco de un minuto o con otro administrador mirando lo
-  // mismo, y cada una gastaba su cupo de Cartrack para el mismo dato.
-  if (recorridosEnVuelo.has(clave)) return recorridosEnVuelo.get(clave);
-
-  const promesa = pedirEventos({ cartrackId, registration }, desde, hasta)
-    .then((puntos) => {
-      if (cacheRecorridos.size >= RECORRIDOS_MAX) {
-        cacheRecorridos.delete(cacheRecorridos.keys().next().value);
-      }
-      cacheRecorridos.set(clave, {
-        puntos, at: ahoraMs, ttl: abierta ? RECORRIDO_ABIERTO_MS : RECORRIDO_CERRADO_MS,
-      });
-      return { puntos, error: null, configurado: true };
-    })
-    .catch((err) => {
+  for (const dia of diasDeLaVentana(desde, hasta)) {
+    const clave = `${registration}|${dia.dia}`;
+    if (error && !bloqueVigente(clave, ahora().getTime()) && !recorridosEnVuelo.has(clave)) continue;
+    let datos;
+    try {
+      datos = await bloqueDelDia({ cartrackId, registration }, dia);
+    } catch (err) {
       const mensaje = err?.name === 'TimeoutError' || err?.name === 'AbortError'
         ? 'Cartrack no respondió a tiempo'
         : (err?.message || 'error desconocido');
-      logger.warn(`Cartrack: no se pudo leer el recorrido — ${mensaje}`);
-      return { puntos: [], error: mensaje, configurado: true };
-    })
-    .finally(() => { recorridosEnVuelo.delete(clave); });
+      if (!error) logger.warn(`Cartrack: no se pudo leer el recorrido — ${mensaje}`);
+      error = error || mensaje;
+      continue;
+    }
+    // Recorte a la ventana: el primer y el último día suelen ser parciales
+    for (let i = 0; i < datos.length; i += CAMPOS_PUNTO) {
+      const t = datos[i];
+      if (t >= desdeMs && t <= hastaMs) {
+        puntos.push({ t, lat: datos[i + 1], lng: datos[i + 2], v: datos[i + 3] });
+      }
+    }
+  }
 
-  recorridosEnVuelo.set(clave, promesa);
-  return promesa;
+  // Los días van en orden y cada bloque, ordenado: el total ya sale en orden
+  return { puntos, error, configurado: true };
 }
 
 /** Vacía la caché. Solo para los tests: en producción nadie la invalida a mano. */
@@ -517,6 +625,7 @@ module.exports = {
   instanteDeEvento,
   puntoDeEvento,
   enHoraDeLaCuenta,
+  diasDeLaVentana,
   normalizarVehiculo,
   nombreConductor,
   extraerLista,
