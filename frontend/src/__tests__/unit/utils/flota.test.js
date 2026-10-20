@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ESTADOS,
+  horaDeRecorrido,
   FILTROS,
   contarPorFiltro,
   conPosicion,
@@ -184,5 +185,15 @@ describe('textoFuente', () => {
 
   it('sin fuente devuelve cadena vacía', () => {
     expect(textoFuente(null)).toBe('');
+  });
+});
+
+describe('horaDeRecorrido', () => {
+  const AHORA = new Date('2026-10-20T10:00:00Z');
+  it('de hoy, solo la hora (española)', () => {
+    expect(horaDeRecorrido('2026-10-20T06:14:00Z', AHORA)).toBe('08:14');
+  });
+  it('de otro día, con el día delante', () => {
+    expect(horaDeRecorrido('2026-10-19T12:32:00Z', AHORA)).toBe('19/10 14:32');
   });
 });

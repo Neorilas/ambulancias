@@ -15,10 +15,11 @@ const { query } = require('../../../config/database');
 jest.mock('../../../services/cartrack.service', () => ({
   estaConfigurado: jest.fn(() => true),
   obtenerEstados: jest.fn(),
+  obtenerRecorrido: jest.fn(),
 }));
 
 const cartrack = require('../../../services/cartrack.service');
-const { getUbicaciones } = require('../../../controllers/flota.controller');
+const { getUbicaciones, getRecorrido, ventanaDelServicio } = require('../../../controllers/flota.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 
 const superadmin = { id: 1, username: 'findelias', roles: ['superadmin'] };
@@ -175,5 +176,114 @@ describe('flota.controller · getUbicaciones', () => {
     await getUbicaciones(mockReq({ user: superadmin }), mockRes(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(Error));
+  });
+});
+
+// ============================================================
+describe('flota.controller · ventanaDelServicio', () => {
+  const AHORA = new Date('2026-10-19T12:00:00Z');
+
+  it('va del «Inicio de servicio» al finalizado', () => {
+    const v = ventanaDelServicio({
+      estado: 'finalizada', inicio_real_at: '2026-10-17 06:00:00', fecha_inicio: '2026-10-17 05:00:00',
+      finalizado_at: '2026-10-17 20:00:00', fecha_fin: '2026-10-17 18:00:00',
+    }, AHORA);
+    expect(v.desde.toISOString()).toBe('2026-10-17T06:00:00.000Z');
+    expect(v.hasta.toISOString()).toBe('2026-10-17T20:00:00.000Z');
+    expect(v).toMatchObject({ enCurso: false, recortado: false });
+  });
+
+  it('en curso llega hasta ahora, aunque lo previsto acabe después', () => {
+    const v = ventanaDelServicio({
+      estado: 'activa', inicio_real_at: '2026-10-19 08:00:00', fecha_fin: '2026-10-19 20:00:00',
+    }, AHORA);
+    expect(v.hasta).toEqual(AHORA);
+    expect(v.enCurso).toBe(true);
+  });
+
+  it('sin «Inicio de servicio» usa la hora prevista (el cron la activó igual)', () => {
+    const v = ventanaDelServicio({ estado: 'activa', inicio_real_at: null, fecha_inicio: '2026-10-19 09:00:00' }, AHORA);
+    expect(v.desde.toISOString()).toBe('2026-10-19T09:00:00.000Z');
+  });
+
+  it('una programada no tiene recorrido', () => {
+    expect(ventanaDelServicio({ estado: 'programada', fecha_inicio: '2026-10-19 09:00:00' }, AHORA)).toBeNull();
+  });
+
+  it('más de 7 días: se enseñan los últimos 7 y se avisa', () => {
+    const v = ventanaDelServicio({ estado: 'activa', inicio_real_at: '2026-10-01 08:00:00' }, AHORA);
+    expect(v.recortado).toBe(true);
+    expect(v.desde.toISOString()).toBe('2026-10-12T12:00:00.000Z');
+  });
+});
+
+describe('flota.controller · getRecorrido', () => {
+  const hace = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  const asig = (over = {}) => ({
+    id: 7, estado: 'finalizada', fecha_inicio: hace(10), fecha_fin: hace(2),
+    inicio_real_at: hace(9), finalizado_at: hace(3), vehicle_id: 1, matricula: '7740 MZB', ...over,
+  });
+  const gpsReal = gps({ cartrackId: 454742160, matricula: '7740MZB', matriculaOriginal: 'UVI-3-7740MZB' });
+
+  beforeEach(() => {
+    query.mockReset();
+    cartrack.obtenerEstados.mockReset();
+    cartrack.obtenerRecorrido.mockReset();
+  });
+
+  const pedir = async (id = '7') => {
+    const res = mockRes();
+    const next = mockNext();
+    await getRecorrido(mockReq({ user: superadmin, params: { asignacionId: id } }), res, next);
+    return { res, next };
+  };
+
+  it('pide a Cartrack por el `registration` crudo, no por vehicle_id ni por nuestra matrícula', async () => {
+    query.mockResolvedValueOnce([[asig()]]);
+    cartrack.obtenerEstados.mockResolvedValueOnce(estadoOk([gpsReal]));
+    cartrack.obtenerRecorrido.mockResolvedValueOnce({
+      puntos: [
+        { lat: 40.3, lng: -3.68, t: Date.now() - 8 * 3600e3, v: 50 },
+        { lat: 40.31, lng: -3.68, t: Date.now() - 8 * 3600e3 + 60e3, v: 50 },
+      ],
+      error: null, configurado: true,
+    });
+
+    const { res } = await pedir();
+
+    expect(cartrack.obtenerRecorrido).toHaveBeenCalledWith(expect.objectContaining({ registration: 'UVI-3-7740MZB' }));
+    expect(res._json.data.estado).toBe('ok');
+    expect(res._json.data.recorrido.tramos).toHaveLength(1);
+    expect(res._json.data.recorrido.km).toBeGreaterThan(1);
+  });
+
+  it('una programada no llama a Cartrack', async () => {
+    query.mockResolvedValueOnce([[asig({ estado: 'programada' })]]);
+    const { res } = await pedir();
+    expect(res._json.data.estado).toBe('sin_empezar');
+    expect(cartrack.obtenerEstados).not.toHaveBeenCalled();
+  });
+
+  it('matrícula repetida en Cartrack: no se elige ninguna', async () => {
+    query.mockResolvedValueOnce([[asig()]]);
+    cartrack.obtenerEstados.mockResolvedValueOnce(estadoOk([gpsReal, { ...gpsReal, cartrackId: 2, matriculaOriginal: 'VIR-7740MZB' }]));
+    const { res } = await pedir();
+    expect(res._json.data.estado).toBe('sin_gps');
+    expect(cartrack.obtenerRecorrido).not.toHaveBeenCalled();
+  });
+
+  it('Cartrack caído: 200 con el error contado, no un 500', async () => {
+    query.mockResolvedValueOnce([[asig()]]);
+    cartrack.obtenerEstados.mockResolvedValueOnce(estadoOk([gpsReal]));
+    cartrack.obtenerRecorrido.mockResolvedValueOnce({ puntos: [], error: 'Cartrack no respondió a tiempo', configurado: true });
+    const { res } = await pedir();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res._json.data.fuente.error).toMatch(/no respondió/);
+  });
+
+  it('asignación que no existe → 404', async () => {
+    query.mockResolvedValueOnce([[]]);
+    const { res } = await pedir('999');
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 });

@@ -11,6 +11,7 @@
 
 const {
   cruzarFlota,
+  construirRecorrido,
   estadoDeGps,
   minutosDesde,
   ESTADOS,
@@ -234,5 +235,55 @@ describe('cruzarFlota', () => {
       ahora: AHORA,
     });
     expect(resumen.enMovimiento).toBe(1);
+  });
+});
+
+// ============================================================
+describe('construirRecorrido', () => {
+  const T0 = Date.parse('2026-10-17T08:00:00Z');
+  // ~111 m por cada 0,001 de latitud
+  const p = (i, lat, segundos = i * 10) => ({ lat, lng: -3.7, t: T0 + segundos * 1000, v: 40 });
+
+  it('sin puntos devuelve un recorrido vacío, no revienta', () => {
+    expect(construirRecorrido([])).toEqual({ tramos: [], inicio: null, fin: null, km: 0, puntos: 0 });
+    expect(construirRecorrido(null).tramos).toEqual([]);
+  });
+
+  it('un viaje continuo es un solo tramo y suma sus km', () => {
+    const r = construirRecorrido([0, 1, 2, 3, 4].map(i => p(i, 40 + i * 0.001)));
+    expect(r.tramos).toHaveLength(1);
+    expect(r.tramos[0]).toHaveLength(5);
+    expect(r.km).toBeCloseTo(0.4, 1);
+    expect(r.inicio.at).toBe('2026-10-17T08:00:00.000Z');
+  });
+
+  it('un vehículo parado no dibuja un ovillo: sin línea, pero cuenta los puntos', () => {
+    const r = construirRecorrido([0, 1, 2, 3].map(i => p(i, 40 + i * 0.00001)));
+    expect(r.tramos).toEqual([]);
+    expect(r.puntos).toBe(4);   // la pantalla dice «no se ha movido», no «sin datos»
+  });
+
+  it('un PRIMER punto malo no tira la ruta entera', () => {
+    const r = construirRecorrido([p(0, 45), p(1, 40), p(2, 40.001), p(3, 40.002), p(4, 40.003)]);
+    expect(r.tramos).toHaveLength(1);
+    expect(r.tramos[0][0]).toEqual([40, -3.7]);
+    expect(r.inicio.lat).toBe(40);
+  });
+
+  it('la salida y el final salen de lo que se pinta, no del evento crudo', () => {
+    const r = construirRecorrido([p(0, 40), p(1, 40.001), p(2, 40.002), p(3, 41)]);
+    expect(r.fin.lat).toBe(40.002);
+  });
+
+  it('un hueco sin cobertura con salto de sitio CORTA el tramo y no suma esos km', () => {
+    const r = construirRecorrido([p(0, 40), p(1, 40.001), p(2, 40.05, 1000), p(3, 40.051, 1010)]);
+    expect(r.tramos).toHaveLength(2);
+    expect(r.km).toBeLessThan(0.5);
+  });
+
+  it('un punto imposible (otra ambulancia, GPS sin fix) se descarta', () => {
+    const r = construirRecorrido([p(0, 40), p(1, 41), p(2, 40.001)]);
+    expect(r.tramos).toEqual([[[40, -3.7], [40.001, -3.7]]]);
+    expect(r.km).toBeLessThan(0.2);
   });
 });

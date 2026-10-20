@@ -4,13 +4,18 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/flota.service.js', () => ({
-  flotaService: { getUbicaciones: vi.fn() },
+  // Por defecto, sin recorrido: los tests de selección no van de eso
+  flotaService: {
+    getUbicaciones: vi.fn(),
+    getRecorrido: vi.fn(() => Promise.resolve({ estado: 'sin_gps', recorrido: { tramos: [] }, fuente: {} })),
+  },
 }));
 // Leaflet no pinta en jsdom: basta con saber qué vehículo recibe seleccionado
 // y poder pulsar el enlace del globo como lo haría quien pincha el marcador.
 vi.mock('../../../components/flota/MapaLeaflet.jsx', () => ({
-  default: ({ seleccionada, onAbrirAsignacion }) => (
-    <div data-testid="mapa" data-seleccionada={seleccionada ?? ''}>
+  default: ({ seleccionada, onAbrirAsignacion, recorrido }) => (
+    <div data-testid="mapa" data-seleccionada={seleccionada ?? ''}
+         data-recorrido={recorrido ? `${recorrido.id}:${recorrido.tramos.length}` : ''}>
       {onAbrirAsignacion && (
         <button onClick={() => onAbrirAsignacion(55)}>globo-asignacion</button>
       )}
@@ -181,5 +186,49 @@ describe('MapaFlota · asignación activa', () => {
     expect(screen.getByRole('heading', { name: 'Ambulancia 2' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Asignación #55/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'globo-asignacion' })).not.toBeInTheDocument();
+  });
+});
+
+// Pinchar una ambulancia con servicio activo pinta su recorrido en el mismo
+// mapa (pedido del usuario, 2026-10-20)
+describe('MapaFlota · recorrido del servicio activo', () => {
+  const RECORRIDO = {
+    estado: 'ok',
+    ventana: { desde: '2026-10-20T06:00:00.000Z', hasta: '2026-10-20T10:00:00.000Z', enCurso: true, recortado: false, maxDias: 7 },
+    recorrido: {
+      tramos: [[[40, -3], [40.1, -3]], [[41, -4], [41.1, -4]]],
+      inicio: { lat: 40, lng: -3, at: '2026-10-20T06:10:00.000Z' },
+      fin: { lat: 41.1, lng: -4, at: '2026-10-20T09:59:00.000Z' },
+      km: 42.5, puntos: 900,
+    },
+    fuente: { configurado: true, error: null },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    flags.activos = [];
+    flotaService.getUbicaciones.mockResolvedValue(DATOS);
+    flotaService.getRecorrido.mockResolvedValue(RECORRIDO);
+  });
+
+  it('al elegir una con asignación activa pide su recorrido y lo pasa al mapa', async () => {
+    const user = userEvent.setup();
+    await montar('/flota');
+    await user.click(screen.getByRole('button', { name: /Ambulancia 2/ }));
+
+    expect(flotaService.getRecorrido).toHaveBeenCalledWith(55);
+    await waitFor(() => expect(screen.getByTestId('mapa')).toHaveAttribute('data-recorrido', '55:2'));
+    expect(screen.getByText(/42,5 km/)).toBeInTheDocument();
+  });
+
+  it('sin asignación activa no se pide nada y no queda línea de la anterior', async () => {
+    const user = userEvent.setup();
+    await montar('/flota');
+    await user.click(screen.getByRole('button', { name: /Ambulancia 2/ }));
+    await waitFor(() => expect(screen.getByTestId('mapa')).toHaveAttribute('data-recorrido', '55:2'));
+
+    await user.click(screen.getByRole('button', { name: /Ambulancia 1/ }));
+    expect(screen.getByTestId('mapa')).toHaveAttribute('data-recorrido', '');
+    expect(flotaService.getRecorrido).toHaveBeenCalledTimes(1);
   });
 });

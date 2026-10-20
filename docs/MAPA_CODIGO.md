@@ -295,6 +295,78 @@ hay que correr si el mapa empieza a salir vacío o si Cartrack cambia algo:
 
     cd backend && node scripts/sonda-cartrack.js       # + --crudo vuelca la 1ª fila
 
+**Ruta de un servicio: la tiene Cartrack, no hace falta guardarla
+(2026-10-19).** `--ruta [matrícula] [--desde "AAAA-MM-DD HH:MM"] [--horas N]`
+pide `GET /vehicles/events` y mide si los puntos dan para pintar un recorrido.
+Contra la cuenta real: el terminal manda un `PERIODIC_EVENT` con coordenadas
+**cada ~10 s en marcha** (p90 ~20-40 s), unos 7.000 eventos al día para toda la
+flota, y Cartrack los guarda ~5 años. O sea que trazar la ruta de un servicio
+activo o pasado es pedírsela a Cartrack con su ventana, sin tabla nuestra —que
+es además lo que pide la fila «Sin tabla propia» de arriba. Lo que hay que
+saber antes de construirlo:
+
+- La ventana es de **24 h como máximo** por llamada y la página de 1000: un
+  servicio largo son varias llamadas. Filtrar por `registration` (el texto
+  crudo de Cartrack, no nuestra matrícula) para no bajarse la flota entera.
+- `event_ts` llega como `'2026-10-19 10:24:19+02'`: **la zona sin minutos**, que
+  `Date.parse` rechaza en silencio (sale `NaN` y el recorrido queda sin orden).
+  Hay que completarla a `+02:00`. La ventana que se pide va en hora de la cuenta
+  (España).
+- Además de los periódicos vienen intermitentes, puertas, marcha atrás,
+  contacto… todos con coordenadas: sirven igual como puntos.
+- Hay huecos de horas con velocidad > 0 en un extremo (un GPS que pierde
+  cobertura conserva la última velocidad): un tramo así no se dibuja como línea
+  recta, se corta.
+- **`vehicle_id` NO filtra** en `/vehicles/events`: pedida la UVI-3, 280 de
+  282 eventos eran de la UVI-5. Se filtra por `registration` (el texto crudo
+  de Cartrack, `matriculaOriginal`) y además se descartan en nuestro lado los
+  eventos de otro vehículo. Mezclados, un día de 600 km sumaba 174.000.
+
+**Sección «Recorrido» del servicio (2026-10-19).** En `AsignacionDetalle`,
+`components/flota/RecorridoServicio.jsx` + `MapaRecorrido.jsx` →
+`flota.service.getRecorrido` → `GET /flota/recorrido/:asignacionId`
+(`flota.controller.getRecorrido`, mismo `requireRole` + `menu_flota` que el
+mapa; en el frontend, la misma condición `puedeVerMapa` que `VehicleHistory`).
+Solo en activas y finalizadas. Ventana = `inicio_real_at` (o `fecha_inicio`)
+→ `finalizado_at` (o ahora si sigue en curso), **como mucho los últimos 7
+días** (`recortado`). `cartrack.obtenerRecorrido` parte en tramos de 24 h y
+pagina; caché en memoria 1 h si la ventana está cerrada, 1 min si está abierta.
+Plazo por página 30 s (Cartrack, medido, tarda de 2 a más de 16 s).
+`flota.utils.construirRecorrido` salta puntos a < 15 m (un parado no hace un
+ovillo), descarta los que exigirían > 250 km/h y corta el tramo en huecos de
+> 5 min con salto de > 300 m. **Se carga al pulsar «Ver recorrido»**, no al
+abrir el panel, y en curso se refresca cada minuto con la pestaña visible.
+Respuesta de un día real: ~2.400 puntos pintados, ~47 KB. No se guarda nada.
+
+Lo que añadió la revisión antes de subir (2026-10-20):
+- **Caché.** Una ventana abierta (o cerrada hace < 10 min: Cartrack sube los
+  eventos con retraso) redondea `desde` al minuto en la clave. Sin eso, un
+  servicio de más de 7 días (`desde` = ahora − 7 d) estrenaba clave en cada
+  petición y cada refresco volvía a pedir siete días a Cartrack. Y hay
+  *single-flight* (`recorridosEnVuelo`), como en `refrescar`: una petición
+  tarda hasta ~20 s y se solapaba con el refresco de un minuto.
+- **`construirRecorrido`.** La salida y el final salen de los puntos que se
+  pintan, no del primer y último evento crudo. Un tramo de un solo punto no se
+  pinta: sin línea pero con `puntos > 0`, la pantalla dice «no se ha movido» y
+  no «sin datos». Tres puntos seguidos «imposibles» respecto al último bueno
+  significan que el raro era él (un primer punto sin fix): se corta y se
+  recuperan esos tres.
+- **Frontend.** Un refresco que trae `fuente.error` no pisa la ruta buena (la
+  línea desaparecía un minuto y el mapa se reencuadraba al volver). El panel
+  lleva `key={asig.id}` para no enseñar la ruta de otra asignación.
+
+**También en `/flota` (2026-10-20, pedido del usuario).** Al elegir una
+ambulancia con asignación activa (marcador o lista), `MapaFlota` pide
+`getRecorrido` de esa asignación y `MapaLeaflet` lo pinta (prop `recorrido`,
+capa `capaRuta`) **debajo de los marcadores y con `interactive: false`**, para
+que pinchar un marcador encima de la línea siga eligiéndolo. La ficha lateral
+dice km y hora de salida (`TextoRecorrido`). El efecto va por el **id de la
+asignación**, no por la entrada: el refresco de 30 s de la flota crea objetos
+nuevos y, atado a la entrada, repetía la petición y borraba la línea. Se
+refresca cada minuto con la pestaña visible y **se encuadra una sola vez por
+asignación** (`rutaEncuadrada`), igual que el resto del mapa. Los colores
+(`COLOR_RUTA`, `COLOR_SALIDA`, `COLOR_FINAL`) viven en `utils/flota.js`.
+
 **Los estados y sus colores** los decide el backend (`estadoDeGps`) y el
 frontend solo los pinta: `movimiento` (verde) · `parado_contacto` (ámbar) ·
 `apagado` (gris) · `sin_senal` (rojo, más de 30 min sin dar señal) · `sin_gps`.

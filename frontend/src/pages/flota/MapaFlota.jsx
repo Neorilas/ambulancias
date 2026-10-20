@@ -10,7 +10,9 @@ import MapaLeaflet from '../../components/flota/MapaLeaflet.jsx';
 import { formatHora } from '../../utils/dateUtils.js';
 import { useEstadoEnUrl, useBuscadorEnUrl } from '../../hooks/useNavegacion.js';
 import {
+  COLOR_RUTA,
   FILTROS,
+  horaDeRecorrido,
   contarPorFiltro,
   estadoMeta,
   filtrarFlota,
@@ -35,6 +37,40 @@ import {
 
 /** Cada cuánto se vuelve a preguntar. Lo marca la caché del backend (30 s). */
 const REFRESCO_MS = 30 * 1000;
+
+// El recorrido del servicio activo de la elegida se refresca cada minuto: es
+// lo que tarda en haber puntos nuevos que se vean, y cada vuelta son hasta
+// varias páginas de eventos de Cartrack (la caché del backend dura lo mismo).
+const REFRESCO_RECORRIDO_MS = 60 * 1000;
+
+/** La línea del recorrido en la ficha: cuánto lleva y desde cuándo. */
+function TextoRecorrido({ recorrido }) {
+  if (!recorrido) return null;
+  if (recorrido.cargando) return <p className="text-[12px] text-neutral-500 mt-1">Pidiendo el recorrido al GPS…</p>;
+  if (recorrido.error) return <p className="text-[12px] text-neutral-500 mt-1">No se ha podido cargar el recorrido.</p>;
+  const r = recorrido.datos?.recorrido;
+  if (recorrido.datos?.estado === 'sin_gps') {
+    return <p className="text-[12px] text-neutral-500 mt-1">Sin GPS vinculado: no hay recorrido.</p>;
+  }
+  if (recorrido.datos?.fuente?.error) {
+    return <p className="text-[12px] text-neutral-500 mt-1">El GPS no contesta ahora mismo: sin recorrido.</p>;
+  }
+  if (!r?.tramos?.length) {
+    return (
+      <p className="text-[12px] text-neutral-500 mt-1">
+        {r?.puntos > 0 ? 'No se ha movido en este servicio.' : 'Aún no hay recorrido de este servicio.'}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[12px] text-neutral-600 mt-1">
+      <span className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: COLOR_RUTA }} />
+      Recorrido: <span className="font-mono font-medium text-neutral-800">{r.km.toLocaleString('es-ES')} km</span>
+      {' '}desde {horaDeRecorrido(r.inicio.at)}
+      {recorrido.datos.ventana?.recortado && ` · solo los últimos ${recorrido.datos.ventana.maxDias} días`}
+    </p>
+  );
+}
 
 // ── Piezas de la ficha ────────────────────────────────────────────────────
 
@@ -97,7 +133,7 @@ function FilaVehiculo({ entrada, activa, onClick }) {
 }
 
 /** Ficha del vehículo seleccionado. */
-function Ficha({ entrada, onCerrar, puedeVerAsignaciones }) {
+function Ficha({ entrada, onCerrar, puedeVerAsignaciones, recorrido }) {
   const gps = entrada.gps;
 
   return (
@@ -157,14 +193,17 @@ function Ficha({ entrada, onCerrar, puedeVerAsignaciones }) {
       <div className="mt-4 pt-3 border-t border-neutral-100">
         <p className="micro mb-1">Asignación activa</p>
         {entrada.asignacion ? (
-          <p className="text-[13px] text-neutral-800">
-            <EnlaceAsignacion asignacion={entrada.asignacion} enlazar={puedeVerAsignaciones} />
-            <br />
-            {entrada.asignacion.responsable}
-            {!entrada.asignacion.iniciada && (
-              <span className="text-warn-700"> · activa, pero nadie ha iniciado la asignación</span>
-            )}
-          </p>
+          <>
+            <p className="text-[13px] text-neutral-800">
+              <EnlaceAsignacion asignacion={entrada.asignacion} enlazar={puedeVerAsignaciones} />
+              <br />
+              {entrada.asignacion.responsable}
+              {!entrada.asignacion.iniciada && (
+                <span className="text-warn-700"> · activa, pero nadie ha iniciado la asignación</span>
+              )}
+            </p>
+            <TextoRecorrido recorrido={recorrido} />
+          </>
         ) : (
           <p className="text-[13px] text-neutral-500">Ninguna</p>
         )}
@@ -284,6 +323,36 @@ export default function MapaFlota() {
   // Elegir (o soltar) a mano también apunta `?vehiculo=` en la URL: al volver
   // de la ficha del vehículo, el efecto de arriba la vuelve a elegir. Una
   // entrada de Cartrack sin vehículo nuestro no tiene ficha ni se apunta.
+  // ── Recorrido del servicio activo de la elegida ────────────────────────
+  // Al pinchar una ambulancia con asignación activa se pide su ruta y se
+  // pinta en el mismo mapa. Va por el id de la ASIGNACIÓN, no por la entrada:
+  // el refresco de 30 s de la flota crea objetos nuevos y no debe repetir la
+  // petición ni borrar la línea.
+  const asignacionElegida = elegida?.asignacion?.id ?? null;
+  const [recorrido, setRecorrido] = useState(null);
+  useEffect(() => {
+    if (!asignacionElegida) { setRecorrido(null); return undefined; }
+    let vivo = true;
+    setRecorrido({ id: asignacionElegida, cargando: true });
+    const pedir = () => flotaService.getRecorrido(asignacionElegida)
+      // Un fallo puntual en un refresco no borra la línea que ya había
+      .then((d) => {
+        if (!vivo) return;
+        setRecorrido(r => (d?.fuente?.error && r?.datos?.recorrido?.tramos?.length
+          ? r : { id: asignacionElegida, datos: d }));
+      })
+      .catch(() => { if (vivo) setRecorrido(r => (r?.datos ? r : { id: asignacionElegida, error: true })); });
+    pedir();
+    const t = setInterval(() => { if (!document.hidden) pedir(); }, REFRESCO_RECORRIDO_MS);
+    return () => { vivo = false; clearInterval(t); };
+  }, [asignacionElegida]);
+  const rutaEnMapa = useMemo(
+    () => (recorrido?.datos?.recorrido?.tramos?.length
+      ? { id: recorrido.id, tramos: recorrido.datos.recorrido.tramos }
+      : null),
+    [recorrido]
+  );
+
   const elegir = (clave) => {
     // Una elección a mano sustituye a la que traía la URL al llegar: sin
     // esto, el efecto de arriba la tomaba por la «pedida» y dejaba pendiente
@@ -398,6 +467,7 @@ export default function MapaFlota() {
                 ? (asig) => navigate(rutaAsignacion(asig, isFeatureEnabled('menu_trabajos')))
                 : null}
               trabajosVisibles={isFeatureEnabled('menu_trabajos')}
+              recorrido={rutaEnMapa}
             />
           </div>
           <div ref={fichaRef} className={elegida ? 'scroll-mt-20' : 'hidden'}>
@@ -406,6 +476,7 @@ export default function MapaFlota() {
                 entrada={elegida}
                 onCerrar={() => elegir(null)}
                 puedeVerAsignaciones={puedeVerAsignaciones}
+                recorrido={recorrido}
               />
             )}
           </div>

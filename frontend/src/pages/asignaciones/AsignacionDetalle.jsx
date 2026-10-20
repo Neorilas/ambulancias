@@ -12,6 +12,7 @@ import { getImageUrl } from '../../utils/imageUtils.js';
 import { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
 import ComentariosIncidencia from '../../components/common/ComentariosIncidencia.jsx';
 import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
+import RecorridoServicio from '../../components/flota/RecorridoServicio.jsx';
 import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
 import { estadoVisible } from '../../utils/pasosAsignacion.js';
 import InicioAsignacion from './InicioAsignacion.jsx';
@@ -249,11 +250,14 @@ function IncidenciaCard({ inc, vehicleId, users, canManage, onSaved }) {
 // enlace «Ver trabajo».
 export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false }) {
   const { notify } = useNotification();
-  const { user, canManageTrabajos } = useAuth();
+  const { user, canManageTrabajos, isSuperAdmin, isAdmin } = useAuth();
   const { isFeatureEnabled } = useFeatures();
   // El enlace al trabajo depende de los flags de su pantalla: apagados, el
   // trabajo se nombra sin enlazar (si no, ProtectedRoute rebotaría).
   const puedeVerTrabajo = isFeatureEnabled('menu_trabajos') || isFeatureEnabled('menu_mis_trabajos');
+  // El recorrido es el dato del mapa de flota mirado hacia atrás: mismo acceso
+  // que /flota (VehicleHistory usa la misma condición). Lo que manda es el backend.
+  const puedeVerMapa = isFeatureEnabled('menu_flota') && (isSuperAdmin() || isAdmin());
   const [asig,    setAsig]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
@@ -887,6 +891,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </div>
               )}
             </div>
+
+            {/* ── Recorrido (GPS de Cartrack) ────────────────────── */}
+            {puedeVerMapa && ['activa', 'finalizada'].includes(asig.estado) && (
+              <RecorridoServicio key={asig.id} asignacionId={asig.id} />
+            )}
 
             {/* ── Incidencias de la asignación ───────────────────── */}
             {(incidencias.length > 0 || evGeneral.length > 0 || puedeGestionar) && (

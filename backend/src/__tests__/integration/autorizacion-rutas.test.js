@@ -126,6 +126,7 @@ const ACCESO = {
   'GET /features/':                    ['denegada'],
   'PUT /features/:key':                ['denegada'],
   'GET /flota/ubicaciones':            ['denegada'],
+  'GET /flota/recorrido/:asignacionId': ['denegada'],
   'GET /informes/mensual':             ['denegada'],
   'GET /informes/tecnico/:userId':      ['denegada'],
   'GET /facturas/':                    ['oculta'],
@@ -157,6 +158,7 @@ const NIVEL = {
   'GET /informes/mensual':                 'administrador',
   'GET /informes/tecnico/:userId':         'administrador',
   'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
+  'GET /flota/recorrido/:asignacionId':    'administrador',   // ídem: es el mismo dato
 };
 const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';
 

@@ -16,10 +16,11 @@
 'use strict';
 
 const { query }             = require('../config/database');
-const { success }           = require('../utils/response.utils');
+const { success, notFound } = require('../utils/response.utils');
 const cartrack              = require('../services/cartrack.service');
-const { cruzarFlota, MINUTOS_SIN_SENAL } = require('../utils/flota.utils');
-const { ahora }             = require('../utils/fecha.utils');
+const { cruzarFlota, construirRecorrido, MINUTOS_SIN_SENAL } = require('../utils/flota.utils');
+const { ahora, instanteUtc } = require('../utils/fecha.utils');
+const { normalizarMatricula } = require('../utils/matricula.utils');
 const { ORDEN_POR_NOMBRE }  = require('./vehicles.controller');
 
 /**
@@ -123,4 +124,115 @@ async function getUbicaciones(_req, res, next) {
   }
 }
 
-module.exports = { getUbicaciones, vehiculosConAsignacion };
+// ============================================================
+// GET /flota/recorrido/:asignacionId
+// ============================================================
+
+/**
+ * Lo más largo que se pinta de una vez. Una asignación de un trabajo de una
+ * semana son ~15.000 puntos y 7 tandas de llamadas a Cartrack; más que eso no
+ * se lee en un mapa del tamaño de un panel. Si el servicio es más largo se
+ * enseñan sus ÚLTIMOS 7 días y se avisa (`recortado`).
+ */
+const RECORRIDO_MAX_DIAS = 7;
+
+/**
+ * La ventana del servicio: desde que se pulsó «Inicio de servicio»
+ * (`inicio_real_at`) hasta que se finalizó, o hasta ahora si sigue en curso.
+ *
+ * Sin `inicio_real_at` se usa la hora prevista de inicio, solo en una activa o
+ * finalizada: el cron las activa a su hora aunque nadie pulse nada, y el
+ * vehículo pudo moverse igual. Una programada no tiene recorrido que enseñar.
+ */
+function ventanaDelServicio(asig, ahoraDate) {
+  if (!['activa', 'finalizada'].includes(asig.estado)) return null;
+  const desde = instanteUtc(asig.inicio_real_at || asig.fecha_inicio);
+  if (!desde) return null;
+  const enCurso = asig.estado === 'activa';
+  let hasta = enCurso ? ahoraDate : instanteUtc(asig.finalizado_at || asig.fecha_fin);
+  if (!hasta || hasta > ahoraDate) hasta = ahoraDate;
+  if (hasta <= desde) return null;
+
+  const maxMs = RECORRIDO_MAX_DIAS * 24 * 60 * 60 * 1000;
+  const recortado = hasta - desde > maxMs;
+  return {
+    desde: recortado ? new Date(hasta.getTime() - maxMs) : desde,
+    hasta,
+    enCurso,
+    recortado,
+  };
+}
+
+/**
+ * La ruta que hizo la ambulancia de un servicio, pedida a Cartrack.
+ *
+ * Mismo acceso que el mapa de flota (lo pone `flota.routes`): enseña por dónde
+ * ha ido el vehículo y, con él, su equipo. No se guarda ni un punto: Cartrack
+ * los tiene ~5 años y aquí se piden al abrir (MAPA_CODIGO §2.6).
+ *
+ * Igual que `getUbicaciones`, responde 200 aunque Cartrack falle: `estado`
+ * dice por qué no hay ruta (`sin_empezar`, `sin_gps`) y `fuente.error` si el
+ * GPS no contestó, para que la pantalla no confunda «no se movió» con «no se
+ * sabe».
+ */
+async function getRecorrido(req, res, next) {
+  try {
+    const [rows] = await query(
+      `SELECT al.id, al.estado, al.fecha_inicio, al.fecha_fin,
+              al.inicio_real_at, al.finalizado_at,
+              v.id AS vehicle_id, v.matricula
+         FROM asignaciones_libres al
+         JOIN vehicles v ON v.id = al.vehicle_id
+        WHERE al.id = ? AND al.deleted_at IS NULL`,
+      [req.params.asignacionId]
+    );
+    const asig = rows[0];
+    if (!asig) return notFound(res, 'Asignación');
+
+    const ventana = ventanaDelServicio(asig, ahora());
+    const base = {
+      ventana: ventana ? {
+        desde: ventana.desde.toISOString(),
+        hasta: ventana.hasta.toISOString(),
+        enCurso: ventana.enCurso,
+        recortado: ventana.recortado,
+        maxDias: RECORRIDO_MAX_DIAS,
+      } : null,
+      recorrido: construirRecorrido([]),
+      fuente: { configurado: cartrack.estaConfigurado(), error: null },
+    };
+    if (!ventana) return success(res, { ...base, estado: 'sin_empezar' });
+
+    // El id de Cartrack sale del cruce por matrícula del mapa, que ya va
+    // cacheado. Si la matrícula sale dos veces no se elige ninguna, por lo
+    // mismo que en el mapa: la ruta de otra ambulancia parecería buena.
+    const estado = await cartrack.obtenerEstados();
+    const nuestra = normalizarMatricula(asig.matricula);
+    const candidatos = (estado.vehiculos || []).filter(g => nuestra && normalizarMatricula(g.matricula) === nuestra);
+    if (candidatos.length !== 1 || !candidatos[0].matriculaOriginal) {
+      return success(res, {
+        ...base,
+        estado: 'sin_gps',
+        fuente: { configurado: estado.configurado, error: estado.error },
+      });
+    }
+
+    const { puntos, error } = await cartrack.obtenerRecorrido({
+      cartrackId: candidatos[0].cartrackId,
+      registration: candidatos[0].matriculaOriginal,
+      desde: ventana.desde,
+      hasta: ventana.hasta,
+    });
+
+    return success(res, {
+      ...base,
+      estado: 'ok',
+      recorrido: construirRecorrido(puntos),
+      fuente: { configurado: true, error },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getUbicaciones, getRecorrido, vehiculosConAsignacion, ventanaDelServicio };
