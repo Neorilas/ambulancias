@@ -31,11 +31,11 @@ function Harness({ granAngular = true, pause = false }) {
 
 const estado = () => screen.getByTestId('estado').textContent;
 
-function montarMedia({ dispositivos = [], zoom = null, torch = false, falla = () => false }) {
+function montarMedia({ dispositivos = [], zoom = null, torch = false, falla = () => false, error = 'NotReadableError' }) {
   navigator.mediaDevices = {
     getUserMedia: vi.fn(async ({ video }) => {
       pedidas.push(video);
-      if (falla(video)) throw Object.assign(new Error('no'), { name: 'NotReadableError' });
+      if (falla(video)) throw Object.assign(new Error('no'), { name: error });
       const t = crearTrack({ zoom: video.deviceId ? null : zoom, torch });
       tracks.push(t);
       return { getTracks: () => [t], getVideoTracks: () => [t] };
@@ -123,5 +123,50 @@ describe('useCameraStream — gran angular en las exteriores', () => {
     expect(pedidas.at(-1).facingMode).toBe('environment');
     expect(tracks.at(-1).stop).not.toHaveBeenCalled();
     expect(estado()).toBe('true|false');
+  });
+
+  it('en Android el botón cambia el zoom sin reabrir la cámara', async () => {
+    montarMedia({ zoom: { min: 0.6, max: 8 } });
+    render(<Harness />);
+    await act(async () => {});
+    await act(async () => { fireEvent.click(screen.getByText('ancho')); });
+    expect(pedidas).toHaveLength(1);
+    expect(tracks[0].applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ zoom: 1 }] });
+    await act(async () => { fireEvent.click(screen.getByText('ancho')); });
+    expect(pedidas).toHaveLength(1);
+    expect(tracks[0].applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ zoom: 0.6 }] });
+  });
+
+  it('pasar al cuadro con la misma cámara no la reabre', async () => {
+    montarMedia({});
+    const { rerender } = render(<Harness />);
+    await act(async () => {});
+    await act(async () => { rerender(<Harness granAngular={false} />); });
+    expect(pedidas).toHaveLength(1);
+  });
+
+  it('un fallo pasajero de la ultra no la olvida para la siguiente vez', async () => {
+    montarMedia({ dispositivos: [NORMAL, ULTRA], falla: v => !!v.deviceId });
+    const { unmount } = render(<Harness />);
+    await act(async () => {});
+    await act(async () => {});
+    unmount();
+    pedidas = [];
+    montarMedia({ dispositivos: [NORMAL, ULTRA] });
+    render(<Harness />);
+    await act(async () => {});
+    expect(pedidas[0].deviceId).toEqual({ exact: 'ultra-1' });
+  });
+
+  it('una ultra que ya no existe se olvida para el resto de la sesión', async () => {
+    montarMedia({ dispositivos: [NORMAL, ULTRA], falla: v => !!v.deviceId, error: 'OverconstrainedError' });
+    const { unmount } = render(<Harness />);
+    await act(async () => {});
+    await act(async () => {});
+    unmount();
+    pedidas = [];
+    render(<Harness />);
+    await act(async () => {});
+    expect(pedidas.every(v => !v.deviceId)).toBe(true);
   });
 });

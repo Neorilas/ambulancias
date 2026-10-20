@@ -1357,8 +1357,13 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
   abre la normal y salta a la ultra al encontrarla; se recuerda en el módulo
   (`ultraCache`) para el resto de la sesión; (b) `applyConstraints` sustituye
   el conjunto entero: el flash vuelve a pedir el zoom (`zoomRef`) o lo
-  deshace; (c) si la ultra no abre, se olvida y se vuelve a la de siempre,
-  nunca a un error. **Sin comprobar en móvil real.** Un Android que liste
+  deshace, y el cambio de zoom con el botón lleva el flash por lo mismo;
+  (c) si la ultra no abre se vuelve a la de siempre, nunca a un error, y solo
+  se olvida para la sesión con `OverconstrainedError`/`NotFoundError`: un
+  `NotReadableError` (otra app la tiene) se reintenta la próxima vez;
+  (d) en Android el zoom se cambia en caliente sobre el mismo track, sin
+  reabrir la cámara, y la elección del botón se deriva en el render (no en un
+  efecto) para no arrancar con un valor viejo. **Sin comprobar en móvil real.** Un Android que liste
   varias traseras sin nombre («camera2 2, facing back») y sin zoom < 1× se
   queda con la principal: no hay forma de saber cuál es la ancha. Test:
   `unit/hooks/useCameraStream.granAngular.test.jsx`.
