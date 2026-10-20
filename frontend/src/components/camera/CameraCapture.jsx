@@ -104,8 +104,12 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
   previewRef.current = preview;
 
   const { videoRef, canvasRef, cameraReady, error, isLandscape, areaVideo, toggleCamera, captureBlob,
-          flash, flashDisponible, toggleFlash } =
-    useCameraStream({ wantLandscape: currentTipo.landscape, pause: !!preview });
+          flash, flashDisponible, toggleFlash, ancho, anchoDisponible, toggleAncho } =
+    useCameraStream({
+      wantLandscape: currentTipo.landscape,
+      pause: !!preview,
+      granAngular: TIPOS_CON_ENCUADRE.includes(currentTipo.key),
+    });
 
   // El detector de encuadre tarda en cargar la primera vez: se empieza a
   // bajar al abrir la cámara, mientras el técnico encuadra.
@@ -362,6 +366,20 @@ export default function CameraCapture({ tipos = IMAGEN_TIPOS_FIN, onComplete, on
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {/* Gran angular: sale encendido en las exteriores
+                          cuando el móvil lo ofrece (§3.5 del mapa) */}
+                      {anchoDisponible && (
+                        <button
+                          type="button"
+                          onClick={toggleAncho}
+                          aria-pressed={ancho}
+                          aria-label={ancho ? 'Gran angular puesto: pasar a la lente normal' : 'Pasar a gran angular'}
+                          className={`px-3 py-2.5 rounded-md text-xs font-medium font-mono ${
+                            ancho ? 'bg-warn-500 text-black' : 'bg-black/40 text-white'}`}
+                        >
+                          0,5×
+                        </button>
+                      )}
                       {flashDisponible && (
                         <button
                           type="button"

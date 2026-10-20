@@ -1207,7 +1207,7 @@ reloj del móvil adelantado, como mucho se refresca una vez de más por foto.
 | `hooks/useDebounce.js`, `usePWAInstall.js` | |
 | `hooks/useNavegacion.js` | Que «atrás» vuelva a donde se estaba, como se estaba: `useEstadoEnUrl` (estado de pantalla en la URL, con `replace`), `useVolver(alternativa)` (el «‹ Volver»), `usePanelEnUrl` (panel encima que el atrás del móvil cierra), `useBuscadorEnUrl` (buscador con el texto en local y la URL reposada), `hayAtrasEnLaApp`, `paginaDeUrl`. Reglas y trampas en §8 «La navegación hacia atrás» |
 | `utils/flota.js` | Cómo se pinta cada estado del mapa, los filtros y los textos de antigüedad del dato. **Espejo de** `backend/src/utils/flota.utils.js`: los estados los calcula el backend y aquí solo se traducen. Los colores son hex LITERALES porque los consume el SVG del marcador de Leaflet, fuera de React, y Tailwind purgaría una clase compuesta al vuelo |
-| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` (stream, orientación, flash/linterna) + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
+| `components/camera/` | `CameraCapture` (orden forzado de fotos) + `PhotoSilhouette` + `useCameraStream` (stream, orientación, flash/linterna, gran angular en exteriores) + la revisión de cada foto: `analizarFoto` (Blob → píxeles) y `detectorVehiculo` (carga de TensorFlow y del modelo). Ver §3.5. **Solo en `npm run dev`**: botón «Saltar fotos (local)» (`fotosDePrueba.js`), ver §3.6 |
 | `utils/calidadFoto.js`, `utils/encuadreVehiculo.js` | Lo que DECIDE si una foto merece aviso (borrosa, movida, oscura, quemada / ambulancia cortada, lejos o ausente). Puro, sin navegador, con tests. §3.5 |
 | `components/flota/MapaLeaflet.jsx` | El mapa. **Leaflet a pelo, sin `react-leaflet`**: la 5.x exige React 19 y aquí vamos por el 18, así que habría que quedarse clavado en la 4.x hasta migrar React, y lo que necesita esta pantalla son tres llamadas. El mapa se crea UNA vez, los marcadores se reutilizan por clave (recrearlos cerraría el popup que el usuario tuviera abierto) y el encuadre automático se hace **solo la primera vez**: rehacerlo en cada refresco daría un salto cada 30 s. Teselas de OpenStreetMap, sin clave; la atribución no es opcional, es la condición de uso |
 | `components/common/` | `Modal`, `ConfirmDialog`, `StatusBadge`, `LoadingSpinner`, `Toast`, `InstallPWAButton`, `SWUpdater`, `ProtectedRoute`, `ComentariosIncidencia`, `VehicleExpirationAlerts`, `AvisosPush`, `AlarmaSinIniciar` (§2.5) |
@@ -1341,6 +1341,27 @@ mientras se revisa; si el técnico pulsa antes de que acabe, sigue sin aviso.
   fotos pesan algo más (los laterales salen 1280×960 en vez de 1280×720 tras
   `compressImage`); los umbrales de encuadre son fracciones de la foto y no
   dependen del formato.
+- **Gran angular en las exteriores (2026-10-20, v5.5.0).** Tras lo anterior
+  siguieron diciendo que había que alejarse más de 3 m. Ya no era recorte:
+  la app abría la lente principal (el «1×»), y con ella una ambulancia de lado
+  pide 4-5 m; la app de cámara del móvil pasa sola al 0,5× y la gente no lo
+  nota. Ahora, en frontal/trasera/laterales (`granAngular` =
+  `TIPOS_CON_ENCUADRE`), `useCameraStream` abre lo más ancho que haya:
+  (1) una cámara aparte cuya etiqueta lleve «Ultra» (iPhone, Safari 17+:
+  «Back Ultra Wide Camera»; «Dual Wide»/«Triple» NO cuentan) → `deviceId
+  exact`; (2) si no, un `zoom` mínimo por debajo del de arranque (Android con
+  cámara lógica) → se baja al mínimo. Botón **0,5×** en la barra superior para
+  volver a la normal; solo sale si hay alguna de las dos vías. En cuadro y
+  niveles no se usa: de cerca el ultra gran angular enfoca peor. Trampas:
+  (a) las etiquetas solo salen con el permiso dado, así que la primera vez
+  abre la normal y salta a la ultra al encontrarla; se recuerda en el módulo
+  (`ultraCache`) para el resto de la sesión; (b) `applyConstraints` sustituye
+  el conjunto entero: el flash vuelve a pedir el zoom (`zoomRef`) o lo
+  deshace; (c) si la ultra no abre, se olvida y se vuelve a la de siempre,
+  nunca a un error. **Sin comprobar en móvil real.** Un Android que liste
+  varias traseras sin nombre («camera2 2, facing back») y sin zoom < 1× se
+  queda con la principal: no hay forma de saber cuál es la ancha. Test:
+  `unit/hooks/useCameraStream.granAngular.test.jsx`.
 - **La nitidez no es el laplaciano de siempre.** Se probó y daba «borrosa» a
   toda foto nocturna del cuentakilómetros (casi todo negro) y no veía las
   movidas. Ahora se mide la *anchura de los bordes* (salto máximo / contraste

@@ -8,8 +8,29 @@ import { useRef, useState, useEffect, useCallback } from 'react';
  *
  * @param {boolean} wantLandscape — el paso actual requiere orientación horizontal
  * @param {boolean} pause         — si true, para el stream (durante preview)
+ * @param {boolean} granAngular   — el paso es una foto exterior: se abre con la
+ *                                  lente más ancha que ofrezca el móvil
  */
-export function useCameraStream({ wantLandscape = false, pause = false }) {
+
+// La lente ultra gran angular se reconoce por la etiqueta: iPhone (Safari 17+)
+// la lista aparte como «Back Ultra Wide Camera» / «Cámara ultra gran angular
+// posterior». Las «Dual Wide»/«Triple» no son ella: llevan «Wide» sin «Ultra».
+const ES_ULTRA = /ultra|0[.,]5\s*x/i;
+const ES_FRONTAL = /front|frontal|delanter|user/i;
+// undefined = no se ha mirado aún. Vale para toda la sesión de la página:
+// así la segunda vez que se abre la cámara arranca ya con la lente buena.
+let ultraCache;
+
+async function buscarUltraGranAngular() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices?.();
+    const ultra = (devs || []).find(d =>
+      d.kind === 'videoinput' && ES_ULTRA.test(d.label || '') && !ES_FRONTAL.test(d.label || ''));
+    return ultra?.deviceId || null;
+  } catch { return null; }
+}
+
+export function useCameraStream({ wantLandscape = false, pause = false, granAngular = false }) {
   const videoRef  = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -17,6 +38,9 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   // se ha pausado, girado o cerrado la cámara se descarta (si no, la cámara —y
   // la linterna— se quedaban encendidas con la previsualización puesta).
   const arranqueRef = useRef(0);
+  // Zoom puesto por el gran angular. applyConstraints sustituye el conjunto
+  // entero: el flash lo tiene que volver a pedir o lo deshace.
+  const zoomRef = useRef(null);
 
   const [cameraReady, setCameraReady] = useState(false);
   const [error,       setError]       = useState(null);
@@ -28,6 +52,19 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   // y en los navegadores sin soporte (iPhone, según versión) no sale el botón.
   const [flashDisponible, setFlashDisponible] = useState(false);
   const [flash,           setFlash]           = useState(false);
+
+  // Gran angular (2026-10-20). Con la lente principal, una ambulancia de lado
+  // pide estar a 4-5 m; la app de cámara del móvil pasa sola al 0,5× y por eso
+  // la nuestra «parecía con zoom». Dos vías, según lo que ofrezca el móvil:
+  // (1) una cámara ultra gran angular aparte (iPhone) → se abre esa;
+  // (2) un zoom mínimo por debajo del de arranque (Android con cámara lógica)
+  // → se baja al mínimo. Solo en las exteriores: en el cuadro y los niveles,
+  // de cerca, el ultra gran angular enfoca peor.
+  const [ancho,           setAncho]           = useState(granAngular);
+  const [ultraId,         setUltraId]         = useState(ultraCache);
+  const [zoomPuedeAbrir,  setZoomPuedeAbrir]  = useState(false);
+  useEffect(() => { setAncho(granAngular); }, [granAngular]);
+  const usarUltra = facingMode === 'environment' && ancho && !!ultraId;
 
   // Orientación física: screen.orientation.type es el método más fiable;
   // refleja el ángulo real del dispositivo aunque el viewport esté bloqueado.
@@ -66,7 +103,7 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   }, [wantLandscape]);
 
   // ── Arrancar cámara ──────────────────────────────────────────
-  const startCamera = useCallback(async (facing) => {
+  const startCamera = useCallback(async (facing, { ultra = null, abrirZoom = false } = {}) => {
     const id = ++arranqueRef.current;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
@@ -74,6 +111,8 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     setError(null);
     setCameraReady(false);
     setFlashDisponible(false);
+    setZoomPuedeAbrir(false);
+    zoomRef.current = null;
     try {
       // 4:3, el formato nativo del sensor (el de la app de cámara del móvil).
       // Pedir 16:9 (1920×1080) recorta el sensor: en vertical se pierde una
@@ -82,7 +121,7 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
       // está «más cerca» de lo pedido que un 1440×1080 de sensor completo.
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facing,
+          ...(ultra ? { deviceId: { exact: ultra } } : { facingMode: facing }),
           width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 },
         },
         audio: false,
@@ -93,7 +132,23 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
       }
       streamRef.current = stream;
       const track = stream.getVideoTracks?.()[0];
-      setFlashDisponible(!!track?.getCapabilities?.()?.torch);
+      const caps = track?.getCapabilities?.() || {};
+      setFlashDisponible(!!caps.torch);
+      if (!ultra && facing === 'environment' && caps.zoom?.min != null) {
+        const actual = track.getSettings?.()?.zoom ?? 1;
+        if (caps.zoom.min < actual) {
+          setZoomPuedeAbrir(true);
+          if (abrirZoom) {
+            zoomRef.current = caps.zoom.min;
+            track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] }).catch(() => {});
+          }
+        }
+      }
+      // Las etiquetas de las cámaras solo salen con el permiso ya dado: se
+      // busca la ultra gran angular tras el primer arranque bueno.
+      if (ultraCache === undefined && facing === 'environment') {
+        buscarUltraGranAngular().then((u) => { ultraCache = u; setUltraId(u); });
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -101,6 +156,9 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
       }
     } catch (err) {
       if (id !== arranqueRef.current) return;
+      // La ultra gran angular no abre (otra app la tiene, o el id ya no vale):
+      // se olvida y se vuelve a la cámara de siempre, nunca a un error.
+      if (ultra) { ultraCache = null; setUltraId(null); return; }
       if (err.name === 'NotAllowedError')
         setError('Permiso de cámara denegado. Permite el acceso en la configuración del navegador.');
       else if (err.name === 'NotFoundError')
@@ -119,12 +177,12 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
       setCameraReady(false);
       return;
     }
-    startCamera(facingMode);
+    startCamera(facingMode, { ultra: usarUltra ? ultraId : null, abrirZoom: ancho });
     return () => {
       arranqueRef.current++;
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
-  }, [pause, facingMode, startCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pause, facingMode, usarUltra, ancho, startCamera]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Flash (linterna) ─────────────────────────────────────────
   // Se reaplica cada vez que la cámara arranca: el stream se para durante la
@@ -137,12 +195,14 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
     if (!cameraReady || !flashDisponible) return;
     const track = streamRef.current?.getVideoTracks?.()[0];
     if (!track) return;
-    track.applyConstraints({ advanced: [{ torch: flash }] })
+    const zoom = zoomRef.current != null ? [{ zoom: zoomRef.current }] : [];
+    track.applyConstraints({ advanced: [{ torch: flash }, ...zoom] })
       .then(() => { if (flash && track.getSettings?.().torch === false) setFlash(false); })
       .catch(() => { if (flash) setFlash(false); });
   }, [cameraReady, flashDisponible, flash]);
 
   const toggleFlash = useCallback(() => setFlash(f => !f), []);
+  const toggleAncho = useCallback(() => setAncho(a => !a), []);
 
   // ── Captura: devuelve una Promise<Blob> ──────────────────────
   const captureBlob = useCallback(() => new Promise((resolve, reject) => {
@@ -202,5 +262,7 @@ export function useCameraStream({ wantLandscape = false, pause = false }) {
   );
 
   return { videoRef, canvasRef, cameraReady, error, isLandscape, facingMode, areaVideo, toggleCamera, captureBlob,
-           flash, flashDisponible: flashDisponible && cameraReady, toggleFlash };
+           flash, flashDisponible: flashDisponible && cameraReady, toggleFlash,
+           ancho, anchoDisponible: cameraReady && facingMode === 'environment' && (!!ultraId || zoomPuedeAbrir),
+           toggleAncho };
 }
