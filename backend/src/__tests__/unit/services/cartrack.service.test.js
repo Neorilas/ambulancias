@@ -613,4 +613,44 @@ describe('obtenerRecorrido — caché por días', () => {
     const hasta = ventana.hasta.getTime();
     expect(r2.puntos.map(p => p.t)).toEqual(eventos.filter(t => t >= desde && t <= hasta));
   });
+
+  it('una carga lenta pide hoy hasta su propio «ahora» y su minuto de caché no nace caducado', async () => {
+    relojEn('2026-10-20T10:00:00Z');
+    const s = cargar();
+    eventos = cada(10 * MIN, Date.parse('2026-10-17T00:00:00Z'), Date.parse('2026-10-20T12:00:00Z'));
+    cartrackFalso();
+    // Cada llamada a Cartrack «tarda» 40 s
+    const deVerdad = global.fetch.getMockImplementation();
+    global.fetch.mockImplementation(async (url) => {
+      jest.setSystemTime(new Date(Date.now() + 40 * 1000));
+      return deVerdad(url);
+    });
+
+    await s.obtenerRecorrido({ ...base, desde: new Date('2026-10-17T08:00:00Z'), hasta: new Date('2026-10-20T10:00:00Z') });
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    // Hoy se pidió cuando ya eran las 10:02 UTC (12:02 en España), no a las 10:00
+    const finHoy = new URL(global.fetch.mock.calls[3][0]).searchParams.get('end_timestamp');
+    expect(finHoy).toBe('2026-10-20 12:02:00');
+
+    // 30 s después de acabar, hoy sigue en caché
+    jest.setSystemTime(new Date(Date.now() + 30 * 1000));
+    await s.obtenerRecorrido({ ...base, desde: new Date('2026-10-17T08:00:00Z'), hasta: new Date() });
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('un día que agota las páginas no se cachea 6 h: está cortado', async () => {
+    relojEn('2026-10-20T10:00:00Z');
+    const s = cargar();
+    global.fetch.mockImplementation(async () => respuesta({ data: [{
+      vehicle_id: 454742160, registration: REG, latitude: 40.3, longitude: -3.6, speed: 50,
+      event_ts: '2026-10-17 10:00:00+02',
+    }], meta: { last_page: 99 } }));
+    const ventana = { ...base, desde: new Date('2026-10-17T06:00:00Z'), hasta: new Date('2026-10-17T18:00:00Z') };
+
+    await s.obtenerRecorrido(ventana);
+    expect(global.fetch).toHaveBeenCalledTimes(10);
+    jest.setSystemTime(new Date('2026-10-20T10:02:00Z'));
+    await s.obtenerRecorrido(ventana);
+    expect(global.fetch).toHaveBeenCalledTimes(20);
+  });
 });

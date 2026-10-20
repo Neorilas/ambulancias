@@ -367,6 +367,11 @@ API toma las horas en hora de España) y cada día es una entrada
 - **Si un día falla** se devuelven los puntos de los buenos **con** `error`, y
   los días que faltan solo se sirven si ya están en caché (con Cartrack caído,
   pedir cada uno serían 30 s de plazo). El fallo no se cachea.
+- **El «ahora» es de cada bloque**, no de la petición: una carga en frío de 7
+  días tarda minutos, y con el inicial hoy se pedía hasta una hora atrasada y
+  su minuto de caché nacía caducado. Por lo mismo, `at` es cuando LLEGÓ la
+  respuesta. Y un día que agota las 10 páginas por tramo (`incompleto`) avisa
+  en el log y se guarda solo 1 min: cortado, no puede quedarse 6 h.
 - **Memoria**: `RECORRIDOS_MAX` = 100 **bloques** (un servicio de 7 días ocupa
   8), desalojo del menos usado, y los puntos empaquetados en `Float64Array`
   `[t, lat, lng, v]` (32 B por punto frente a ~100 de un objeto).

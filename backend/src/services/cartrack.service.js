@@ -421,6 +421,9 @@ function puntoDeEvento(e) {
 
 async function pedirEventos({ cartrackId, registration }, desde, hasta) {
   const puntos = [];
+  // Si un tramo agota las páginas, lo que llega está cortado: que no se
+  // cachee 6 h como si fuera el día entero
+  let incompleto = false;
   for (let inicio = desde.getTime(); inicio < hasta.getTime(); inicio += VENTANA_EVENTOS_MS) {
     const fin = Math.min(inicio + VENTANA_EVENTOS_MS, hasta.getTime());
     const ultimoTramo = fin >= hasta.getTime();
@@ -462,9 +465,15 @@ async function pedirEventos({ cartrackId, registration }, desde, hasta) {
       }
       const ultima = cuerpo?.meta?.last_page;
       if (!filas.length || !ultima || pagina >= ultima) break;
+      if (pagina === PAGINAS_MAX_POR_VENTANA) incompleto = true;
     }
   }
-  return puntos.sort((a, b) => a.t - b.t);
+  puntos.sort((a, b) => a.t - b.t);
+  if (incompleto) {
+    logger.warn(`Cartrack: ${registration} pasa de ${PAGINAS_MAX_POR_VENTANA} páginas por tramo; recorrido cortado`);
+    puntos.incompleto = true;
+  }
+  return puntos;
 }
 
 /**
@@ -489,7 +498,10 @@ function diasDeLaVentana(desde, hasta) {
 /** Puntos → Float64Array [t, lat, lng, v, …]. Ver la caché arriba. */
 function empaquetar(puntos) {
   const datos = new Float64Array(puntos.length * CAMPOS_PUNTO);
-  puntos.forEach((p, i) => { datos.set([p.t, p.lat, p.lng, p.v], i * CAMPOS_PUNTO); });
+  puntos.forEach((p, i) => {
+    const o = i * CAMPOS_PUNTO;
+    datos[o] = p.t; datos[o + 1] = p.lat; datos[o + 2] = p.lng; datos[o + 3] = p.v;
+  });
   return datos;
 }
 
@@ -503,7 +515,11 @@ function bloqueVigente(clave, ahoraMs) {
  * El bloque de un día: de caché si vale, y si no se pide a Cartrack. Lanza si
  * Cartrack falla (lo recoge `obtenerRecorrido`). Un fallo no se cachea.
  */
-function bloqueDelDia({ cartrackId, registration }, { dia, inicio, fin }, ahoraMs) {
+function bloqueDelDia({ cartrackId, registration }, { dia, inicio, fin }) {
+  // El «ahora» de CADA bloque, no el del principio de la petición: una carga
+  // en frío de 7 días tarda minutos y, con el inicial, hoy se pedía hasta una
+  // hora atrasada y su minuto de caché nacía caducado
+  const ahoraMs = ahora().getTime();
   const clave = `${registration}|${dia}`;
   const guardado = bloqueVigente(clave, ahoraMs);
   if (guardado) {
@@ -531,7 +547,10 @@ function bloqueDelDia({ cartrackId, registration }, { dia, inicio, fin }, ahoraM
         cacheRecorridos.delete(cacheRecorridos.keys().next().value);
       }
       cacheRecorridos.set(clave, {
-        datos, at: ahoraMs, ttl: cerrado ? RECORRIDO_DIA_CERRADO_MS : RECORRIDO_ABIERTO_MS,
+        // Desde que llegó, no desde que se pidió: si no, una respuesta lenta
+        // de más de un minuto se guardaba ya caducada
+        datos, at: ahora().getTime(),
+        ttl: cerrado && !puntos.incompleto ? RECORRIDO_DIA_CERRADO_MS : RECORRIDO_ABIERTO_MS,
       });
       return datos;
     })
@@ -558,7 +577,6 @@ async function obtenerRecorrido({ cartrackId, registration, desde, hasta }) {
   if (!estaConfigurado()) return { puntos: [], error: null, configurado: false };
   if (!registration) return { puntos: [], error: 'vehículo sin identificar en Cartrack', configurado: true };
 
-  const ahoraMs = ahora().getTime();
   const desdeMs = desde.getTime();
   const hastaMs = hasta.getTime();
   const puntos = [];
@@ -566,10 +584,10 @@ async function obtenerRecorrido({ cartrackId, registration, desde, hasta }) {
 
   for (const dia of diasDeLaVentana(desde, hasta)) {
     const clave = `${registration}|${dia.dia}`;
-    if (error && !bloqueVigente(clave, ahoraMs) && !recorridosEnVuelo.has(clave)) continue;
+    if (error && !bloqueVigente(clave, ahora().getTime()) && !recorridosEnVuelo.has(clave)) continue;
     let datos;
     try {
-      datos = await bloqueDelDia({ cartrackId, registration }, dia, ahoraMs);
+      datos = await bloqueDelDia({ cartrackId, registration }, dia);
     } catch (err) {
       const mensaje = err?.name === 'TimeoutError' || err?.name === 'AbortError'
         ? 'Cartrack no respondió a tiempo'
