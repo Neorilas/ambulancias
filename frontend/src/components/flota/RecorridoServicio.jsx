@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { flotaService } from '../../services/flota.service.js';
-import { formatDateTime, formatHora } from '../../utils/dateUtils.js';
-import MapaRecorrido, { COLOR_RUTA, COLOR_SALIDA, COLOR_FINAL } from './MapaRecorrido.jsx';
+import { formatDateTime } from '../../utils/dateUtils.js';
+import MapaRecorrido from './MapaRecorrido.jsx';
+import { COLOR_RUTA, COLOR_SALIDA, COLOR_FINAL, horaDeRecorrido } from '../../utils/flota.js';
 
 /**
  * components/flota/RecorridoServicio.jsx
@@ -102,8 +103,8 @@ export default function RecorridoServicio({ asignacionId }) {
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-600">
                 <span className="font-mono font-medium text-neutral-800">{recorrido.km.toLocaleString('es-ES')} km</span>
-                <Leyenda color={COLOR_SALIDA} texto={`Salida ${formatHora(recorrido.inicio.at)}`} />
-                <Leyenda color={COLOR_FINAL} texto={`${enCurso ? 'Última posición' : 'Final'} ${formatHora(recorrido.fin.at)}`} />
+                <Leyenda color={COLOR_SALIDA} texto={`Salida ${horaDeRecorrido(recorrido.inicio.at)}`} />
+                <Leyenda color={COLOR_FINAL} texto={`${enCurso ? 'Última posición' : 'Final'} ${horaDeRecorrido(recorrido.fin.at)}`} />
                 <Leyenda color={COLOR_RUTA} texto={enCurso ? 'En curso · se actualiza cada minuto' : 'Ruta'} />
               </div>
               {recorrido.tramos.length > 1 && (

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { estadoMeta } from '../../utils/flota.js';
+import { estadoMeta, COLOR_RUTA } from '../../utils/flota.js';
 import { tituloAsignacion } from '../../utils/enlaceAsignacion.js';
+
 
 /**
  * components/flota/MapaLeaflet.jsx
@@ -103,11 +104,19 @@ function popupDe(entrada, alAbrir, trabajosVisibles) {
 
 // `trabajosVisibles`: si la pantalla de trabajos está abierta, el globo de
 // una asignación con trabajo lo nombra y lleva a él (enlaceAsignacion.js).
-export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar, onAbrirAsignacion, trabajosVisibles = false }) {
+// `recorrido`: `{ id, tramos }` del servicio activo de la elegida (lo pide
+// MapaFlota a `GET /flota/recorrido/:id`), o null. Se pinta DEBAJO de los
+// marcadores y sin eventos, para que pinchar un marcador encima siga
+// funcionando.
+export default function MapaLeaflet({ entradas = [], seleccionada = null, onSeleccionar, onAbrirAsignacion, trabajosVisibles = false, recorrido = null }) {
   const contenedor  = useRef(null);
   const mapa        = useRef(null);
   const marcadores  = useRef(new Map());
   const yaEncuadrado = useRef(false);
+  const capaRuta     = useRef(null);
+  // Qué recorrido se encuadró ya: se encuadra al llegar el de una asignación
+  // nueva, no en cada refresco de minuto (el mapa saltaría mientras se mira).
+  const rutaEncuadrada = useRef(null);
   // El manejador vive en una ref para que el marcador no tenga que volver a
   // suscribirse cada vez que el padre reconstruye la función.
   const alSeleccionar = useRef(onSeleccionar);
@@ -135,6 +144,7 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       // La atribución no es opcional: es la condición de uso de las teselas.
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(mapa.current);
+    capaRuta.current = L.layerGroup().addTo(mapa.current);
 
     return () => {
       // stop() antes de remove(): si se sale de la página a mitad de una
@@ -149,6 +159,8 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
       m?.remove();
       marcadores.current.clear();
       yaEncuadrado.current = false;
+      capaRuta.current = null;
+      rutaEncuadrada.current = null;
     };
   }, []);
 
@@ -218,6 +230,29 @@ export default function MapaLeaflet({ entradas = [], seleccionada = null, onSele
     m.setView(marcador.getLatLng(), Math.max(m.getZoom(), 14), { animate: true });
     return () => { m.off('moveend', abrir); };
   }, [seleccionada]);
+
+  // ── Recorrido del servicio activo de la elegida ────────────────────────
+  useEffect(() => {
+    if (!mapa.current || !capaRuta.current) return;
+    capaRuta.current.clearLayers();
+    const tramos = recorrido?.tramos || [];
+    if (!tramos.length) {
+      if (!recorrido) rutaEncuadrada.current = null;
+      return;
+    }
+    for (const t of tramos) {
+      L.polyline(t, { color: COLOR_RUTA, weight: 4, opacity: 0.8, interactive: false }).addTo(capaRuta.current);
+    }
+    if (rutaEncuadrada.current !== recorrido.id) {
+      rutaEncuadrada.current = recorrido.id;
+      const limites = L.latLngBounds(tramos.flat());
+      const marcador = seleccionada ? marcadores.current.get(seleccionada) : null;
+      if (marcador) limites.extend(marcador.getLatLng());
+      // stop(): el setView animado de «Centrar» puede seguir en vuelo
+      mapa.current.stop();
+      mapa.current.fitBounds(limites, { padding: [40, 40], maxZoom: 15, animate: false });
+    }
+  }, [recorrido]);
 
   return <div ref={contenedor} className="h-full w-full rounded-lg z-0" />;
 }

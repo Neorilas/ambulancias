@@ -8,7 +8,6 @@ vi.mock('../../../services/flota.service.js', () => ({
 // Leaflet no pinta en jsdom: basta con saber qué recibe el mapa
 vi.mock('../../../components/flota/MapaRecorrido.jsx', () => ({
   default: ({ recorrido }) => <div data-testid="mapa" data-tramos={recorrido.tramos.length} />,
-  COLOR_RUTA: '#000', COLOR_SALIDA: '#000', COLOR_FINAL: '#000',
 }));
 
 import { flotaService } from '../../../services/flota.service.js';

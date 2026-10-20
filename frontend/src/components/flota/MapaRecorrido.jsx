@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { COLOR_RUTA, COLOR_SALIDA, COLOR_FINAL } from '../../utils/flota.js';
 
 /**
  * components/flota/MapaRecorrido.jsx
@@ -16,11 +17,6 @@ import 'leaflet/dist/leaflet.css';
  * haría saltar el mapa mientras alguien mira una zona.
  */
 
-// Hex literales y no clases: los consume Leaflet, fuera de React, y Tailwind
-// purgaría una clase compuesta al vuelo. primary-600 y ok-500 / bad-500.
-const COLOR_RUTA   = '#2563eb';
-const COLOR_SALIDA = '#3d9b5f';
-const COLOR_FINAL  = '#d24545';
 
 const CENTRO_POR_DEFECTO = [40.4168, -3.7038];
 
@@ -93,4 +89,3 @@ export default function MapaRecorrido({ recorrido, enCurso }) {
   return <div ref={contenedor} className="h-full w-full rounded-lg z-0" />;
 }
 
-export { COLOR_RUTA, COLOR_SALIDA, COLOR_FINAL };

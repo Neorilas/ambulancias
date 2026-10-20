@@ -1,3 +1,5 @@
+import { diaEnEspana, formatDateTimeShort, formatHora } from './dateUtils.js';
+
 /**
  * utils/flota.js
  * Lo que el mapa de flota decide sin pedirle nada a nadie: cómo se llama y de
@@ -144,4 +146,24 @@ export function textoFuente(fuente) {
   if (fuente.origen === 'cache-vieja') return `Cartrack no responde — última posición conocida`;
   if (fuente.origen === 'ninguno') return 'Cartrack no responde';
   return 'Datos en vivo';
+}
+
+/**
+ * Colores del recorrido de un servicio (2026-10-19): la línea, la salida y la
+ * última posición o el final. Hex literales por lo mismo que los de arriba:
+ * los consume Leaflet. Son primary-600, ok-500 y bad-500.
+ */
+export const COLOR_RUTA   = '#2563eb';
+export const COLOR_SALIDA = '#3d9b5f';
+export const COLOR_FINAL  = '#d24545';
+
+/**
+ * Hora de un punto del recorrido: solo 'HH:mm' si es de hoy, y con el día
+ * delante si no. Un servicio de varios días decía «Última posición 14:32» y
+ * no se sabía de qué día era.
+ */
+export function horaDeRecorrido(instante, ahora = new Date()) {
+  return diaEnEspana(instante) === diaEnEspana(ahora)
+    ? formatHora(instante)
+    : formatDateTimeShort(instante);
 }

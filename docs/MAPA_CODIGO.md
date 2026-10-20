@@ -338,6 +338,18 @@ ovillo), descarta los que exigirían > 250 km/h y corta el tramo en huecos de
 abrir el panel, y en curso se refresca cada minuto con la pestaña visible.
 Respuesta de un día real: ~2.400 puntos pintados, ~47 KB. No se guarda nada.
 
+**También en `/flota` (2026-10-20, pedido del usuario).** Al elegir una
+ambulancia con asignación activa (marcador o lista), `MapaFlota` pide
+`getRecorrido` de esa asignación y `MapaLeaflet` lo pinta (prop `recorrido`,
+capa `capaRuta`) **debajo de los marcadores y con `interactive: false`**, para
+que pinchar un marcador encima de la línea siga eligiéndolo. La ficha lateral
+dice km y hora de salida (`TextoRecorrido`). El efecto va por el **id de la
+asignación**, no por la entrada: el refresco de 30 s de la flota crea objetos
+nuevos y, atado a la entrada, repetía la petición y borraba la línea. Se
+refresca cada minuto con la pestaña visible y **se encuadra una sola vez por
+asignación** (`rutaEncuadrada`), igual que el resto del mapa. Los colores
+(`COLOR_RUTA`, `COLOR_SALIDA`, `COLOR_FINAL`) viven en `utils/flota.js`.
+
 **Los estados y sus colores** los decide el backend (`estadoDeGps`) y el
 frontend solo los pinta: `movimiento` (verde) · `parado_contacto` (ámbar) ·
 `apagado` (gris) · `sin_senal` (rojo, más de 30 min sin dar señal) · `sin_gps`.
