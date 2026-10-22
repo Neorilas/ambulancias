@@ -754,8 +754,9 @@ Trampas y porqués:
 - El popup **no relee** con Atrás → Siguiente si el PDF es el mismo (pisaría
   lo corregido a mano); elegir otro PDF sí. Un 4xx de `/leer` (no es PDF, 413,
   404) se queda en el paso 1; solo red, 408, 429 o 5xx pasan al paso 2 vacío.
-- `unpdf` **1.4.0 fijada**: las 1.5+ declaran `node >= 22` y el contenedor
-  de PRO es `node:20-alpine` (probada en 20 y 22). Carga pdf.js con un
+- `unpdf` **1.4.0 fijada**: las 1.5+ declaran `node >= 22`. Se fijó cuando
+  el contenedor de PRO era `node:20-alpine`; desde 2026-10-22 es
+  `node:22-alpine` y ya podría subirse (probada en 20 y 22). Carga pdf.js con un
   `import()` dinámico que Jest no soporta: en los tests se simula `unpdf`.
 - El buzón **todavía no usa el lector** (sigue sacando los datos del correo y
   poniendo como fecha la de llegada). Con Google sin adjuntar PDF, solo
@@ -2928,6 +2929,17 @@ despliega** — hasta 2026-09-26 el backend llegaba a producción sin pasar un
 test en CI) y `deploy-frontend.yml` (job `build`: tests + los mismos dos
 controles + build; job `publicar`:
 subida por FTPS al hosting de `vapss.net/app[-pre]/`).
+**El backend corre en `node:22-alpine` (`backend/Dockerfile`), el mismo Node
+mayor que la CI.** Era `node:20-alpine` hasta 2026-10-22: Node 20 dejó de
+recibir parches el 30-abr-2026 y el aviso de seguridad de octubre (Brotli con
+ejecución remota, saltos de la validación TLS) ya no le llegaba. La etiqueta
+flotante `22-alpine` coge el último parche **solo al reconstruir**, y por eso
+el deploy hace `docker compose build --pull`: sin `--pull` el servidor reusa la
+imagen base que ya tiene y el parche no llega nunca. Un aviso de seguridad de
+Node se aplica relanzando el deploy, aunque el código no cambie.
+Cuando Node 22 caduque (30-abr-2027), subir a la siguiente LTS aquí y en
+`node-version` de los dos workflows. Los tests de fechas dan por hecho
+`TZ=Europe/Madrid` (lo pone la CI); fuera de ella, uno falla sin ella.
 **`dependencias-obsoletas.mjs` existe porque `npm audit` no ve las prerelease:**
 multer 1.4.5-lts.2 pasó meses con avisos públicos y daba 0. El script lee el
 lockfile y pregunta al registro si npm marca obsoleta cada dependencia de

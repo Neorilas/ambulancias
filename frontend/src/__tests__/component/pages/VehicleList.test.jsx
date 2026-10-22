@@ -80,7 +80,10 @@ describe('VehicleList · lo que se estaba mirando sobrevive a ir a una ficha', (
     // aplica en una transición) y la búsqueda llega a la URL ya reposada
     expect(screen.getByRole('searchbox')).toHaveValue('ab');
     await waitFor(() => expect(screen.getByTestId('donde')).toHaveTextContent(/^\/vehiculos\?q=ab$/));
-    expect(vehiclesService.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, search: 'ab' }));
+    // La petición sale un render después de que cambie la URL: hay que
+    // esperarla también (en CI, con la máquina cargada, llegaba tarde)
+    await waitFor(() => expect(vehiclesService.list)
+      .toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, search: 'ab' })));
     expect(vehiclesService.list).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'a' }));
   });
 });
