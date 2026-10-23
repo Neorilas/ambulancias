@@ -5,6 +5,7 @@ import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
 import { errorMotivo } from '../../utils/motivo.js';
+import { finEventoPrevisto } from '../../utils/trabajos.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
   IMAGEN_TIPOS_FIN,
@@ -35,9 +36,10 @@ import {
 export default function FinalizacionAsignacion({ asignacion, onDone, onCancel }) {
   const { notify } = useNotification();
   // Se decide UNA vez al abrir: si se recalculara en cada render, al pasar
-  // fecha_fin con el asistente abierto cambiaría el número de pasos bajo `step`.
+  // la hora con el asistente abierto cambiaría el número de pasos bajo `step`.
+  // La hora es el fin del evento si el trabajo lo tiene (v42), como el backend.
   const [pideMotivo, setPideMotivo] = useState(
-    () => !asignacion?.motivo_fin && new Date() < new Date(asignacion?.fecha_fin)
+    () => !asignacion?.motivo_fin && new Date() < new Date(finEventoPrevisto(asignacion))
   );
 
   const [step,   setStep]   = useState(0);

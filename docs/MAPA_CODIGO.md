@@ -1466,7 +1466,7 @@ trabajo_usuarios, vehicle_images` + eventos de limpieza (las vistas
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1594,7 +1594,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v40_limpieza_esquema**. (En alguna BD local puede
+Última migración: **v42_trabajo_evento**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -1802,7 +1802,15 @@ lo usa para las horas «en el evento/servicio» de cada técnico (§2.7).
 **El motivo de fin anticipado se pide en «Fin evento/servicio», no al
 finalizar la asignación (decisión del usuario, 2026-10-04).** Lo que acaba
 antes de tiempo es el evento; la vuelta a base y las fotos de fin no explican
-nada. Si se pulsa antes de `fecha_fin`, la tarjeta de `AsignacionDetalle`
+nada. **La hora con la que se compara es `finEventoPrevisto`** (backend en
+`asignaciones.controller`, espejo en `utils/trabajos.js`): el fin del evento
+del trabajo si lo tiene (v42, §6.2) y, si no, el `fecha_fin` de la ambulancia.
+Hasta v42 era siempre `fecha_fin`, que desde el 2026-10-12 es la vuelta a
+base: el partido que acaba a las 12:00 con la ambulancia de vuelta a las 13:00
+pedía motivo en todo servicio normal. Lo mismo vale abajo para «Finalizar
+asignación» y el paso «motivo» de `FinalizacionAsignacion`; el informe sigue
+midiendo cierres tardíos/anticipados contra `fecha_fin` (es la vuelta a base,
+§2.7). Si se pulsa antes de esa hora, la tarjeta de `AsignacionDetalle`
 (`finAnticipado`) muestra un textarea y el botón no se habilita sin texto;
 `registrarFinServicio` lo vuelve a comprobar con el reloj del servidor (400 sin
 motivo, sin tocar la fila), lo guarda en **la misma columna `motivo_fin`** de
@@ -2504,6 +2512,30 @@ quedarse en solo lectura).
   no coordinador) recibe el «recárgala» del controlador: por eso «falta el
   coordinador» lo dice el controlador (después de mirar `vehiculos`) y no el
   validador de la ruta.
+- **Horas del evento (v42, 2026-10-23).** Decisión del usuario a raíz del
+  ejemplo del partido (11:00–12:00, ambulancia de 10:00 a 13:00): **el trabajo
+  va de la salida de base a la vuelta** (`fecha_inicio`/`fecha_fin`, en
+  pantalla «Inicio: salida de base» / «Fin: vuelta a base»; en la ficha
+  «Salida de base» / «Vuelta a base») y **el evento va dentro**
+  (`evento_inicio`/`evento_fin`). Las ambulancias siguen heredando las del
+  trabajo si no se les ponen otras (no cambia nada ahí: la distancia a cada
+  sitio es distinta, por eso no hay margen automático). Reglas:
+  - Opcional, las dos horas o ninguna, dentro del trabajo (`leerEvento` en
+    `trabajos.controller`, espejo en `errorEvento` de `utils/trabajos.js`). Al
+    editar se valida lo que quedará guardado: acortar el trabajo con un evento
+    que se queda fuera da 400. Sin los campos en el body no se tocan (PWA vieja).
+  - **Solo en trabajos de un día** (`pideEvento` = `!cruzaDias`): en los de
+    varios, el horario por días hace de horario del evento. El formulario pide
+    dos `time` y les pone el día del inicio del trabajo; al pasar a varios
+    días manda `null` y el evento se borra.
+  - Para qué sirve: el motivo de fin anticipado (§6.1, `finEventoPrevisto`) y
+    que el técnico vea la hora del evento junto a la de salida: ficha del
+    trabajo, tarjeta de «Mis trabajos» (`misTrab` trae las columnas) y tarjeta
+    del trabajo dentro de la ambulancia (`trabajoAparte`, `trabajo.evento_*`).
+    `textoEvento` las pinta «11:00 – 12:00». El calendario y los listados de
+    gestión no lo enseñan todavía (`listTrabajos` ya lo manda).
+  - Auditoría: `create_trabajo` lleva `evento`; `update_trabajo`, `evento`
+    con antes/después si cambió.
 - **Previsto (v41, 2026-10-18).** Pedido del usuario: entran trabajos a
   semanas vista sin previsión aún de ambulancias ni de personal. En el alta,
   la casilla «Trabajo previsto» (`previsto: true` en el body) deja crearlo

@@ -1442,6 +1442,23 @@ const MIGRATIONS = [
       }
     },
   },
+
+  {
+    name: 'v42_trabajo_evento',
+    description: 'Trabajos: horas del evento dentro del trabajo (el trabajo va de la salida a la vuelta a base)',
+    async run() {
+      // Las fechas del trabajo son de la salida de base a la vuelta; el
+      // evento (lo contratado: el partido de 11:00 a 12:00) va dentro.
+      // Opcional y solo en trabajos de un día: en los de varios, el horario
+      // por días (v39) hace de horario del evento.
+      await ensureColumn('trabajos', 'evento_inicio',
+        `ALTER TABLE trabajos ADD COLUMN evento_inicio DATETIME NULL DEFAULT NULL
+           COMMENT 'Inicio del evento (UTC), dentro de fecha_inicio..fecha_fin' AFTER fecha_fin`);
+      await ensureColumn('trabajos', 'evento_fin',
+        `ALTER TABLE trabajos ADD COLUMN evento_fin DATETIME NULL DEFAULT NULL
+           COMMENT 'Fin del evento (UTC)' AFTER evento_inicio`);
+    },
+  },
 ];
 
 // ============================================================

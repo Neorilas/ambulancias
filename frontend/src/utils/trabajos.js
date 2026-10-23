@@ -11,11 +11,11 @@
  */
 
 import { TRABAJO_ESTADOS } from './constants.js';
-import { toInputDatetime, toUtcIso, formatDateTimeShort } from './dateUtils.js';
+import { toInputDatetime, toUtcIso, formatDateTimeShort, formatHora } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
-import { horarioDesdeApi, horarioAPayload, errorHorario, resumenJornadas } from './jornadas.js';
+import { horarioDesdeApi, horarioAPayload, errorHorario, resumenJornadas, cruzaDias } from './jornadas.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -47,6 +47,10 @@ export function formularioInicial(trabajo) {
     tipo:         trabajo?.tipo        || 'traslado',
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
+    // Horas del evento (v42), 'HH:mm' en hora española: el día es el del
+    // trabajo, porque solo se piden en los de un día
+    evento_desde: toInputDatetime(trabajo?.evento_inicio).slice(11),
+    evento_hasta: toInputDatetime(trabajo?.evento_fin).slice(11),
     // 1..N coordinadores (v35), el principal primero; sin ninguno (el alta),
     // una fila vacía para elegirlo
     coordinadores: coordinadoresDe(trabajo).length ? coordinadoresDe(trabajo).map(c => c.id) : [''],
@@ -89,6 +93,56 @@ export function faltaParaProgramado(trabajo) {
   return falta;
 }
 
+/**
+ * ¿Se piden las horas del evento (v42)? Solo en un trabajo de un día: en los
+ * de varios, el horario por días hace de horario del evento.
+ */
+export const pideEvento = (form) => !cruzaDias(form.fecha_inicio, form.fecha_fin);
+
+/** Las horas del evento del formulario como 'yyyy-MM-ddTHH:mm' locales, o null. */
+function eventoLocal(form) {
+  if (!pideEvento(form) || !form.fecha_inicio) return null;
+  const dia = form.fecha_inicio.slice(0, 10);
+  const desde = form.evento_desde || '';
+  const hasta = form.evento_hasta || '';
+  if (!desde && !hasta) return null;
+  return { inicio: desde && `${dia}T${desde}`, fin: hasta && `${dia}T${hasta}` };
+}
+
+/** El fallo de las horas del evento, el mismo criterio que `leerEvento` del backend. */
+function errorEvento(form) {
+  const ev = eventoLocal(form);
+  if (!ev) return null;
+  if (!ev.inicio || !ev.fin) return 'Pon la hora de inicio y la de fin del evento, o ninguna';
+  if (ev.fin <= ev.inicio) return 'El fin del evento tiene que ser posterior a su inicio';
+  if (ev.inicio < form.fecha_inicio || (form.fecha_fin && ev.fin > form.fecha_fin)) {
+    return 'El evento tiene que caer entre el inicio y el fin del trabajo';
+  }
+  return null;
+}
+
+/** Siempre las dos: sin evento (o en uno de varios días) van a null y se borran. */
+function eventoAPayload(form) {
+  const ev = eventoLocal(form);
+  return ev?.inicio && ev?.fin
+    ? { evento_inicio: toUtcIso(ev.inicio), evento_fin: toUtcIso(ev.fin) }
+    : { evento_inicio: null, evento_fin: null };
+}
+
+/** Las horas del evento para enseñar («11:00 – 12:00»), o null si no tiene. */
+export function textoEvento(trabajo) {
+  if (!trabajo?.evento_inicio || !trabajo?.evento_fin) return null;
+  return `${formatHora(trabajo.evento_inicio)} – ${formatHora(trabajo.evento_fin)}`;
+}
+
+/**
+ * Hasta cuándo estaba previsto el evento de una ambulancia: el fin del evento
+ * de su trabajo si lo tiene (v42) y, si no, su propio fin. Decide si
+ * «Fin evento/servicio» y «Finalizar asignación» piden el motivo de fin
+ * anticipado. Espejo de `finEventoPrevisto` en asignaciones.controller.
+ */
+export const finEventoPrevisto = (asig) => asig?.trabajo?.evento_fin || asig?.fecha_fin;
+
 /** Errores del formulario, por campo. Vacío = se puede guardar. */
 export function validarTrabajo(form, { alta = false } = {}) {
   const e = {};
@@ -98,6 +152,8 @@ export function validarTrabajo(form, { alta = false } = {}) {
   if (form.fecha_fin && form.fecha_inicio && form.fecha_fin <= form.fecha_inicio) {
     e.fecha_fin = 'Fecha fin debe ser posterior a fecha inicio';
   }
+  const malEvento = errorEvento(form);
+  if (malEvento) e.evento = malEvento;
   if (form.ubicacion.length > 255) e.ubicacion = 'Máximo 255 caracteres';
   if ((form.ubicacion_url || '').trim() && !esEnlaceGoogleMaps(form.ubicacion_url)) {
     e.ubicacion_url = 'Tiene que ser un enlace de Google Maps (el de «Compartir»)';
@@ -148,6 +204,7 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     tipo:         form.tipo,
     fecha_inicio: toUtcIso(form.fecha_inicio),
     fecha_fin:    toUtcIso(form.fecha_fin),
+    ...eventoAPayload(form),
     usuarios:     idsElegidos(form.usuarios),
     horario:      horarioAPayload(form.horario),
   };

@@ -15,7 +15,7 @@ import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
 import { horarioDesdeApi, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 import {
   estaCerrado, misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, coordinadoresDe,
-  faltaParaProgramado,
+  faltaParaProgramado, textoEvento,
 } from '../../utils/trabajos.js';
 import TrabajoForm from './TrabajoForm.jsx';
 import TrabajoV25 from './TrabajoV25.jsx';
@@ -360,12 +360,19 @@ export default function TrabajoDetail() {
               <EnlaceMaps trabajo={trabajo} className="mt-1.5" />
             </div>
           )}
+          {/* El trabajo va de la salida de base a la vuelta, y el evento dentro (v42) */}
+          {textoEvento(trabajo) && (
+            <div className="col-span-2" data-testid="evento-trabajo">
+              <p className="text-neutral-500 text-xs">Evento</p>
+              <p className="font-medium">{textoEvento(trabajo)}</p>
+            </div>
+          )}
           <div>
-            <p className="text-neutral-500 text-xs">Inicio</p>
+            <p className="text-neutral-500 text-xs">Salida de base</p>
             <p className="font-medium">{formatDateTime(trabajo.fecha_inicio)}</p>
           </div>
           <div>
-            <p className="text-neutral-500 text-xs">Fin previsto</p>
+            <p className="text-neutral-500 text-xs">Vuelta a base</p>
             <p className="font-medium">{formatDateTime(trabajo.fecha_fin)}</p>
           </div>
           <div>

@@ -94,6 +94,13 @@ describe('FinalizacionAsignacion — motivo de fin anticipado', () => {
     pintar(ASIGNACION);
     expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
   });
+
+  // v42: con evento en el trabajo, la hora es su fin, no la vuelta a base
+  it('con el evento del trabajo ya acabado no lo pide, aunque la vuelta a base sea después', () => {
+    pintar({ ...ASIGNACION, fecha_fin: FUTURO, fin_servicio_at: null,
+      trabajo: { evento_fin: new Date(Date.now() - 60000).toISOString() } });
+    expect(screen.getByText(/Paso 1 de 4/)).toBeInTheDocument();
+  });
 });
 
 // Avanza desde el paso 0 (material) hasta dejar el wizard en el paso de

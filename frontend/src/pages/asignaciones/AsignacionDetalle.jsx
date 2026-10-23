@@ -20,7 +20,7 @@ import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
 import { rolEnAsignacion, nombreMiembro } from '../../utils/miembrosAsignacion.js';
 import { errorMotivo } from '../../utils/motivo.js';
-import { coordinadoresDe, esCoordinadorDe, nombresDe } from '../../utils/trabajos.js';
+import { coordinadoresDe, esCoordinadorDe, nombresDe, finEventoPrevisto, textoEvento } from '../../utils/trabajos.js';
 import { usePanelEnUrl } from '../../hooks/useNavegacion.js';
 import useAhora from '../../hooks/useAhora.js';
 import {
@@ -473,7 +473,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   // ella no hay tiempo en el sitio que medir) e igual de opcional.
   const faltaFinServicio = soyResponsable && asig?.estado === 'activa' && !conJornadas
                            && !!asig?.llegada_servicio_at && !asig?.fin_servicio_at;
-  const finAnticipado    = faltaFinServicio && (forzarMotivo || new Date() < new Date(asig?.fecha_fin));
+  // Con evento en el trabajo (v42), su fin; si no, el de la ambulancia
+  const finAnticipado    = faltaFinServicio && (forzarMotivo || new Date() < new Date(finEventoPrevisto(asig)));
   // Qué jornada toca: solo con la asignación iniciada y sus fotos de inicio
   const jornadaAhora     = conJornadas && soyResponsable && asig?.estado === 'activa'
                            && !!asig?.inicio_real_at && !inicioIncompleto
@@ -606,7 +607,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 {finAnticipado && (
                   <div>
                     <p className="text-xs text-warn-600 mb-1">
-                      Estaba previsto hasta el {formatDateTime(asig.fecha_fin)}. Terminas antes de esa hora.
+                      Estaba previsto hasta el {formatDateTime(finEventoPrevisto(asig))}. Terminas antes de esa hora.
                     </p>
                     <label className="label">Motivo <span className="text-bad-500">*</span></label>
                     <textarea
@@ -724,6 +725,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                     </Link>
                   )}
                 </div>
+                {textoEvento(asig.trabajo) && (
+                  <p className="text-xs text-neutral-700" data-testid="evento-trabajo">
+                    Evento {textoEvento(asig.trabajo)}
+                  </p>
+                )}
                 {asig.trabajo.ubicacion && (
                   <p className="text-xs text-neutral-600">{asig.trabajo.ubicacion}</p>
                 )}

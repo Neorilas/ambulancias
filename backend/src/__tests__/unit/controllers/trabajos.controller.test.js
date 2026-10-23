@@ -834,6 +834,39 @@ describe('trabajos.controller', () => {
       expect(insTrab.params.slice(3, 5)).toEqual(['Retiro', 'https://maps.app.goo.gl/abc123']);
     });
 
+    // v42: el trabajo va de la salida a la vuelta a base; el evento, dentro
+    it('guarda las horas del evento dentro del trabajo, y sin ellas NULL', async () => {
+      bd(reglasOk());
+      let { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
+      await createTrabajo(mockReq({
+        body: body({ evento_inicio: '2026-10-15 11:00:00', evento_fin: '2026-10-15 12:00:00' }), user: admin,
+      }), mockRes(), mockNext());
+      let insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
+      expect(insTrab.sql).toContain('evento_inicio, evento_fin');
+      expect(insTrab.params.slice(8, 10)).toEqual(['2026-10-15 11:00:00', '2026-10-15 12:00:00']);
+
+      bd(reglasOk());
+      ({ ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] }));
+      await createTrabajo(mockReq({ body: body(), user: admin }), mockRes(), mockNext());
+      insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
+      expect(insTrab.params.slice(8, 10)).toEqual([null, null]);
+    });
+
+    it.each([
+      ['solo el inicio', { evento_inicio: '2026-10-15 11:00:00' }, /inicio y la de fin/],
+      ['el fin antes del inicio', { evento_inicio: '2026-10-15 12:00:00', evento_fin: '2026-10-15 11:00:00' }, /posterior/],
+      ['antes de la salida', { evento_inicio: '2026-10-15 07:00:00', evento_fin: '2026-10-15 09:00:00' }, /entre el inicio y el fin/],
+      ['después de la vuelta', { evento_inicio: '2026-10-15 19:00:00', evento_fin: '2026-10-15 21:00:00' }, /entre el inicio y el fin/],
+    ])('400 con el evento mal: %s', async (_caso, evento, mensaje) => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10 });
+      const res = mockRes();
+      await createTrabajo(mockReq({ body: body(evento), user: admin }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].message).toMatch(mensaje);
+      expect(ejecutadas.some(e => e.sql.includes('INSERT INTO trabajos'))).toBe(false);
+    });
+
     it('crea el trabajo con su coordinador y la primera ambulancia como asignación, en una transacción', async () => {
       bd(reglasOk());
       const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
@@ -844,9 +877,9 @@ describe('trabajos.controller', () => {
       expect(res.status).toHaveBeenCalledWith(201);
       const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
       // descripción recortada, ubicación en blanco → NULL, sin enlace de
-      // Maps → NULL; el coordinador, el 9.º
+      // Maps → NULL; el coordinador, el 11.º (tras las horas del evento)
       expect(insTrab.params.slice(1, 5)).toEqual(['Maratón', 'Cobertura', null, null]);
-      expect(insTrab.params[8]).toBe(50);
+      expect(insTrab.params[10]).toBe(50);
 
       const insAsig = ejecutadas.find(e => e.sql.includes('INSERT INTO asignaciones_libres'));
       // vehículo, principal = primer responsable, …, trabajo_id y horario_propio al final
@@ -881,7 +914,7 @@ describe('trabajos.controller', () => {
       }), res, mockNext());
 
       expect(res.status).toHaveBeenCalledWith(201);
-      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos')).params[8]).toBe(51);
+      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos')).params[10]).toBe(51);
       expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajo_coordinadores')).params)
         .toEqual([10, 51, 0, 10, 50, 1]);
       expect(avisos.avisarCoordinadorTrabajo).toHaveBeenCalledWith(expect.anything(), [51, 50], { asignadoPor: 1 });
@@ -911,8 +944,8 @@ describe('trabajos.controller', () => {
 
         expect(res.status).toHaveBeenCalledWith(201);
         const insTrab = ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos'));
-        expect(insTrab.params[8]).toBeNull();          // sin coordinador principal
-        expect(insTrab.params[10]).toBe('previsto');
+        expect(insTrab.params[10]).toBeNull();          // sin coordinador principal
+        expect(insTrab.params[12]).toBe('previsto');
         expect(ejecutadas.some(e => e.sql.includes('INSERT INTO trabajo_coordinadores'))).toBe(false);
         expect(ejecutadas.some(e => e.sql.startsWith('UPDATE trabajos SET estado'))).toBe(false);
         expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -955,7 +988,7 @@ describe('trabajos.controller', () => {
         bd(reglasOk());
         const { ejecutadas } = conexion({ insertId: 10 });
         await createTrabajo(mockReq({ body: body({ asignaciones: undefined }), user: admin }), mockRes(), mockNext());
-        expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos')).params[10]).toBe('programado');
+        expect(ejecutadas.find(e => e.sql.includes('INSERT INTO trabajos')).params[12]).toBe('programado');
       });
     });
 
@@ -1126,6 +1159,48 @@ describe('trabajos.controller', () => {
       const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
       expect(upd.sql).not.toContain('estado');
       expect(upd.params).toEqual(['Nuevo', null, 'Ifema', 1]);
+    });
+
+    describe('horas del evento (v42)', () => {
+      const conEvento = {
+        evento_inicio: new Date('2026-10-15T11:00:00Z'), evento_fin: new Date('2026-10-15T12:00:00Z'),
+      };
+
+      it('las guarda, y con null las quita', async () => {
+        bd([existente(), ...trabajoDosVehiculos()]);
+        let { ejecutadas } = conexion();
+        await updateTrabajo(mockReq({ params: { id: '1' },
+          body: { evento_inicio: '2026-10-15T11:00', evento_fin: '2026-10-15T12:00' }, user: admin }),
+          mockRes(), mockNext());
+        let upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
+        expect(upd.sql).toContain('evento_inicio = ?, evento_fin = ?');
+        expect(upd.params).toEqual(['2026-10-15T11:00', '2026-10-15T12:00', 1]);
+
+        bd([existente('programado', conEvento), ...trabajoDosVehiculos()]);
+        ({ ejecutadas } = conexion());
+        await updateTrabajo(mockReq({ params: { id: '1' },
+          body: { evento_inicio: null, evento_fin: null }, user: admin }), mockRes(), mockNext());
+        upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
+        expect(upd.params).toEqual([null, null, 1]);
+      });
+
+      it('sin el campo no las toca', async () => {
+        bd([existente('programado', conEvento), ...trabajoDosVehiculos()]);
+        const { ejecutadas } = conexion();
+        await updateTrabajo(mockReq({ params: { id: '1' }, body: { nombre: 'Otro' }, user: admin }),
+          mockRes(), mockNext());
+        const upd = ejecutadas.find(e => e.sql.startsWith('UPDATE trabajos SET'));
+        expect(upd.sql).not.toContain('evento');
+      });
+
+      it('400 si acortar el trabajo deja fuera el evento que ya tenía', async () => {
+        bd([existente('programado', conEvento)]);
+        const res = mockRes();
+        await updateTrabajo(mockReq({ params: { id: '1' },
+          body: { fecha_fin: '2026-10-15T11:30' }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json.mock.calls[0][0].message).toMatch(/evento/);
+      });
     });
 
     it('guarda el enlace de Google Maps recortado, y en blanco lo borra', async () => {
