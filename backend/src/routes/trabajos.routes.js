@@ -32,6 +32,12 @@ const validarCamposTrabajo = [
   body('ubicacion_url').optional({ nullable: true })
     .custom(v => (typeof v === 'string' && v.trim() === '') || esEnlaceGoogleMaps(v))
     .withMessage('El enlace de la ubicación tiene que ser de Google Maps (el de «Compartir»)'),
+  // Horas del evento (v42), dentro del trabajo. null o vacío las quita; que
+  // vayan las dos y dentro de las fechas lo mira el controlador (leerEvento)
+  body('evento_inicio').optional({ nullable: true, checkFalsy: true })
+    .isISO8601().withMessage('Inicio del evento inválido').customSanitizer(fechaApiAMysql),
+  body('evento_fin').optional({ nullable: true, checkFalsy: true })
+    .isISO8601().withMessage('Fin del evento inválido').customSanitizer(fechaApiAMysql),
   body('vehiculos').optional().isArray(),
   body('vehiculos.*.vehicle_id').optional().isInt({ min: 1 }),
   body('vehiculos.*.responsables').optional().isArray({ min: 1 })

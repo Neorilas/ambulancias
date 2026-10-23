@@ -121,6 +121,31 @@ function textoOpcional(valor) {
   return t || null;
 }
 
+/**
+ * Las horas del evento (v42): lo contratado (el partido de 11:00 a 12:00),
+ * dentro del trabajo, que va de la salida de base a la vuelta. Opcionales:
+ * las dos o ninguna. Se valida con lo que quedará guardado, así que al
+ * editar solo las fechas del trabajo se mira el evento que ya tenía: acortar
+ * el trabajo no puede dejarlo fuera.
+ *
+ * @returns {{evento?: {inicio, fin}, error?: string}} `evento` undefined = no se toca
+ */
+function leerEvento(body, { fecha_inicio, fecha_fin }, antes = {}) {
+  const vienen = body.evento_inicio !== undefined || body.evento_fin !== undefined;
+  const ini = (body.evento_inicio !== undefined ? body.evento_inicio : antes.evento_inicio) || null;
+  const fin = (body.evento_fin    !== undefined ? body.evento_fin    : antes.evento_fin)    || null;
+  if (ini || fin) {
+    if (!ini || !fin) return { error: 'El evento necesita la hora de inicio y la de fin' };
+    if (instanteUtc(fin) <= instanteUtc(ini)) {
+      return { error: 'El fin del evento debe ser posterior a su inicio' };
+    }
+    if (instanteUtc(ini) < instanteUtc(fecha_inicio) || instanteUtc(fin) > instanteUtc(fecha_fin)) {
+      return { error: 'El evento tiene que caer entre el inicio y el fin del trabajo (la salida y la vuelta a base)' };
+    }
+  }
+  return { evento: vienen ? { inicio: ini, fin } : undefined };
+}
+
 /** Lista de ids enteros de un campo del body, o undefined si no viene. */
 function idsDe(valor) {
   if (valor === undefined || valor === null || valor === '') return undefined;
@@ -649,7 +674,7 @@ async function listTrabajos(req, res, next) {
 
     const [rows] = await query(
       `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion,
-              t.fecha_inicio, t.fecha_fin, t.created_at, t.coordinador_user_id,
+              t.fecha_inicio, t.fecha_fin, t.evento_inicio, t.evento_fin, t.created_at, t.coordinador_user_id,
               u.nombre AS creado_por_nombre, u.apellidos AS creado_por_apellidos,
               ${NOMBRES_COORDINADORES} AS coordinadores_nombres,
               (SELECT COUNT(*) FROM trabajo_coordinadores cc WHERE cc.trabajo_id = t.id) AS num_coordinadores,
@@ -925,6 +950,8 @@ async function createTrabajo(req, res, next) {
     // El horario por días (v39), opcional: lo heredan las ambulancias sin uno propio
     const { horario, error: errHor } = jornadas.leerHorario(req.body.horario, { fecha_inicio, fecha_fin });
     if (errHor) return error(res, errHor, 400);
+    const { evento, error: errEvento } = leerEvento(req.body, { fecha_inicio, fecha_fin });
+    if (errEvento) return error(res, errEvento, 400);
 
     // El equipo del trabajo: la gente asignada, vaya o no en una ambulancia
     const equipo = [...new Set(idsDe(req.body.usuarios) || [])];
@@ -952,11 +979,12 @@ async function createTrabajo(req, res, next) {
     const { trabajoId, asignacionIds } = await transaction(async (conn) => {
       const [result] = await conn.execute(
         `INSERT INTO trabajos (identificador, nombre, descripcion, ubicacion, ubicacion_url, tipo,
-                               fecha_inicio, fecha_fin, coordinador_user_id, created_by, estado)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               fecha_inicio, fecha_fin, evento_inicio, evento_fin,
+                               coordinador_user_id, created_by, estado)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [identificador, nombre, textoOpcional(req.body.descripcion) ?? null,
          textoOpcional(req.body.ubicacion) ?? null, textoOpcional(req.body.ubicacion_url) ?? null,
-         tipo, fecha_inicio, fecha_fin,
+         tipo, fecha_inicio, fecha_fin, evento?.inicio ?? null, evento?.fin ?? null,
          coordIds[0] ?? null, req.user.id,
          previsto ? TRABAJO_ESTADOS.PREVISTO : TRABAJO_ESTADOS.PROGRAMADO]
       );
@@ -1022,6 +1050,7 @@ async function createTrabajo(req, res, next) {
       details:  { identificador: t?.identificador, nombre, tipo,
                   coordinadores: coordIds, ambulancias: ambulancias.length,
                   ...(previsto && { previsto: true }),
+                  ...(evento?.inicio && { evento: { inicio: evento.inicio, fin: evento.fin } }),
                   equipo: equipo.length,
                   ...(horario?.length && { horario: jornadas.resumenHorario(horario) }) },
       ip: req.ip,
@@ -1040,7 +1069,7 @@ async function updateTrabajo(req, res, next) {
   try {
     const id = parseInt(req.params.id);
     const [existing] = await query(
-      `SELECT id, estado, fecha_inicio, fecha_fin, coordinador_user_id,
+      `SELECT id, estado, fecha_inicio, fecha_fin, evento_inicio, evento_fin, coordinador_user_id,
               (SELECT COUNT(*) FROM asignaciones_libres a
                 WHERE a.trabajo_id = trabajos.id AND a.deleted_at IS NULL) AS num_asignaciones
        FROM trabajos WHERE id = ? AND deleted_at IS NULL`, [id]
@@ -1086,6 +1115,13 @@ async function updateTrabajo(req, res, next) {
     if (instanteUtc(fin) <= instanteUtc(inicio)) {
       return error(res, 'fecha_fin debe ser posterior a fecha_inicio', 400);
     }
+    const { evento, error: errEvento } = leerEvento(req.body,
+      { fecha_inicio: inicio, fecha_fin: fin }, actual);
+    if (errEvento) return error(res, errEvento, 400);
+    const minutoONulo = (f) => (f ? Math.floor(instanteUtc(f).getTime() / 60000) : null);
+    const cambiaEvento = evento !== undefined
+      && (minutoONulo(evento.inicio) !== minutoONulo(actual.evento_inicio)
+       || minutoONulo(evento.fin)    !== minutoONulo(actual.evento_fin));
 
     const { vehiculos, error: errVeh } = leerVehiculos(req.body.vehiculos);
     if (errVeh) return error(res, errVeh, 400);
@@ -1218,6 +1254,10 @@ async function updateTrabajo(req, res, next) {
       if (tipo         !== undefined) { updates.push('tipo = ?');         vals.push(tipo); }
       if (fecha_inicio !== undefined) { updates.push('fecha_inicio = ?'); vals.push(fecha_inicio); }
       if (fecha_fin    !== undefined) { updates.push('fecha_fin = ?');    vals.push(fecha_fin); }
+      if (evento       !== undefined) {
+        updates.push('evento_inicio = ?', 'evento_fin = ?');
+        vals.push(evento.inicio, evento.fin);
+      }
 
       if (updates.length) {
         await conn.execute(`UPDATE trabajos SET ${updates.join(', ')} WHERE id = ?`, [...vals, id]);
@@ -1346,6 +1386,9 @@ async function updateTrabajo(req, res, next) {
       details:  { nombre: t.nombre, estado: t.estado,
                   ...(coordGuardados && { coordinadores_antes: coordAntes, coordinadores: coordGuardados }),
                   ...(cambiaFin && { fecha_fin: { antes: actual.fecha_fin, despues: t.fecha_fin } }),
+                  ...(cambiaEvento && { evento: {
+                    antes:   { inicio: actual.evento_inicio, fin: actual.evento_fin },
+                    despues: { inicio: t.evento_inicio, fin: t.evento_fin } } }),
                   ...(movidas.length && { ambulancias_alargadas: movidas.map(m => m.id) }),
                   ...(noMovidas.length && { ambulancias_no_alargadas: noMovidas.map(m => m.id) }),
                   ...(cambiaHorario && { horario_antes: horarioAntes, horario: horarioNuevo }) },
@@ -1972,7 +2015,7 @@ async function misTrab(req, res, next) {
 
     const [rows] = await query(
       `SELECT t.id, t.identificador, t.nombre, t.tipo, t.estado, t.ubicacion, t.ubicacion_url,
-              t.fecha_inicio, t.fecha_fin, t.coordinador_user_id,
+              t.fecha_inicio, t.fecha_fin, t.evento_inicio, t.evento_fin, t.coordinador_user_id,
               ${ES_COORDINADOR} AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te
                        WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo,

@@ -1357,6 +1357,41 @@ describe('asignaciones.controller', () => {
       expect(upd[1][1]).toBeNull();
     });
 
+    // v42: con evento en el trabajo, la hora prevista es su fin, no la vuelta
+    // a base (el partido acaba a las 12:00 y la ambulancia vuelve a las 13:00)
+    describe('con evento en el trabajo', () => {
+      function bdConEvento(eventoFin) {
+        query.mockImplementation(async (sql) => {
+          if (sql.startsWith('SELECT al.*')) {
+            return [[{ id: 1, vehicle_id: 1, user_id: 2, trabajo_id: 40, estado: 'activa',
+              inicio_real_at: new Date(), llegada_servicio_at: new Date(), fin_servicio_at: null,
+              matricula: 'ABC1234', fecha_fin: new Date(Date.now() + 3600000),
+              trabajo_fecha_fin: new Date(Date.now() + 3600000), trabajo_evento_fin: eventoFin }]];
+          }
+          if (sql.includes('SELECT au.user_id')) return [[{ user_id: 2, rol: 'responsable', orden: 0 }]];
+          if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
+          return [[]];
+        });
+      }
+
+      it('pasado el fin del evento no pide motivo, aunque la vuelta a base sea después', async () => {
+        bdConEvento(new Date(Date.now() - 60000));
+        const res = mockRes();
+        await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+        const upd = query.mock.calls.find(([sql]) => /SET fin_servicio_at/.test(sql));
+        expect(upd[1][1]).toBeNull();
+      });
+
+      it('antes del fin del evento sí lo pide', async () => {
+        bdConEvento(new Date(Date.now() + 60000));
+        const res = mockRes();
+        await registrarFinServicio(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.errors).toEqual([expect.objectContaining({ field: 'motivo_fin' })]);
+      });
+    });
+
     it('403 para el personal', async () => {
       mockAsignacionCompleta({ inicio_real_at: new Date(), llegada_servicio_at: new Date(), miembros: [
         { user_id: 2, rol: 'responsable', orden: 0 }, { user_id: 5, rol: 'personal', orden: 0 },
@@ -1499,6 +1534,26 @@ describe('asignaciones.controller', () => {
       }), res, mockNext());
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res._json.message).toMatch(/motivo/);
+    });
+
+    it('con evento en el trabajo ya acabado no pide motivo, aunque la vuelta a base sea después', async () => {
+      query.mockImplementation(async (sql) => {
+        if (sql.startsWith('SELECT al.*')) {
+          return [[{ id: 1, vehicle_id: 1, user_id: 2, trabajo_id: 40, estado: 'activa',
+            inicio_real_at: new Date(), matricula: 'ABC1234', km_inicio: 50000,
+            fecha_fin: new Date(Date.now() + 3600000), trabajo_evento_fin: new Date(Date.now() - 60000) }]];
+        }
+        if (sql.includes('SELECT au.user_id')) return [[{ user_id: 2, rol: 'responsable', orden: 0 }]];
+        if (sql.includes('FROM vehicle_images WHERE asignacion_id')) return [progresoCompletoRows()];
+        if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
+        return [[]];
+      });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { km_fin: 50100, material_usado: 'Sin gasto de material' }, user: TEC,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(updCierre()[1][1]).toBeNull();
     });
 
     it('antes de fecha_fin y sin «Fin evento/servicio»: guarda el motivo', async () => {

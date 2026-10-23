@@ -4,6 +4,7 @@ import {
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
   asociadosDeTrabajo, asociadosDeFormulario, coordinadoresDe, esCoordinadorDe,
   accionesVehiculo, vehiculosConAcciones, ambulanciasDeFila, esPrevisto, faltaParaProgramado,
+  pideEvento, textoEvento, finEventoPrevisto,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -29,7 +30,7 @@ describe('utils/trabajos', () => {
     it('el alta arranca sin ambulancias ni equipo: las dos cosas son opcionales (2026-10-10)', () => {
       expect(formularioInicial(null)).toEqual({
         nombre: '', descripcion: '', ubicacion: '', ubicacion_url: '', tipo: 'traslado',
-        fecha_inicio: '', fecha_fin: '', coordinadores: [''],
+        fecha_inicio: '', fecha_fin: '', evento_desde: '', evento_hasta: '', coordinadores: [''],
         usuarios: [], horario: [], asignaciones: [], previsto: false,
       });
     });
@@ -354,6 +355,62 @@ describe('utils/trabajos', () => {
         horario: [{ dia: '2026-10-21', tramos: [{ desde: '', hasta: '13:00' }] }] };
       expect(validarTrabajo(tresDias({ asignaciones: [malPropio] }), { alta: true }).asignaciones)
         .toContain('Horario propio');
+    });
+  });
+
+  // v42: el trabajo va de la salida de base a la vuelta; el evento, dentro
+  describe('horas del evento', () => {
+    const partido = (extra = {}) => formValido({
+      fecha_inicio: '2026-10-15T10:00', fecha_fin: '2026-10-15T13:00',
+      evento_desde: '11:00', evento_hasta: '12:00', ...extra,
+    });
+
+    it('al editar, carga las horas del evento en hora española', () => {
+      const f = formularioInicial({
+        evento_inicio: '2026-10-15T09:00:00.000Z', evento_fin: '2026-10-15T10:00:00.000Z',
+      });
+      expect([f.evento_desde, f.evento_hasta]).toEqual(['11:00', '12:00']);
+    });
+
+    it('las manda en UTC con el día del trabajo, y sin ellas manda null para borrarlas', () => {
+      expect(payloadTrabajo(partido())).toMatchObject({
+        evento_inicio: '2026-10-15T09:00', evento_fin: '2026-10-15T10:00' });
+      expect(payloadTrabajo(partido({ evento_desde: '', evento_hasta: '' })))
+        .toMatchObject({ evento_inicio: null, evento_fin: null });
+    });
+
+    it('en un trabajo de varios días no se piden y se borran', () => {
+      const varios = partido({ fecha_fin: '2026-10-17T13:00' });
+      expect(pideEvento(varios)).toBe(false);
+      expect(payloadTrabajo(varios)).toMatchObject({ evento_inicio: null, evento_fin: null });
+      expect(validarTrabajo(varios).evento).toBeUndefined();
+    });
+
+    it.each([
+      ['solo una hora', { evento_hasta: '' }, /o ninguna/],
+      ['el fin antes del inicio', { evento_desde: '12:00', evento_hasta: '11:00' }, /posterior/],
+      ['antes de la salida de base', { evento_desde: '09:00' }, /entre el inicio y el fin/],
+      ['después de la vuelta', { evento_hasta: '14:00' }, /entre el inicio y el fin/],
+    ])('valida: %s', (_caso, extra, mensaje) => {
+      expect(validarTrabajo(partido(extra)).evento).toMatch(mensaje);
+    });
+
+    it('bien puestas, no da error', () => {
+      expect(validarTrabajo(partido()).evento).toBeUndefined();
+    });
+
+    it('textoEvento: «11:00 – 12:00», o null sin evento', () => {
+      expect(textoEvento({ evento_inicio: '2026-10-15T09:00:00.000Z', evento_fin: '2026-10-15T10:00:00.000Z' }))
+        .toBe('11:00 – 12:00');
+      expect(textoEvento({})).toBeNull();
+    });
+
+    it('finEventoPrevisto: el fin del evento del trabajo y, sin él, el de la ambulancia', () => {
+      const asig = { fecha_fin: '2026-10-15T11:00:00.000Z' };
+      expect(finEventoPrevisto(asig)).toBe('2026-10-15T11:00:00.000Z');
+      expect(finEventoPrevisto({ ...asig, trabajo: { evento_fin: '2026-10-15T10:00:00.000Z' } }))
+        .toBe('2026-10-15T10:00:00.000Z');
+      expect(finEventoPrevisto({ ...asig, trabajo: { evento_fin: null } })).toBe('2026-10-15T11:00:00.000Z');
     });
   });
 });

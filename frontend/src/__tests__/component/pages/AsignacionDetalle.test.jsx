@@ -419,6 +419,31 @@ describe('AsignacionDetalle — fin del evento/servicio', () => {
     expect(screen.queryByPlaceholderText(/terminas antes de lo previsto/)).not.toBeInTheDocument();
   });
 
+  // v42: con evento en el trabajo, la hora prevista es su fin y no la
+  // vuelta a base de la ambulancia
+  it('con evento en el trabajo ya acabado no pide motivo, aunque la vuelta a base sea después', async () => {
+    const futuro = new Date(Date.now() + 3600000).toISOString();
+    const pasado = new Date(Date.now() - 60000).toISOString();
+    asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, fecha_fin: futuro, trabajo_id: 40,
+      trabajo: { id: 40, nombre: 'Partido', evento_inicio: pasado, evento_fin: pasado } });
+    montar();
+
+    expect(await screen.findByRole('button', { name: 'Fin evento/servicio' })).toBeEnabled();
+    expect(screen.queryByPlaceholderText(/terminas antes de lo previsto/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('evento-trabajo')).toHaveTextContent('Evento');
+  });
+
+  it('con evento en el trabajo aún sin acabar pide motivo con su hora', async () => {
+    const enUnaHora = new Date(Date.now() + 3600000).toISOString();
+    asignacionesService.get.mockResolvedValue({ ...TRAS_LLEGADA, fecha_fin: new Date(Date.now() + 7200000).toISOString(),
+      trabajo_id: 40, trabajo: { id: 40, nombre: 'Partido', evento_inicio: enUnaHora, evento_fin: enUnaHora } });
+    montar();
+
+    expect(await screen.findByPlaceholderText(/terminas antes de lo previsto/)).toBeInTheDocument();
+    expect(screen.getByText(`Estaba previsto hasta el ${formatDateTime(enUnaHora)}. Terminas antes de esa hora.`))
+      .toBeInTheDocument();
+  });
+
   it('una finalizada sin fin del evento/servicio registrado sale con guion', async () => {
     asignacionesService.get.mockResolvedValue({ ...BASE, fin_servicio_at: null });
     montar();

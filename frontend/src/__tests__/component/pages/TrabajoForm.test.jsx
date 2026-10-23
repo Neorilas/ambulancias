@@ -219,3 +219,43 @@ describe('TrabajoForm · alargar el trabajo', () => {
     expect(trabajosService.update.mock.calls[0][1]).not.toHaveProperty('mover_fin_ambulancias');
   });
 });
+
+// v42: el trabajo va de la salida de base a la vuelta; el evento, dentro
+describe('TrabajoForm · horas del evento', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const PARTIDO = {
+    id: 9, nombre: 'Partido', fecha_inicio: '2026-10-15T08:00:00Z', fecha_fin: '2026-10-15T11:00:00Z',
+    evento_inicio: '2026-10-15T09:00:00Z', evento_fin: '2026-10-15T10:00:00Z',
+    usuarios: [], coordinador_user_id: 50, coordinadores: [{ id: 50, nombre: 'Carla', apellidos: 'Ruiz' }],
+  };
+
+  it('al editar carga las horas del evento y las manda cambiadas', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    const user = userEvent.setup();
+    montar(PARTIDO);
+
+    expect(screen.getByText('Inicio: salida de base')).toBeInTheDocument();
+    expect(screen.getByLabelText('Inicio del evento')).toHaveValue('11:00');
+    fireEvent.change(screen.getByLabelText('Fin del evento'), { target: { value: '12:30' } });
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(trabajosService.update).toHaveBeenCalledWith(9, expect.objectContaining({
+      evento_inicio: '2026-10-15T09:00', evento_fin: '2026-10-15T10:30' }));
+  });
+
+  it('fuera de la salida y la vuelta no deja guardar', async () => {
+    const { trabajosService } = await import('../../../services/trabajos.service.js');
+    const user = userEvent.setup();
+    montar(PARTIDO);
+
+    fireEvent.change(screen.getByLabelText('Fin del evento'), { target: { value: '14:00' } });
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(screen.getByText('El evento tiene que caer entre el inicio y el fin del trabajo')).toBeInTheDocument();
+    expect(trabajosService.update).not.toHaveBeenCalled();
+  });
+
+  it('en un trabajo de varios días no se piden', () => {
+    montar({ ...PARTIDO, fecha_fin: '2026-10-17T11:00:00Z', evento_inicio: null, evento_fin: null });
+    expect(screen.queryByTestId('evento-trabajo')).not.toBeInTheDocument();
+  });
+});

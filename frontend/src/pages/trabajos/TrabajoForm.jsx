@@ -8,7 +8,7 @@ import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import {
   formularioInicial, ambulanciaVacia, validarTrabajo, payloadTrabajo, asociadosDeFormulario,
-  ambulanciasQueAcabanConElTrabajo,
+  ambulanciasQueAcabanConElTrabajo, pideEvento,
 } from '../../utils/trabajos.js';
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
 import { inicioYaPasado, AVISO_INICIO_PASADO, toInputDatetime } from '../../utils/dateUtils.js';
@@ -54,7 +54,8 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
 
   const set = (field) => (e) => {
     setForm(f => ({ ...f, [field]: e.target.value }));
-    setErrors(er => ({ ...er, [field]: '' }));
+    // Las dos horas del evento comparten un solo error (`evento`)
+    setErrors(er => ({ ...er, [field.startsWith('evento_') ? 'evento' : field]: '' }));
   };
 
   const setPrevisto = (e) => {
@@ -270,21 +271,47 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
           )}
         </div>
 
-        {/* Fechas */}
+        {/* Fechas: el trabajo va de la salida de base a la vuelta (v42) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Fecha inicio <span className="text-bad-500">*</span></label>
+            <label className="label">Inicio: salida de base <span className="text-bad-500">*</span></label>
             <input type="datetime-local" className={`input ${errors.fecha_inicio ? 'input-error' : ''}`}
               value={form.fecha_inicio} onChange={set('fecha_inicio')} />
             {errors.fecha_inicio && <p className="field-error">{errors.fecha_inicio}</p>}
           </div>
           <div>
-            <label className="label">Fecha fin <span className="text-bad-500">*</span></label>
+            <label className="label">Fin: vuelta a base <span className="text-bad-500">*</span></label>
             <input type="datetime-local" className={`input ${errors.fecha_fin ? 'input-error' : ''}`}
               value={form.fecha_fin} onChange={set('fecha_fin')} />
             {errors.fecha_fin && <p className="field-error">{errors.fecha_fin}</p>}
           </div>
         </div>
+        {/* Horas del evento (v42), dentro del trabajo y opcionales. En uno de
+            varios días no se piden: el horario por días hace de evento */}
+        {pideEvento(form) && (
+          <div data-testid="evento-trabajo">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label" htmlFor="evento-desde">Inicio del evento</label>
+                <input id="evento-desde" type="time" className={`input ${errors.evento ? 'input-error' : ''}`}
+                  value={form.evento_desde} onChange={set('evento_desde')} />
+              </div>
+              <div>
+                <label className="label" htmlFor="evento-hasta">Fin del evento</label>
+                <input id="evento-hasta" type="time" className={`input ${errors.evento ? 'input-error' : ''}`}
+                  value={form.evento_hasta} onChange={set('evento_hasta')} />
+              </div>
+            </div>
+            {errors.evento ? (
+              <p className="field-error">{errors.evento}</p>
+            ) : (
+              <p className="text-xs text-neutral-500 mt-1">
+                Opcional. Lo contratado (el partido, la carrera…), dentro de la salida y la vuelta a base.
+                El técnico solo tendrá que explicar por qué termina antes si acaba antes de este fin.
+              </p>
+            )}
+          </div>
+        )}
         {ofrecerMoverFin && (
           <label className="flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 cursor-pointer"
             data-testid="mover-fin-ambulancias">

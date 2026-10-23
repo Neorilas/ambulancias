@@ -187,6 +187,17 @@ const paramsRevisarFinEvento = (userId) =>
   [userId, userId, userId, FIN_EVENTO_EN_BASE_MINUTOS, FIN_EVENTO_EXIGIDO_DESDE, FIN_EVENTO_EN_BASE_MINUTOS];
 
 /**
+ * Hasta cuándo estaba previsto el evento: su fin si el trabajo lo tiene
+ * (v42) y, si no, el de la ambulancia. Con evento, el fin de la ambulancia
+ * es la vuelta a base, y comparar con él pedía motivo en todo servicio que
+ * acababa a su hora (el partido termina a las 12:00 y la ambulancia vuelve a
+ * las 13:00). Espejo en el frontend: `finEventoPrevisto` de utils/trabajos.js.
+ */
+function finEventoPrevisto(asig) {
+  return instanteUtc(asig.trabajo?.evento_fin || asig.fecha_fin);
+}
+
+/**
  * Saca las columnas `trabajo_*` de la fila a un objeto `trabajo` (o null si la
  * asignación es del modelo antiguo). Lo que ve todo el que va en la ambulancia
  * (decisión 1 del plan del trabajo padre): título, descripción, ubicación,
@@ -197,7 +208,8 @@ const paramsRevisarFinEvento = (userId) =>
 function trabajoAparte(fila) {
   const {
     trabajo_identificador, trabajo_nombre, trabajo_descripcion, trabajo_ubicacion, trabajo_ubicacion_url,
-    trabajo_estado, trabajo_fecha_inicio, trabajo_fecha_fin, trabajo_coordinador_id,
+    trabajo_estado, trabajo_fecha_inicio, trabajo_fecha_fin, trabajo_evento_inicio, trabajo_evento_fin,
+    trabajo_coordinador_id,
     trabajo_coordinador_nombre, trabajo_coordinador_apellidos, ...asig
   } = fila;
   asig.trabajo = asig.trabajo_id ? {
@@ -210,6 +222,8 @@ function trabajoAparte(fila) {
     estado:        trabajo_estado,
     fecha_inicio:  trabajo_fecha_inicio,
     fecha_fin:     trabajo_fecha_fin,
+    evento_inicio: trabajo_evento_inicio ?? null,
+    evento_fin:    trabajo_evento_fin ?? null,
     coordinador:   trabajo_coordinador_id
       ? { id: trabajo_coordinador_id, nombre: trabajo_coordinador_nombre, apellidos: trabajo_coordinador_apellidos }
       : null,
@@ -231,6 +245,7 @@ async function getAsignacionCompleta(id) {
             t.ubicacion_url AS trabajo_ubicacion_url,
             t.estado AS trabajo_estado,
             t.fecha_inicio AS trabajo_fecha_inicio, t.fecha_fin AS trabajo_fecha_fin,
+            t.evento_inicio AS trabajo_evento_inicio, t.evento_fin AS trabajo_evento_fin,
             t.coordinador_user_id AS trabajo_coordinador_id,
             co.nombre AS trabajo_coordinador_nombre, co.apellidos AS trabajo_coordinador_apellidos
      FROM asignaciones_libres al
@@ -1458,13 +1473,14 @@ async function registrarFinServicio(req, res, next) {
       return error(res, 'Primero hay que pulsar «Inicio evento/servicio»', 400);
     }
 
-    // Terminar en el sitio antes de la hora prevista (fecha_fin) exige
-    // explicarlo. Se pide aquí y no al «Finalizar asignación» (decisión del
-    // usuario, 2026-10-04): lo que acaba antes de tiempo es el evento; la
-    // vuelta a base y las fotos de fin no dicen nada del porqué. Se guarda en
-    // la misma columna motivo_fin que usaba el cierre, para no migrar.
+    // Terminar en el sitio antes de la hora prevista exige explicarlo. Se
+    // pide aquí y no al «Finalizar asignación» (decisión del usuario,
+    // 2026-10-04): lo que acaba antes de tiempo es el evento; la vuelta a
+    // base y las fotos de fin no dicen nada del porqué. La hora prevista es
+    // el fin del EVENTO si el trabajo lo tiene (v42), no la vuelta a base.
+    // Se guarda en la misma columna motivo_fin que usaba el cierre, para no migrar.
     const instante = ahora();
-    const esAnticipado = instante < new Date(asig.fecha_fin);
+    const esAnticipado = instante < finEventoPrevisto(asig);
     const motivo = typeof req.body?.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
     if (esAnticipado && !motivo) {
       // errors[].field: el móvil decide con SU reloj si enseña el campo; si
@@ -1741,11 +1757,12 @@ async function finalizarAsignacion(req, res, next) {
     const { km_fin, material_usado } = req.body;
 
     // El motivo de fin anticipado se pide al pulsar «Fin evento/servicio»
-    // (registrarFinServicio). Aquí, como red, si se cierra antes de fecha_fin
-    // y no hay motivo guardado: botón olvidado, fin del evento pulsado tras
-    // fecha_fin y fecha_fin ampliada luego, o asignaciones de antes de esto.
-    // Se mira el motivo y no fin_servicio_at justo por esos dos últimos casos.
-    const esAnticipada = ahora() < new Date(asig.fecha_fin);
+    // (registrarFinServicio). Aquí, como red, si se cierra antes del fin
+    // previsto del evento (`finEventoPrevisto`) y no hay motivo guardado:
+    // botón olvidado, fin del evento pulsado a su hora y hora ampliada luego,
+    // o asignaciones de antes de esto. Se mira el motivo y no
+    // fin_servicio_at justo por esos dos últimos casos.
+    const esAnticipada = ahora() < finEventoPrevisto(asig);
     const pideMotivo = esAnticipada && !asig.motivo_fin;
     const motivo = typeof req.body.motivo_fin === 'string' ? req.body.motivo_fin.trim() : '';
     if (pideMotivo && !motivo) {

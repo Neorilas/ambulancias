@@ -6,7 +6,7 @@ import { EstadoBadge } from '../components/common/StatusBadge.jsx';
 import { PageLoading } from '../components/common/LoadingSpinner.jsx';
 import CalendarioPersonal from '../components/calendar/CalendarioPersonal.jsx';
 import { formatDateTime, formatDateTimeShort, diaEnEspana } from '../utils/dateUtils.js';
-import { textoEstadoAmbulancia, estaCerrado } from '../utils/trabajos.js';
+import { textoEstadoAmbulancia, estaCerrado, textoEvento } from '../utils/trabajos.js';
 import { diaInicial } from '../utils/calendario.js';
 import { getItem, setItem } from '../utils/sessionStorage.js';
 
@@ -52,6 +52,10 @@ function TarjetaTrabajo({ t, onVer }) {
           <p className="text-xs text-neutral-500 data">
             {formatDateTime(t.fecha_inicio)} → {formatDateTimeShort(t.fecha_fin)}
           </p>
+          {/* El trabajo va de la salida de base a la vuelta; el evento, dentro (v42) */}
+          {textoEvento(t) && (
+            <p className="text-xs text-neutral-700" data-testid="evento-trabajo">Evento {textoEvento(t)}</p>
+          )}
           {t.ubicacion && <p className="text-xs text-neutral-600 mt-0.5">{t.ubicacion}</p>}
         </div>
         <EstadoBadge estado={t.estado} />
