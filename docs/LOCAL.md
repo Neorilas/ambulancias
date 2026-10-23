@@ -14,11 +14,17 @@ cambio en local  ──>  /verifica  ──>  /a-pro  ──>  producción
 |---|---|
 | `/local` | levanta el entorno (BD, backend, frontend, datos de prueba) |
 | `/verifica` | tests de los dos lados, migraciones desde cero si toca el esquema, revisión del diff y prueba funcional con el agente `probador-local` |
-| `/a-pro` | commit en `develop`, **confirmación explícita**, merge a `master`, y comprobación de que el deploy ha llegado de verdad |
+| `/a-pro` | commit en `develop`, comprobación de commits ajenos, merge a `master` en un worktree temporal, y comprobación de que el deploy ha llegado de verdad |
 
-Nada sale a producción sin pasar `/verifica`. El paso a `master` se confirma
-siempre a mano, porque el Environment `produccion` no tiene aprobación
-configurada y el push despliega en el acto.
+Nada sale a producción sin pasar `/verifica`. Pedir `/a-pro` ya es la
+autorización para subir; el comando solo se para a preguntar si `/verifica` no
+dio verde o si entre `master` y `develop` hay commits que no son de la tarea,
+porque el Environment `produccion` no tiene aprobación configurada y el push
+despliega en el acto.
+
+Los tres comandos son comunes a todos los proyectos (`~/.claude/skills/`) y
+siguen los pasos propios de este repo, que están en `.claude/runbooks/` (fuera
+de git, como todo `.claude/`).
 
 No sustituye a PRE: aquí no se prueban ni el hosting, ni el service worker
 servido por Apache, ni Caddy, ni los secretos reales. Sí se prueban el código,
