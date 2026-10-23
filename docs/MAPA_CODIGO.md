@@ -2972,6 +2972,20 @@ Node se aplica relanzando el deploy, aunque el código no cambie.
 Cuando Node 22 caduque (30-abr-2027), subir a la siguiente LTS aquí y en
 `node-version` de los dos workflows. Los tests de fechas dan por hecho
 `TZ=Europe/Madrid` (lo pone la CI); fuera de ella, uno falla sin ella.
+**La imagen no lleva compilador (desde 2026-10-23): pasó de 1,23 GB a ~0,3–0,4.**
+Instalaba `vips-dev`, `build-base` y `python3` «para sharp» (534 MB) y nadie
+los usaba: `sharp` ≥0.33 trae libvips ya compilada en `@img/sharp-*`
+(`linuxmusl-arm64` en Hetzner, que es ARM), y el proceso carga esa, no la del
+sistema. Si una versión futura de `sharp` no trae binario para la plataforma,
+no hay compilador que lo salve: por eso el Dockerfile hace
+`RUN node -e "require('sharp')"` y el **build** falla en rojo en vez de la
+subida de fotos en PRO. Otras dos trampas del Dockerfile:
+`chown -R /app` copiaba `node_modules` entero a otra capa (+94 MB); ahora solo
+`uploads/` y `logs/` son de `appuser`, y el código queda de root. Y el usuario
+va con **uid 100 / gid 101 fijos**: los volúmenes `uploads_data`/`logs_data`
+de PRO son de 100:101 y la carpeta de backups del host es del grupo 101; si
+el uid cambia, la app deja de poder guardar fotos. Para probar en ARM desde un
+PC: `docker build --platform linux/arm64 backend` (emulado, lento).
 **`dependencias-obsoletas.mjs` existe porque `npm audit` no ve las prerelease:**
 multer 1.4.5-lts.2 pasó meses con avisos públicos y daba 0. El script lee el
 lockfile y pregunta al registro si npm marca obsoleta cada dependencia de
