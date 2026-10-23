@@ -1814,14 +1814,14 @@ midiendo cierres tardíos/anticipados contra `fecha_fin` (es la vuelta a base,
 (`finAnticipado`) muestra un textarea y el botón no se habilita sin texto;
 `registrarFinServicio` lo vuelve a comprobar con el reloj del servidor (400 sin
 motivo, sin tocar la fila), lo guarda en **la misma columna `motivo_fin`** de
-siempre (sin migración; pasada `fecha_fin` guarda NULL aunque llegue uno) y lo
+siempre (sin migración; pasada esa hora guarda NULL aunque llegue uno) y lo
 audita en `end_service_asignacion` (`anticipado`, `motivo_fin`).
 **Red si se olvida el botón (mismo día):** el fin del evento es opcional y
 exige la llegada, así que `finalizarAsignacion` vuelve a pedir el motivo
-**solo** si es antes de `fecha_fin` y **no hay `motivo_fin` guardado**
+**solo** si es antes de `finEventoPrevisto` y **no hay `motivo_fin` guardado**
 (`pideMotivo`; 400 sin él), y `FinalizacionAsignacion` añade el paso «motivo»
 con la misma condición, calculada una vez al abrir (si se recalculara, al pasar
-`fecha_fin` con el asistente abierto cambiaría el número de pasos bajo `step`).
+esa hora con el asistente abierto cambiaría el número de pasos bajo `step`).
 Se mira el motivo y **no** `fin_servicio_at` a propósito: un fin del evento
 pulsado tras `fecha_fin` (sin motivo) seguido de una `fecha_fin` ampliada por
 gestión, o una asignación en curso de antes del cambio, cerrarían antes de hora
