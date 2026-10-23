@@ -3,8 +3,8 @@ npm-debug.log*
 .env
 .env.local
 logs/
-uploads/vehicles/*
-uploads/trabajos/*
+uploads/
+coverage/
 *.log
 .git/
 .gitignore

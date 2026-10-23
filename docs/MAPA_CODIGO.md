@@ -30,7 +30,7 @@ frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2�
 | `database/` | `schema.sql` (base), `seed.sql` (roles), `migration_v2..v16.sql` (referencia) |
 | `docs/` | Documentación (§10) |
 | `.github/workflows/` | CI/CD (§9) |
-| `.claude/` | Comandos `/local`, `/verifica`, `/a-pro`; agentes `probador-local` (prueba en local) y `diagnostico-pro` (investiga un fallo en PRO por SSH, solo lectura: no arregla ni escribe, y si el SSH se deniega devuelve los comandos para que los lance el usuario). **Nada de `.claude/` se versiona**: los agentes desde el 2026-10-04 y los comandos desde el 2026-10-20 (`.gitignore`). Solo existen en la máquina del usuario, no hacen falta en producción y el repo es público. Un clon nuevo no los trae; `/verifica` cuenta con `probador-local`. **Modelo fijado en el frontmatter (2026-10-20), para gastar menos:** `/local` con Haiku (guion mecánico); `/a-pro` y `probador-local` con Sonnet (`/a-pro` no baja a Haiku: tiene que juzgar si hay commits ajenos y si un deploy «en rojo» llegó igualmente); `/verifica` y `diagnostico-pro` siguen con el de la sesión |
+| `.claude/` | Runbooks de `/local`, `/verifica`, `/a-pro` en `.claude/runbooks/` (desde 2026-10-23: los comandos son comunes a todos los proyectos y viven en `~/.claude/skills/`; cada uno sigue el runbook del proyecto si existe, así que aquí se comportan como antes). **Trampa:** el commit b7ed405 los sacó de git con `git rm` sin `--cached` y los **borró del disco**; del 20 al 23-oct no existieron, y se restauraron desde `git show b7ed405^:.claude/commands/<nombre>.md`. Agentes `probador-local` (prueba en local) y `diagnostico-pro` (investiga un fallo en PRO por SSH, solo lectura: no arregla ni escribe, y si el SSH se deniega devuelve los comandos para que los lance el usuario). **Nada de `.claude/` se versiona**: los agentes desde el 2026-10-04 y los comandos desde el 2026-10-20 (`.gitignore`). Solo existen en la máquina del usuario, no hacen falta en producción y el repo es público. Un clon nuevo no los trae; `/verifica` cuenta con `probador-local`. **Modelo fijado en el frontmatter (2026-10-20), para gastar menos:** `/local` con Haiku (guion mecánico); `/a-pro` y `probador-local` con Sonnet (`/a-pro` no baja a Haiku: tiene que juzgar si hay commits ajenos y si un deploy «en rojo» llegó igualmente); `/verifica` y `diagnostico-pro` siguen con el de la sesión |
 | `scripts/deploy.sh`, `docker-compose*.yml` | Despliegue y entorno local |
 
 Dominio: **vehículos** (ambulancias) + **asignaciones libres** (1..N
@@ -2972,6 +2972,20 @@ Node se aplica relanzando el deploy, aunque el código no cambie.
 Cuando Node 22 caduque (30-abr-2027), subir a la siguiente LTS aquí y en
 `node-version` de los dos workflows. Los tests de fechas dan por hecho
 `TZ=Europe/Madrid` (lo pone la CI); fuera de ella, uno falla sin ella.
+**La imagen no lleva compilador (desde 2026-10-23): pasó de 1,23 GB a ~0,3–0,4.**
+Instalaba `vips-dev`, `build-base` y `python3` «para sharp» (534 MB) y nadie
+los usaba: `sharp` ≥0.33 trae libvips ya compilada en `@img/sharp-*`
+(`linuxmusl-arm64` en Hetzner, que es ARM), y el proceso carga esa, no la del
+sistema. Si una versión futura de `sharp` no trae binario para la plataforma,
+no hay compilador que lo salve: por eso el Dockerfile hace
+`RUN node -e "require('sharp')"` y el **build** falla en rojo en vez de la
+subida de fotos en PRO. Otras dos trampas del Dockerfile:
+`chown -R /app` copiaba `node_modules` entero a otra capa (+94 MB); ahora solo
+`uploads/` y `logs/` son de `appuser`, y el código queda de root. Y el usuario
+va con **uid 100 / gid 101 fijos**: los volúmenes `uploads_data`/`logs_data`
+de PRO son de 100:101 y la carpeta de backups del host es del grupo 101; si
+el uid cambia, la app deja de poder guardar fotos. Para probar en ARM desde un
+PC: `docker build --platform linux/arm64 backend` (emulado, lento).
 **`dependencias-obsoletas.mjs` existe porque `npm audit` no ve las prerelease:**
 multer 1.4.5-lts.2 pasó meses con avisos públicos y daba 0. El script lee el
 lockfile y pregunta al registro si npm marca obsoleta cada dependencia de
