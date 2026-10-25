@@ -307,3 +307,52 @@ describe('TrabajoList: previstos', () => {
     expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ estado: undefined }));
   });
 });
+
+// «Sin cerrar» (2026-10-25): abiertos pasada su vuelta a base prevista. El
+// backend lo decide (`sin_cerrar_desde`); la lista los pinta en rojo y filtra.
+describe('TrabajoList: sin cerrar', () => {
+  const fila = (id, estado, sin_cerrar_desde = null, ambulancias_abiertas = 0) => ({
+    id, nombre: `Trabajo ${id}`, estado, tipo: 'traslado', identificador: `T-${id}`,
+    fecha_inicio: '2026-10-20T08:00:00Z', fecha_fin: '2026-10-20T10:00:00Z',
+    sin_cerrar_desde, ambulancias_abiertas,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    trabajosService.list.mockResolvedValue({
+      data: [
+        fila(1, 'activo', '2026-10-20T10:00:00Z', 2),
+        fila(2, 'pendiente_cierre', '2026-10-20T10:00:00Z', 0),
+        fila(3, 'activo'),
+      ],
+      pagination: { total: 3, totalPages: 1 },
+    });
+  });
+
+  it('marca en rojo los sin cerrar, con qué los tiene abiertos; los demás no', async () => {
+    montar('/trabajos');
+    const conAmbulancias = (await screen.findByText('Trabajo 1')).closest('.card');
+    const soloCierre = screen.getByText('Trabajo 2').closest('.card');
+    const enCurso = screen.getByText('Trabajo 3').closest('.card');
+    expect(conAmbulancias.className).toContain('bg-bad-50');
+    expect(conAmbulancias).toHaveAttribute('data-sin-cerrar', 'true');
+    expect(conAmbulancias).toHaveTextContent('Sin cerrar');
+    expect(conAmbulancias).toHaveTextContent(/Debía terminar hace .+ · 2 ambulancias sin finalizar/);
+    expect(soloCierre).toHaveTextContent('falta cerrar el trabajo');
+    expect(enCurso.className).not.toContain('bg-bad-50');
+    expect(screen.getAllByTestId('trabajo-sin-cerrar')).toHaveLength(2);
+  });
+
+  it('el botón «Sin cerrar» filtra, va en la URL y se quita con otra pulsación', async () => {
+    const user = userEvent.setup();
+    montar('/trabajos?page=2');
+    await screen.findByText('Trabajo 1');
+    await user.click(screen.getByTestId('filtro-sin-cerrar'));
+    expect(screen.getByTestId('donde')).toHaveTextContent(/^\/trabajos\?sin_cerrar=1$/);
+    expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, sin_cerrar: '1' }));
+    expect(screen.getByTestId('filtro-sin-cerrar')).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByTestId('filtro-sin-cerrar'));
+    expect(trabajosService.list).toHaveBeenLastCalledWith(expect.objectContaining({ sin_cerrar: undefined }));
+  });
+});

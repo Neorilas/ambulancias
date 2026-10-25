@@ -143,6 +143,27 @@ export function textoEvento(trabajo) {
  */
 export const finEventoPrevisto = (asig) => asig?.trabajo?.evento_fin || asig?.fecha_fin;
 
+/**
+ * «Sin cerrar» (2026-10-25): el trabajo sigue abierto cuando ya debería haber
+ * terminado. Lo decide el backend (`sin_cerrar_desde` de `listTrabajos`: la
+ * última vuelta a base prevista, con margen); aquí solo el texto: cuánto hace
+ * de esa vuelta y qué lo tiene abierto (`ambulancias_abiertas`; 0 = solo falta
+ * que lo cierre el coordinador). null si no está sin cerrar.
+ */
+export function sinCerrar(fila, ahora = new Date()) {
+  if (!fila?.sin_cerrar_desde) return null;
+  const min = Math.max(0, Math.floor((ahora - new Date(fila.sin_cerrar_desde)) / 60000));
+  const dias = Math.floor(min / 1440);
+  const hace = min < 60 ? `${min} min`
+    : dias === 0 ? `${Math.floor(min / 60)} h`
+    : dias === 1 ? '1 día' : `${dias} días`;
+  const abiertas = Number(fila.ambulancias_abiertas) || 0;
+  const falta = abiertas === 0 ? 'falta cerrar el trabajo'
+    : abiertas === 1 ? '1 ambulancia sin finalizar'
+    : `${abiertas} ambulancias sin finalizar`;
+  return { hace, falta, texto: `Debía terminar hace ${hace} · ${falta}` };
+}
+
 /** Errores del formulario, por campo. Vacío = se puede guardar. */
 export function validarTrabajo(form, { alta = false } = {}) {
   const e = {};
