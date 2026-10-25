@@ -2586,7 +2586,9 @@ quedarse en solo lectura).
   los parámetros es SELECT (recuento «A revisar» + límite) → WHERE → ORDER BY
   → LIMIT. `ambulancias_abiertas` (asignaciones `programada`/`activa` +
   `trabajo_vehiculos` del v25 sin cerrar) dice qué lo tiene abierto: 0 =
-  solo falta que el coordinador lo cierre. **Lo ve todo el que ve el listado**
+  solo falta que el coordinador lo cierre, salvo en un `programado`, que con
+  0 no tiene ambulancias y no se cierra (`motivoNoSeCierra`): la línea dice
+  «sin ambulancias: alárgalo o elimínalo». **Lo ve todo el que ve el listado**
   (decisión mía, no del usuario): sale del estado y las fechas que ya ve, y
   el coordinador es quien tiene que cerrarlo; no es como «A revisar», que es
   un control sobre el personal. En `TrabajoList`: fondo rojo como el previsto

@@ -148,7 +148,8 @@ export const finEventoPrevisto = (asig) => asig?.trabajo?.evento_fin || asig?.fe
  * terminado. Lo decide el backend (`sin_cerrar_desde` de `listTrabajos`: la
  * última vuelta a base prevista, con margen); aquí solo el texto: cuánto hace
  * de esa vuelta y qué lo tiene abierto (`ambulancias_abiertas`; 0 = solo falta
- * que lo cierre el coordinador). null si no está sin cerrar.
+ * que lo cierre el coordinador, salvo en un programado, que no tiene ninguna).
+ * null si no está sin cerrar.
  */
 export function sinCerrar(fila, ahora = new Date()) {
   if (!fila?.sin_cerrar_desde) return null;
@@ -158,7 +159,11 @@ export function sinCerrar(fila, ahora = new Date()) {
     : dias === 0 ? `${Math.floor(min / 60)} h`
     : dias === 1 ? '1 día' : `${dias} días`;
   const abiertas = Number(fila.ambulancias_abiertas) || 0;
-  const falta = abiertas === 0 ? 'falta cerrar el trabajo'
+  // Un programado sin ambulancias no arrancó nunca: no se cierra
+  // (`motivoNoSeCierra`), se alarga o se elimina
+  const falta = abiertas === 0 && fila.estado === TRABAJO_ESTADOS.PROGRAMADO
+    ? 'sin ambulancias: alárgalo o elimínalo'
+    : abiertas === 0 ? 'falta cerrar el trabajo'
     : abiertas === 1 ? '1 ambulancia sin finalizar'
     : `${abiertas} ambulancias sin finalizar`;
   return { hace, falta, texto: `Debía terminar hace ${hace} · ${falta}` };

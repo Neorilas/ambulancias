@@ -438,4 +438,11 @@ describe('sinCerrar', () => {
     expect(sinCerrar(fila('2026-10-25T08:00:00Z', 1), ahora).falta).toBe('1 ambulancia sin finalizar');
     expect(sinCerrar(fila('2026-10-25T08:00:00Z', '3'), ahora).falta).toBe('3 ambulancias sin finalizar');
   });
+
+  it('un programado sin ambulancias no se cierra: se alarga o se elimina', () => {
+    expect(sinCerrar({ ...fila('2026-10-25T08:00:00Z', 0), estado: 'programado' }, ahora).falta)
+      .toBe('sin ambulancias: alárgalo o elimínalo');
+    expect(sinCerrar({ ...fila('2026-10-25T08:00:00Z', 0), estado: 'pendiente_cierre' }, ahora).falta)
+      .toBe('falta cerrar el trabajo');
+  });
 });

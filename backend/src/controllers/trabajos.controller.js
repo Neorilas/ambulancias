@@ -598,27 +598,6 @@ async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
 }
 
 /**
- * Orden del listado de trabajos (2026-10-10, petición del usuario: «ordenados
- * por fecha»). Hasta entonces era `fecha_inicio DESC` a secas: el más lejano en
- * el futuro arriba, y los de hoy enterrados bajo los de dentro de semanas.
- * Mismo criterio que `ORDEN_LISTADO` de asignaciones:
- *
- * 1. Los cerrados (finalizado/finalizado_anticipado) al final.
- * 1b. Los «Sin cerrar» (`SQL_SIN_CERRAR`, 2026-10-25) encabezan los abiertos:
- *    son los que la oficina tiene que resolver. Lleva un `?` (el límite).
- * 2. Los `activo` encabezan los abiertos: un trabajo pasa a activo en cuanto
- *    arranca una de sus ambulancias, y eso puede ser antes de su
- *    `fecha_inicio` (activarAsignacion no mira el reloj).
- * 3. El resto de abiertos (programado, pendiente_cierre) por `fecha_inicio`
- *    ASC: el más próximo arriba.
- * 4. Entre los cerrados, el que se cerró más tarde primero. `cerrado_at` solo
- *    lo tiene el modelo nuevo; un v25 cae en su `fecha_fin`.
- *
- * Va en SQL y no en el navegador porque el listado pagina: ordenar solo la
- * página recibida daría un orden distinto en cada una. `t.id` cierra el orden
- * para que la paginación no repita ni pierda filas con la misma fecha.
- */
-/**
  * «Sin cerrar» (2026-10-25, petición del usuario): un trabajo abierto
  * (programado, activo o pendiente de cierre) cuando ya ha pasado
  * TRABAJO_SIN_CERRAR_MINUTOS de su última vuelta a base prevista. Esa vuelta
@@ -639,6 +618,27 @@ const SQL_SIN_CERRAR = `(t.estado IN ('programado','activo','pendiente_cierre')
 const limiteSinCerrar = (instante = ahora()) =>
   new Date(instante.getTime() - TRABAJO_SIN_CERRAR_MINUTOS * 60 * 1000);
 
+/**
+ * Orden del listado de trabajos (2026-10-10, petición del usuario: «ordenados
+ * por fecha»). Hasta entonces era `fecha_inicio DESC` a secas: el más lejano en
+ * el futuro arriba, y los de hoy enterrados bajo los de dentro de semanas.
+ * Mismo criterio que `ORDEN_LISTADO` de asignaciones:
+ *
+ * 1. Los cerrados (finalizado/finalizado_anticipado) al final.
+ * 1b. Los «Sin cerrar» (`SQL_SIN_CERRAR`, 2026-10-25) encabezan los abiertos:
+ *    son los que la oficina tiene que resolver. Lleva un `?` (el límite).
+ * 2. Los `activo` encabezan los abiertos: un trabajo pasa a activo en cuanto
+ *    arranca una de sus ambulancias, y eso puede ser antes de su
+ *    `fecha_inicio` (activarAsignacion no mira el reloj).
+ * 3. El resto de abiertos (programado, pendiente_cierre) por `fecha_inicio`
+ *    ASC: el más próximo arriba.
+ * 4. Entre los cerrados, el que se cerró más tarde primero. `cerrado_at` solo
+ *    lo tiene el modelo nuevo; un v25 cae en su `fecha_fin`.
+ *
+ * Va en SQL y no en el navegador porque el listado pagina: ordenar solo la
+ * página recibida daría un orden distinto en cada una. `t.id` cierra el orden
+ * para que la paginación no repita ni pierda filas con la misma fecha.
+ */
 const ORDEN_LISTADO_TRABAJOS = `
   CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN 1 ELSE 0 END ASC,
   CASE WHEN ${SQL_SIN_CERRAR} THEN 0 ELSE 1 END ASC,
