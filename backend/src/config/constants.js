@@ -98,6 +98,13 @@ module.exports = {
   // administración (2026-09-27). Cambiarlo no reescribe los meses ya
   // archivados en `informe_mensual`: esos guardan su `umbral_min`.
   INICIO_TARDIO_MINUTOS: 30,
+  // Trabajo «Sin cerrar» (2026-10-25, petición del usuario: que la oficina vea
+  // en el listado los trabajos que siguen abiertos cuando ya deberían haber
+  // terminado). Abierto = programado, activo o pendiente de cierre; «ya
+  // deberían» = pasados estos minutos de la última vuelta a base prevista (la
+  // del trabajo o la de su ambulancia que acabe más tarde). Mismo margen que
+  // los cierres tardíos de Informes. Lo calcula `listTrabajos`.
+  TRABAJO_SIN_CERRAR_MINUTOS: 30,
   // Mantenimiento por kilómetros (2026-10-12, petición del usuario): toca cada
   // 15.000 km contados desde el último realizado, no desde los múltiplos de
   // 15.000 (si el taller manda volver en 5.000, el siguiente cuenta desde ahí).

@@ -552,7 +552,10 @@ describe('trabajos.controller', () => {
         expect(sql).toMatch(/WHERE al\.trabajo_id = t\.id[\s\S]*AS asignaciones_a_revisar/);
         // Excluye a quien va en la ambulancia o coordina su trabajo
         expect(sql).toContain('FROM trabajo_coordinadores rc');
-        expect(params.slice(0, 7)).toEqual([...REVISAR, 'finalizado']);
+        // Tras el recuento, el límite de «sin cerrar» del SELECT
+        expect(params.slice(0, 6)).toEqual(REVISAR);
+        expect(params[6]).toBeInstanceOf(Date);
+        expect(params[7]).toBe('finalizado');
         // Sin el filtro, el COUNT no lleva el recuento
         expect(sqlCount).not.toMatch(/asignaciones_libres al\s/);
         expect(paramsCount).toEqual(['finalizado']);
@@ -566,7 +569,8 @@ describe('trabajos.controller', () => {
         const [, params] = query.mock.calls[1];
         expect(sqlCount).toMatch(/IS NOT NULL\)\s*> 0/);
         expect(paramsCount).toEqual(REVISAR);
-        expect(params.slice(0, 12)).toEqual([...REVISAR, ...REVISAR]);
+        expect(params.slice(0, 6)).toEqual(REVISAR);
+        expect(params.slice(7, 13)).toEqual(REVISAR);
       });
 
       it('a quien no es de la oficina no le llega ni le filtra, aunque tenga MANAGE_TRABAJOS', async () => {
@@ -584,6 +588,49 @@ describe('trabajos.controller', () => {
       });
     });
 
+    // «Sin cerrar» (2026-10-25): abierto pasada la última vuelta a base
+    // prevista más el margen. Lo ve todo el que ve el listado.
+    describe('trabajos «Sin cerrar»', () => {
+      beforeEach(() => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+        jest.setSystemTime(new Date('2026-10-25T12:00:00Z'));
+      });
+      afterEach(() => jest.useRealTimers());
+
+      it('marca los abiertos pasada la vuelta a base (la del trabajo o la ambulancia que acabe después) + 30 min', async () => {
+        bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+        await listTrabajos(mockReq({ query: { estado: 'activo' }, user: admin }), mockRes(), mockNext());
+        const [sql, params] = query.mock.calls[1];
+        const plano = sql.replace(/\s+/g, ' ');
+        expect(plano).toContain("t.estado IN ('programado','activo','pendiente_cierre')");
+        expect(plano).toContain('GREATEST(t.fecha_fin, COALESCE( (SELECT MAX(af.fecha_fin) FROM asignaciones_libres af');
+        expect(plano).toContain("af.estado <> 'cancelada'");
+        expect(plano).toMatch(/END AS sin_cerrar_desde/);
+        expect(plano).toMatch(/AS ambulancias_abiertas/);
+        // Un ? en el SELECT (antes del WHERE) y otro en el ORDER BY (después)
+        const limite = new Date('2026-10-25T11:30:00Z');
+        const revisar = 6;
+        expect(params[revisar]).toEqual(limite);
+        expect(params[revisar + 1]).toBe('activo');
+        expect(params.slice(-3)).toEqual([limite, 20, 0]);
+      });
+
+      it.each([['gestión', admin], ['un técnico', resp1]])(
+        '?sin_cerrar=1 deja solo esos (%s)', async (_n, user) => {
+          bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+          await listTrabajos(mockReq({ query: { sin_cerrar: '1' }, user }), mockRes(), mockNext());
+          const [sqlCount, paramsCount] = query.mock.calls[0];
+          expect(sqlCount).toMatch(/AND \(t\.estado IN \('programado','activo','pendiente_cierre'\)/);
+          expect(paramsCount[paramsCount.length - 1]).toEqual(new Date('2026-10-25T11:30:00Z'));
+        });
+
+      it('sin el filtro, el COUNT no lo mira', async () => {
+        bd([['COUNT(*) AS total', [[{ total: 0 }]]]]);
+        await listTrabajos(mockReq({ query: {}, user: admin }), mockRes(), mockNext());
+        expect(query.mock.calls[0][0]).not.toContain('pendiente_cierre');
+      });
+    });
+
     // Antes era `fecha_inicio DESC` suelto: el más lejano arriba y los de hoy
     // enterrados. Solo se puede mirar el SQL, pero eso basta para que no vuelva.
     it('ordena por fecha: abiertos del más próximo al más lejano, cerrados al final', async () => {
@@ -592,7 +639,8 @@ describe('trabajos.controller', () => {
       const sql = query.mock.calls[1][0].replace(/\s+/g, ' ');
       expect(sql).toContain(
         "ORDER BY CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN 1 ELSE 0 END ASC");
-      // Lo que está en curso encabeza los abiertos
+      // Los «Sin cerrar» encabezan los abiertos, y luego lo que está en curso
+      expect(sql).toMatch(/END ASC, CASE WHEN \(t\.estado IN \('programado','activo','pendiente_cierre'\)/);
       expect(sql).toContain("CASE WHEN t.estado = 'activo' THEN 0 ELSE 1 END ASC");
       expect(sql).toContain(
         "CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN NULL ELSE t.fecha_inicio END ASC");

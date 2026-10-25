@@ -25,7 +25,7 @@ const { query, transaction }          = require('../config/database');
 const { success, created, error, notFound, forbidden, paginated } =
   require('../utils/response.utils');
 const { PAGINATION, TRABAJO_ESTADOS, TRABAJO_ID_PREFIX, PERMISSIONS,
-        IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
+        IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN, TRABAJO_SIN_CERRAR_MINUTOS } =
   require('../config/constants');
 const { hasPermission }               = require('../middleware/roles.middleware');
 const { logAudit }                    = require('./admin.controller');
@@ -598,12 +598,35 @@ async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
 }
 
 /**
+ * «Sin cerrar» (2026-10-25, petición del usuario): un trabajo abierto
+ * (programado, activo o pendiente de cierre) cuando ya ha pasado
+ * TRABAJO_SIN_CERRAR_MINUTOS de su última vuelta a base prevista. Esa vuelta
+ * es la del trabajo o, si una ambulancia acaba más tarde (se puede, con
+ * aviso), la de esa ambulancia: si no, se marcaría un trabajo que sigue en
+ * curso según lo previsto. Un previsto no entra: ya sale en rojo y no se
+ * cierra, se elimina.
+ *
+ * El `?` es el instante límite (ahora menos el margen), calculado en Node:
+ * nunca NOW() en SQL (contrato de fechas, §8 del mapa).
+ */
+const SQL_FIN_PREVISTO_TRABAJO = `GREATEST(t.fecha_fin, COALESCE(
+  (SELECT MAX(af.fecha_fin) FROM asignaciones_libres af
+    WHERE af.trabajo_id = t.id AND af.deleted_at IS NULL AND af.estado <> 'cancelada'),
+  t.fecha_fin))`;
+const SQL_SIN_CERRAR = `(t.estado IN ('programado','activo','pendiente_cierre')
+  AND ${SQL_FIN_PREVISTO_TRABAJO} < ?)`;
+const limiteSinCerrar = (instante = ahora()) =>
+  new Date(instante.getTime() - TRABAJO_SIN_CERRAR_MINUTOS * 60 * 1000);
+
+/**
  * Orden del listado de trabajos (2026-10-10, petición del usuario: «ordenados
  * por fecha»). Hasta entonces era `fecha_inicio DESC` a secas: el más lejano en
  * el futuro arriba, y los de hoy enterrados bajo los de dentro de semanas.
  * Mismo criterio que `ORDEN_LISTADO` de asignaciones:
  *
  * 1. Los cerrados (finalizado/finalizado_anticipado) al final.
+ * 1b. Los «Sin cerrar» (`SQL_SIN_CERRAR`, 2026-10-25) encabezan los abiertos:
+ *    son los que la oficina tiene que resolver. Lleva un `?` (el límite).
  * 2. Los `activo` encabezan los abiertos: un trabajo pasa a activo en cuanto
  *    arranca una de sus ambulancias, y eso puede ser antes de su
  *    `fecha_inicio` (activarAsignacion no mira el reloj).
@@ -618,6 +641,7 @@ async function cargarVehiculoDelTrabajo(trabajoId, vehicleId, user) {
  */
 const ORDEN_LISTADO_TRABAJOS = `
   CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN 1 ELSE 0 END ASC,
+  CASE WHEN ${SQL_SIN_CERRAR} THEN 0 ELSE 1 END ASC,
   CASE WHEN t.estado = 'activo' THEN 0 ELSE 1 END ASC,
   CASE WHEN t.estado IN ('finalizado','finalizado_anticipado') THEN NULL ELSE t.fecha_inicio END ASC,
   COALESCE(t.cerrado_at, t.fecha_fin) DESC,
@@ -667,6 +691,15 @@ async function listTrabajos(req, res, next) {
       params.push(...paramsRevisar);
     }
 
+    // «Sin cerrar» (SQL_SIN_CERRAR): lo ve todo el que ve el listado, porque
+    // sale del estado y las fechas que ya ve; quien lo coordina es justo
+    // quien tiene que cerrarlo. `?sin_cerrar=1` deja solo esos.
+    const limite = limiteSinCerrar();
+    if (req.query.sin_cerrar === '1') {
+      where += ` AND ${SQL_SIN_CERRAR}`;
+      params.push(limite);
+    }
+
     const [countRows] = await query(
       `SELECT COUNT(*) AS total FROM trabajos t ${where}`, params
     );
@@ -702,15 +735,24 @@ async function listTrabajos(req, res, next) {
                   WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada'
                     AND NOT EXISTS (SELECT 1 FROM trabajo_usuarios tu2
                                      WHERE tu2.trabajo_id = t.id AND tu2.user_id = au.user_id)) AS num_usuarios,
-              ${revision ? A_REVISAR : 'NULL'} AS asignaciones_a_revisar
+              ${revision ? A_REVISAR : 'NULL'} AS asignaciones_a_revisar,
+              -- «Sin cerrar»: desde cuándo debería estar terminado, o NULL
+              CASE WHEN ${SQL_SIN_CERRAR} THEN ${SQL_FIN_PREVISTO_TRABAJO} END AS sin_cerrar_desde,
+              -- Lo que lo tiene abierto: ambulancias sin finalizar (0 = solo
+              -- falta que el coordinador lo cierre)
+              (SELECT COUNT(*) FROM asignaciones_libres a
+                WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado IN ('programada','activa'))
+              + (SELECT COUNT(*) FROM trabajo_vehiculos tv
+                  WHERE tv.trabajo_id = t.id AND tv.estado IN ('programado','activo')) AS ambulancias_abiertas
        FROM trabajos t
        JOIN users u ON t.created_by = u.id
        LEFT JOIN users co ON co.id = t.coordinador_user_id
        ${where}
        ORDER BY ${ORDEN_LISTADO_TRABAJOS}
        LIMIT ? OFFSET ?`,
-      // Los ? del SELECT (el recuento) van antes que los del WHERE
-      [...paramsRevisar, ...params, limit, offset]
+      // Los ? del SELECT (el recuento y «sin cerrar») van antes que los del
+      // WHERE, y el del ORDER BY después
+      [...paramsRevisar, limite, ...params, limite, limit, offset]
     );
 
     return paginated(res, { data: rows, total, page, limit });

@@ -9,7 +9,7 @@ import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import CalendarioTrab from '../../components/calendar/CalendarioTrab.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
 import { esDiaValido } from '../../utils/calendario.js';
-import { ambulanciasDeFila } from '../../utils/trabajos.js';
+import { ambulanciasDeFila, sinCerrar } from '../../utils/trabajos.js';
 import { useEstadoEnUrl, useBuscadorEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import TrabajoForm from './TrabajoForm.jsx';
 
@@ -27,6 +27,7 @@ export default function TrabajoList() {
   // Dashboard, que antes se ignoraba
   const [url, cambiarUrl] = useEstadoEnUrl({
     vista: 'lista', mes: '', dia: '', page: '1', search: '', estado: '', tipo: '', revisar: '',
+    sin_cerrar: '',
   });
   // `?revisar=fin_evento`: solo los trabajos con «Tiempos que no cuadran»
   // por el fin del evento (backend, `asignaciones_a_revisar`). Es para la
@@ -36,6 +37,9 @@ export default function TrabajoList() {
   // Los previstos (v41) se filtran con el mismo `estado` del desplegable; el
   // botón es un atajo para lo que hay que ir completando
   const soloPrevistos = url.estado === 'previsto';
+  // `?sin_cerrar=1`: solo los que siguen abiertos pasada su vuelta a base
+  // prevista (backend, `sin_cerrar_desde`), los que hay que resolver
+  const soloSinCerrar = url.sin_cerrar === '1';
   const page    = paginaDeUrl(url.page);
   const filters = { search: url.search, estado: url.estado, tipo: url.tipo };
   // El buscador escribe en local y llega a la URL ya reposado (hook)
@@ -58,12 +62,13 @@ export default function TrabajoList() {
         estado: filters.estado || undefined,
         tipo:   filters.tipo   || undefined,
         revisar: revisarFinEvento ? 'fin_evento' : undefined,
+        sin_cerrar: soloSinCerrar ? '1' : undefined,
       });
       setTrabajos(resp.data || []);
       setPagination(resp.pagination);
     } catch { notify.error('Error al cargar trabajos'); }
     finally { setLoading(false); }
-  }, [page, url.search, url.estado, url.tipo, revisarFinEvento]);
+  }, [page, url.search, url.estado, url.tipo, revisarFinEvento, soloSinCerrar]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -161,6 +166,20 @@ export default function TrabajoList() {
             </select>
             <button
               type="button"
+              onClick={() => setFilter('sin_cerrar', soloSinCerrar ? '' : '1')}
+              aria-pressed={soloSinCerrar}
+              title="Trabajos que siguen abiertos cuando ya deberían haber terminado: ambulancias sin finalizar o el trabajo sin cerrar"
+              data-testid="filtro-sin-cerrar"
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
+                ${soloSinCerrar
+                  ? 'bg-bad-600 text-white border-bad-600'
+                  : 'bg-white text-neutral-600 border-neutral-300 hover:border-bad-500'
+                }`}
+            >
+              Sin cerrar
+            </button>
+            <button
+              type="button"
               onClick={() => setFilter('estado', soloPrevistos ? '' : 'previsto')}
               aria-pressed={soloPrevistos}
               title="Trabajos previstos: aún sin ambulancia o sin coordinador"
@@ -197,14 +216,19 @@ export default function TrabajoList() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {trabajos.map(t => (
+                  {trabajos.map(t => {
+                    const vencido = sinCerrar(t);
+                    return (
                     <div
                       key={t.id}
-                      // Previsto (v41): fondo rojo, para que salte a la
-                      // vista lo que aún hay que completar (pedido del usuario)
+                      // Previsto (v41) y «Sin cerrar» (2026-10-25): fondo
+                      // rojo, para que salte a la vista lo que hay que
+                      // completar o resolver (pedido del usuario)
                       data-previsto={t.estado === 'previsto' || undefined}
+                      data-sin-cerrar={vencido ? true : undefined}
                       className={`card hover:shadow-md transition-shadow cursor-pointer border-l-4 ${
                         t.estado === 'previsto'   ? 'bg-bad-50 border-bad-200 border-l-bad-500' :
+                        vencido                   ? 'bg-bad-50 border-bad-200 border-l-bad-600' :
                         t.estado === 'activo'     ? 'border-l-green-500' :
                         t.estado === 'programado' ? 'border-l-yellow-400' :
                         t.estado === 'pendiente_cierre' ? 'border-l-yellow-400' :
@@ -225,6 +249,12 @@ export default function TrabajoList() {
                             <span className="font-semibold text-neutral-900">{t.nombre}</span>
                             <EstadoBadge estado={t.estado} />
                             <TipoBadge tipo={t.tipo} />
+                            {vencido && (
+                              <span className="badge-red whitespace-nowrap" data-testid="trabajo-sin-cerrar"
+                                    title="Sigue abierto y ya debería haber terminado. Entra para finalizar sus ambulancias y cerrarlo, o para alargarlo si el servicio sigue">
+                                Sin cerrar
+                              </span>
+                            )}
                             {/* Ambulancias con el fin del evento a revisar
                                 (backend; null a quien no le toca verlo). El
                                 texto lo eligió el usuario (2026-10-11); el
@@ -246,6 +276,13 @@ export default function TrabajoList() {
                             <span className="whitespace-nowrap">{formatDateTime(t.fecha_inicio)} →</span>{' '}
                             <span className="whitespace-nowrap">{formatDateTime(t.fecha_fin)}</span>
                           </p>
+                          {/* Cuánto hace y qué lo tiene abierto: lo que
+                              la oficina necesita para actuar sin entrar */}
+                          {vencido && (
+                            <p className="text-[13px] font-medium text-bad-600 mt-0.5" data-testid="texto-sin-cerrar">
+                              {vencido.texto}
+                            </p>
+                          )}
                           <p className="text-xs text-neutral-500 mt-0.5 data">{t.identificador}</p>
                           {/* Bajo el ID, solo quién coordina y qué
                               ambulancias van, en negro (2026-10-17: lo
@@ -267,7 +304,8 @@ export default function TrabajoList() {
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 

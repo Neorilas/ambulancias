@@ -4,7 +4,7 @@ import {
   misAmbulancias, siguientePaso, textoEstadoAmbulancia, nombresDe, nombresResponsables,
   asociadosDeTrabajo, asociadosDeFormulario, coordinadoresDe, esCoordinadorDe,
   accionesVehiculo, vehiculosConAcciones, ambulanciasDeFila, esPrevisto, faltaParaProgramado,
-  pideEvento, textoEvento, finEventoPrevisto,
+  pideEvento, textoEvento, finEventoPrevisto, sinCerrar,
 } from '../../../utils/trabajos.js';
 
 // Un alta completa: el trabajo, su coordinador y una ambulancia
@@ -412,5 +412,37 @@ describe('utils/trabajos', () => {
         .toBe('2026-10-15T10:00:00.000Z');
       expect(finEventoPrevisto({ ...asig, trabajo: { evento_fin: null } })).toBe('2026-10-15T11:00:00.000Z');
     });
+  });
+});
+
+// «Sin cerrar» (2026-10-25): el backend decide si lo está; aquí, el texto
+describe('sinCerrar', () => {
+  const ahora = new Date('2026-10-25T12:00:00Z');
+  const fila = (desde, ambulancias_abiertas) => ({ sin_cerrar_desde: desde, ambulancias_abiertas });
+
+  it('null si el backend no lo marca', () => {
+    expect(sinCerrar({ sin_cerrar_desde: null }, ahora)).toBeNull();
+    expect(sinCerrar(null, ahora)).toBeNull();
+  });
+
+  it('cuánto hace de la vuelta a base: minutos, horas o días', () => {
+    expect(sinCerrar(fila('2026-10-25T11:15:00Z', 1), ahora).hace).toBe('45 min');
+    expect(sinCerrar(fila('2026-10-25T08:59:00Z', 1), ahora).hace).toBe('3 h');
+    expect(sinCerrar(fila('2026-10-24T10:00:00Z', 1), ahora).hace).toBe('1 día');
+    expect(sinCerrar(fila('2026-10-20T10:00:00Z', 1), ahora).hace).toBe('5 días');
+  });
+
+  it('qué lo tiene abierto: ambulancias sin finalizar o solo el cierre', () => {
+    expect(sinCerrar(fila('2026-10-25T08:00:00Z', 0), ahora).texto)
+      .toBe('Debía terminar hace 4 h · falta cerrar el trabajo');
+    expect(sinCerrar(fila('2026-10-25T08:00:00Z', 1), ahora).falta).toBe('1 ambulancia sin finalizar');
+    expect(sinCerrar(fila('2026-10-25T08:00:00Z', '3'), ahora).falta).toBe('3 ambulancias sin finalizar');
+  });
+
+  it('un programado sin ambulancias no se cierra: se alarga o se elimina', () => {
+    expect(sinCerrar({ ...fila('2026-10-25T08:00:00Z', 0), estado: 'programado' }, ahora).falta)
+      .toBe('sin ambulancias: alárgalo o elimínalo');
+    expect(sinCerrar({ ...fila('2026-10-25T08:00:00Z', 0), estado: 'pendiente_cierre' }, ahora).falta)
+      .toBe('falta cerrar el trabajo');
   });
 });
