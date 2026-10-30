@@ -599,6 +599,48 @@ async function buscarVehiculoOcupado(vehicleId, fechaInicio, fechaFin, excluirId
   return rows || [];
 }
 
+/**
+ * Lo que impide pulsar «Inicio de la asignación» con esta ambulancia: otra
+ * asignación viva con el mismo vehículo que ya está iniciada y sin cerrar (la
+ * ambulancia está en la calle) o que lo tiene a la misma hora (doble reserva:
+ * una de las dos sobra o lleva la ambulancia equivocada). Al planificar es
+ * solo aviso (`buscarVehiculoOcupado`); al iniciar, bloqueo: es el último
+ * momento en que alguien puede darse cuenta antes de salir de base. Caso real
+ * (2026-10-30): una ambulancia estaba a la misma hora en dos trabajos
+ * duplicados y se inició la que no tocaba.
+ *
+ * «En marcha» cuenta solo hasta su fin previsto: una que se quedó sin cerrar
+ * (eso ya lo marca «Sin cerrar») no puede dejar la ambulancia bloqueada al día
+ * siguiente, y cerrarla exige sus fotos de fin, que quizá nadie puede hacer.
+ */
+async function ambulanciaEnOtroServicio(asig) {
+  const [rows] = await query(
+    `SELECT al.id, al.inicio_real_at,
+            t.identificador AS trabajo_identificador, t.nombre AS trabajo_nombre
+     FROM asignaciones_libres al
+     LEFT JOIN trabajos t ON t.id = al.trabajo_id
+     WHERE al.vehicle_id = ? AND al.id <> ?
+       AND al.deleted_at IS NULL
+       AND al.estado IN ('programada','activa')
+       AND ((al.inicio_real_at IS NOT NULL AND al.finalizado_at IS NULL AND al.fecha_fin > ?)
+            OR (al.fecha_inicio < ? AND al.fecha_fin > ?))
+     ORDER BY al.inicio_real_at IS NULL, al.fecha_inicio
+     LIMIT 1`,
+    [asig.vehicle_id, asig.id, ahora(), asig.fecha_fin, asig.fecha_inicio]
+  );
+  return (rows || [])[0] || null;
+}
+
+function textoAmbulanciaEnOtroServicio(asig, otra) {
+  const ambulancia = asig.vehiculo_alias || asig.matricula;
+  const donde = otra.trabajo_identificador
+    ? `el trabajo ${otra.trabajo_identificador} «${otra.trabajo_nombre}»`
+    : `la asignación #${otra.id}`;
+  const como = otra.inicio_real_at ? 'ya está en marcha' : 'también está asignada a la misma hora';
+  return `No se puede iniciar: la ${ambulancia} ${como} en ${donde}. ` +
+    'Comprueba que es la ambulancia que te toca y avisa a la oficina para que lo corrija.';
+}
+
 // ============================================================
 // GET /asignaciones
 // ============================================================
@@ -1336,6 +1378,9 @@ async function activarAsignacion(req, res, next) {
           400
         );
       }
+      // Ni con una ambulancia que está en otro servicio (también para gestión).
+      const otra = await ambulanciaEnOtroServicio(asig);
+      if (otra) return error(res, textoAmbulanciaEnOtroServicio(asig, otra), 400);
     }
 
     // Se mira ANTES de tocar la fila: el endpoint es idempotente y pulsar dos

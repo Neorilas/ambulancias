@@ -1690,6 +1690,32 @@ no exige la ventana — el asistente no deja llegar a las fotos sin pasar por el
 botón, pero la API a pelo sí. Los trabajos (feature oculta) conservan su
 propia regla de 24 h en `activarTrabajo`.
 
+**«Inicio de la asignación» tampoco con una ambulancia que está en otro
+servicio, para nadie (2026-10-30).** `ambulanciaEnOtroServicio` +
+`textoAmbulanciaEnOtroServicio` en `activarAsignacion`: 400 si otra asignación
+viva (`programada`/`activa`, sin borrar) con el mismo `vehicle_id` **la tiene a
+la misma hora** (doble reserva) o **ya está iniciada, sin cerrar y dentro de su
+horario previsto**. El texto dice dónde está (trabajo o asignación) y manda
+avisar a la oficina. Al planificar sigue siendo solo aviso
+(`buscarVehiculoOcupado`, «Ambulancia ya ocupada» más abajo); el usuario eligió
+bloquear solo al iniciar, que es el último momento antes de salir de base.
+Origen (PRO, 2026-10-30): dos trabajos eran **el mismo servicio creado dos
+veces** (el segundo, ocho minutos después de editar el primero, con el nombre
+escrito distinto, mismo equipo y coordinador; los avisos de solape no pararon
+a nadie). Una ambulancia estaba a la misma hora en los dos, iba al día
+siguiente, y se inició. Se arregló a mano por SQL, con filas en `audit_logs`
+que llevan `motivo`. Trampas:
+- **La doble reserva bloquea a los dos lados**: el primero que pulse no puede
+  iniciar hasta que gestión borre o mueva la que sobra. Es a propósito.
+- **«En marcha» solo cuenta hasta el `fecha_fin` previsto de la otra.** Sin ese
+  corte, un servicio olvidado sin cerrar bloqueaba la ambulancia al día
+  siguiente, y cerrarlo exige sus fotos de fin, que quizá nadie puede hacer ya.
+  Lo olvidado lo marca «Sin cerrar» (§6.2).
+- Como la media hora, solo se mira mientras `inicio_real_at` es NULL: repetir
+  la pulsación sigue siendo idempotente.
+- No mira `trabajo_vehiculos` (v25, 0 filas en PRO), a diferencia de
+  `buscarVehiculoOcupado`.
+
 **Vocabulario: asignación frente a evento/servicio (decisión del usuario,
 2026-10-03).** Son dos parejas distintas y los textos tienen que dejarlo claro:
 - **Inicio / Fin de la asignación**: lo primero y lo último del día, en base y
@@ -2967,7 +2993,7 @@ solo actúa en el navegador no es un control de acceso.
 | A quién avisa el «nuevo servicio» | `asignaciones.controller` (`createAsignacion`: todo el equipo; `updateAsignacion`: solo los que entran) **y** `trabajos.controller.createTrabajo` (las ambulancias del alta) → `avisarAsignacionNueva` (reparto por papel y exclusión de quien asigna) |
 | A quién avisa que lo han puesto en un trabajo | `trabajos.controller`: `createTrabajo` (coordinadores → `avisarCoordinadorTrabajo`; equipo del trabajo que no va en ninguna ambulancia del alta y no es coordinador → `avisarEquipoTrabajo`) y `updateTrabajo` (coordinadores solo los que **entran**; equipo solo quien **entra**, sin los coordinadores nuevos). Los tres avisos al empleado (servicio, equipo, coordinador) los reparte el controlador para que nadie reciba dos por lo mismo: si se añade un camino nuevo que meta gente, repetir ese reparto. Que le llegue de verdad depende de que haya pulsado «Activar avisos» en ese teléfono (columna de dispositivos en `UserList`) y, en iPhone, del `topic` (§2.5) |
 | Cuándo se puede cambiar el vehículo de una asignación | `updateAsignacion`: candado previo **y** el `WHERE` del `UPDATE` (carrera → 409) → `motivoVehiculoBloqueado` en `AsignacionForm` → `avisarCambioVehiculo`. Las tres a la vez, o el formulario y el backend dicen cosas distintas (§6.1) |
-| Qué cuenta como «ambulancia ocupada» | `buscarVehiculoOcupado` en `asignaciones.controller` (asignaciones abiertas + `trabajo_vehiculos` sin cerrar) → `textoVehiculoOcupado` en `miembrosAsignacion.js`. Un estado nuevo de asignación o de vehículo de trabajo hay que añadirlo al `IN (...)` |
+| Qué cuenta como «ambulancia ocupada» | `buscarVehiculoOcupado` en `asignaciones.controller` (asignaciones abiertas + `trabajo_vehiculos` sin cerrar) → `textoVehiculoOcupado` en `miembrosAsignacion.js`. Un estado nuevo de asignación o de vehículo de trabajo hay que añadirlo al `IN (...)`. **Al iniciar es otra consulta y bloquea:** `ambulanciaEnOtroServicio` en `activarAsignacion` (§6.1); un cambio de criterio va en las dos |
 | Cuándo suena un aviso | `asignaciones.controller` (`activarAsignacion`, `uploadEvidencia`, `finalizarAsignacion`), el cron de `server.js` y `vigilancia.service.js`. Cada punto compara el estado **antes y después**: sin eso se avisa dos veces del mismo suceso. Los que salen del cron necesitan además una marca en BD, porque el «antes» se lo encuentran igual cada minuto |
 | Que un aviso suene más fuerte | **No es código.** Lo decide el sistema operativo: en Android el canal de notificaciones de la PWA instalada, en iPhone los ajustes de la app y el «Resumen programado». Lo único que sí está en el código es la ENTREGA (`urgency`/`TTL` en `push.service.js`) y el texto de ayuda en `AvisosPush` |
 | El mapa Leaflet (`MapaLeaflet`) | **Nada de animaciones que puedan seguir vivas al desmontar**: el primer `fitBounds` va con `animate: false` y el cleanup hace `stop()` antes de `remove()`. Sin eso, salir del mapa a mitad de una animación lanzaba «reading '_leaflet_pos'» (visto el 2026-09-26, 1 de cada 5 salidas rápidas). **Al elegir de la lista, el globo se abre en `moveend`, nunca a la vez que el `setView`**: el autoPan del popup para la animación a medio camino y el vehículo quedaba en una esquina en vez de centrado (2026-09-27; medido en 800×400: esquina (726,131) antes, centro (400,200) después). Y `stop()` antes del `setView`: con dos clics seguidos, el segundo llegaba con el zoom del primero aún animando, Leaflet lo ignoraba y el elegido quedaba fuera de la vista, abajo a la izquierda |

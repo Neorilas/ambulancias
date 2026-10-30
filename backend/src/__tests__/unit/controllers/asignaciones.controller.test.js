@@ -1042,6 +1042,7 @@ describe('asignaciones.controller', () => {
   describe('activarAsignacion', () => {
     it('activates programada asignacion', async () => {
       mockAsignacionCompleta({ estado: 'programada' });
+      query.mockResolvedValueOnce([[]]); // ambulanciaEnOtroServicio: libre
       query.mockResolvedValueOnce([]); // UPDATE
       mockAsignacionCompleta({ estado: 'activa' });
 
@@ -1053,6 +1054,7 @@ describe('asignaciones.controller', () => {
 
     it('es idempotente: sella la hora aunque ya esté activa (200)', async () => {
       mockAsignacionCompleta({ estado: 'activa' });
+      query.mockResolvedValueOnce([[]]); // ambulanciaEnOtroServicio: libre
       query.mockResolvedValueOnce([]); // UPDATE
       mockAsignacionCompleta({ estado: 'activa' });
       const res = mockRes();
@@ -1097,6 +1099,7 @@ describe('asignaciones.controller', () => {
 
       it('200 dentro de la media hora previa', async () => {
         mockAsignacionCompleta({ estado: 'programada', fecha_inicio: enMinutos(29) });
+        query.mockResolvedValueOnce([[]]); // ambulanciaEnOtroServicio: libre
         query.mockResolvedValueOnce([]); // UPDATE
         mockAsignacionCompleta({ estado: 'activa' });
         const res = mockRes();
@@ -1119,6 +1122,55 @@ describe('asignaciones.controller', () => {
         const res = mockRes();
         await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
         expect(res.status).toHaveBeenCalledWith(200);
+      });
+    });
+
+    describe('no con una ambulancia que está en otro servicio', () => {
+      const TECNICO = { id: 2, roles: ['tecnico'], permissions: [] };
+      const huboUpdate = () => query.mock.calls.some(([sql]) => /UPDATE asignaciones_libres/.test(sql));
+      const consultaOtro = () => query.mock.calls.find(([sql]) => /al\.vehicle_id = \? AND al\.id <> \?/.test(sql));
+
+      it('400 si la ambulancia está a la misma hora en otro trabajo, y no toca la fila', async () => {
+        mockAsignacionCompleta({ estado: 'activa', vehicle_id: 16, vehiculo_alias: 'AMB-5' });
+        query.mockResolvedValueOnce([[{
+          id: 201, inicio_real_at: null,
+          trabajo_identificador: 'TRB-2026-0007', trabajo_nombre: 'PARTIDO',
+        }]]);
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toMatch(/AMB-5 también está asignada a la misma hora en el trabajo TRB-2026-0007/);
+        expect(huboUpdate()).toBe(false);
+        expect(avisos.avisarAsignacionActivada).not.toHaveBeenCalled();
+        // Misma ambulancia, otra fila, viva, y solape o en marcha sin cerrar
+        const [sql, params] = consultaOtro();
+        expect(sql).toContain("al.estado IN ('programada','activa')");
+        expect(sql).toContain('al.deleted_at IS NULL');
+        // «En marcha» solo hasta su fin previsto: una olvidada sin cerrar no bloquea
+        expect(sql).toContain('al.inicio_real_at IS NOT NULL AND al.finalizado_at IS NULL AND al.fecha_fin > ?');
+        expect(params.slice(0, 2)).toEqual([16, 1]);
+        expect(params[2]).toBeInstanceOf(Date);
+      });
+
+      it('400 si la ambulancia ya está en marcha en otra asignación, también para gestión', async () => {
+        mockAsignacionCompleta({ estado: 'programada', vehiculo_alias: 'AMB-3' });
+        query.mockResolvedValueOnce([[{ id: 77, inicio_real_at: new Date(), trabajo_identificador: null }]]);
+        const res = mockRes();
+        const admin = { id: 1, roles: ['administrador'], permissions: ['manage_trabajos'] };
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: admin }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res._json.message).toMatch(/AMB-3 ya está en marcha en la asignación #77/);
+        expect(huboUpdate()).toBe(false);
+      });
+
+      it('con la hora real ya sellada no se mira (repetir la pulsación sigue valiendo)', async () => {
+        mockAsignacionCompleta({ estado: 'activa', inicio_real_at: new Date() });
+        query.mockResolvedValueOnce([]); // UPDATE (COALESCE)
+        mockAsignacionCompleta({ estado: 'activa' });
+        const res = mockRes();
+        await activarAsignacion(mockReq({ params: { id: '1' }, user: TECNICO }), res, mockNext());
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(consultaOtro()).toBeUndefined();
       });
     });
   });
@@ -2250,6 +2302,7 @@ describe('asignaciones.controller', () => {
 
     it('el segundo responsable sí puede activarla', async () => {
       mockAsignacionCompleta({ estado: 'programada', miembros: EQUIPO });
+      query.mockResolvedValueOnce([[]]); // ambulanciaEnOtroServicio: libre
       query.mockResolvedValueOnce([]); // UPDATE
       mockAsignacionCompleta({ estado: 'activa', miembros: EQUIPO });
       const res = mockRes();
