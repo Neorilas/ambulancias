@@ -1150,6 +1150,9 @@ describe('asignaciones.controller', () => {
         expect(sql).toContain('al.inicio_real_at IS NOT NULL AND al.finalizado_at IS NULL AND al.fecha_fin > ?');
         expect(params.slice(0, 2)).toEqual([16, 1]);
         expect(params[2]).toBeInstanceOf(Date);
+        // Solape: otra.fecha_inicio < esta.fecha_fin AND otra.fecha_fin > esta.fecha_inicio
+        expect(params[3]).toEqual(new Date(INSTANTE_MOCK + 86400000));
+        expect(params[4]).toEqual(new Date(INSTANTE_MOCK));
       });
 
       it('400 si la ambulancia ya está en marcha en otra asignación, también para gestión', async () => {

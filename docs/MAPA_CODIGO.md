@@ -1713,6 +1713,14 @@ que llevan `motivo`. Trampas:
   Lo olvidado lo marca «Sin cerrar» (§6.2).
 - Como la media hora, solo se mira mientras `inicio_real_at` es NULL: repetir
   la pulsación sigue siendo idempotente.
+- **Compara el rango entero de la asignación, no sus jornadas** (v39): una
+  ambulancia en un evento de lunes a viernes cuenta como ocupada también de
+  noche, entre jornadas. Si un día hiciera falta usarla en ese hueco, habría
+  que comparar con `asignacion_jornadas`.
+- **Relevo con la misma ambulancia** (A de 8 a 14, B de 14 a 20): B puede
+  pulsar desde las 13:30 por la media hora, pero mientras A siga en marcha y
+  antes de su fin previsto sale «ya está en marcha». Se resuelve cerrando A, o
+  solo a las 14:00.
 - No mira `trabajo_vehiculos` (v25, 0 filas en PRO), a diferencia de
   `buscarVehiculoOcupado`.
 
