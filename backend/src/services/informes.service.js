@@ -304,11 +304,13 @@ async function calcularInforme(mes, instante = ahora()) {
 
   // Trabajos del mes sin ninguna ambulancia viva (los «previstos», v41, o los
   // que se quedaron sin): no tienen Equipo, así que sus horas previstas no
-  // suman a nadie. Se listan para que se vea que falta gente por poner.
+  // suman a nadie. Se listan para que se vea que falta gente por poner. Solo
+  // los que aún se van a hacer: en uno ya cerrado no hay nada que poner.
   const [sinAmbulancia] = await query(
     `SELECT t.id, t.identificador, t.nombre, t.fecha_inicio
        FROM trabajos t
-      WHERE t.deleted_at IS NULL AND t.fecha_inicio >= ? AND t.fecha_inicio < ?
+      WHERE t.deleted_at IS NULL AND t.estado IN ('previsto', 'programado', 'activo')
+        AND t.fecha_inicio >= ? AND t.fecha_inicio < ?
         AND NOT EXISTS (SELECT 1 FROM asignaciones_libres al
                          WHERE al.trabajo_id = t.id AND al.deleted_at IS NULL AND al.estado <> 'cancelada')
       ORDER BY t.fecha_inicio, t.id`,

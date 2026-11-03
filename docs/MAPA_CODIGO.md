@@ -571,8 +571,10 @@ trabajo (v42) y, si no hay nada (sueltas, trabajos de antes del 23-oct o sin
 evento), el tramo de la ambulancia, que lleva los viajes: esos se cuentan en
 `previstos_sin_evento` y salen «con viajes» en el detalle. Trampas: (1) un
 trabajo **sin ninguna ambulancia viva** (los previstos, v41) no tiene Equipo y
-no suma a nadie; `trabajos_sin_ambulancia` los lista y la pestaña lo avisa en
-ámbar con enlace. (2) La consulta lleva `asignaciones_libres al` dentro del
+no suma a nadie; `trabajos_sin_ambulancia` los lista (solo previsto,
+programado o activo: en uno ya cerrado no hay nada que poner) y la pestaña lo
+avisa en ámbar con enlace. Una ambulancia viva sin nadie en el Equipo tampoco
+suma a nadie y no se avisa. (2) La consulta lleva `asignaciones_libres al` dentro del
 `NOT EXISTS`: en el `bd()` falso de los tests va **antes** del caso de
 asignaciones o les devolvería las asignaciones. (3) El selector de mes no
 deja pasar del actual (`obtenerInforme` da null a un mes futuro): para ver

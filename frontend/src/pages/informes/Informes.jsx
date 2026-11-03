@@ -136,10 +136,11 @@ const suma = (campo) => (filas) => {
 
 /**
  * Pestañas de «Por técnico», la de evento/servicio primero (la que se mira).
- * Las dos primeras son para fiscalizar la carga de
+ * Las de horas son para fiscalizar la carga de
  * trabajo: el sumatorio de horas del mes de cada técnico, de mayor a menor y
  * con fila de total. Suman todos sus servicios, vaya de responsable o de
- * personal, y solo lo cerrado (lo que sigue abierto sale en su columna). La
+ * personal; las reales, solo lo cerrado (lo que sigue abierto sale en su
+ * columna), y las previstas, todo lo programado. La
  * puntualidad va aparte y es solo de responsable. Los campos de tiempo nacen
  * en VERSION_INFORME 2: en un archivado anterior salen «—».
  */

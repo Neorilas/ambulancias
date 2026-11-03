@@ -550,6 +550,7 @@ describe('informes.service · horas previstas del evento', () => {
     const [sql, params] = query.mock.calls.find(([q]) => q.includes('FROM trabajos t'));
     expect(sql).toContain('t.deleted_at IS NULL');
     expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain("t.estado IN ('previsto', 'programado', 'activo')");
     expect(params[0].toISOString()).toBe('2026-08-31T22:00:00.000Z');
   });
 
