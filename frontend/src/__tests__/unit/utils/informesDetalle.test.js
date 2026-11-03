@@ -32,11 +32,19 @@ describe('utils/informes · detalle del técnico', () => {
       servicio({ avisos: [{ codigo: 'cierre_tardio', nivel: 'aviso', minutos: 40 }] }),
     ]);
     expect(t).toEqual({ servicios: 3, minutos_asignacion: 1425, minutos_en_evento: 780,
-                        con_horas_dudosas: 1, con_avisos: 2 });
+                        minutos_previstos: null, con_horas_dudosas: 1, con_avisos: 2 });
     // Sin nada medido, null («—»), no 0: un 0 parecería un dato (2026-10-18)
     expect(totalesDetalle()).toMatchObject({ servicios: 0, minutos_en_evento: null, minutos_asignacion: null });
     expect(totalesDetalle([servicio({ minutos_asignacion: null, minutos_en_evento: null })]))
       .toMatchObject({ minutos_asignacion: null, minutos_en_evento: null });
+  });
+
+  it('totalesDetalle suma las previstas de todo, hecho o no', () => {
+    const t = totalesDetalle([
+      servicio({ minutos_previstos: 60 }),
+      servicio({ minutos_previstos: 150, inicio_real_at: null, minutos_asignacion: null, minutos_en_evento: null }),
+    ]);
+    expect(t.minutos_previstos).toBe(210);
   });
 
   it('tramo en hora española, con el día si cambia y «sin …» si falta', () => {

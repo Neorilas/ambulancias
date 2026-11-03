@@ -559,6 +559,28 @@ con la misma regla y quién la ve que «A revisar»); aviso
 una línea por jornada (`tramosEvento`: real, «se cerró sola», o la hora
 prevista con «pendiente»/«no consta»); `detalleTecnico` manda `jornadas`.
 
+**«Horas previstas» (2026-11-03, `VERSION_INFORME` 4).** Pedido del usuario:
+ver a principio de mes, con los servicios ya programados, las horas que «en
+teoría» va a trabajar cada uno. Segunda pestaña de «Por técnico» (la primera
+sigue siendo la de evento, la de por defecto). Cuenta **todos** los servicios
+del mes, hechos o por hacer, de responsable o de Equipo (`minutos_previstos`,
+`servicios_previstos`). **Son las horas del evento, no de salida a vuelta**
+(decisión del usuario): `previstoEvento` en `informes.service` toma, por este
+orden, las jornadas previstas del horario por días, el `evento_inicio/fin` del
+trabajo (v42) y, si no hay nada (sueltas, trabajos de antes del 23-oct o sin
+evento), el tramo de la ambulancia, que lleva los viajes: esos se cuentan en
+`previstos_sin_evento` y salen «con viajes» en el detalle. Trampas: (1) un
+trabajo **sin ninguna ambulancia viva** (los previstos, v41) no tiene Equipo y
+no suma a nadie; `trabajos_sin_ambulancia` los lista (solo previsto,
+programado o activo: en uno ya cerrado no hay nada que poner) y la pestaña lo
+avisa en ámbar con enlace. Una ambulancia viva sin nadie en el Equipo tampoco
+suma a nadie y no se avisa. (2) La consulta lleva `asignaciones_libres al` dentro del
+`NOT EXISTS`: en el `bd()` falso de los tests va **antes** del caso de
+asignaciones o les devolvería las asignaciones. (3) El selector de mes no
+deja pasar del actual (`obtenerInforme` da null a un mes futuro): para ver
+el mes que viene hay que esperar a que empiece. El detalle del técnico lleva
+columna «Previstas» y cifra arriba; el PDF, solo la cifra en el resumen.
+
 **El backend manda recuentos, no porcentajes**; los porcentajes, el «por cada
 100 servicios» y el color de la variación los saca `frontend/utils/informes.js`
 (`METRICAS`, con `mejorSiBaja`). Así un mes archivado y uno en vivo se
