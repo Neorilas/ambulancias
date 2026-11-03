@@ -2098,9 +2098,11 @@ tramo puede pasar de medianoche (máx. 24 h). Reglas de `jornadas.service`:
   `utils/jornadas.js` (`horarioDesdeApi`/`horarioAPayload` hacen de puente:
   el formulario piensa en **días y tramos de hora española**, la API en
   instantes UTC; `errorHorario` repite lo que valida el backend; `horarioDentro`
-  es el `tramosDentro` del backend). Sale en `TrabajoForm` cuando las fechas
-  cruzan de día (`cruzaDias`; lo que acaba a las 00:00 no cuenta) o ya hay
-  horario; en cada ambulancia del alta, «Igual que el trabajo» (lista lo que
+  es el `tramosDentro` del backend). Sale en `TrabajoForm` cuando el trabajo
+  dura **24 h o más** (`cruzaDias`) o ya hay horario. Hasta el 2026-11-03
+  bastaba con pasar de medianoche, y un servicio de noche (TRB-2026-0126)
+  se tomaba por dos días: no pedía las horas del evento. La resta va en hora
+  de reloj (sin zona), para que el cambio de hora no la mueva; en cada ambulancia del alta, «Igual que el trabajo» (lista lo que
   hereda) / «Horario propio» (arranca con una copia de lo heredado). En
   `AsignacionForm`, lo mismo solo si va en un trabajo; al editar, «propio»
   arranca con sus jornadas actuales (fichadas incluidas) y volver a «igual»
@@ -2559,9 +2561,12 @@ quedarse en solo lectura).
     editar se valida lo que quedará guardado: acortar el trabajo con un evento
     que se queda fuera da 400. Sin los campos en el body no se tocan (PWA vieja).
   - **Solo en trabajos de un día** (`pideEvento` = `!cruzaDias`): en los de
-    varios, el horario por días hace de horario del evento. El formulario pide
-    dos `time` y les pone el día del inicio del trabajo; al pasar a varios
-    días manda `null` y el evento se borra.
+    varios (24 h o más), el horario por días hace de horario del evento. El
+    formulario pide dos `time` y les pone el día del inicio del trabajo, **o
+    el siguiente** si el trabajo acaba otro día y la hora es anterior a la
+    de salida (servicio de 20:00 a 06:00, evento de 22:00 a 02:00;
+    `eventoLocal`). Con menos de 24 h cada hora cae en un solo día, así que
+    no hay ambigüedad. Al pasar a varios días manda `null` y el evento se borra.
   - Para qué sirve: el motivo de fin anticipado (§6.1, `finEventoPrevisto`) y
     que el técnico vea la hora del evento junto a la de salida: ficha del
     trabajo, tarjeta de «Mis trabajos» (`misTrab` trae las columnas) y tarjeta

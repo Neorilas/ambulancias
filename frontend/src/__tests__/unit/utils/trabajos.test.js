@@ -386,6 +386,18 @@ describe('utils/trabajos', () => {
       expect(validarTrabajo(varios).evento).toBeUndefined();
     });
 
+    it('en un servicio de noche (menos de 24 h) se piden, y lo de madrugada es del día siguiente', () => {
+      const noche = partido({
+        fecha_inicio: '2026-11-03T20:00', fecha_fin: '2026-11-04T06:00',
+        evento_desde: '22:00', evento_hasta: '02:00',
+      });
+      expect(pideEvento(noche)).toBe(true);
+      expect(validarTrabajo(noche).evento).toBeUndefined();
+      expect(payloadTrabajo(noche)).toMatchObject({
+        evento_inicio: '2026-11-03T21:00', evento_fin: '2026-11-04T01:00' });
+      expect(validarTrabajo({ ...noche, evento_hasta: '07:00' }).evento).toMatch(/entre el inicio y el fin/);
+    });
+
     it.each([
       ['solo una hora', { evento_hasta: '' }, /o ninguna/],
       ['el fin antes del inicio', { evento_desde: '12:00', evento_hasta: '11:00' }, /posterior/],
