@@ -20,6 +20,15 @@ describe('utils/jornadas', () => {
       expect(cruzaDias('2026-10-20T08:00', '2026-10-21T00:00')).toBe(false);
     });
 
+    it('varios días son 24 h o más, no pasar de medianoche (TRB-2026-0126)', () => {
+      expect(cruzaDias('2026-11-03T20:00', '2026-11-04T06:00')).toBe(false);
+      expect(cruzaDias('2026-11-03T08:00', '2026-11-04T07:59')).toBe(false);
+      expect(cruzaDias('2026-11-03T08:00', '2026-11-04T08:00')).toBe(true);
+      // De 00:00 a 00:00 es un solo día de calendario, pero dura 24 h
+      expect(cruzaDias('2026-11-03T00:00', '2026-11-04T00:00')).toBe(true);
+      expect(cruzaDias('', '2026-11-04T08:00')).toBe(false);
+    });
+
     it('sin fechas, o al revés, ninguno', () => {
       expect(diasEntre('', '2026-10-21T00:00')).toEqual([]);
       expect(diasEntre('2026-10-21T10:00', '2026-10-20T10:00')).toEqual([]);

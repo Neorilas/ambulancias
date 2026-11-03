@@ -11,7 +11,7 @@
  */
 
 import { TRABAJO_ESTADOS } from './constants.js';
-import { toInputDatetime, toUtcIso, formatDateTimeShort, formatHora } from './dateUtils.js';
+import { toInputDatetime, toUtcIso, formatDateTimeShort, formatHora, sumarDias } from './dateUtils.js';
 import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
@@ -47,8 +47,8 @@ export function formularioInicial(trabajo) {
     tipo:         trabajo?.tipo        || 'traslado',
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
-    // Horas del evento (v42), 'HH:mm' en hora española: el día es el del
-    // trabajo, porque solo se piden en los de un día
+    // Horas del evento (v42), 'HH:mm' en hora española: solo se piden en
+    // los de menos de 24 h, así que el día lo vuelve a poner `eventoLocal`
     evento_desde: toInputDatetime(trabajo?.evento_inicio).slice(11),
     evento_hasta: toInputDatetime(trabajo?.evento_fin).slice(11),
     // 1..N coordinadores (v35), el principal primero; sin ninguno (el alta),
@@ -99,14 +99,23 @@ export function faltaParaProgramado(trabajo) {
  */
 export const pideEvento = (form) => !cruzaDias(form.fecha_inicio, form.fecha_fin);
 
-/** Las horas del evento del formulario como 'yyyy-MM-ddTHH:mm' locales, o null. */
+/**
+ * Las horas del evento del formulario como 'yyyy-MM-ddTHH:mm' locales, o null.
+ * Si el trabajo acaba otro día, una hora anterior a la de salida es del día
+ * siguiente: en un servicio de noche (20:00 a 06:00), un evento de 22:00 a
+ * 02:00 acaba de madrugada. Como el trabajo dura menos de 24 h, cada hora solo
+ * puede caer en uno de los dos.
+ */
 function eventoLocal(form) {
   if (!pideEvento(form) || !form.fecha_inicio) return null;
   const dia = form.fecha_inicio.slice(0, 10);
+  const horaSalida = form.fecha_inicio.slice(11, 16);
+  const acabaOtroDia = !!form.fecha_fin && form.fecha_fin.slice(0, 10) > dia;
+  const conDia = (h) => h && `${acabaOtroDia && h < horaSalida ? sumarDias(dia, 1) : dia}T${h}`;
   const desde = form.evento_desde || '';
   const hasta = form.evento_hasta || '';
   if (!desde && !hasta) return null;
-  return { inicio: desde && `${dia}T${desde}`, fin: hasta && `${dia}T${hasta}` };
+  return { inicio: conDia(desde), fin: conDia(hasta) };
 }
 
 /** El fallo de las horas del evento, el mismo criterio que `leerEvento` del backend. */

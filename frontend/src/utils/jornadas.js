@@ -36,8 +36,18 @@ export function diasEntre(inicioLocal, finLocal) {
   return dias;
 }
 
-/** ¿El intervalo ocupa más de un día? Es cuando el formulario ofrece el horario. */
-export const cruzaDias = (inicioLocal, finLocal) => diasEntre(inicioLocal, finLocal).length > 1;
+/**
+ * ¿Es un servicio de varios días? Es cuando el formulario ofrece el horario
+ * por días (y deja de pedir las horas del evento). Cuenta la duración, 24 h o
+ * más, no si pasa de medianoche: un servicio de noche (20:00 a 06:00) es de un
+ * día (TRB-2026-0126, 2026-11-03). Se resta en hora de reloj, sin zona, para
+ * que un cambio de hora no lo mueva.
+ */
+export function cruzaDias(inicioLocal, finLocal) {
+  if (!inicioLocal || !finLocal) return false;
+  const ms = Date.parse(`${finLocal}Z`) - Date.parse(`${inicioLocal}Z`);
+  return ms >= 24 * 3600 * 1000;
+}
 
 /** Un tramo del formulario → sus dos extremos en hora local ('yyyy-MM-ddTHH:mm'). */
 function extremos(dia, t) {
