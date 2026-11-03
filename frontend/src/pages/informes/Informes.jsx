@@ -19,6 +19,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading }     from '../../components/common/LoadingSpinner.jsx';
 import { useEstadoEnUrl, usePanelEnUrl } from '../../hooks/useNavegacion.js';
 import DetalleTecnico     from './DetalleTecnico.jsx';
+import { formatDate }      from '../../utils/dateUtils.js';
 import {
   nombreMes, pct, por100, valorMetrica, variacion, fmt, fmtMin,
 } from '../../utils/informes.js';
@@ -160,6 +161,24 @@ const PESTANAS_TECNICO = [
     ],
   },
   {
+    // Para ver la carga del mes antes de hacerla (VERSION_INFORME 4): todo lo
+    // programado, hecho o por hacer, con las horas del evento, no las del viaje
+    key: 'previstas',
+    label: 'Horas previstas',
+    nota: 'Las horas de evento/servicio que tiene programadas en el mes, se hayan hecho o no, de responsable o de personal. Cuenta la hora del evento del trabajo, no la salida y la vuelta a base; en un trabajo con horario por días, sus jornadas. Si un servicio no tiene hora de evento (las asignaciones sueltas y los trabajos sin ella) cuenta el horario de la ambulancia, viajes incluidos: salen en la última columna.',
+    orden: 'minutos_previstos',
+    columnas: [
+      colTecnico,
+      { clave: 'pt', titulo: 'Horas previstas de evento/servicio', num: true,
+        pintar: t => (t.servicios_previstos ? fmtMin(t.minutos_previstos) : '—'),
+        total: f => (suma('servicios_previstos')(f) ? fmtMin(suma('minutos_previstos')(f)) : '—') },
+      { clave: 'ps', titulo: 'Servicios programados', num: true,
+        pintar: t => fmt(t.servicios_previstos), total: f => fmt(suma('servicios_previstos')(f)) },
+      { clave: 'pe', titulo: 'Sin hora de evento (con viajes)', num: true,
+        pintar: t => fmt(t.previstos_sin_evento), total: f => fmt(suma('previstos_sin_evento')(f)) },
+    ],
+  },
+  {
     key: 'asignacion',
     label: 'Horas de asignación',
     nota: 'Suma del tiempo entre «Inicio de la asignación» y «Finalizar asignación» de todas sus asignaciones del mes, de responsable o de personal. Una asignación que no se ha finalizado no suma: sale en la última columna. En un trabajo con horario por días, la suma de sus jornadas cerradas a mano, sin los viajes.',
@@ -297,6 +316,20 @@ export default function Informes() {
               ))}
             </div>
             <p className="text-xs text-neutral-500">{pestanaTec.nota}</p>
+            {tabTecnico === 'previstas' && actual.trabajos_sin_ambulancia?.length > 0 && (
+              <p className="text-xs text-warn-700">
+                {actual.trabajos_sin_ambulancia.length === 1
+                  ? '1 trabajo del mes aún no tiene ambulancia, así que sus horas no suman a nadie: '
+                  : `${actual.trabajos_sin_ambulancia.length} trabajos del mes aún no tienen ambulancia, así que sus horas no suman a nadie: `}
+                {actual.trabajos_sin_ambulancia.map((tr, i) => (
+                  <React.Fragment key={tr.id}>
+                    {i > 0 && ', '}
+                    <Link to={`/trabajos/${tr.id}`} className="underline">{tr.nombre || tr.identificador}</Link>
+                    {' '}({formatDate(tr.fecha_inicio, 'dd/MM')})
+                  </React.Fragment>
+                ))}
+              </p>
+            )}
             <Tabla
               vacio="Nadie tuvo servicios este mes."
               filas={filasTecnico}

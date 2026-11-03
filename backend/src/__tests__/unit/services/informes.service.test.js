@@ -27,9 +27,12 @@ function asig(extra = {}) {
 }
 
 /** BD falsa: responde según la consulta. */
-function bd({ asignaciones = [], miembros = [], flota = [], incidencias = [], archivados = {}, jornadas = [] } = {}) {
+function bd({ asignaciones = [], miembros = [], flota = [], incidencias = [], archivados = {}, jornadas = [],
+              sinAmbulancia = [] } = {}) {
   query.mockReset();
   query.mockImplementation(async (sql, params) => {
+    // Antes que asignaciones_libres: la lleva dentro, en el NOT EXISTS
+    if (sql.includes('FROM trabajos t')) return [sinAmbulancia];
     if (sql.includes('FROM asignacion_jornadas')) return [jornadas.filter(j => params.includes(j.asignacion_id))];
     if (sql.includes('FROM asignacion_usuarios')) return [miembros];
     if (sql.includes('FROM asignaciones_libres al')) return [asignaciones];
@@ -395,7 +398,7 @@ describe('informes.service · jornadas por día (v39)', () => {
     expect(r.por_tecnico[0]).toMatchObject({
       minutos_asignacion: 1800, asignaciones_medidas: 1, minutos_en_evento: 1800, eventos_medidos: 1,
     });
-    expect(r.version).toBe(3);
+    expect(r.version).toBe(4);
   });
 
   it('la jornada que se cerró sola no suma; la que nadie inició, tampoco', async () => {
@@ -492,5 +495,75 @@ describe('informes.service · jornadas por día (v39)', () => {
       expect(codigos).toContain('jornada_sin_fin');
       expect(codigos).not.toContain('fin_jornada_anticipado');
     });
+  });
+});
+
+describe('informes.service · horas previstas del evento', () => {
+  const ANA = (id) => ({ asignacion_id: id, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' });
+  const LUIS = (id) => ({ asignacion_id: id, user_id: 8, rol: 'personal', nombre: 'Luis', apellidos: 'Gil' });
+
+  it('suma el evento del trabajo, no la salida a vuelta, a todo el Equipo y aunque no se haya hecho', async () => {
+    bd({
+      asignaciones: [
+        // Partido de 11:00 a 12:00 con la ambulancia de 10:00 a 13:00: 60 min, no 180
+        asig({ id: 1, fecha_inicio: d('2026-09-20T08:00:00Z'), fecha_fin: d('2026-09-20T11:00:00Z'),
+               evento_inicio: d('2026-09-20T09:00:00Z'), evento_fin: d('2026-09-20T10:00:00Z') }),
+        // Por hacer: programada para el 29 (después de AHORA) y sin iniciar
+        asig({ id: 2, estado: 'programada', inicio_real_at: null, finalizado_at: null,
+               fecha_inicio: d('2026-09-29T08:00:00Z'), fecha_fin: d('2026-09-29T12:00:00Z'),
+               evento_inicio: d('2026-09-29T08:30:00Z'), evento_fin: d('2026-09-29T11:00:00Z') }),
+      ],
+      miembros: [ANA(1), LUIS(1), ANA(2)],
+    });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    const ana = r.por_tecnico.find(t => t.user_id === 7);
+    const luis = r.por_tecnico.find(t => t.user_id === 8);
+    expect(ana).toMatchObject({ minutos_previstos: 210, servicios_previstos: 2, previstos_sin_evento: 0 });
+    expect(luis).toMatchObject({ minutos_previstos: 60, servicios_previstos: 1 });
+  });
+
+  it('con horario por días, la suma de las jornadas previstas (sin las noches)', async () => {
+    bd({
+      asignaciones: [asig({ id: 1, fecha_inicio: d('2026-09-10T06:00:00Z'), fecha_fin: d('2026-09-12T20:00:00Z') })],
+      miembros: [ANA(1)],
+      jornadas: ['10', '11'].map(dia => ({
+        asignacion_id: 1, inicio: d(`2026-09-${dia}T08:00:00Z`), fin: d(`2026-09-${dia}T18:00:00Z`),
+        inicio_real_at: null, fin_real_at: null, cierre_auto: 0, motivo_fin: null,
+      })),
+    });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({ minutos_previstos: 1200, previstos_sin_evento: 0 });
+  });
+
+  it('sin horas de evento cuenta la de la ambulancia y lo marca aparte', async () => {
+    bd({ asignaciones: [asig({ id: 1 })], miembros: [ANA(1)] });   // 06:00 → 14:00
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.por_tecnico[0]).toMatchObject({ minutos_previstos: 480, previstos_sin_evento: 1 });
+  });
+
+  it('lista los trabajos del mes sin ninguna ambulancia: sus horas no suman a nadie', async () => {
+    bd({ sinAmbulancia: [{ id: 5, identificador: 'TRB-2026-0050', nombre: 'Feria', fecha_inicio: d('2026-09-28T08:00:00Z') }] });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.trabajos_sin_ambulancia).toEqual([
+      { id: 5, identificador: 'TRB-2026-0050', nombre: 'Feria', fecha_inicio: '2026-09-28T08:00:00.000Z' },
+    ]);
+    const [sql, params] = query.mock.calls.find(([q]) => q.includes('FROM trabajos t'));
+    expect(sql).toContain('t.deleted_at IS NULL');
+    expect(sql).toContain('NOT EXISTS');
+    expect(params[0].toISOString()).toBe('2026-08-31T22:00:00.000Z');
+  });
+
+  it('el detalle del técnico trae las previstas de cada servicio', async () => {
+    query.mockReset();
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM users')) return [[{ id: 7, nombre: 'Ana', apellidos: 'Ruiz' }]];
+      if (sql.includes('FROM asignacion_usuarios au')) {
+        return [[asig({ id: 1, rol: 'responsable', trabajo_id: 3, revisar_fin_evento: null,
+                        evento_inicio: d('2026-09-10T07:00:00Z'), evento_fin: d('2026-09-10T09:30:00Z') })]];
+      }
+      return [[]];
+    });
+    const r = await inf.detalleTecnico('2026-09', 7, 1, AHORA);
+    expect(r.servicios[0]).toMatchObject({ minutos_previstos: 150, previsto_sin_evento: false });
   });
 });

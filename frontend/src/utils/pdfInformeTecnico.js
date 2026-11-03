@@ -72,6 +72,7 @@ export function construirPdfTecnico(JsPDF, autoTable, detalle, generado = new Da
   doc.setTextColor(20);
   doc.setFontSize(10);
   const resumen = [
+    `Horas previstas: ${fmtMin(t.minutos_previstos)}`,
     `Horas de evento/servicio: ${fmtMin(t.minutos_en_evento)}`,
     `Horas de asignación: ${fmtMin(t.minutos_asignacion)}`,
     `Servicios: ${t.servicios}`,

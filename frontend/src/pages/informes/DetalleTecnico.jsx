@@ -118,7 +118,8 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
             {detalle.en_curso && <span className="text-warn-700"> · mes en curso, datos hasta hoy</span>}
           </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <Cifra titulo="Horas previstas" valor={fmtMin(t.minutos_previstos)} />
             <Cifra titulo="Horas de evento/servicio" valor={fmtMin(t.minutos_en_evento)} />
             <Cifra titulo="Horas de asignación" valor={fmtMin(t.minutos_asignacion)} />
             <Cifra titulo="Servicios" valor={t.servicios} />
@@ -126,7 +127,8 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
           </div>
 
           <p className="text-xs text-neutral-500">
-            Solo suma lo cerrado. <span className="text-bad-600 font-medium">En rojo</span>, servicios cuyas horas
+            Las previstas son las del evento de todo lo programado, hecho o no (sin hora de evento, el
+            horario de la ambulancia, marcado «con viajes»). Las demás solo suman lo cerrado. <span className="text-bad-600 font-medium">En rojo</span>, servicios cuyas horas
             no suman o no son reales; <span className="text-warn-700 font-medium">en ámbar</span>, los que suman
             pero no cuadran con lo previsto. Pulsa un servicio para ver su detalle.
             {detalle.archivado && ' Este mes ya está archivado: parte de sus servicios puede haberse purgado y el detalle quedar incompleto.'}
@@ -141,6 +143,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
                   <tr>
                     <th className="px-3 py-2 text-left whitespace-nowrap">Fecha prevista</th>
                     <th className="px-3 py-2 text-left">Trabajo / ambulancia</th>
+                    <th className="px-3 py-2 text-right whitespace-nowrap">Previstas</th>
                     <th className="px-3 py-2 text-left whitespace-nowrap">Evento/servicio</th>
                     <th className="px-3 py-2 text-right whitespace-nowrap">Horas evento</th>
                     <th className="px-3 py-2 text-left">Asignación</th>
@@ -171,6 +174,10 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
                           </div>
                           <div className="text-xs text-neutral-400">{ROL_SERVICIO[s.rol] || s.rol}</div>
                         </td>
+                        <td className="px-3 py-2 font-mono whitespace-nowrap text-right align-top">
+                          {fmtMin(s.minutos_previstos)}
+                          {s.previsto_sin_evento && <div className="text-xs font-sans text-neutral-400">con viajes</div>}
+                        </td>
                         <td className="px-3 py-2 font-mono whitespace-nowrap align-top">
                           {tramosEvento(s).map((t, i) => <div key={i}>{t}</div>)}
                         </td>
@@ -194,6 +201,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
                   <tr>
                     <td className="px-3 py-2">Total</td>
                     <td className="px-3 py-2">{t.servicios} {t.servicios === 1 ? 'servicio' : 'servicios'}</td>
+                    <td className="px-3 py-2 font-mono whitespace-nowrap text-right">{fmtMin(t.minutos_previstos)}</td>
                     <td />
                     <td className="px-3 py-2 font-mono whitespace-nowrap text-right">{fmtMin(t.minutos_en_evento)}</td>
                     <td />

@@ -31,6 +31,10 @@
  *     que no suman por falta del botón de cierre salen aparte
  *     (`asignaciones_sin_finalizar`, `eventos_sin_fin`). Sirve para
  *     fiscalizar la carga de trabajo: lo abierto NO se cuenta hasta ahora.
+ *   - Las horas PREVISTAS (para ver la carga del mes antes de hacerla) son
+ *     las del evento, no las de salida a vuelta (decisión del usuario,
+ *     2026-11-03), de todos los servicios del mes, hechos o por hacer. Ver
+ *     `previstoEvento`.
  *
  * El JSON se guarda tal cual en `informe_mensual.datos`: si cambia su forma,
  * se sube VERSION_INFORME y el frontend tiene que tolerar la vieja (un campo
@@ -45,7 +49,8 @@ const logger = require('../utils/logger.utils');
 
 // 2: tiempo por técnico (asignación y en el evento). 3: jornadas por día (v39):
 // con horario por días, las horas son la suma de las jornadas cerradas a mano.
-const VERSION_INFORME = 3;
+// 4: horas previstas del evento por técnico y trabajos sin ambulancia.
+const VERSION_INFORME = 4;
 const MINUTO = 60000;
 // «Inicio evento/servicio» (la llegada, v26) llegó a PRO el 25-sep a las
 // 17:32: desde el 26 a las 00:00 en hora española se echa de menos. Antes, no
@@ -148,6 +153,27 @@ function analizarJornadas(jornadas, limite, cerrada = false) {
   return r;
 }
 
+/**
+ * Minutos PREVISTOS del evento de un servicio, por este orden:
+ *   1. con horario por días (v39), la suma de las jornadas previstas: el
+ *      tramo entero de un congreso de tres días llevaría las noches;
+ *   2. con las horas del evento del trabajo (v42, solo trabajos de un día),
+ *      esas;
+ *   3. si no hay ninguna de las dos (sueltas, trabajos anteriores al
+ *      2026-10-23 o sin evento), la de la ambulancia: de salida a vuelta. Se
+ *      marca `sin_evento` para que se cuente aparte y se vea que esas llevan
+ *      el viaje, igual que hace `finEventoPrevisto` del controlador.
+ */
+function previstoEvento(a) {
+  if (a.jornadas?.length) {
+    return { minutos: a.jornadas.reduce((t, j) => t + Math.max(0, minutosEntre(j.inicio, j.fin)), 0), sin_evento: false };
+  }
+  if (a.evento_inicio && a.evento_fin) {
+    return { minutos: Math.max(0, minutosEntre(a.evento_inicio, a.evento_fin)), sin_evento: false };
+  }
+  return { minutos: Math.max(0, minutosEntre(a.fecha_inicio, a.fecha_fin)), sin_evento: true };
+}
+
 // ── Cálculo ──────────────────────────────────────────────────
 
 /**
@@ -172,6 +198,7 @@ function analizarServicio(a, limiteSinIniciar) {
     evento_sin_fin: Boolean(a.llegada_servicio_at && !a.fin_servicio_at),
     sin_finalizar:  Boolean(inicio && !a.finalizado_at),
     fotos_tarde:    Number(a.fotos_inicio_tarde) > 0,
+    previsto:       previstoEvento(a),
   };
   s.tardio = s.retraso_min != null && s.retraso_min > INICIO_TARDIO_MINUTOS;
   if (s.finalizado) {
@@ -248,13 +275,14 @@ async function calcularInforme(mes, instante = ahora()) {
   const [asignaciones] = await query(
     `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
-            v.alias, v.matricula,
+            v.alias, v.matricula, t.evento_inicio, t.evento_fin,
             (SELECT COUNT(*) FROM vehicle_images ti
               WHERE ti.asignacion_id = al.id AND ti.momento = 'inicio'
                 AND al.inicio_real_at IS NOT NULL
                 AND ti.created_at > al.inicio_real_at + INTERVAL ? MINUTE) AS fotos_inicio_tarde
        FROM asignaciones_libres al
        JOIN vehicles v ON v.id = al.vehicle_id
+       LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE ${filtro}`,
     [FOTOS_INICIO_TARDE_MINUTOS, desde, hasta]
   );
@@ -272,6 +300,19 @@ async function calcularInforme(mes, instante = ahora()) {
 
   const [flota] = await query(
     `SELECT id, alias, matricula FROM vehicles WHERE deleted_at IS NULL`
+  );
+
+  // Trabajos del mes sin ninguna ambulancia viva (los «previstos», v41, o los
+  // que se quedaron sin): no tienen Equipo, así que sus horas previstas no
+  // suman a nadie. Se listan para que se vea que falta gente por poner.
+  const [sinAmbulancia] = await query(
+    `SELECT t.id, t.identificador, t.nombre, t.fecha_inicio
+       FROM trabajos t
+      WHERE t.deleted_at IS NULL AND t.fecha_inicio >= ? AND t.fecha_inicio < ?
+        AND NOT EXISTS (SELECT 1 FROM asignaciones_libres al
+                         WHERE al.trabajo_id = t.id AND al.deleted_at IS NULL AND al.estado <> 'cancelada')
+      ORDER BY t.fecha_inicio, t.id`,
+    [desde, hasta]
   );
 
   // Incidencias: nuevas del mes, resueltas en el mes y abiertas al cerrarlo.
@@ -308,7 +349,8 @@ async function calcularInforme(mes, instante = ahora()) {
       porTecnico.set(r.user_id, { user_id: r.user_id, nombre: nombreDe(r),
                                   acc: nuevoAcumulado(), como_personal: 0, incidencias: 0,
                                   tiempo: { minutos_asignacion: 0, asignaciones_medidas: 0, asignaciones_sin_finalizar: 0,
-                                            minutos_en_evento: 0, eventos_medidos: 0, eventos_sin_fin: 0 } });
+                                            minutos_en_evento: 0, eventos_medidos: 0, eventos_sin_fin: 0,
+                                            minutos_previstos: 0, servicios_previstos: 0, previstos_sin_evento: 0 } });
     }
     return porTecnico.get(r.user_id);
   };
@@ -322,6 +364,9 @@ async function calcularInforme(mes, instante = ahora()) {
     if (s.minutos_en_sitio != null) { t.tiempo.minutos_en_evento += s.minutos_en_sitio; t.tiempo.eventos_medidos++; }
     if (s.evento_sin_fin) t.tiempo.eventos_sin_fin++;
     if (s.sin_finalizar)  t.tiempo.asignaciones_sin_finalizar++;
+    t.tiempo.minutos_previstos += s.previsto.minutos;
+    t.tiempo.servicios_previstos++;
+    if (s.previsto.sin_evento) t.tiempo.previstos_sin_evento++;
   }
 
   // ── Incidencias ──
@@ -381,6 +426,9 @@ async function calcularInforme(mes, instante = ahora()) {
     vehiculos_sin_uso: vehiculosSinUso,
     por_tecnico: [...porTecnico.values()].map(filaTecnico)
       .sort((x, y) => y.servicios - x.servicios || x.nombre.localeCompare(y.nombre, 'es')),
+    trabajos_sin_ambulancia: sinAmbulancia.map(t => ({
+      id: t.id, identificador: t.identificador, nombre: t.nombre, fecha_inicio: t.fecha_inicio.toISOString(),
+    })),
   };
 }
 
@@ -503,6 +551,7 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
     `SELECT al.id, al.trabajo_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             au.rol, v.alias, v.matricula, t.nombre AS trabajo_nombre, t.identificador AS trabajo_identificador,
+            t.evento_inicio, t.evento_fin,
             ${SQL_REVISAR_FIN_EVENTO} AS revisar_fin_evento
        FROM asignacion_usuarios au
        JOIN asignaciones_libres al ON al.id = au.asignacion_id
@@ -530,6 +579,8 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
       fin_servicio_at: iso(a.fin_servicio_at), finalizado_at: iso(a.finalizado_at),
       minutos_asignacion: s.minutos_servicio,
       minutos_en_evento: s.minutos_en_sitio,
+      minutos_previstos: s.previsto.minutos,
+      previsto_sin_evento: s.previsto.sin_evento,
       // Las jornadas por día (v39), para listarlas en el detalle y el PDF
       jornadas: a.jornadas.map(j => ({
         inicio: iso(j.inicio), fin: iso(j.fin), inicio_real_at: iso(j.inicio_real_at),

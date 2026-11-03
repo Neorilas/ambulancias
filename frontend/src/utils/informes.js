@@ -134,10 +134,14 @@ export const horasDudosas = (servicio) => (servicio.avisos || []).some(a => a.ni
  */
 export function totalesDetalle(servicios = []) {
   const t = { servicios: servicios.length, minutos_asignacion: 0, minutos_en_evento: 0,
-              con_horas_dudosas: 0, con_avisos: 0 };
+              minutos_previstos: 0, con_horas_dudosas: 0, con_avisos: 0 };
   let conAsignacion = false;
   let conEvento = false;
+  let conPrevistos = false;
   for (const s of servicios) {
+    // Previstas (VERSION_INFORME 4): todo lo programado, hecho o no
+    t.minutos_previstos += s.minutos_previstos ?? 0;
+    conPrevistos ||= s.minutos_previstos != null;
     t.minutos_asignacion += s.minutos_asignacion ?? 0;
     t.minutos_en_evento  += s.minutos_en_evento ?? 0;
     conAsignacion ||= s.minutos_asignacion != null;
@@ -148,6 +152,7 @@ export function totalesDetalle(servicios = []) {
   // Sin ningún servicio medido, «—» y no «0 min»: un 0 parecería un dato
   if (!conAsignacion) t.minutos_asignacion = null;
   if (!conEvento) t.minutos_en_evento = null;
+  if (!conPrevistos) t.minutos_previstos = null;
   return t;
 }
 
