@@ -47,8 +47,8 @@ export function formularioInicial(trabajo) {
     tipo:         trabajo?.tipo        || 'traslado',
     fecha_inicio: toInputDatetime(trabajo?.fecha_inicio) || '',
     fecha_fin:    toInputDatetime(trabajo?.fecha_fin)    || '',
-    // Horas del evento (v42), 'HH:mm' en hora española: el día es el del
-    // trabajo, porque solo se piden en los de un día
+    // Horas del evento (v42), 'HH:mm' en hora española: solo se piden en
+    // los de menos de 24 h, así que el día lo vuelve a poner `eventoLocal`
     evento_desde: toInputDatetime(trabajo?.evento_inicio).slice(11),
     evento_hasta: toInputDatetime(trabajo?.evento_fin).slice(11),
     // 1..N coordinadores (v35), el principal primero; sin ninguno (el alta),

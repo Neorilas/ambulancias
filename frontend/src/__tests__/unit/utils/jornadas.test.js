@@ -24,6 +24,8 @@ describe('utils/jornadas', () => {
       expect(cruzaDias('2026-11-03T20:00', '2026-11-04T06:00')).toBe(false);
       expect(cruzaDias('2026-11-03T08:00', '2026-11-04T07:59')).toBe(false);
       expect(cruzaDias('2026-11-03T08:00', '2026-11-04T08:00')).toBe(true);
+      // De 00:00 a 00:00 es un solo día de calendario, pero dura 24 h
+      expect(cruzaDias('2026-11-03T00:00', '2026-11-04T00:00')).toBe(true);
       expect(cruzaDias('', '2026-11-04T08:00')).toBe(false);
     });
 
