@@ -69,20 +69,25 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   }, [fotos]);
   useEffect(() => () => Object.values(previews).forEach(URL.revokeObjectURL), [previews]);
 
+  // Solo personal (v43): sin ambulancia no hay fotos de fin ni km
+  const sinAmbulancia = !!asignacion?.solo_personal;
+
   // ── Secciones (motivo condicional) ──────────────────────────
   const secciones = useMemo(() => {
     const base = [
       { id: 'material', tipo: 'material', titulo: 'Material utilizado',
         subtitulo: 'Qué se ha gastado durante el servicio' },
+    ];
+    if (!sinAmbulancia) base.push(
       { id: 'exterior', tipo: 'photos', titulo: 'Estado exterior',
         subtitulo: 'Las cuatro caras del vehículo (orden libre)', fotos: IMAGEN_TIPOS_FIN_EXTERIOR },
       { id: 'km', tipo: 'km', titulo: 'Kilometraje',
         subtitulo: 'Foto del cuadro y kilómetros finales' },
-    ];
+    );
     if (pideMotivo) base.push({ id: 'motivo', tipo: 'motivo', titulo: 'Motivo de finalización anticipada' });
     base.push({ id: 'confirm', tipo: 'confirm', titulo: 'Confirmar finalización' });
     return base;
-  }, [pideMotivo]);
+  }, [pideMotivo, sinAmbulancia]);
 
   const seccion = secciones[step];
 
@@ -141,7 +146,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
       }
       await asignacionesService.finalizar(asignacion.id, {
-        km_fin:     parseKm(kmFin),
+        km_fin:     sinAmbulancia ? null : parseKm(kmFin),
         motivo_fin: pideMotivo ? motivo.trim() : null,
         material_usado: material.trim(),
       });
@@ -189,7 +194,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       </div>
       <div>
         <p className="text-xs text-neutral-400">
-          Paso {step + 1} de {secciones.length} — {asignacion.vehiculo_alias}
+          Paso {step + 1} de {secciones.length} — {sinAmbulancia ? 'Solo personal' : asignacion.vehiculo_alias}
         </p>
         <h2 className="text-lg font-semibold text-neutral-900">{seccion.titulo}</h2>
         {seccion.subtitulo && <p className="text-sm text-neutral-500">{seccion.subtitulo}</p>}
@@ -383,6 +388,9 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
     <div className="space-y-6">
       <Header />
       <div className="card bg-neutral-50 space-y-3 text-sm">
+        {sinAmbulancia ? (
+          <p className="text-neutral-600" data-testid="cierre-solo-personal">Solo personal, sin ambulancia: no lleva fotos ni km.</p>
+        ) : (<>
         <div className="flex justify-between">
           <span className="text-neutral-500">Vehículo</span>
           <span className="font-medium">
@@ -400,6 +408,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
             {IMAGEN_TIPOS_FIN.filter(t => fotos[t.key]).length} / {IMAGEN_TIPOS_FIN.length}
           </span>
         </div>
+        </>)}
         {pideMotivo && (
           <div>
             <span className="text-neutral-500 block mb-1">Motivo anticipado</span>

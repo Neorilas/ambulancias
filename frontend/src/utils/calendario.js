@@ -82,6 +82,11 @@ export const SITUACIONES = {
 
 /** Qué pinta él en esa entrada, en una frase. */
 export function textoPapel(e) {
+  // Solo personal (v43): va sin ambulancia, no «llevas Solo personal»
+  if (Number(e.solo_personal)) {
+    if (e.mi_papel === 'responsable') return 'Responsable · solo personal, sin ambulancia';
+    if (e.mi_papel === 'equipo')      return 'Vas en el equipo · solo personal, sin ambulancia';
+  }
   switch (e.mi_papel) {
     case 'responsable':    return `Llevas ${e.vehiculo}`;
     case 'equipo':         return `Vas en el equipo de ${e.vehiculo}`;

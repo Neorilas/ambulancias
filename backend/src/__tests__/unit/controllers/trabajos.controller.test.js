@@ -110,7 +110,7 @@ function trabajoConAsignaciones({ trabajo = {}, asignaciones, miembros, fotosAsi
       coordinador_user_id: 50, coordinador_nombre: 'Carla', coordinador_apellidos: 'Ruiz',
       fecha_inicio: AYER(), fecha_fin: MANANA(), ...trabajo,
     }]]],
-    ['FROM asignaciones_libres al\n     JOIN vehicles v ON v.id = al.vehicle_id', [asignaciones || [
+    ['LEFT JOIN vehicles v ON v.id = al.vehicle_id\n     WHERE al.trabajo_id = ?', [asignaciones || [
       { id: 201, vehicle_id: 7, estado: 'activa', km_inicio: 1000, inicio_real_at: AYER(),
         fecha_inicio: AYER(), fecha_fin: MANANA(), matricula: '7777AAA', vehiculo_alias: 'UVI-1' },
       { id: 202, vehicle_id: 8, estado: 'programada', km_inicio: 2000, inicio_real_at: null,
@@ -278,7 +278,7 @@ describe('trabajos.controller', () => {
       expect(mia).toMatchObject({ id: 201, mi_rol: 'responsable', detalle: true, km_inicio: 1000 });
       // Lista blanca: ni estado, ni km, ni fechas, ni fotos de la ajena
       expect(Object.keys(otra).sort()).toEqual(
-        ['detalle', 'id', 'matricula', 'mi_rol', 'personal', 'responsables', 'vehicle_id', 'vehiculo_alias']);
+        ['detalle', 'id', 'matricula', 'mi_rol', 'personal', 'responsables', 'solo_personal', 'vehicle_id', 'vehiculo_alias']);
       expect(otra.responsables).toEqual([{ id: 21 }]);
     });
 
@@ -839,7 +839,7 @@ describe('trabajos.controller', () => {
       const { ambulancias } = leerAmbulancias([{ vehicle_id: '7', responsables: [20], personal: [30], notas: '  ' }], TRAB);
       expect(ambulancias).toEqual([{ vehicle_id: 7, responsables: [20], personal: [30],
         fecha_inicio: TRAB.fecha_inicio, fecha_fin: TRAB.fecha_fin, km_inicio: null, notas: null,
-        horario_propio: false }]);
+        horario_propio: false, solo_personal: false }]);
     });
     it.each([
       ['no es lista', 'x', 'debe ser una lista'],
@@ -850,6 +850,25 @@ describe('trabajos.controller', () => {
       ['fechas al revés', [{ vehicle_id: 7, responsables: [2], fecha_inicio: '2026-10-15 21:00:00' }], 'posterior'],
     ])('rechaza: %s', (_n, lista, msg) => {
       expect(leerAmbulancias(lista, TRAB).error).toContain(msg);
+    });
+
+    // Solo personal (v43): sin vehículo ni km; varios grupos no chocan con D5
+    it('acepta grupos de solo personal, sin vehículo ni km, y varios a la vez', () => {
+      const { ambulancias, error } = leerAmbulancias([
+        { solo_personal: true, responsables: [20] },
+        { solo_personal: true, responsables: [21], personal: [30] },
+        { vehicle_id: 7, responsables: [22] },
+      ], TRAB);
+      expect(error).toBeUndefined();
+      expect(ambulancias.map(a => [a.vehicle_id, a.solo_personal, a.km_inicio]))
+        .toEqual([[null, true, null], [null, true, null], [7, false, null]]);
+    });
+
+    it.each([
+      ['solo personal con vehículo', [{ solo_personal: true, vehicle_id: 7, responsables: [2] }]],
+      ['solo personal con km', [{ solo_personal: true, km_inicio: 100, responsables: [2] }]],
+    ])('rechaza: %s', (_n, lista) => {
+      expect(leerAmbulancias(lista, TRAB).error).toContain('no lleva ambulancia ni km');
     });
   });
 
@@ -951,6 +970,24 @@ describe('trabajos.controller', () => {
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
         action: 'create_trabajo', details: expect.objectContaining({ coordinadores: [50], ambulancias: 1 }),
       }));
+    });
+
+    it('alta con un grupo de solo personal: sin consultar la flota, y la asignación sin vehículo (v43)', async () => {
+      bd(reglasOk());
+      const { ejecutadas } = conexion({ insertId: 10, asignaciones: ['programada'] });
+      const res = mockRes();
+      await createTrabajo(mockReq({
+        body: body({ asignaciones: [{ solo_personal: true, responsables: [20], personal: [30] }] }), user: admin,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(query.mock.calls.some(([sql]) => sql.includes('SELECT id FROM vehicles WHERE id IN'))).toBe(false);
+      const insAsig = ejecutadas.find(e => e.sql.includes('INSERT INTO asignaciones_libres'));
+      expect(insAsig.params[0]).toBeNull();
+      expect(insAsig.params.slice(-3)).toEqual([1, 10, 0]);
+      expect(res._json.data.avisos_alta).toEqual([expect.objectContaining({
+        asignacion_id: 11, vehicle_id: null, solo_personal: true, vehiculo_ocupado: [],
+      })]);
     });
 
     it('con varios coordinadores: el primero es el principal y todos van a la lista, en orden', async () => {

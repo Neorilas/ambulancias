@@ -82,8 +82,9 @@ export default function MisAsignaciones() {
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                      <span className="veh-name truncate">{a.vehiculo_alias}</span>
-                      <span className="data text-[13px] text-neutral-500 break-all">{a.matricula}</span>
+                      {/* Solo personal (v43): sin ambulancia ni matrícula */}
+                      <span className="veh-name truncate">{a.solo_personal ? 'Solo personal' : a.vehiculo_alias}</span>
+                      {!a.solo_personal && <span className="data text-[13px] text-neutral-500 break-all">{a.matricula}</span>}
                       <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
                       {esPersonal && <span className="badge-gray">Equipo</span>}
                     </div>

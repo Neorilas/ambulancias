@@ -25,7 +25,9 @@ export const estaCerrado = (estado) => CERRADOS.includes(estado);
  * Una ambulancia del alta: es una asignación (vehículo, responsables y
  * equipo). Las fechas en blanco son las del trabajo.
  */
-export const ambulanciaVacia = () => ({
+export const ambulanciaVacia = ({ soloPersonal = false } = {}) => ({
+  // Solo personal (v43): un grupo sin ambulancia, sin vehículo ni km
+  solo_personal: soloPersonal,
   vehicle_id: '', responsables: [''], personal: [],
   fecha_inicio: '', fecha_fin: '', km_inicio: '', notas: '',
   // Sin horario propio, hereda el del trabajo en sus fechas (v39)
@@ -203,9 +205,14 @@ export function validarTrabajo(form, { alta = false } = {}) {
 
   // Las ambulancias son opcionales; las que se añadan, completas
   const ambs = form.asignaciones || [];
-  const ids  = ambs.map(a => parseInt(a.vehicle_id, 10));
-  if (ambs.some((a, i) => !ids[i] || !idsElegidos(a.responsables).length)) {
+  // D5 es de ambulancias: varios grupos de solo personal (v43) no chocan
+  const ids  = ambs.filter(a => !a.solo_personal).map(a => parseInt(a.vehicle_id, 10));
+  if (ambs.some(a => !a.solo_personal && !parseInt(a.vehicle_id, 10))) {
     e.asignaciones = 'Cada ambulancia necesita el vehículo y al menos un responsable';
+  } else if (ambs.some(a => !idsElegidos(a.responsables).length)) {
+    e.asignaciones = ambs.some(a => a.solo_personal)
+      ? 'Cada ambulancia o grupo de personal necesita al menos un responsable'
+      : 'Cada ambulancia necesita el vehículo y al menos un responsable';
   } else if (new Set(ids).size !== ids.length) {
     e.asignaciones = 'La misma ambulancia está dos veces';
   } else if (ambs.some(a => {
@@ -250,13 +257,14 @@ export function payloadTrabajo(form, { alta = false } = {}) {
     ...datos,
     ...(form.previsto ? { previsto: true } : {}),
     asignaciones: form.asignaciones.map(a => ({
-      vehicle_id:   parseInt(a.vehicle_id, 10),
+      // Solo personal (v43): ni vehículo ni km (el backend los rechaza)
+      ...(a.solo_personal ? { solo_personal: true }
+        : { vehicle_id: parseInt(a.vehicle_id, 10), km_inicio: parseKm(a.km_inicio) }),
       responsables: idsElegidos(a.responsables),
       personal:     idsElegidos(a.personal),
       // Sin fecha propia, el backend le pone la del trabajo
       ...(a.fecha_inicio ? { fecha_inicio: toUtcIso(a.fecha_inicio) } : {}),
       ...(a.fecha_fin    ? { fecha_fin:    toUtcIso(a.fecha_fin) }    : {}),
-      km_inicio:    parseKm(a.km_inicio),
       notas:        a.notas.trim() || null,
       // Con `horario`, la ambulancia lleva el suyo; sin él, el del trabajo
       ...(a.horario_propio ? { horario: horarioAPayload(a.horario) } : {}),

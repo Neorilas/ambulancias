@@ -32,6 +32,7 @@ const {
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, esCoordinador, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
+const { deleteFile } = require('../../../middleware/upload.middleware');
 const { logAudit } = require('../../../controllers/admin.controller');
 const { mockReq, mockRes, mockNext } = require('../../helpers/mockReqRes');
 const { IMAGEN_TIPOS_REQUERIDOS, IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } =
@@ -2950,6 +2951,149 @@ describe('asignación dentro de un trabajo (v33)', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       expect(avisos.avisarTrabajoPendienteCierre).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Solo personal (v43): un grupo sin ambulancia dentro del trabajo ──
+  describe('solo personal (v43)', () => {
+    const personalFila = (over = {}) => fila({
+      vehicle_id: null, solo_personal: 1, matricula: null, vehiculo_alias: null, ...over });
+    const CUERPO = { trabajo_id: 40, solo_personal: true, responsables: [2], personal: [3],
+                     fecha_inicio: '2026-11-01 08:00:00', fecha_fin: '2026-11-01 20:00:00' };
+    const crear = async (body) => {
+      const res = mockRes();
+      await createAsignacion(mockReq({ body, user: ADMIN }), res, mockNext());
+      return res;
+    };
+
+    it('se crea sin vehículo ni km, sin mirar la flota ni D5', async () => {
+      bd([], { asig: personalFila() });
+      const res = await crear(CUERPO);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const [, params] = llamadas('INSERT INTO asignaciones_libres')[0];
+      expect(params[0]).toBeNull();              // vehicle_id
+      expect(params[5]).toBeNull();              // km_inicio
+      expect(params.slice(-3)).toEqual([1, 40, 0]); // solo_personal, trabajo_id, horario_propio
+      expect(llamadas('SELECT id FROM vehicles')).toHaveLength(0);
+      expect(llamadas('WHERE trabajo_id = ? AND vehicle_id = ?')).toHaveLength(0);
+      expect(res._json.data.vehiculo_ocupado).toEqual([]);
+      expect(res._json.data.solo_personal).toBe(true);
+      expect(res._json.data.progreso.inicio).toEqual({ completado: 0, total: 0, faltantes: [], completo: true });
+    });
+
+    it.each([
+      ['con vehículo', { vehicle_id: 7 }, 'no lleva ambulancia'],
+      ['con km', { km_inicio: 1000 }, 'no lleva km'],
+      ['fuera de un trabajo', { trabajo_id: undefined }, 'tiene que ir en un trabajo'],
+    ])('400 %s', async (_c, extra, texto) => {
+      bd();
+      const res = await crear({ ...CUERPO, ...extra });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toContain(texto);
+      expect(llamadas('INSERT INTO asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('una ambulancia sin vehicle_id sigue siendo 400', async () => {
+      bd();
+      const { solo_personal, ...sinTipo } = CUERPO;
+      const res = await crear(sinTipo);
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('el coordinador la inicia (en una ambulancia no puede) y no se mira ninguna ambulancia ocupada', async () => {
+      bd([], { asig: personalFila() });
+      const res = mockRes();
+      await activarAsignacion(mockReq({ params: { id: '10' }, user: COORD }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('al.finalizado_at IS NULL AND al.fecha_fin > ?')).toHaveLength(0);
+
+      // Cualquier coordinador, no solo el principal; un ajeno, no
+      const res2 = mockRes();
+      await activarAsignacion(mockReq({ params: { id: '10' }, user: AJENO }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(403);
+    });
+
+    it('la llegada no pide fotos de inicio', async () => {
+      bd([], { asig: personalFila({ estado: 'activa', inicio_real_at: new Date(T0) }) });
+      const res = mockRes();
+      await registrarLlegada(mockReq({ params: { id: '10' }, user: { ...COORD, id: 6 } }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas('SET llegada_servicio_at')).toHaveLength(1);
+      expect(llamadas('SELECT tipo_imagen, momento FROM vehicle_images')).toHaveLength(0);
+    });
+
+    it('el coordinador la finaliza sin fotos ni km, y no toca ningún vehículo', async () => {
+      bd([], {
+        asig: personalFila({ estado: 'activa', inicio_real_at: new Date(T0), motivo_fin: 'Acabó antes la carrera' }),
+        estadosTrabajo: ['finalizada'],
+      });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '10' }, body: { material_usado: 'Sin gasto de material' }, user: COORD,
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas("SET\n             estado         = 'finalizada'")).toHaveLength(1);
+      expect(llamadas('UPDATE vehicles')).toHaveLength(0);
+    });
+
+    it('al finalizar, unos km son 400', async () => {
+      bd([], { asig: personalFila({ estado: 'activa', motivo_fin: 'Acabó antes la carrera' }) });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '10' }, body: { material_usado: 'Nada', km_fin: 1200 }, user: ADMIN,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(llamadas('UPDATE asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('fotos: 400 y se borra la imagen que ya guardó el middleware; incidencias: 400', async () => {
+      bd([], { asig: personalFila({ estado: 'activa' }) });
+      const res = mockRes();
+      await uploadEvidencia(mockReq({
+        params: { id: '10' }, body: { tipo_imagen: 'frontal', momento: 'inicio' }, user: ADMIN,
+        processedFile: { url: '/uploads/x.jpg' },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(deleteFile).toHaveBeenCalledWith('/uploads/x.jpg');
+      expect(llamadas('INSERT INTO vehicle_images')).toHaveLength(0);
+
+      const res2 = mockRes();
+      await crearIncidenciaDesdeAsignacion(mockReq({
+        params: { id: '10' }, body: { descripcion: 'Golpe' }, user: { ...ADMIN, permissions: ['manage_incidencias'] },
+      }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(400);
+      expect(llamadas('INSERT INTO vehicle_incidencias')).toHaveLength(0);
+    });
+
+    it('editar: ni ponerle vehículo ni cambiar el tipo', async () => {
+      bd([], { asig: personalFila() });
+      const res = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { vehicle_id: 7 }, user: ADMIN }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
+
+      const res2 = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { solo_personal: false }, user: ADMIN }), res2, mockNext());
+      expect(res2.status).toHaveBeenCalledWith(400);
+
+      // Y una ambulancia no pasa a solo personal
+      bd();
+      const res3 = mockRes();
+      await updateAsignacion(mockReq({ params: { id: '10' }, body: { solo_personal: true }, user: ADMIN }), res3, mockNext());
+      expect(res3.status).toHaveBeenCalledWith(400);
+      expect(llamadas('UPDATE asignaciones_libres')).toHaveLength(0);
+    });
+
+    it('editar fechas y equipo de una de solo personal funciona y no busca ambulancia ocupada', async () => {
+      bd([], { asig: personalFila() });
+      const res = mockRes();
+      await updateAsignacion(mockReq({
+        params: { id: '10' }, body: { notas: 'Puesto 2', fecha_fin: new Date(T0 + 2 * 86400000).toISOString().slice(0, 16) },
+        user: ADMIN,
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(llamadas("SELECT 'asignacion' AS origen")).toHaveLength(0);
     });
   });
 

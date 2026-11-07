@@ -64,8 +64,9 @@ function TarjetaTrabajo({ t, onVer }) {
       {mia ? (
         <div className="text-sm space-y-0.5">
           <p>
-            <span className="text-neutral-500">Tu ambulancia: </span>
-            <strong className="text-neutral-900">{mia.vehiculo_alias || mia.matricula}</strong>
+            {/* Solo personal (v43): va sin ambulancia */}
+            <span className="text-neutral-500">{mia.solo_personal ? 'Tu servicio: ' : 'Tu ambulancia: '}</span>
+            <strong className="text-neutral-900">{mia.solo_personal ? 'Solo personal' : mia.vehiculo_alias || mia.matricula}</strong>
             <span className="text-neutral-600"> · {textoEstadoAmbulancia(mia)}</span>
           </p>
           {mia.mi_rol === 'equipo' && (

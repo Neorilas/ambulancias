@@ -169,6 +169,22 @@ describe('utils/trabajos', () => {
       expect(p).not.toHaveProperty('vehiculos');
     });
 
+    it('solo personal (v43): sin vehículo ni km, y no choca con D5 aunque haya varios', () => {
+      const form = formValido({ asignaciones: [
+        { ...ambulanciaVacia({ soloPersonal: true }), responsables: ['20'], km_inicio: '500' },
+        { ...ambulanciaVacia({ soloPersonal: true }), responsables: ['21'] },
+        { ...ambulanciaVacia(), vehicle_id: '7', responsables: ['22'] },
+      ] });
+      expect(validarTrabajo(form, { alta: true })).toEqual({});
+      const p = payloadTrabajo(form, { alta: true });
+      expect(p.asignaciones[0]).toEqual({ solo_personal: true, responsables: [20], personal: [], notas: null });
+      expect(p.asignaciones[2]).toMatchObject({ vehicle_id: 7, km_inicio: null });
+      expect(p.asignaciones[2]).not.toHaveProperty('solo_personal');
+      // Sin responsable, error que nombra los dos casos
+      const sinResp = formValido({ asignaciones: [{ ...ambulanciaVacia({ soloPersonal: true }) }] });
+      expect(validarTrabajo(sinResp, { alta: true }).asignaciones).toMatch(/grupo de personal/);
+    });
+
     it('al editar, datos, coordinadores y equipo del trabajo; sin ambulancias', () => {
       const p = payloadTrabajo(formValido({ usuarios: ['30', '', 31], coordinadores: ['51', '', 50] }));
       expect(p).not.toHaveProperty('asignaciones');

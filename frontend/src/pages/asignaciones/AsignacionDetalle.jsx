@@ -6,7 +6,9 @@ import { usersService } from '../../services/users.service.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import { useFeatures } from '../../context/FeaturesContext.jsx';
-import { formatDateTime, formatHora, duration, formatMinutos } from '../../utils/dateUtils.js';
+import {
+  formatDateTime, formatHora, duration, formatMinutos, esProntoParaIniciar, inicioServicioPermitidoDesde,
+} from '../../utils/dateUtils.js';
 import ConfirmDialog from '../../components/common/ConfirmDialog.jsx';
 import { getImageUrl } from '../../utils/imageUtils.js';
 import { IMAGEN_TIPOS_INICIO, IMAGEN_TIPOS_FIN } from '../../utils/constants.js';
@@ -270,6 +272,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   const showFin    = paso === 'fin';
   const [showEditar, setShowEditar] = useState(false);
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
+  // Solo personal (v43): el inicio es un botón, sin asistente de fotos
+  const [iniciando, setIniciando] = useState(false);
   const [registrandoFinServicio, setRegistrandoFinServicio] = useState(false);
   const [motivoFin, setMotivoFin] = useState('');
   // Aviso del motivo: solo tras intentar enviarlo, nunca mientras se escribe.
@@ -341,6 +345,20 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   };
 
   // «Inicio evento/servicio»: la hora la pone el servidor, no el móvil.
+  // «Inicio de la asignación» de una de solo personal (v43): sin fotos, el
+  // asistente de inicio no tiene nada que enseñar; se marca directamente.
+  const handleInicioSinAmbulancia = async () => {
+    setIniciando(true);
+    try {
+      setAsig(await asignacionesService.activar(id));
+      notify.success('Inicio registrado');
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se pudo registrar el inicio');
+    } finally {
+      setIniciando(false);
+    }
+  };
+
   const handleLlegada = async () => {
     setRegistrandoLlegada(true);
     try {
@@ -454,14 +472,23 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
 
   // Iniciar y finalizar es de los responsables (o de quien gestiona). El
   // personal ve la asignación pero no la mueve; el backend lo rechaza igual.
+  // Solo personal (v43): sin ambulancia; también la opera cualquier
+  // coordinador del trabajo («activa y finaliza el coordinador»), como el
+  // backend (`puedeOperar`)
+  const sinAmbulancia  = !!asig?.solo_personal;
+  const coordinaTrabajo = esCoordinadorDe(asig?.trabajo, user?.id);
   const miRol          = rolEnAsignacion(asig, user?.id);
-  const soyResponsable = miRol === 'responsable' || canManageTrabajos();
-  const soloPersonal   = miRol === 'personal' && !canManageTrabajos();
-  // Cualquier coordinador del trabajo la ve entera pero no la opera (D2)
-  const soloCoordina   = !miRol && !canManageTrabajos() && esCoordinadorDe(asig?.trabajo, user?.id);
+  const soyResponsable = miRol === 'responsable' || canManageTrabajos() || (sinAmbulancia && coordinaTrabajo);
+  const soloPersonal   = miRol === 'personal' && !soyResponsable;
+  // Cualquier coordinador del trabajo ve la ambulancia entera pero no la opera (D2)
+  const soloCoordina   = !miRol && !canManageTrabajos() && !sinAmbulancia && coordinaTrabajo;
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
-  const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto;
+  const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto && !sinAmbulancia;
+  // Sin ambulancia no hay fotos: «Inicio» es solo el botón, con la misma
+  // media hora de margen que el asistente
+  const faltaInicioSinAmbulancia = sinAmbulancia && soyResponsable && !finalizada && !asig?.inicio_real_at;
+  const prontoSinAmbulancia = faltaInicioSinAmbulancia && esProntoParaIniciar(asig?.fecha_inicio, ahora);
   // Tras las fotos de inicio va el desplazamiento; al llegar se pulsa
   // «Inicio evento/servicio». Es OPCIONAL a propósito: quien se olvide tiene que
   // poder cerrar igual, así que «Finalizar» no espera por ella (§6.1 del mapa).
@@ -482,7 +509,10 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   const motivoJornadaPedido = jornadaAhora.principal === 'fin'
     && (forzarMotivoJornada || finJornadaAnticipado(jornadaAhora.abierta, ahora));
   // Con una jornada abierta no se finaliza (el backend da 400): primero su «Fin de jornada»
-  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto && !jornadaAhora.abierta;
+  // Sin ambulancia, como con ella: hasta el inicio no se ofrece (allí lo
+  // impiden las fotos de inicio; aquí, el propio botón)
+  const puedeFin         = soyResponsable && !finalizada && !inicioIncompleto && !jornadaAhora.abierta
+                           && !faltaInicioSinAmbulancia;
   // Las que aún no han terminado y nadie ha fichado: finalizar ahora las deja
   // sin hacer. Es fácil pulsarlo el primer día por error (lo vio la prueba
   // local del 2026-10-18), así que se pide confirmación.
@@ -536,8 +566,31 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
             {/* Quien va en el equipo ve la asignación, pero no la mueve */}
             {soloPersonal && !finalizada && (
               <div className="card bg-neutral-50 border-neutral-200 text-sm text-neutral-600">
-                Vas en el <strong>equipo</strong> de esta ambulancia. Solo los
-                responsables pueden iniciarla, documentar el vehículo y finalizarla.
+                {sinAmbulancia ? (
+                  <>Vas en el <strong>equipo</strong> de este grupo. Lo inician y lo finalizan
+                  sus responsables o el coordinador del trabajo.</>
+                ) : (
+                  <>Vas en el <strong>equipo</strong> de esta ambulancia. Solo los
+                  responsables pueden iniciarla, documentar el vehículo y finalizarla.</>
+                )}
+              </div>
+            )}
+
+            {/* Solo personal (v43): el inicio, sin fotos */}
+            {faltaInicioSinAmbulancia && (
+              <div className="card bg-warn-50 border-warn-200 border-2 space-y-2" data-testid="inicio-sin-ambulancia">
+                <div>
+                  <p className="font-semibold text-warn-700 text-sm">Inicio de la asignación</p>
+                  <p className="text-xs text-warn-700 mt-0.5">
+                    Púlsalo al empezar: se guarda la hora real. Sin ambulancia no hay fotos ni km.
+                  </p>
+                </div>
+                <button onClick={handleInicioSinAmbulancia} disabled={iniciando || prontoSinAmbulancia}
+                  className="btn-primary w-full">
+                  {iniciando ? 'Registrando…'
+                    : prontoSinAmbulancia ? `Desde ${formatDateTime(inicioServicioPermitidoDesde(asig.fecha_inicio))}`
+                    : 'Inicio de la asignación'}
+                </button>
               </div>
             )}
             {soloCoordina && !finalizada && (
@@ -704,7 +757,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
             {puedeFin && (
               <div className="flex gap-2">
                 <button onClick={() => (jornadasPendientes.length ? setConfirmarFinConJornadas(true) : abrirPaso('fin'))}
-                  className={`${faltaLlegada || faltaFinServicio || jornadaAhora.principal ? 'btn-secondary' : 'btn-primary'} flex-1`}>
+                  className={`${faltaLlegada || faltaFinServicio || jornadaAhora.principal || faltaInicioSinAmbulancia ? 'btn-secondary' : 'btn-primary'} flex-1`}>
                   Finalizar asignación
                 </button>
               </div>
@@ -750,8 +803,12 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Vehículo</p>
-                <p className="font-medium text-neutral-900">{asig.vehiculo_alias}</p>
-                <p className="text-neutral-500 text-xs data">{asig.matricula}</p>
+                {sinAmbulancia ? (
+                  <p className="font-medium text-neutral-900" data-testid="sin-ambulancia">Solo personal</p>
+                ) : (<>
+                  <p className="font-medium text-neutral-900">{asig.vehiculo_alias}</p>
+                  <p className="text-neutral-500 text-xs data">{asig.matricula}</p>
+                </>)}
               </div>
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">
@@ -870,6 +927,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                   )}
                 </div>
               )}
+              {!sinAmbulancia && (<>
               <div>
                 <p className="text-neutral-400 text-xs mb-0.5">Km inicio</p>
                 <p className="text-neutral-900">{asig.km_inicio != null ? `${asig.km_inicio.toLocaleString()} km` : '—'}</p>
@@ -878,6 +936,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 <p className="text-neutral-400 text-xs mb-0.5">Km fin</p>
                 <p className="text-neutral-900">{asig.km_fin != null ? `${asig.km_fin.toLocaleString()} km` : '—'}</p>
               </div>
+              </>)}
               {asig.motivo_fin && (
                 <div className="col-span-2">
                   <p className="text-neutral-400 text-xs mb-0.5">Motivo de fin anticipado</p>
@@ -898,6 +957,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               )}
             </div>
 
+            {/* Sin ambulancia (v43): ni recorrido, ni incidencias del vehículo, ni fotos */}
+            {!sinAmbulancia && (<>
             {/* ── Recorrido (GPS de Cartrack) ────────────────────── */}
             {puedeVerMapa && ['activa', 'finalizada'].includes(asig.estado) && (
               <RecorridoServicio key={asig.id} asignacionId={asig.id} />
@@ -1142,6 +1203,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 })}
               </div>
             </div>
+
+            </>)}
 
             {/* Modales inicio / fin */}
             {showInicio && (

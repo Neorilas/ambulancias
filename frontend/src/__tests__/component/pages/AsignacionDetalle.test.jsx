@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { get: vi.fn(), crearIncidencia: vi.fn(), registrarLlegada: vi.fn(), registrarFinServicio: vi.fn(),
-    iniciarJornada: vi.fn(), finalizarJornada: vi.fn() },
+    iniciarJornada: vi.fn(), finalizarJornada: vi.fn(), activar: vi.fn() },
 }));
 vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn().mockResolvedValue({ data: [] }) },
@@ -773,3 +773,68 @@ describe('AsignacionDetalle — jornadas por día', () => {
   });
 });
 
+
+// ── v43: solo personal, sin ambulancia ──────────────────────
+describe('AsignacionDetalle — solo personal (v43)', () => {
+  const TRABAJO = {
+    id: 40, nombre: 'Maratón', coordinadores: [{ id: 9, nombre: 'Carla', apellidos: 'Ruiz' }],
+  };
+  const sinAmbulancia = (extra = {}) => ({
+    ...BASE, estado: 'activa', finalizado_at: null, inicio_real_at: null,
+    vehicle_id: null, solo_personal: true, vehiculo_alias: null, matricula: null, km_inicio: null, km_fin: null,
+    trabajo_id: 40, trabajo: TRABAJO,
+    // Una hora de inicio ya pasada: el botón se puede pulsar
+    fecha_inicio: new Date(Date.now() - 60000).toISOString(),
+    fecha_fin: new Date(Date.now() + 3600000).toISOString(),
+    responsables: [{ id: 2, nombre: 'Jose', apellidos: 'Lopez', username: 'jlopez' }],
+    personal: [{ id: 3, nombre: 'Eva', apellidos: 'Gil', username: 'egil' }],
+    progreso: { inicio: { completado: 0, total: 0, faltantes: [], completo: true },
+                fin: { completado: 0, total: 0, faltantes: [], completo: true } },
+    ...extra,
+  });
+  const comoUsuario = (u) => localStorage.setItem(PREFIJO + 'user', JSON.stringify(u));
+
+  beforeEach(() => {
+    flags.activos = ['menu_mis_trabajos'];
+    localStorage.clear();
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    vi.clearAllMocks();
+  });
+
+  it('el coordinador la inicia con un botón, sin asistente de fotos', async () => {
+    comoUsuario({ id: 9, username: 'carla', roles: [], permissions: [] });
+    asignacionesService.get.mockResolvedValue(sinAmbulancia());
+    asignacionesService.activar.mockResolvedValue(sinAmbulancia({ inicio_real_at: new Date().toISOString() }));
+    montar();
+
+    const bloque = await screen.findByTestId('inicio-sin-ambulancia');
+    // No es la explicación de «la ve pero no la opera» de una ambulancia
+    expect(screen.queryByText(/Coordinas este trabajo/)).not.toBeInTheDocument();
+    fireEvent.click(bloque.querySelector('button'));
+    await waitFor(() => expect(asignacionesService.activar).toHaveBeenCalledWith(5));
+    // Ya iniciada: toca el evento y desaparece el inicio
+    expect(await screen.findByRole('button', { name: 'Inicio evento/servicio' })).toBeInTheDocument();
+    expect(screen.queryByTestId('inicio-sin-ambulancia')).not.toBeInTheDocument();
+  });
+
+  it('sin vehículo, km, fotos ni incidencias en la ficha', async () => {
+    comoUsuario({ id: 1, username: 'admin', roles: ['administrador'], permissions: ['manage_trabajos'] });
+    asignacionesService.get.mockResolvedValue(sinAmbulancia({ inicio_real_at: '2026-09-21T06:07:00.000Z' }));
+    montar();
+
+    expect(await screen.findByTestId('sin-ambulancia')).toHaveTextContent('Solo personal');
+    expect(screen.queryByText('Km inicio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fotos al recibir el vehículo')).not.toBeInTheDocument();
+    expect(screen.queryByText('INCIDENCIAS')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
+  });
+
+  it('el equipo lo ve explicado, sin botones', async () => {
+    comoUsuario({ id: 3, username: 'egil', roles: ['enfermero'], permissions: [] });
+    asignacionesService.get.mockResolvedValue(sinAmbulancia());
+    montar();
+
+    expect(await screen.findByText(/Vas en el/)).toHaveTextContent('Vas en el equipo de este grupo');
+    expect(screen.queryByTestId('inicio-sin-ambulancia')).not.toBeInTheDocument();
+  });
+});

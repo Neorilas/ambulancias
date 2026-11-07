@@ -170,7 +170,7 @@ export default function DetalleTecnico({ userId, mes, nombre, onClose, onCambios
                             {titulo}
                           </button>
                           <div className="whitespace-nowrap text-xs text-neutral-500">
-                            {s.alias}{s.matricula && <span className="font-mono"> · {s.matricula}</span>}
+                            {s.solo_personal ? 'Solo personal' : s.alias}{s.matricula && <span className="font-mono"> · {s.matricula}</span>}
                           </div>
                           <div className="text-xs text-neutral-400">{ROL_SERVICIO[s.rol] || s.rol}</div>
                         </td>

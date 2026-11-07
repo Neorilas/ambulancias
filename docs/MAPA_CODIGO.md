@@ -1488,7 +1488,7 @@ trabajo_usuarios, vehicle_images` + eventos de limpieza (las vistas
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `asignaciones_libres.solo_personal` + `vehicle_id` NULL (v43, asignación de solo personal sin ambulancia, §6.1), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1616,7 +1616,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v42_trabajo_evento**. (En alguna BD local puede
+Última migración: **v43_asignacion_solo_personal**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -2474,6 +2474,66 @@ hace el backend:
   asignaciones. Uno nuevo arranca cuando arranca su primera ambulancia, y sin
   ambulancias se queda `programado`: se las pueden poner después.
 
+**Solo personal, sin ambulancia (v43, 2026-11-07).** Pedido del usuario: hay
+trabajos (o partes de un trabajo) que solo llevan personal, sin ambulancia,
+y tienen que fichar horas. Se descartó una casilla en el TRABAJO: las horas
+son de cada asignación, no del trabajo, y una casilla así no deja mezclar
+(2 ambulancias + un puesto a pie en el mismo evento) y obligaba a una
+segunda vía de horas en paralelo. Lo que hay es **una asignación más del
+trabajo, sin vehículo**: `solo_personal = 1` y `vehicle_id` NULL, siempre las
+dos juntas (el tipo va en su columna, no se deduce del NULL). Decisiones del
+usuario: **sin fotos**; **cuenta como ambulancia viva** para sacar un trabajo
+de previsto; **horas en global** (las del grupo, como el equipo de una
+ambulancia) y **las inicia y finaliza el coordinador**; **se mide como una
+ambulancia** en el informe (horas y puntualidad; «las importantes son las de
+servicio»).
+- **Alta:** en `POST /asignaciones` (`solo_personal: true`, sin `vehicle_id`
+  ni `km_inicio`, y obligatoriamente con `trabajo_id`: una suelta da 400) y
+  en las `asignaciones[]` del alta del trabajo (`leerAmbulancias`). D5 es de
+  ambulancias: puede haber varios grupos de solo personal en un trabajo. El
+  validador de la ruta exige `vehicle_id` solo si no es de solo personal
+  (`.if`). Pantalla: casilla «Solo personal, sin ambulancia» en
+  `AsignacionForm` al añadir desde la ficha del trabajo («+ Añadir ambulancia
+  o personal»), y botón «+ Solo personal» en el alta de `TrabajoForm`.
+- **El tipo no cambia** después: ni ponerle vehículo ni quitárselo
+  (`updateAsignacion` da 400). Se borra y se crea la otra. Con fotos y
+  kilómetros de por medio, convertir una en otra dejaba evidencia colgando.
+- **Quién la opera (`puedeOperar`):** gestión y sus responsables, como
+  siempre, y además **cualquier coordinador del trabajo**. Solo en estas: en
+  una ambulancia el coordinador sigue viéndola sin operarla (D2). El
+  responsable sigue siendo obligatorio (es a quien se le mide la
+  puntualidad, y `user_id` es NOT NULL); el frontend replica la regla en
+  `AsignacionDetalle` (`soyResponsable` con `sinAmbulancia && coordinaTrabajo`).
+- **Sin fotos ni km:** `getProgreso(id, true)` devuelve un progreso completo y
+  vacío (`total: 0`), y así llegada, jornadas y cierre no tienen que
+  distinguirla. Lo mismo `progreso_fotos` en la ficha del trabajo.
+  `uploadEvidencia` da 400 y borra la imagen que ya guardó el middleware;
+  incidencias, 400 (son del vehículo); `km_fin` al finalizar, 400; no se
+  toca `vehicles`. No se mira «ambulancia ocupada» ni al planificar ni al
+  iniciar. `material_usado` se sigue pidiendo (el personal también gasta
+  material). En pantalla, el inicio es un botón directo en la ficha
+  (`handleInicioSinAmbulancia`, con la misma media hora de margen), sin el
+  asistente de fotos, y `FinalizacionAsignacion` se queda en material (+
+  motivo) y confirmar.
+- **TRAMPA: ningún INNER JOIN de una asignación con `vehicles`.** Un `JOIN
+  vehicles v ON v.id = al.vehicle_id` hace desaparecer en silencio las de
+  solo personal: el cron no las activaba, la vigilancia no avisaba de «sin
+  iniciar», no salían en la ficha del trabajo, ni en el calendario, ni en el
+  informe de horas. Se pasaron todos a LEFT (`asignaciones.controller`,
+  `trabajos.controller`, `vigilancia.service`, `informes.service`,
+  `server.js`) y **`joinsSoloPersonal.test.js` falla si vuelve a aparecer
+  uno**. La única excepción es `flota.getRecorrido`: el GPS es del vehículo y
+  una de solo personal da 404 (la ficha no ofrece el recorrido).
+- **Cómo se nombra:** «Solo personal» donde iría la ambulancia (listados,
+  avisos push con `etiquetaVehiculo`, alarmas, calendario, informes, PDF). En
+  SQL va con `COALESCE(v.alias, v.matricula, 'Solo personal')`.
+- **Informe:** cuenta como servicio (horas, puntualidad del responsable) y
+  queda fuera de la flota (`porVehiculo` y `vehiculos_usados` la saltan; un
+  NULL contaba como un vehículo usado).
+- Verificado de punta a punta contra MariaDB (2026-11-07): la migración (el
+  MODIFY a NULL conserva la FK), el alta mixta, el coordinador que inicia y
+  finaliza, el cron que la activa a su hora y la alarma de «sin iniciar».
+
 ### 6.2 Quién hace qué en un trabajo
 
 **Desde v33 (el trabajo padre)** sus ambulancias son asignaciones (§6.1 «La
@@ -2969,6 +3029,7 @@ solo actúa en el navegador no es un control de acceso.
 | Un campo nuevo del trabajo que deba ver quien va en una ambulancia | La ficha (`getTrabajoCompleto`, `SELECT t.*`) lo lleva sola, pero la tarjeta del trabajo dentro de la ambulancia NO: `getAsignacionCompleta` (`t.<campo> AS trabajo_<campo>`) **y** `trabajoAparte` en `asignaciones.controller`. Listados con columnas a mano: `listTrabajos`, `misTrab`, `miCalendario`, `listTrabajosCalendario`. Formulario: `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`. Ejemplo: `ubicacion_url` (v34, §6.2) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |
+| Algo que lea asignaciones con su vehículo (una consulta, un listado, un aviso) | **`LEFT JOIN vehicles`**, nunca INNER: las de solo personal (v43) no tienen vehículo y desaparecerían sin error. Lo vigila `joinsSoloPersonal.test.js`. Para el nombre, `COALESCE(v.alias, v.matricula, 'Solo personal')` o mirar `solo_personal`. Si es algo del vehículo (fotos, km, incidencias, GPS), decidir qué pasa sin él: hoy 400 o se salta (§6.1 «Solo personal») |
 | Un campo de asignación | migración → `asignaciones.controller` (`getAsignacionCompleta`, create/update; en el `UPDATE`, `COALESCE` impide vaciar el campo — si debe poder vaciarse, va como `notas`, §6.1) → `asignaciones.routes` (validadores) → `AsignacionForm`/`AsignacionDetalle` → tests |
 | Quién va en una asignación (responsables / personal = «Equipo» en pantalla, D8) | migración v23 → `asignaciones.controller` (`leerMiembros`, `guardarMiembros`, `rolEnAsignacion`, `buscarSolapes`, filtro del listado) + `asignaciones.routes` (validadores `responsables`/`personal`, `user_id` opcional por compatibilidad) + `ownership.middleware` + nombres en `vehicles.controller` (ficha e historial), `flota.controller`, `vigilancia.service` y `avisosAsignacion.service` → `AsignacionForm` (`ListaMiembros`), `AsignacionDetalle`, `MisAsignaciones`, `AsignacionList`, `VehicleHistory` + `utils/miembrosAsignacion.js` → `scripts/seed-local.js` si siembra asignaciones. Reglas en §6.1 |
 | El orden del listado de asignaciones | `ORDEN_LISTADO` en `asignaciones.controller` (es un `ORDER BY` de SQL, **no** un `sort` en el navegador: `AsignacionList` pagina de 20 en 20 y ordenar solo la página que ha llegado daría un orden distinto en cada página). Hoy: cerradas (finalizada/cancelada) al final; las `activa` encabezan las abiertas; el resto por `fecha_inicio` ASC, la más próxima a activarse arriba; entre las cerradas, la que se cerró más tarde primero (`COALESCE(finalizado_at, fecha_fin)` — una cancelada no tiene `finalizado_at`). **El criterio de las `activa` parece redundante y no lo es**: `activarAsignacion` no mira el reloj, así que quien pulsa «Inicio de la asignación» antes de hora deja una `activa` con `fecha_inicio` futura, y sin él el servicio EN CURSO se hunde bajo los que no han empezado. `al.id` cierra el orden para que la paginación no repita ni pierda filas. Quien consume ese orden sin tocarlo: `AsignacionList`, y `MisAsignaciones` y `Dashboard`, que piden 50 y descartan las cerradas en el cliente (por eso mandarlas al final les llena la ventana de filas útiles) |
@@ -3199,7 +3260,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-10-12** (revisión de errores acumulados: §7 con el estado real de los flags en PRO, §9 CSP obligatoria y backups instalados, §2.2 sin el `GET /push/estado`, §10 planes que quedan, §3.1 y §8 Vite 7 para build y tests; antes, ese mismo día, facturas de mantenimiento §2.8 y mantenimiento por km §2.9). Antes, **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-11-07** (asignaciones de solo personal sin ambulancia, v43: §4, §5, §6.1 y §8). Antes, **2026-10-12** (revisión de errores acumulados: §7 con el estado real de los flags en PRO, §9 CSP obligatoria y backups instalados, §2.2 sin el `GET /push/estado`, §10 planes que quedan, §3.1 y §8 Vite 7 para build y tests; antes, ese mismo día, facturas de mantenimiento §2.8 y mantenimiento por km §2.9). Antes, **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

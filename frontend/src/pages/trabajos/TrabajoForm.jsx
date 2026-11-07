@@ -109,8 +109,8 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
   // trabajo (equipo, coordinador, quien va en otra ambulancia) y debajo el resto
   const delEquipo = asociadosDeFormulario(form);
 
-  const anadirAmbulancia = () =>
-    setForm(f => ({ ...f, asignaciones: [...f.asignaciones, ambulanciaVacia()] }));
+  const anadirAmbulancia = (soloPersonal = false) =>
+    setForm(f => ({ ...f, asignaciones: [...f.asignaciones, ambulanciaVacia({ soloPersonal })] }));
   const quitarAmbulancia = (i) =>
     setForm(f => ({ ...f, asignaciones: f.asignaciones.filter((_, j) => j !== i) }));
 
@@ -324,7 +324,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                   : `sus ${acabanConEl.length} ambulancias`}
               </span>
               <span className="block text-xs text-neutral-500 mt-0.5">
-                {acabanConEl.map(a => a.vehiculo_alias || a.matricula).join(', ')}
+                {acabanConEl.map(a => (a.solo_personal ? 'Solo personal' : a.vehiculo_alias || a.matricula)).join(', ')}
                 {acabanConEl.length === 1 ? ' acababa' : ' acababan'} con el trabajo
                 {acabanConEl.some(a => a.estado === 'activa') ? ' (aunque esté en curso)' : ''}.
                 {form.fecha_fin > toInputDatetime(trabajo.fecha_fin)
@@ -397,15 +397,22 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
         {alta && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">Ambulancias</label>
-              <button type="button" onClick={anadirAmbulancia} className="btn-secondary text-xs px-2 py-1">
-                + Añadir ambulancia
-              </button>
+              <label className="label mb-0">Ambulancias y personal</label>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={() => anadirAmbulancia(false)} className="btn-secondary text-xs px-2 py-1">
+                  + Añadir ambulancia
+                </button>
+                <button type="button" onClick={() => anadirAmbulancia(true)} className="btn-secondary text-xs px-2 py-1"
+                  data-testid="anadir-solo-personal">
+                  + Solo personal
+                </button>
+              </div>
             </div>
             <p className="text-xs text-neutral-500 mb-2">
               Las que ya se sepan; si no, se añaden después desde la ficha del trabajo.
               Los responsables inician, documentan y finalizan su ambulancia; su equipo
-              va con ellos y la ve, pero no la opera.
+              va con ellos y la ve, pero no la opera. «Solo personal» es un grupo sin
+              ambulancia (sin fotos ni km) que también puede iniciar y finalizar el coordinador.
             </p>
             {errors.asignaciones && <p className="field-error mb-2">{errors.asignaciones}</p>}
             <div className="space-y-3">
@@ -414,10 +421,13 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                 return (
                   <div key={i} className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-neutral-600">Ambulancia {i + 1}</span>
+                      <span className="text-xs font-medium text-neutral-600">
+                        {amb.solo_personal ? `Solo personal (sin ambulancia) · ${i + 1}` : `Ambulancia ${i + 1}`}
+                      </span>
                       <button type="button" onClick={() => quitarAmbulancia(i)}
                         className="text-bad-500 hover:text-bad-600 text-xs">Quitar</button>
                     </div>
+                    {!amb.solo_personal && (
                     <div>
                       <label className="label text-xs">Vehículo</label>
                       <select className="input text-sm" value={amb.vehicle_id}
@@ -428,6 +438,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                         ))}
                       </select>
                     </div>
+                    )}
                     <div>
                       <label className="label text-xs">Responsables <span className="text-bad-500">*</span></label>
                       <ListaMiembros
@@ -502,14 +513,16 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {!amb.solo_personal && (
                       <div>
                         <label className="label text-xs">Km inicio</label>
                         <input type="text" inputMode="numeric" className="input text-sm"
                           value={amb.km_inicio} placeholder="Opcional"
                           onChange={e => setAmbulancia(i, 'km_inicio', e.target.value)} />
                       </div>
-                      <div className="sm:col-span-2">
-                        <label className="label text-xs">Notas para esta ambulancia</label>
+                      )}
+                      <div className={amb.solo_personal ? 'sm:col-span-3' : 'sm:col-span-2'}>
+                        <label className="label text-xs">{amb.solo_personal ? 'Notas para este grupo' : 'Notas para esta ambulancia'}</label>
                         <input type="text" className="input text-sm" value={amb.notas} maxLength={1000}
                           placeholder="Opcional"
                           onChange={e => setAmbulancia(i, 'notas', e.target.value)} />

@@ -42,7 +42,11 @@ router.get('/:id',
 router.post('/',
   requirePermission(PERMISSIONS.MANAGE_TRABAJOS),
   [
-    body('vehicle_id').notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
+    // Solo personal (v43): sin vehículo. Que no lo traiga, y que vaya en un
+    // trabajo, lo mira el controlador.
+    body('solo_personal').optional().isBoolean({ strict: true }),
+    body('vehicle_id').if((_v, { req }) => req.body.solo_personal !== true)
+      .notEmpty().isInt({ min: 1 }).withMessage('vehicle_id requerido'),
     // La ambulancia dentro de su trabajo (v33). Opcional hasta la fase 8 del
     // plan del trabajo padre (tras encender menu_trabajos): el alta suelta
     // que se ve con el flag apagado no lo manda.
@@ -75,6 +79,7 @@ router.put('/:id',
   [
     param('id').isInt({ min: 1 }),
     body('vehicle_id').optional().isInt({ min: 1 }),
+    body('solo_personal').optional().isBoolean({ strict: true }),
     // null llega al controlador a propósito: sacarla de su trabajo da 400 allí
     body('trabajo_id').optional({ nullable: true }).isInt({ min: 1 }),
     body('user_id').optional().isInt({ min: 1 }),

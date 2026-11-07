@@ -47,7 +47,9 @@ function disparar(promesa) {
  * el respaldo para las que todavía no tienen nombre puesto.
  */
 function etiquetaVehiculo(asig) {
-  return asig?.vehiculo_alias || asig?.matricula || 'Vehículo sin identificar';
+  return asig?.vehiculo_alias || asig?.matricula
+    // Sin ambulancia (v43): el aviso nombra el grupo y el trabajo
+    || (Number(asig?.solo_personal) ? 'Solo personal' : 'Vehículo sin identificar');
 }
 
 /** Nombre del técnico responsable, tal y como se pinta en la app. */

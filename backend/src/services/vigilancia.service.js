@@ -60,13 +60,13 @@ async function revisarAsignacionesSinIniciar() {
 
     const [candidatas] = await query(
       `SELECT al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
-              v.alias AS vehiculo_alias, v.matricula,
+              al.solo_personal, v.alias AS vehiculo_alias, v.matricula,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
               (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                  FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
                 WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
          FROM asignaciones_libres al
-         JOIN vehicles v ON v.id = al.vehicle_id
+         LEFT JOIN vehicles v ON v.id = al.vehicle_id   -- solo personal (v43)
          JOIN users u    ON u.id = al.user_id
          LEFT JOIN trabajos t ON t.id = al.trabajo_id
         WHERE al.inicio_real_at IS NULL
@@ -134,14 +134,14 @@ async function revisarJornadasSinIniciar() {
     const [candidatas] = await query(
       `SELECT j.id AS jornada_id, j.inicio AS jornada_inicio, j.fin AS jornada_fin,
               al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
-              v.alias AS vehiculo_alias, v.matricula,
+              al.solo_personal, v.alias AS vehiculo_alias, v.matricula,
               CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
               (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                  FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
                 WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
          FROM asignacion_jornadas j
          JOIN asignaciones_libres al ON al.id = j.asignacion_id
-         JOIN vehicles v ON v.id = al.vehicle_id
+         LEFT JOIN vehicles v ON v.id = al.vehicle_id   -- solo personal (v43)
          JOIN users u    ON u.id = al.user_id
          LEFT JOIN trabajos t ON t.id = al.trabajo_id
         WHERE j.inicio_real_at IS NULL
@@ -203,13 +203,13 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
   const [filas] = await query(
     `SELECT al.id, al.fecha_inicio, al.estado, al.aviso_sin_iniciar_at,
             al.trabajo_id, t.nombre AS trabajo_nombre,
-            v.alias AS vehiculo_alias, v.matricula,
+            al.solo_personal, v.alias AS vehiculo_alias, v.matricula,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
             (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
               WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
        FROM asignaciones_libres al
-       JOIN vehicles v ON v.id = al.vehicle_id
+       LEFT JOIN vehicles v ON v.id = al.vehicle_id   -- solo personal (v43)
        JOIN users u    ON u.id = al.user_id
        LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE al.aviso_sin_iniciar_at IS NOT NULL
@@ -229,14 +229,14 @@ async function listarAlarmasSinIniciar({ excluirUserId = 0 } = {}) {
     `SELECT al.id, j.id AS jornada_id, j.inicio AS fecha_inicio, al.estado,
             j.aviso_sin_iniciar_at,
             al.trabajo_id, t.nombre AS trabajo_nombre,
-            v.alias AS vehiculo_alias, v.matricula,
+            al.solo_personal, v.alias AS vehiculo_alias, v.matricula,
             CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre,
             (SELECT GROUP_CONCAT(CONCAT(ru.nombre,' ',ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                FROM asignacion_usuarios ra JOIN users ru ON ra.user_id = ru.id
               WHERE ra.asignacion_id = al.id AND ra.rol = 'responsable') AS responsables_nombres
        FROM asignacion_jornadas j
        JOIN asignaciones_libres al ON al.id = j.asignacion_id
-       JOIN vehicles v ON v.id = al.vehicle_id
+       LEFT JOIN vehicles v ON v.id = al.vehicle_id   -- solo personal (v43)
        JOIN users u    ON u.id = al.user_id
        LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE j.aviso_sin_iniciar_at IS NOT NULL

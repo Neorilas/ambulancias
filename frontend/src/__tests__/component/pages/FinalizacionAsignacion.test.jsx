@@ -239,3 +239,30 @@ describe('FinalizacionAsignacion — sin cobertura al enviar', () => {
     expect(await screen.findByText('La asignación ya está finalizada')).toBeInTheDocument();
   });
 });
+
+// ── v43: solo personal, sin ambulancia ──────────────────────
+describe('FinalizacionAsignacion — solo personal (v43)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('del material pasa directo a confirmar: sin fotos ni km, y no manda km', async () => {
+    asignacionesService.finalizar.mockResolvedValue({});
+    render(
+      <NotificationProvider>
+        <FinalizacionAsignacion onDone={() => {}} onCancel={() => {}} asignacion={{
+          ...ASIGNACION, solo_personal: true, vehiculo_alias: null, km_inicio: null, motivo_fin: 'x',
+          progreso: { inicio: { completo: true, completado: 0, total: 0 } },
+        }} />
+      </NotificationProvider>
+    );
+
+    expect(screen.getByText(/Paso 1 de 2 — Solo personal/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Sin gasto de material' } });
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+    expect(screen.getByTestId('cierre-solo-personal')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+
+    await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalledWith(5, expect.objectContaining({
+      km_fin: null, material_usado: 'Sin gasto de material' })));
+    expect(asignacionesService.uploadEvidencia).not.toHaveBeenCalled();
+  });
+});

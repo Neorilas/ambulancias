@@ -214,6 +214,27 @@ describe('informes.service · calcularInforme', () => {
     expect(r.resumen).toMatchObject({ vehiculos_en_flota: 3, vehiculos_usados: 1 });
   });
 
+  it('solo personal (v43): suma horas y puntualidad como un servicio, pero no es de la flota', async () => {
+    bd({
+      asignaciones: [
+        asig({ id: 1 }),
+        asig({ id: 2, vehicle_id: null, solo_personal: 1, alias: null, matricula: null,
+               inicio_real_at: d('2026-09-10T07:00:00Z') }),
+      ],
+      miembros: [
+        { asignacion_id: 2, user_id: 7, rol: 'responsable', nombre: 'Ana', apellidos: 'Ruiz' },
+      ],
+      flota: [{ id: 10, alias: 'Ambulancia 10', matricula: '1010AAA' }],
+    });
+    const r = await inf.calcularInforme('2026-09', AHORA);
+    expect(r.resumen.servicios).toBe(2);
+    expect(r.por_tecnico.find(t => t.user_id === 7)).toMatchObject({ servicios: 1, inicios_tardios: 1 });
+    expect(r.por_vehiculo.some(v => v.vehicle_id == null)).toBe(false);
+    expect(r.resumen.vehiculos_usados).toBe(1);
+    const [sql] = query.mock.calls[0];
+    expect(sql).toContain('LEFT JOIN vehicles v ON v.id = al.vehicle_id');
+  });
+
   it('un mes vacío no rompe: medianas a null', async () => {
     bd();
     const r = await inf.calcularInforme('2026-09', AHORA);

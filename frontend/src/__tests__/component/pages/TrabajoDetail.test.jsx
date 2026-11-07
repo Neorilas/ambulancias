@@ -298,7 +298,7 @@ describe('TrabajoDetail', () => {
     comoUsuario(GESTOR);
     trabajosService.get.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion' });
     montar();
-    await user.click(await screen.findByRole('button', { name: '+ Añadir ambulancia' }));
+    await user.click(await screen.findByRole('button', { name: '+ Añadir ambulancia o personal' }));
     expect(screen.getByText('alta de ambulancia en Maratón')).toBeInTheDocument();
   });
 
@@ -325,7 +325,7 @@ describe('TrabajoDetail', () => {
       comoUsuario(GESTOR);
       trabajosService.get.mockResolvedValue({ ...TRABAJO, mi_rol: 'gestion' });
       montar();
-      await screen.findByRole('button', { name: '+ Añadir ambulancia' });
+      await screen.findByRole('button', { name: '+ Añadir ambulancia o personal' });
       expect(screen.queryByTestId('trabajo-creado')).not.toBeInTheDocument();
     });
 
@@ -339,7 +339,7 @@ describe('TrabajoDetail', () => {
   it('el técnico no ve «Añadir ambulancia» ni «Editar»', async () => {
     montar();
     await screen.findByTestId('tu-ambulancia');
-    expect(screen.queryByRole('button', { name: '+ Añadir ambulancia' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Añadir ambulancia o personal' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 
@@ -357,7 +357,7 @@ describe('TrabajoDetail', () => {
       expect(await screen.findByText('Equipo del trabajo')).toBeInTheDocument();
       expect(screen.getByText('Eva Gil, Leo Paz')).toBeInTheDocument();
       expect(screen.getByText(/Aún no lleva ninguna ambulancia/)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '+ Añadir ambulancia' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '+ Añadir ambulancia o personal' })).toBeInTheDocument();
     });
 
     it('quien está en el equipo sin ambulancia lo ve explicado, sin «Tu ambulancia»', async () => {
@@ -477,7 +477,7 @@ describe('TrabajoDetail', () => {
       await user.click(await screen.findByRole('button', { name: 'Activar trabajo' }));
       expect(trabajosService.activar).toHaveBeenCalledWith(1);
       expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: '+ Añadir ambulancia' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ Añadir ambulancia o personal' })).not.toBeInTheDocument();
     });
   });
 });

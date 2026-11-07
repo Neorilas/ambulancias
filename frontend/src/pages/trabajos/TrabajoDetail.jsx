@@ -41,7 +41,8 @@ import { useVolver, usePanelEnUrl } from '../../hooks/useNavegacion.js';
  * que los trabajos antiguos a medias se puedan terminar.
  */
 
-const nombreVehiculo = (a) => a.vehiculo_alias || a.matricula;
+// Solo personal (v43): un grupo sin ambulancia, sin matrícula ni fotos
+const nombreVehiculo = (a) => (a.solo_personal ? 'Solo personal' : a.vehiculo_alias || a.matricula);
 
 // ── «Tu ambulancia»: lo primero que ve quien va en el trabajo ─────────────────
 function TuAmbulancia({ a, onAbrir }) {
@@ -49,10 +50,10 @@ function TuAmbulancia({ a, onAbrir }) {
   return (
     <div className="card pl-5 space-y-2" data-testid="tu-ambulancia">
       <span className={a.estado === 'activa' ? 'stripe-activa' : 'stripe-programada'} />
-      <p className="micro text-primary-600">Tu ambulancia</p>
+      <p className="micro text-primary-600">{a.solo_personal ? 'Tu servicio' : 'Tu ambulancia'}</p>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <span className="veh-name">{nombreVehiculo(a)}</span>
-        <span className="data text-[13px] text-neutral-500">{a.matricula}</span>
+        {!a.solo_personal && <span className="data text-[13px] text-neutral-500">{a.matricula}</span>}
         <span className={estadoVisible(a).clase}>{estadoVisible(a).texto}</span>
       </div>
       {/* «Sin iniciar» ya lo dice la etiqueta: no repetirlo debajo */}
@@ -88,7 +89,7 @@ function Ambulancia({ a, resaltada, onAbrir, refResaltada }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-medium text-sm text-neutral-900">
-            {nombreVehiculo(a)} <span className="data text-xs text-neutral-500">{a.matricula}</span>
+            {nombreVehiculo(a)} {!a.solo_personal && <span className="data text-xs text-neutral-500">{a.matricula}</span>}
           </p>
           <p className="text-xs text-neutral-600 mt-0.5">
             {(a.responsables?.length || 0) > 1 ? 'Responsables' : 'Responsable'}: {nombresDe(a.responsables) || '—'}
@@ -108,8 +109,8 @@ function Ambulancia({ a, resaltada, onAbrir, refResaltada }) {
         <div className="text-xs text-neutral-500 flex flex-wrap gap-x-4 gap-y-0.5">
           {textoEstadoAmbulancia(a) !== estadoVisible(a).texto && <span>{textoEstadoAmbulancia(a)}</span>}
           <span className="data">{formatDateTimeShort(a.fecha_inicio)} → {formatDateTimeShort(a.fecha_fin)}</span>
-          {pi && <span>Fotos inicio {pi.completado}/{pi.total}</span>}
-          {pf && a.estado !== 'programada' && <span>Fotos fin {pf.completado}/{pf.total}</span>}
+          {pi && !a.solo_personal && <span>Fotos inicio {pi.completado}/{pi.total}</span>}
+          {pf && !a.solo_personal && a.estado !== 'programada' && <span>Fotos fin {pf.completado}/{pf.total}</span>}
         </div>
       )}
     </>
@@ -414,10 +415,11 @@ export default function TrabajoDetail() {
       {/* Ambulancias */}
       <div className="card space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold text-neutral-900">Ambulancias</h2>
+          <h2 className="font-semibold text-neutral-900">Ambulancias y personal</h2>
           {gestion && !cerrado && (
+            // El formulario lleva la casilla «Solo personal, sin ambulancia» (v43)
             <button onClick={() => setNuevaAmbulancia(true)} className="btn-secondary text-xs px-2 py-1">
-              + Añadir ambulancia
+              + Añadir ambulancia o personal
             </button>
           )}
         </div>

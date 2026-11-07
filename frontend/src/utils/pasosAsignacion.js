@@ -60,6 +60,8 @@ export function pasosAsignacion(asig, ahora = new Date()) {
   });
   const actual = cerrada ? -1 : hechos.indexOf(false);
 
+  // Solo personal (v43): sin ambulancia, inicio y cierre no llevan fotos
+  const sinFotos = { inicio: 'Al empezar', cierre: 'Al terminar' };
   return lista.map((p, i) => {
     let situacion;
     if (hechos[i]) situacion = 'hecho';
@@ -67,6 +69,7 @@ export function pasosAsignacion(asig, ahora = new Date()) {
     else situacion = i === actual ? 'actual' : 'pendiente';
 
     const paso = { ...p, situacion, hora: hechos[i] ? asig[p.campo] || null : null };
+    if (asig.solo_personal && sinFotos[p.clave]) paso.donde = sinFotos[p.clave];
     // Pulsó «Inicio de la asignación» pero le faltan fotos: sigue en este paso
     if (p.clave === 'inicio' && situacion === 'actual' && asig.inicio_real_at) {
       paso.aviso = 'Faltan fotos';

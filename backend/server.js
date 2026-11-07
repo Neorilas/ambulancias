@@ -192,10 +192,11 @@ async function startServer() {
       // hueco, aquí afecta a 0 filas y no se manda un segundo aviso.
       const [programadas] = await dbQuery(
         `SELECT al.id, al.user_id, al.trabajo_id, t.nombre AS trabajo_nombre,
-                v.alias AS vehiculo_alias, v.matricula,
+                al.solo_personal, v.alias AS vehiculo_alias, v.matricula,
                 CONCAT(u.nombre,' ',u.apellidos) AS responsable_nombre
            FROM asignaciones_libres al
-           JOIN vehicles v ON v.id = al.vehicle_id
+           -- LEFT: una asignación de solo personal (v43) también se activa a su hora
+           LEFT JOIN vehicles v ON v.id = al.vehicle_id
            JOIN users u    ON u.id = al.user_id
            LEFT JOIN trabajos t ON t.id = al.trabajo_id
           WHERE al.estado = 'programada'

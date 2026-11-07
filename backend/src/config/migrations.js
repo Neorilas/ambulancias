@@ -1459,6 +1459,30 @@ const MIGRATIONS = [
            COMMENT 'Fin del evento (UTC)' AFTER evento_inicio`);
     },
   },
+
+  {
+    name: 'v43_asignacion_solo_personal',
+    description: 'Asignaciones sin ambulancia: solo personal dentro de un trabajo (vehicle_id NULL)',
+    async run() {
+      // Hay trabajos que solo llevan personal (un puesto a pie). Son una
+      // asignación más del trabajo, con sus horas, responsables y equipo,
+      // pero sin vehículo: ni fotos, ni km, ni «ambulancia ocupada». El tipo
+      // va en su propia columna y no se deduce de un NULL (MAPA §6.1).
+      await ensureColumn('asignaciones_libres', 'solo_personal',
+        `ALTER TABLE asignaciones_libres ADD COLUMN solo_personal TINYINT(1) NOT NULL DEFAULT 0
+           COMMENT '1 = sin ambulancia (vehicle_id NULL): solo personal' AFTER vehicle_id`);
+      // La FK se queda (RESTRICT): un NULL no la comprueba. MODIFY solo si
+      // aún es NOT NULL, para no reconstruir la tabla en cada arranque.
+      const [noNula] = await query(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? AND IS_NULLABLE = 'NO'`,
+        ['asignaciones_libres', 'vehicle_id']
+      );
+      if (noNula[0].c > 0) {
+        await query(`ALTER TABLE asignaciones_libres MODIFY COLUMN vehicle_id INT UNSIGNED NULL DEFAULT NULL`);
+      }
+    },
+  },
 ];
 
 // ============================================================

@@ -199,8 +199,8 @@ export default function AsignacionList() {
                   ) : asignaciones.map(a => (
                     <tr key={a.id} className="cursor-pointer" onClick={() => abrirDetalle(a.id)}>
                       <td>
-                        <p className="font-medium text-neutral-900">{a.vehiculo_alias}</p>
-                        <p className="text-xs text-neutral-500 data">{a.matricula}</p>
+                        <p className="font-medium text-neutral-900">{a.solo_personal ? 'Solo personal' : a.vehiculo_alias}</p>
+                        {!a.solo_personal && <p className="text-xs text-neutral-500 data">{a.matricula}</p>}
                       </td>
                       {trabajosVisibles && (
                         <td onClick={e => a.trabajo_id && e.stopPropagation()}>

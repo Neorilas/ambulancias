@@ -253,7 +253,7 @@ function progresoDe(fotosVeh) {
  */
 async function leerAsignacionesDelTrabajo(id) {
   const [asigs] = await query(
-    `SELECT al.id, al.vehicle_id, al.user_id, al.estado, al.fecha_inicio, al.fecha_fin,
+    `SELECT al.id, al.vehicle_id, al.solo_personal, al.user_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             al.km_inicio, al.km_fin, al.notas, al.horario_propio,
             v.matricula, v.alias AS vehiculo_alias,
@@ -261,7 +261,8 @@ async function leerAsignacionesDelTrabajo(id) {
             (SELECT COUNT(*) FROM vehicle_images vi WHERE vi.asignacion_id = al.id) AS num_evidencias,
             (SELECT COUNT(*) FROM vehicle_incidencias vn WHERE vn.asignacion_id = al.id) AS num_incidencias
      FROM asignaciones_libres al
-     JOIN vehicles v ON v.id = al.vehicle_id
+     -- LEFT: las de solo personal (v43) no tienen vehículo y tienen que salir
+     LEFT JOIN vehicles v ON v.id = al.vehicle_id
      WHERE al.trabajo_id = ? AND al.deleted_at IS NULL
      ORDER BY al.estado = 'cancelada', al.fecha_inicio, al.id`,
     [id]
@@ -298,9 +299,14 @@ async function leerAsignacionesDelTrabajo(id) {
   return asigs.map(a => ({
     ...a,
     horario_propio: !!Number(a.horario_propio),
+    solo_personal: !!Number(a.solo_personal),
     responsables: miembros.filter(m => m.asignacion_id === a.id && m.rol === 'responsable').map(persona),
     personal:     miembros.filter(m => m.asignacion_id === a.id && m.rol === 'personal').map(persona),
-    progreso_fotos: progresoDe(fotos.filter(f => f.asignacion_id === a.id)),
+    // Solo personal (v43): sin fotos, el progreso sale completo y vacío
+    progreso_fotos: Number(a.solo_personal)
+      ? { inicio: { completado: 0, total: 0, faltantes: [], completo: true },
+          fin:    { completado: 0, total: 0, faltantes: [], completo: true } }
+      : progresoDe(fotos.filter(f => f.asignacion_id === a.id)),
     jornadas: (filasJornadas || []).filter(j => j.asignacion_id === a.id)
       .map(({ asignacion_id, cierre_auto, ...j }) => ({ ...j, cierre_auto: !!Number(cierre_auto) })),
   }));
@@ -494,6 +500,7 @@ function ofrecerVolverAProgramado(t, user) {
 function ambulanciaAjena(a) {
   return {
     id: a.id, vehicle_id: a.vehicle_id, matricula: a.matricula, vehiculo_alias: a.vehiculo_alias,
+    solo_personal: a.solo_personal,
     responsables: a.responsables, personal: a.personal,
     mi_rol: null, detalle: false,
   };
@@ -721,8 +728,8 @@ async function listTrabajos(req, res, next) {
               -- con «|» porque un alias puede llevar coma; puede repetirse
               -- una ambulancia (dos turnos) y la PWA lo junta
               CONCAT_WS('|',
-                (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR '|')
-                   FROM asignaciones_libres a JOIN vehicles v ON v.id = a.vehicle_id
+                (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula, 'Solo personal') ORDER BY a.fecha_inicio, a.id SEPARATOR '|')
+                   FROM asignaciones_libres a LEFT JOIN vehicles v ON v.id = a.vehicle_id
                   WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada'),
                 (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY tv.id SEPARATOR '|')
                    FROM trabajo_vehiculos tv JOIN vehicles v ON v.id = tv.vehicle_id
@@ -825,11 +832,11 @@ async function miCalendario(req, res, next) {
     const [ambulancias] = await query(
       `SELECT t.id AS trabajo_id, t.identificador, t.nombre, t.ubicacion, t.ubicacion_url, t.estado AS trabajo_estado,
               a.id AS asignacion_id, a.estado AS asignacion_estado, a.fecha_inicio, a.fecha_fin,
-              COALESCE(v.alias, v.matricula) AS vehiculo, au.rol
+              COALESCE(v.alias, v.matricula, 'Solo personal') AS vehiculo, a.solo_personal, au.rol
        FROM asignaciones_libres a
        JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?
        JOIN trabajos t ON t.id = a.trabajo_id AND t.deleted_at IS NULL
-       JOIN vehicles v ON v.id = a.vehicle_id
+       LEFT JOIN vehicles v ON v.id = a.vehicle_id   -- solo personal (v43)
        WHERE a.deleted_at IS NULL AND a.estado <> 'cancelada'
          AND a.fecha_inicio < ? AND a.fecha_fin > ?`,
       [uid, hasta, desde]
@@ -923,8 +930,13 @@ function leerAmbulancias(lista, trabajo) {
   if (!Array.isArray(lista)) return { error: 'asignaciones debe ser una lista' };
   const ambulancias = [];
   for (const amb of lista) {
-    const vehicleId = Number(amb?.vehicle_id);
-    if (!Number.isInteger(vehicleId) || vehicleId < 1) {
+    // Solo personal (v43): un grupo sin ambulancia, sin vehículo ni km
+    const soloPersonal = amb?.solo_personal === true;
+    const vehicleId = soloPersonal ? null : Number(amb?.vehicle_id);
+    if (soloPersonal && (amb.vehicle_id != null || amb.km_inicio != null)) {
+      return { error: 'Una asignación de solo personal no lleva ambulancia ni km' };
+    }
+    if (!soloPersonal && (!Number.isInteger(vehicleId) || vehicleId < 1)) {
       return { error: 'Cada ambulancia necesita un vehicle_id válido' };
     }
     const miembros = asignaciones.leerMiembros(amb);
@@ -941,16 +953,19 @@ function leerAmbulancias(lista, trabajo) {
     if (propio.error) return { error: propio.error };
     ambulancias.push({
       vehicle_id: vehicleId,
+      solo_personal: soloPersonal,
       responsables: miembros.responsables,
       personal: miembros.personal || [],
       fecha_inicio, fecha_fin,
-      km_inicio: amb.km_inicio ?? null,
+      km_inicio: soloPersonal ? null : (amb.km_inicio ?? null),
       notas: textoOpcional(amb.notas) ?? null,
       horario: propio.horario,
       horario_propio: propio.horario !== undefined,
     });
   }
-  if (new Set(ambulancias.map(a => a.vehicle_id)).size !== ambulancias.length) {
+  // D5 es de ambulancias: varios grupos de solo personal sí pueden ir
+  const conVehiculo = ambulancias.filter(a => !a.solo_personal).map(a => a.vehicle_id);
+  if (new Set(conVehiculo).size !== conVehiculo.length) {
     return { error: 'La misma ambulancia no puede ir dos veces en el trabajo' };
   }
   return { ambulancias };
@@ -1001,7 +1016,7 @@ async function createTrabajo(req, res, next) {
       return error(res, 'El equipo debe ser una lista de ids de usuario válidos', 400);
     }
 
-    const vehiculoIds = ambulancias.map(a => a.vehicle_id);
+    const vehiculoIds = ambulancias.filter(a => !a.solo_personal).map(a => a.vehicle_id);
     if (vehiculoIds.length) {
       const [vehs] = await query(
         `SELECT id FROM vehicles WHERE id IN (${vehiculoIds.map(() => '?').join(',')}) AND deleted_at IS NULL`,
@@ -1065,7 +1080,9 @@ async function createTrabajo(req, res, next) {
       avisosAlta.push({
         asignacion_id: asignacionId,
         vehicle_id: amb.vehicle_id,
+        solo_personal: amb.solo_personal,
         solapes: await asignaciones.buscarSolapes(gente, amb.fecha_inicio, amb.fecha_fin, asignacionId),
+        // buscarVehiculoOcupado con vehicle_id null devuelve [] sin consultar
         vehiculo_ocupado: await asignaciones.buscarVehiculoOcupado(
           amb.vehicle_id, amb.fecha_inicio, amb.fecha_fin, asignacionId),
         fuera_del_trabajo: asignaciones.fueraDelTrabajo({ fecha_inicio, fecha_fin }, amb.fecha_inicio, amb.fecha_fin),
@@ -1439,7 +1456,7 @@ async function updateTrabajo(req, res, next) {
     return success(res, { ...t, ambulancias_alargadas: movidas.length, avisos_alta: avisosAlta,
       ambulancias_no_alargadas: noMovidas.map(m => {
         const a = deLaFicha(m.id);
-        return { id: m.id, nombre: a.vehiculo_alias || a.matricula || `#${m.id}` };
+        return { id: m.id, nombre: a.vehiculo_alias || a.matricula || (a.solo_personal ? 'Solo personal' : `#${m.id}`) };
       }) }, 'Trabajo actualizado');
   } catch (err) {
     next(err);
@@ -2061,8 +2078,8 @@ async function misTrab(req, res, next) {
               ${ES_COORDINADOR} AS soy_coordinador,
               EXISTS (SELECT 1 FROM trabajo_usuarios te
                        WHERE te.trabajo_id = t.id AND te.user_id = ?) AS en_equipo,
-              (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula) ORDER BY a.fecha_inicio, a.id SEPARATOR ', ')
-                 FROM asignaciones_libres a JOIN vehicles v ON v.id = a.vehicle_id
+              (SELECT GROUP_CONCAT(COALESCE(v.alias, v.matricula, 'Solo personal') ORDER BY a.fecha_inicio, a.id SEPARATOR ', ')
+                 FROM asignaciones_libres a LEFT JOIN vehicles v ON v.id = a.vehicle_id
                 WHERE a.trabajo_id = t.id AND a.deleted_at IS NULL AND a.estado <> 'cancelada') AS vehiculos_resumen,
               -- Modelo v25 (convive hasta la fase 6): los vehículos que lleva y
               -- aún no ha cerrado. Sin esto su tarjeta no dice que tiene algo
@@ -2100,13 +2117,13 @@ async function misTrab(req, res, next) {
                   WHERE j.asignacion_id = a.id AND j.fin_real_at IS NOT NULL) AS jornadas_hechas,
                 EXISTS (SELECT 1 FROM asignacion_jornadas j WHERE j.asignacion_id = a.id
                           AND j.inicio_real_at IS NOT NULL AND j.fin_real_at IS NULL) AS en_jornada,
-                v.matricula, v.alias AS vehiculo_alias, au.rol,
+                a.solo_personal, v.matricula, v.alias AS vehiculo_alias, au.rol,
                 (SELECT GROUP_CONCAT(CONCAT(ru.nombre, ' ', ru.apellidos) ORDER BY ra.orden SEPARATOR ', ')
                    FROM asignacion_usuarios ra JOIN users ru ON ru.id = ra.user_id
                   WHERE ra.asignacion_id = a.id AND ra.rol = 'responsable') AS responsables_nombres
          FROM asignaciones_libres a
          JOIN asignacion_usuarios au ON au.asignacion_id = a.id AND au.user_id = ?
-         JOIN vehicles v ON v.id = a.vehicle_id
+         LEFT JOIN vehicles v ON v.id = a.vehicle_id   -- solo personal (v43)
          WHERE a.trabajo_id IN (${ids.map(() => '?').join(',')})
            AND a.deleted_at IS NULL AND a.estado <> 'cancelada'
          ORDER BY au.rol = 'responsable' DESC, a.fecha_inicio, a.id`,
@@ -2115,7 +2132,8 @@ async function misTrab(req, res, next) {
       for (const m of mias) {
         if (!porTrabajo.has(m.trabajo_id)) {
           const { trabajo_id, rol, num_jornadas, jornadas_hechas, en_jornada, ...resto } = m;
-          porTrabajo.set(trabajo_id, { ...resto, mi_rol: rol === 'responsable' ? 'responsable' : 'equipo',
+          porTrabajo.set(trabajo_id, { ...resto, solo_personal: !!Number(resto.solo_personal),
+            mi_rol: rol === 'responsable' ? 'responsable' : 'equipo',
             num_jornadas: Number(num_jornadas || 0), jornadas_hechas: Number(jornadas_hechas || 0),
             en_jornada: !!Number(en_jornada) });
         }

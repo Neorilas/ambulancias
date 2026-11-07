@@ -67,7 +67,9 @@ export function alarmasPendientes(alarmas, atendidas = leerAtendidas()) {
 
 /** Cómo se nombra la ambulancia: el alias manda, la matrícula es el respaldo. */
 export function etiquetaVehiculo(alarma) {
-  return alarma?.vehiculo_alias || alarma?.matricula || 'Vehículo sin identificar';
+  return alarma?.vehiculo_alias || alarma?.matricula
+    // Solo personal (v43): sin ambulancia
+    || (Number(alarma?.solo_personal) ? 'Solo personal' : 'Vehículo sin identificar');
 }
 
 /** Responsables tal y como se pintan en el resto de la app. */

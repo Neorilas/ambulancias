@@ -55,7 +55,9 @@ const validarCamposTrabajo = [
 // mismos topes que POST /asignaciones.
 const validarAmbulanciasAlta = [
   body('asignaciones').optional().isArray({ max: 20 }),
-  body('asignaciones.*.vehicle_id').isInt({ min: 1 }),
+  // Solo personal (v43): sin vehículo; el resto lo mira `leerAmbulancias`
+  body('asignaciones.*.solo_personal').optional().isBoolean({ strict: true }),
+  body('asignaciones.*.vehicle_id').optional({ nullable: true }).isInt({ min: 1 }),
   body('asignaciones.*.responsables').isArray({ min: 1, max: 20 })
     .withMessage('Cada ambulancia necesita al menos un responsable'),
   body('asignaciones.*.responsables.*').isInt({ min: 1 }),

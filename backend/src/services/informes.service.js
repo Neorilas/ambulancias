@@ -273,7 +273,7 @@ async function calcularInforme(mes, instante = ahora()) {
                   AND al.fecha_inicio >= ? AND al.fecha_inicio < ?`;
 
   const [asignaciones] = await query(
-    `SELECT al.id, al.vehicle_id, al.estado, al.fecha_inicio, al.fecha_fin,
+    `SELECT al.id, al.vehicle_id, al.solo_personal, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
             v.alias, v.matricula, t.evento_inicio, t.evento_fin,
             (SELECT COUNT(*) FROM vehicle_images ti
@@ -281,7 +281,9 @@ async function calcularInforme(mes, instante = ahora()) {
                 AND al.inicio_real_at IS NOT NULL
                 AND ti.created_at > al.inicio_real_at + INTERVAL ? MINUTE) AS fotos_inicio_tarde
        FROM asignaciones_libres al
-       JOIN vehicles v ON v.id = al.vehicle_id
+       -- LEFT: las de solo personal (v43) cuentan horas y puntualidad como
+       -- cualquier servicio; solo se quedan fuera de la flota (abajo)
+       LEFT JOIN vehicles v ON v.id = al.vehicle_id
        LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE ${filtro}`,
     [FOTOS_INICIO_TARDE_MINUTOS, desde, hasta]
@@ -337,6 +339,7 @@ async function calcularInforme(mes, instante = ahora()) {
     const s = analizarServicio(a, limiteSinIniciar);
     analisis.set(a.id, s);
     acumular(resumen, s);
+    if (!a.vehicle_id) continue;   // solo personal: no es de la flota
     if (!porVehiculo.has(a.vehicle_id)) {
       porVehiculo.set(a.vehicle_id, { vehicle_id: a.vehicle_id, alias: a.alias, matricula: a.matricula,
                                       acc: nuevoAcumulado(), incidencias: 0 });
@@ -406,7 +409,8 @@ async function calcularInforme(mes, instante = ahora()) {
   const minutosResolucion = mediana(resolucionesMin);
   inc.resolucion_mediana_horas = minutosResolucion == null ? null : Math.round(minutosResolucion / 6) / 10;
 
-  const usados = new Set(asignaciones.map(a => a.vehicle_id));
+  // Sin las de solo personal (v43): un NULL contaría como un vehículo usado
+  const usados = new Set(asignaciones.filter(a => a.vehicle_id).map(a => a.vehicle_id));
   const vehiculosSinUso = flota
     .filter(f => !usados.has(f.id))
     .map(f => ({ vehicle_id: f.id, alias: f.alias, matricula: f.matricula }))
@@ -552,12 +556,12 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
   const [filas] = await query(
     `SELECT al.id, al.trabajo_id, al.estado, al.fecha_inicio, al.fecha_fin,
             al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.finalizado_at,
-            au.rol, v.alias, v.matricula, t.nombre AS trabajo_nombre, t.identificador AS trabajo_identificador,
+            au.rol, al.solo_personal, v.alias, v.matricula, t.nombre AS trabajo_nombre, t.identificador AS trabajo_identificador,
             t.evento_inicio, t.evento_fin,
             ${SQL_REVISAR_FIN_EVENTO} AS revisar_fin_evento
        FROM asignacion_usuarios au
        JOIN asignaciones_libres al ON al.id = au.asignacion_id
-       JOIN vehicles v ON v.id = al.vehicle_id
+       LEFT JOIN vehicles v ON v.id = al.vehicle_id   -- solo personal (v43)
        LEFT JOIN trabajos t ON t.id = al.trabajo_id
       WHERE au.user_id = ?
         AND al.deleted_at IS NULL AND al.estado <> 'cancelada'
@@ -575,7 +579,8 @@ async function detalleTecnico(mes, userId, viewerId, instante = ahora()) {
     return {
       asignacion_id: a.id, trabajo_id: a.trabajo_id,
       trabajo: a.trabajo_id ? (a.trabajo_nombre || a.trabajo_identificador || null) : null,
-      alias: a.alias, matricula: a.matricula, rol: a.rol, estado: a.estado,
+      alias: a.alias, matricula: a.matricula, solo_personal: !!Number(a.solo_personal),
+      rol: a.rol, estado: a.estado,
       fecha_inicio: iso(a.fecha_inicio), fecha_fin: iso(a.fecha_fin),
       inicio_real_at: iso(a.inicio_real_at), llegada_servicio_at: iso(a.llegada_servicio_at),
       fin_servicio_at: iso(a.fin_servicio_at), finalizado_at: iso(a.finalizado_at),

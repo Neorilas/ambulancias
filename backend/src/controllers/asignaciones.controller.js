@@ -28,7 +28,16 @@ const jornadasSrv                = require('../services/jornadas.service');
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
 // ============================================================
-async function getProgreso(asignacionId) {
+// Una asignación de solo personal (v43) no lleva fotos: su progreso está
+// completo y vacío, para que las reglas que lo miran (llegada, jornadas,
+// cierre) no tengan que distinguirla.
+const progresoSinFotos = () => ({
+  inicio: { completado: 0, total: 0, faltantes: [], completo: true },
+  fin:    { completado: 0, total: 0, faltantes: [], completo: true },
+});
+
+async function getProgreso(asignacionId, soloPersonal = false) {
+  if (soloPersonal) return progresoSinFotos();
   const [rows] = await query(
     `SELECT tipo_imagen, momento FROM vehicle_images WHERE asignacion_id = ?`,
     [asignacionId]
@@ -249,7 +258,8 @@ async function getAsignacionCompleta(id) {
             t.coordinador_user_id AS trabajo_coordinador_id,
             co.nombre AS trabajo_coordinador_nombre, co.apellidos AS trabajo_coordinador_apellidos
      FROM asignaciones_libres al
-     JOIN vehicles v ON al.vehicle_id = v.id
+     -- LEFT: una asignación de solo personal (v43) no tiene vehículo
+     LEFT JOIN vehicles v ON al.vehicle_id = v.id
      JOIN users u    ON al.user_id    = u.id
      JOIN users c    ON al.created_by = c.id
      LEFT JOIN trabajos t ON t.id = al.trabajo_id
@@ -261,6 +271,7 @@ async function getAsignacionCompleta(id) {
 
   const asig = trabajoAparte(rows[0]);
   asig.horario_propio = !!Number(asig.horario_propio);
+  asig.solo_personal  = !!Number(asig.solo_personal);
   // Todos los coordinadores del trabajo (v35): cualquiera de ellos la ve entera.
   // Y sus jornadas por día (v39), que solo existen dentro de un trabajo. Las
   // dos consultas solo con trabajo: los tests antiguos encolan las respuestas
@@ -365,7 +376,7 @@ async function getAsignacionCompleta(id) {
       : null,
     comentarios: comentariosPorInc.get(r.id) || [],
   }));
-  asig.progreso = await getProgreso(id);
+  asig.progreso = await getProgreso(id, asig.solo_personal);
 
   return asig;
 }
@@ -400,6 +411,21 @@ function rolEnAsignacion(asig, userId) {
 function esCoordinador(asig, userId) {
   return (asig?.trabajo?.coordinadores || []).some(c => c.id === userId);
 }
+
+/**
+ * ¿Puede operar la asignación (inicio, llegada, jornadas, fin, cierre)?
+ * Gestión y sus responsables, como siempre. En una de solo personal (v43)
+ * también cualquier coordinador de su trabajo (decisión del usuario,
+ * 2026-11-07: «horas en global, activa y finaliza el coordinador»). En una
+ * ambulancia, no: el coordinador la ve entera pero no la opera (D2).
+ */
+function puedeOperar(asig, user) {
+  if (hasPermission(user, PERMISSIONS.MANAGE_TRABAJOS)) return true;
+  if (rolEnAsignacion(asig, user.id) === 'responsable') return true;
+  return !!asig?.solo_personal && esCoordinador(asig, user.id);
+}
+
+const MSG_SOLO_PERSONAL_SIN_VEHICULO = 'Esta asignación es solo de personal: no lleva ambulancia';
 
 // ============================================================
 // Helpers: la asignación dentro de su trabajo (v33)
@@ -461,13 +487,14 @@ function fueraDelTrabajo(trabajo, fechaInicio, fechaFin) {
  */
 async function insertarAsignacion(conn, datos, creadoPor) {
   const { trabajo_id = null, vehicle_id, responsables, personal = [],
-          fecha_inicio, fecha_fin, km_inicio, notas, horario_propio = false } = datos;
+          fecha_inicio, fecha_fin, km_inicio, notas, horario_propio = false, solo_personal = false } = datos;
+  // Solo personal (v43): sin vehículo ni km, nunca a medias
   const [result] = await conn.execute(
     `INSERT INTO asignaciones_libres
-       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, trabajo_id, horario_propio)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [vehicle_id, responsables[0], creadoPor, fecha_inicio, fecha_fin,
-     km_inicio || null, notas || null, trabajo_id, horario_propio ? 1 : 0]
+       (vehicle_id, user_id, created_by, fecha_inicio, fecha_fin, km_inicio, notas, solo_personal, trabajo_id, horario_propio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [solo_personal ? null : vehicle_id, responsables[0], creadoPor, fecha_inicio, fecha_fin,
+     solo_personal ? null : (km_inicio || null), notas || null, solo_personal ? 1 : 0, trabajo_id, horario_propio ? 1 : 0]
   );
   await guardarMiembros(conn, result.insertId, responsables, personal);
   return result.insertId;
@@ -551,11 +578,11 @@ async function buscarSolapes(userIds, fechaInicio, fechaFin, excluirId = 0) {
   const [rows] = await query(
     `SELECT au.user_id, CONCAT(u.nombre,' ',u.apellidos) AS nombre,
             al.id AS asignacion_id, al.fecha_inicio, al.fecha_fin,
-            v.matricula, v.alias AS vehiculo_alias
+            al.solo_personal, v.matricula, v.alias AS vehiculo_alias
      FROM asignacion_usuarios au
      JOIN asignaciones_libres al ON au.asignacion_id = al.id
      JOIN users u                ON au.user_id = u.id
-     JOIN vehicles v             ON al.vehicle_id = v.id
+     LEFT JOIN vehicles v        ON al.vehicle_id = v.id
      WHERE au.user_id IN (${userIds.map(() => '?').join(',')})
        AND al.id <> ?
        AND al.deleted_at IS NULL
@@ -730,7 +757,7 @@ async function listAsignaciones(req, res, next) {
     const total = countRows[0].total;
 
     const [rows] = await query(
-      `SELECT al.id, al.vehicle_id, al.user_id, al.fecha_inicio, al.fecha_fin,
+      `SELECT al.id, al.vehicle_id, al.solo_personal, al.user_id, al.fecha_inicio, al.fecha_fin,
               al.estado, al.inicio_real_at, al.llegada_servicio_at, al.fin_servicio_at, al.km_inicio, al.km_fin, al.notas, al.created_at,
               al.trabajo_id, t.identificador AS trabajo_identificador, t.nombre AS trabajo_nombre,
               t.estado AS trabajo_estado,
@@ -756,7 +783,7 @@ async function listAsignaciones(req, res, next) {
               -- NULL para quien no es de la oficina (veRevisionFinEvento).
               ${revision ? SQL_REVISAR_FIN_EVENTO : 'NULL'} AS revisar_fin_evento
        FROM asignaciones_libres al
-       JOIN vehicles v ON al.vehicle_id = v.id
+       LEFT JOIN vehicles v ON al.vehicle_id = v.id   -- solo personal (v43): sin vehículo
        JOIN users u    ON al.user_id    = u.id
        LEFT JOIN trabajos t ON t.id = al.trabajo_id
        ${where}
@@ -819,6 +846,8 @@ async function getAsignacion(req, res, next) {
 async function createAsignacion(req, res, next) {
   try {
     const { vehicle_id, fecha_inicio, fecha_fin, km_inicio, notas } = req.body;
+    // Solo personal (v43): sin ambulancia, y solo dentro de un trabajo
+    const soloPersonal = req.body.solo_personal === true;
 
     const miembros = leerMiembros(req.body);
     if (miembros.error) return error(res, miembros.error, 400);
@@ -826,9 +855,16 @@ async function createAsignacion(req, res, next) {
     const responsables = miembros.responsables;
     const personal     = miembros.personal || [];
 
-    // Validar que vehículo existe
-    const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
-    if (!veh.length) return notFound(res, 'Vehículo');
+    if (soloPersonal) {
+      if (vehicle_id != null) return error(res, 'Una asignación de solo personal no lleva ambulancia', 400);
+      if (km_inicio != null) return error(res, 'Una asignación de solo personal no lleva km', 400);
+      if (!req.body.trabajo_id) return error(res, 'Una asignación de solo personal tiene que ir en un trabajo', 400);
+    } else {
+      if (!vehicle_id) return error(res, 'vehicle_id requerido', 400);
+      // Validar que vehículo existe
+      const [veh] = await query('SELECT id FROM vehicles WHERE id = ? AND deleted_at IS NULL', [vehicle_id]);
+      if (!veh.length) return notFound(res, 'Vehículo');
+    }
 
     // Validar que los usuarios existen y están activos
     if ((await usuariosNoValidos([...responsables, ...personal])).length) {
@@ -850,7 +886,8 @@ async function createAsignacion(req, res, next) {
       if (!trabajo) return notFound(res, 'Trabajo');
       if (!trabajo.abierto) return error(res, 'El trabajo ya está cerrado: no admite más ambulancias', 400);
       if (trabajo.v25) return error(res, MSG_TRABAJO_V25, 400);
-      if (await vehiculoYaEnTrabajo(trabajoId, vehicle_id)) {
+      // D5 es de ambulancias: puede haber varios grupos de solo personal
+      if (!soloPersonal && await vehiculoYaEnTrabajo(trabajoId, vehicle_id)) {
         return error(res, 'Esa ambulancia ya va en este trabajo', 400);
       }
     }
@@ -865,7 +902,7 @@ async function createAsignacion(req, res, next) {
 
     const asignacionId = await transaction(async (conn) => {
       const id = await insertarAsignacion(conn, {
-        trabajo_id: trabajoId, vehicle_id, responsables, personal,
+        trabajo_id: trabajoId, vehicle_id, responsables, personal, solo_personal: soloPersonal,
         fecha_inicio, fecha_fin, km_inicio, notas, horario_propio: horario !== undefined,
       }, req.user.id);
       if (horario !== undefined) await jornadasSrv.aplicarJornadas(conn, id, horario);
@@ -883,7 +920,8 @@ async function createAsignacion(req, res, next) {
 
     const asig    = await getAsignacionCompleta(asignacionId);
     const solapes = await buscarSolapes([...responsables, ...personal], fecha_inicio, fecha_fin, asignacionId);
-    const vehiculo_ocupado = await buscarVehiculoOcupado(vehicle_id, fecha_inicio, fecha_fin, asignacionId);
+    const vehiculo_ocupado = soloPersonal ? []
+      : await buscarVehiculoOcupado(vehicle_id, fecha_inicio, fecha_fin, asignacionId);
 
     logAudit({
       userId:   req.user.id,
@@ -892,6 +930,7 @@ async function createAsignacion(req, res, next) {
       entityType: 'asignacion', entityId: asig.id,
       details:  {
         vehiculo:     asig.matricula,
+        ...(soloPersonal && { solo_personal: true }),
         responsable:  asig.responsable_username,
         responsables: asig.responsables.map(r => r.username),
         personal:     asig.personal.map(p => p.username),
@@ -985,7 +1024,8 @@ const SQL_SIN_EMPEZAR = `inicio_real_at IS NULL AND llegada_servicio_at IS NULL
 
 /** «UVI-04 (7740MZB)», o la matrícula sola si no tiene nombre. */
 const nombreAmbulancia = (a) =>
-  (a.vehiculo_alias ? `${a.vehiculo_alias} (${a.matricula})` : a.matricula);
+  (Number(a.solo_personal) ? '«Solo personal»'
+    : a.vehiculo_alias ? `${a.vehiculo_alias} (${a.matricula})` : a.matricula);
 
 /**
  * Por qué una ambulancia con la hora de inicio ya pasada no puede volver a
@@ -1036,6 +1076,17 @@ async function updateAsignacion(req, res, next) {
     const personal     = (miembros.personal ?? actualesPers).filter(id => !responsables.includes(id));
     if (cambiaMiembros && !responsables.length) {
       return error(res, 'La asignación necesita al menos un responsable', 400);
+    }
+
+    // Solo personal (v43): el tipo no cambia una vez creada (para eso se
+    // borra y se crea otra), y sin ambulancia no hay vehículo ni km que tocar
+    if (req.body.solo_personal !== undefined && !!req.body.solo_personal !== asig.solo_personal) {
+      return error(res, asig.solo_personal
+        ? 'No se puede poner ambulancia a una asignación de solo personal: elimínala y añade una ambulancia'
+        : 'No se puede quitar la ambulancia: elimina la asignación y añade una de solo personal', 400);
+    }
+    if (asig.solo_personal && (vehicle_id || km_inicio != null)) {
+      return error(res, MSG_SOLO_PERSONAL_SIN_VEHICULO, 400);
     }
 
     // Validar solo si se cambian
@@ -1121,7 +1172,7 @@ async function updateAsignacion(req, res, next) {
       if (trabajoDestino.v25) return error(res, MSG_TRABAJO_V25, 400);
     }
     // D5, en el trabajo en el que queda: con otra ambulancia o en otro trabajo
-    if ((cambiaVehiculo || cambiaTrabajo) && trabajoDestino &&
+    if ((cambiaVehiculo || cambiaTrabajo) && trabajoDestino && !asig.solo_personal &&
         await vehiculoYaEnTrabajo(trabajoDestino.id, Number(vehicle_id || asig.vehicle_id), asig.id)) {
       return error(res, 'Esa ambulancia ya va en este trabajo', 400);
     }
@@ -1260,7 +1311,7 @@ async function updateAsignacion(req, res, next) {
     const instante = v => (v == null ? null : new Date(v).getTime());
     const cambianFechas = instante(updated.fecha_inicio) !== instante(asig.fecha_inicio)
                        || instante(updated.fecha_fin)    !== instante(asig.fecha_fin);
-    const vehiculo_ocupado = (cambiaVehiculo || cambianFechas)
+    const vehiculo_ocupado = (!updated.solo_personal && (cambiaVehiculo || cambianFechas))
       ? await buscarVehiculoOcupado(updated.vehicle_id, updated.fecha_inicio, updated.fecha_fin, asig.id)
       : [];
     // D4, con el mismo criterio: solo si algo de lo que lo decide ha cambiado
@@ -1349,12 +1400,12 @@ async function deleteAsignacion(req, res, next) {
 // ============================================================
 async function activarAsignacion(req, res, next) {
   try {
-    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    // Solo un responsable o admin/gestor pueden activar; el personal no
-    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    // Solo un responsable o admin/gestor pueden activar; el personal no. En
+    // una de solo personal, también su coordinador (`puedeOperar`).
+    if (!puedeOperar(asig, req.user)) {
       return forbidden(res, 'Solo un responsable puede iniciar esta asignación');
     }
 
@@ -1379,7 +1430,8 @@ async function activarAsignacion(req, res, next) {
         );
       }
       // Ni con una ambulancia que está en otro servicio (también para gestión).
-      const otra = await ambulanciaEnOtroServicio(asig);
+      // Sin ambulancia (solo personal, v43) no hay nada que mirar.
+      const otra = asig.solo_personal ? null : await ambulanciaEnOtroServicio(asig);
       if (otra) return error(res, textoAmbulanciaEnOtroServicio(asig, otra), 400);
     }
 
@@ -1424,11 +1476,10 @@ async function activarAsignacion(req, res, next) {
 // saber cuándo empezó de verdad el trabajo en el sitio.
 async function registrarLlegada(req, res, next) {
   try {
-    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    if (!puedeOperar(asig, req.user)) {
       return forbidden(res, 'Solo un responsable puede registrar el inicio del evento/servicio');
     }
     if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
@@ -1495,11 +1546,10 @@ async function registrarLlegada(req, res, next) {
 // de la asignación («Finalizar asignación»), que es otra cosa.
 async function registrarFinServicio(req, res, next) {
   try {
-    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    if (!puedeOperar(asig, req.user)) {
       return forbidden(res, 'Solo un responsable puede registrar el fin del evento/servicio');
     }
     if (asig.jornadas.length) return error(res, MSG_FICHA_POR_JORNADAS, 400);
@@ -1580,10 +1630,9 @@ const MSG_FICHA_POR_JORNADAS =
  * `null` si ya ha contestado.
  */
 async function cargarJornada(req, res, accion) {
-  const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
   const asig = await getAsignacionCompleta(req.params.id);
   if (!asig) { notFound(res, 'Asignación'); return null; }
-  if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+  if (!puedeOperar(asig, req.user)) {
     forbidden(res, `Solo un responsable puede registrar el ${accion} de jornada`);
     return null;
   }
@@ -1777,12 +1826,12 @@ async function finalizarJornada(req, res, next) {
 // ============================================================
 async function finalizarAsignacion(req, res, next) {
   try {
-    const canManage = hasPermission(req.user, PERMISSIONS.MANAGE_TRABAJOS);
     const asig = await getAsignacionCompleta(req.params.id);
     if (!asig) return notFound(res, 'Asignación');
 
-    // Solo un responsable o admin/gestor pueden finalizar; el personal no
-    if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
+    // Solo un responsable o admin/gestor pueden finalizar; el personal no.
+    // En una de solo personal, también su coordinador (`puedeOperar`).
+    if (!puedeOperar(asig, req.user)) {
       return forbidden(res, 'Solo un responsable puede finalizar esta asignación');
     }
 
@@ -1799,7 +1848,10 @@ async function finalizarAsignacion(req, res, next) {
       return error(res, `Antes de finalizar, pulsa «Fin de jornada» en ${textoJornada(abierta)}`, 400);
     }
 
-    const { km_fin, material_usado } = req.body;
+    const { material_usado } = req.body;
+    // Sin ambulancia (solo personal, v43) no hay cuentakilómetros que anotar
+    if (asig.solo_personal && req.body.km_fin != null) return error(res, MSG_SOLO_PERSONAL_SIN_VEHICULO, 400);
+    const km_fin = asig.solo_personal ? null : req.body.km_fin;
 
     // El motivo de fin anticipado se pide al pulsar «Fin evento/servicio»
     // (registrarFinServicio). Aquí, como red, si se cierra antes del fin
@@ -1851,8 +1903,9 @@ async function finalizarAsignacion(req, res, next) {
       );
     }
 
-    // Validar que todas las evidencias (inicio y fin) están subidas
-    const progreso = await getProgreso(asig.id);
+    // Validar que todas las evidencias (inicio y fin) están subidas (solo
+    // personal no lleva: su progreso sale completo)
+    const progreso = await getProgreso(asig.id, asig.solo_personal);
     if (!progreso.inicio.completo) {
       return error(
         res,
@@ -1911,7 +1964,7 @@ async function finalizarAsignacion(req, res, next) {
         // sí. Mismo criterio que usa finalizeTrabajo, y por eso la fecha de
         // último servicio tampoco se toca cuando la lectura no supera a la que
         // ya había.
-        if (km_fin != null) {
+        if (km_fin != null && asig.vehicle_id) {
           await conn.execute(
             // Sin referencia de mantenimiento, la toma de esta lectura (v37)
             `UPDATE vehicles SET kilometros_actuales   = ?,
@@ -1974,6 +2027,13 @@ async function uploadEvidencia(req, res, next) {
     // Solo un responsable o admin/gestor pueden subir evidencias; el personal no
     if (!canManage && rolEnAsignacion(asig, req.user.id) !== 'responsable') {
       return forbidden(res, 'No puedes subir evidencias de esta asignación');
+    }
+
+    // Solo personal (v43): sin fotos (decisión del usuario). La imagen ya la
+    // ha guardado el middleware: se borra para no dejarla huérfana.
+    if (asig.solo_personal) {
+      if (req.processedFile?.url) deleteFile(req.processedFile.url);
+      return error(res, 'Una asignación de solo personal no lleva fotos', 400);
     }
 
     if (asig.estado === 'finalizada') {
@@ -2080,6 +2140,11 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
       return forbidden(res, 'Solo un responsable o un gestor pueden registrar incidencias en esta asignación');
     }
 
+    // Las incidencias de una asignación son del vehículo (vehicle_incidencias)
+    if (asig.solo_personal) {
+      return error(res, 'Una asignación de solo personal no tiene vehículo en el que registrar incidencias', 400);
+    }
+
     const { tipo, gravedad, descripcion, responsable_user_id } = req.body;
     if (!descripcion || !descripcion.trim()) {
       return error(res, 'Descripción requerida', 400);
@@ -2165,6 +2230,7 @@ module.exports = {
   crearIncidenciaDesdeAsignacion,
   rolEnAsignacion,
   esCoordinador,
+  puedeOperar,
   leerMiembros,
   marcarFinEventoEnBase,
   veRevisionFinEvento,

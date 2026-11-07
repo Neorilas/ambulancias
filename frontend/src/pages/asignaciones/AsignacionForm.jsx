@@ -58,6 +58,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   );
 
   const [form, setForm] = useState({
+    // Solo personal (v43): sin ambulancia. Se elige al crearla dentro de un
+    // trabajo y ya no cambia (el backend da 400): para eso se borra y se crea
+    solo_personal: !!asignacion?.solo_personal,
     vehicle_id:   asignacion?.vehicle_id   || '',
     ...miembrosIniciales(asignacion),
     fecha_inicio: asignacion ? toInputDatetime(asignacion.fecha_inicio) : toInputDatetime(trabajo?.fecha_inicio),
@@ -167,9 +170,17 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     setErrors(prev => ({ ...prev, horario: '' }));
   };
 
+  const soloPersonal = form.solo_personal;
+  const setSoloPersonal = e => {
+    const marcado = e.target.checked;
+    setForm(f => ({ ...f, solo_personal: marcado, vehicle_id: marcado ? '' : f.vehicle_id,
+      km_inicio: marcado ? '' : f.km_inicio }));
+    setErrors(prev => ({ ...prev, vehicle_id: '' }));
+  };
+
   const validate = () => {
     const errs = {};
-    if (!form.vehicle_id)   errs.vehicle_id   = 'Selecciona un vehículo';
+    if (!soloPersonal && !form.vehicle_id) errs.vehicle_id = 'Selecciona un vehículo';
     if (!idsElegidos(form.responsables).length) errs.responsables = 'Selecciona al menos un responsable';
     if (!form.fecha_inicio) errs.fecha_inicio = 'Fecha inicio requerida';
     if (!form.fecha_fin)    errs.fecha_fin    = 'Fecha fin requerida';
@@ -188,12 +199,15 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     setSaving(true);
     try {
       const payload = {
-        vehicle_id:   parseInt(form.vehicle_id),
+        // Solo personal: ni vehículo ni km (el backend los rechaza)
+        ...(soloPersonal
+          ? (isEdit ? {} : { solo_personal: true })
+          : { vehicle_id: parseInt(form.vehicle_id),
+              km_inicio:  form.km_inicio !== '' ? parseInt(form.km_inicio) : null }),
         responsables: idsElegidos(form.responsables),
         personal:     idsElegidos(form.personal),
         fecha_inicio: toUtcIso(form.fecha_inicio),
         fecha_fin:    toUtcIso(form.fecha_fin),
-        km_inicio:    form.km_inicio !== '' ? parseInt(form.km_inicio) : null,
         notas:        form.notas || null,
         // Solo al añadirla a un trabajo; al editar, el trabajo no se toca
         ...(!isEdit && trabajo ? { trabajo_id: trabajo.id } : {}),
@@ -230,14 +244,15 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
     <Modal
       isOpen
       onClose={onClose}
-      title={isEdit ? 'Editar asignación'
-        : trabajo ? `Añadir ambulancia a «${trabajo.nombre}»` : 'Nueva asignación de vehículo'}
+      title={isEdit ? (soloPersonal ? 'Editar personal sin ambulancia' : 'Editar asignación')
+        : trabajo ? `Añadir ${soloPersonal ? 'personal' : 'ambulancia'} a «${trabajo.nombre}»` : 'Nueva asignación de vehículo'}
       size="md"
       footer={
         <>
           <button onClick={onClose} className="btn-secondary" disabled={saving}>Cancelar</button>
           <button onClick={handleSubmit} className="btn-primary" disabled={saving}>
-            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : trabajo ? 'Añadir ambulancia' : 'Crear asignación'}
+            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios'
+              : trabajo ? (soloPersonal ? 'Añadir personal' : 'Añadir ambulancia') : 'Crear asignación'}
           </button>
         </>
       }
@@ -257,7 +272,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             de inicio. Si le pones una hora de inicio futura, vuelve a programada.
           </p>
         )}
-        {isEdit && asignacion.estado === 'activa' && !activaSinEmpezar && (
+        {isEdit && asignacion.estado === 'activa' && !activaSinEmpezar && !soloPersonal && (
           <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2">
             Servicio en curso. Puedes cambiar responsables, equipo, notas,
             la fecha de fin (para alargarlo más días) y su horario por días;
@@ -266,7 +281,29 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             haya fotos ni incidencias; al cambiarlo se avisa al equipo.
           </p>
         )}
+        {/* Solo personal (v43): al añadir a un trabajo, se elige; al editar, se dice */}
+        {!isEdit && trabajo && (
+          <label className="flex items-start gap-2 text-sm" data-testid="check-solo-personal">
+            <input type="checkbox" className="mt-0.5" checked={soloPersonal} onChange={setSoloPersonal} />
+            <span>
+              <span className="font-medium text-neutral-900">Solo personal, sin ambulancia</span>
+              <span className="block text-xs text-neutral-500">
+                Para un puesto a pie o personal suelto: se ficha igual (inicio, evento y fin) y suma horas,
+                pero sin fotos ni km. Lo pueden iniciar y finalizar sus responsables y el coordinador del trabajo.
+              </span>
+            </span>
+          </label>
+        )}
+        {isEdit && soloPersonal && (
+          <p className="text-xs text-neutral-600 bg-neutral-50 border border-neutral-200 rounded-lg p-2"
+            data-testid="aviso-solo-personal">
+            Solo personal, sin ambulancia: no lleva fotos ni km. Para ponerle ambulancia,
+            elimínala y añade una ambulancia al trabajo.
+          </p>
+        )}
+
         {/* Vehículo */}
+        {!soloPersonal && (
         <div>
           <label className="label">Vehículo <span className="text-bad-500">*</span></label>
           <select
@@ -287,6 +324,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             <p className="text-xs text-neutral-500 mt-1">{vehiculoBloqueado}</p>
           )}
         </div>
+        )}
 
         {/* Responsables (1..N) — activan, documentan y cierran */}
         <div>
@@ -311,7 +349,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
         <div>
           <label className="label">Equipo (opcional)</label>
           <p className="text-xs text-neutral-500 mb-2">
-            Va con la ambulancia y ve {trabajoNombre ? 'el trabajo' : 'la asignación'}, pero no puede iniciarla ni finalizarla.
+            {soloPersonal
+              ? 'Va en el grupo y ve el trabajo, pero no puede iniciarlo ni finalizarlo.'
+              : <>Va con la ambulancia y ve {trabajoNombre ? 'el trabajo' : 'la asignación'}, pero no puede iniciarla ni finalizarla.</>}
           </p>
           <ListaMiembros
             users={users}
@@ -408,6 +448,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
         )}
 
         {/* Km inicio */}
+        {!soloPersonal && (
         <div>
           <label className="label">Km inicio (opcional)</label>
           <input
@@ -419,6 +460,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             onChange={set('km_inicio')}
           />
         </div>
+        )}
 
         {/* Notas */}
         <div>

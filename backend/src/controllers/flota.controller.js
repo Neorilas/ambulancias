@@ -182,6 +182,8 @@ async function getRecorrido(req, res, next) {
               al.inicio_real_at, al.finalizado_at,
               v.id AS vehicle_id, v.matricula
          FROM asignaciones_libres al
+         -- INNER a propósito: una de solo personal (v43) no tiene vehículo
+         -- ni GPS, y aquí da «no encontrada» (la ficha no ofrece el recorrido)
          JOIN vehicles v ON v.id = al.vehicle_id
         WHERE al.id = ? AND al.deleted_at IS NULL`,
       [req.params.asignacionId]

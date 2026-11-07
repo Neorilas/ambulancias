@@ -14,6 +14,7 @@ vi.mock('../../../services/trabajos.service.js', () => ({
   trabajosService: { get: vi.fn().mockResolvedValue({ horario: [] }) },
 }));
 import { trabajosService } from '../../../services/trabajos.service.js';
+import { asignacionesService } from '../../../services/asignaciones.service.js';
 
 import { NotificationProvider } from '../../../context/NotificationContext.jsx';
 import AsignacionForm from '../../../pages/asignaciones/AsignacionForm.jsx';
@@ -126,5 +127,40 @@ describe('AsignacionForm · alargar una ambulancia con horario propio', () => {
     expect(screen.getByLabelText('Inicio del tramo 1 del Mié 21/10')).toHaveValue('10:00');
     // lo ya fichado sigue ahí, sin tocar
     expect(screen.getByLabelText('Inicio del tramo 1 del Mar 20/10')).toBeDisabled();
+  });
+});
+
+// ── v43: solo personal, sin ambulancia ──────────────────────
+describe('AsignacionForm · solo personal (v43)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('al añadir a un trabajo, la casilla quita el vehículo y los km', () => {
+    montar({ trabajo: { id: 40, nombre: 'Maratón' } });
+    expect(screen.getByText('Km inicio (opcional)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Solo personal, sin ambulancia/ }));
+    expect(screen.queryByText('Km inicio (opcional)')).not.toBeInTheDocument();
+    expect(screen.queryByText('— Seleccionar vehículo —')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Añadir personal' })).toBeInTheDocument();
+  });
+
+  it('una asignación suelta (sin trabajo) no ofrece la casilla', () => {
+    montar({});
+    expect(screen.queryByTestId('check-solo-personal')).not.toBeInTheDocument();
+  });
+
+  it('al editar una de solo personal lo dice, y no manda vehículo ni km', async () => {
+    asignacionesService.update.mockResolvedValue({});
+    montar({ asignacion: asig({ solo_personal: true, vehicle_id: null, estado: 'programada',
+      fecha_fin: new Date(Date.now() + 2 * 86400000).toISOString() }) });
+    expect(screen.getByTestId('aviso-solo-personal')).toBeInTheDocument();
+    expect(screen.queryByText('— Seleccionar vehículo —')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await vi.waitFor(() => expect(asignacionesService.update).toHaveBeenCalled());
+    const [, payload] = asignacionesService.update.mock.calls[0];
+    expect(payload).not.toHaveProperty('vehicle_id');
+    expect(payload).not.toHaveProperty('km_inicio');
+    expect(payload).not.toHaveProperty('solo_personal');
+    expect(payload.responsables).toEqual([61]);
   });
 });

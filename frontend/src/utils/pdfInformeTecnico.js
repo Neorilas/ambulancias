@@ -37,7 +37,7 @@ export function filasPdf(servicios = []) {
     celdas: [
       formatDate(s.fecha_inicio, 'dd/MM HH:mm'),
       // Como en la pantalla: el trabajo o, del modelo antiguo, «Asignación #N»
-      [s.trabajo || `Asignación #${s.asignacion_id}`, `${s.alias || ''}${s.matricula ? ` (${s.matricula})` : ''}`]
+      [s.trabajo || `Asignación #${s.asignacion_id}`, s.solo_personal ? 'Solo personal' : `${s.alias || ''}${s.matricula ? ` (${s.matricula})` : ''}`]
         .filter(Boolean).join('\n'),
       ROL_SERVICIO[s.rol] || s.rol || '',
       tramosEvento(s).join('\n'),
