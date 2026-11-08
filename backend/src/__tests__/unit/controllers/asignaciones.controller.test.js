@@ -306,6 +306,25 @@ describe('asignaciones.controller', () => {
           .toEqual({ motivo: 'pegado', minutos: 15, umbral_min: 15 });
       });
 
+      // Solo personal (v43): sin vuelta a base, cerrar justo tras el evento es
+      // lo normal. Lo que sí sigue: el fin del evento sin pulsar.
+      it('una de solo personal no se marca «pegado», pero sí «sin_fin»', async () => {
+        const sinAmb = { solo_personal: 1, vehicle_id: null, matricula: null, vehiculo_alias: null };
+        expect((await leer({ ...sinAmb, finalizado_at: cierreA(1) })).revisar_fin_evento).toBeNull();
+        // Sin fotos no hay consulta de progreso: su respuesta encolada sobra
+        query.mockReset();
+        const sinFin = await leer({ ...sinAmb, fin_servicio_at: null,
+          inicio_real_at: new Date('2026-10-11T08:00:00Z'), finalizado_at: cierreA(2) });
+        expect(sinFin.revisar_fin_evento).toEqual({ motivo: 'sin_fin', umbral_min: 15 });
+      });
+
+      it('en SQL (listado, «A revisar» e informe), la misma regla', () => {
+        const { SQL_REVISAR_FIN_EVENTO } = require('../../../controllers/asignaciones.controller');
+        // Las dos ramas de «pegado» (evento y jornadas) excluyen las de solo personal
+        expect(SQL_REVISAR_FIN_EVENTO.match(/al\.solo_personal = 0\s+AND al\.finalizado_at <=/g)).toHaveLength(2);
+        expect(SQL_REVISAR_FIN_EVENTO.match(/THEN 'pegado'/g)).toHaveLength(2);
+      });
+
       it('15 min y unos segundos ya no (mismo corte que el listado)', async () => {
         expect((await leer({ finalizado_at: cierreA(15, 20) })).revisar_fin_evento).toBeNull();
         expect((await leer({ finalizado_at: cierreA(50) })).revisar_fin_evento).toBeNull();

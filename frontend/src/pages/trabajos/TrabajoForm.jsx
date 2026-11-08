@@ -11,7 +11,7 @@ import {
   ambulanciasQueAcabanConElTrabajo, pideEvento,
 } from '../../utils/trabajos.js';
 import { textoSolapes, textoVehiculoOcupado } from '../../utils/miembrosAsignacion.js';
-import { inicioYaPasado, AVISO_INICIO_PASADO, toInputDatetime } from '../../utils/dateUtils.js';
+import { inicioYaPasado, AVISO_INICIO_PASADO, AVISO_INICIO_PASADO_PERSONAL, toInputDatetime } from '../../utils/dateUtils.js';
 import { esEnlaceGoogleMaps, enlaceBusquedaMaps, MAX_ENLACE_MAPS } from '../../utils/mapas.js';
 import { cruzaDias, horarioDentro, etiquetaDia, textoTramos } from '../../utils/jornadas.js';
 
@@ -478,11 +478,15 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                     </div>
                     {/* En blanco es la del trabajo: es la que guardará el backend */}
                     {inicioYaPasado(amb.fecha_inicio || form.fecha_inicio) && (
-                      <p className="text-xs text-warn-700" data-testid="aviso-inicio-pasado">{AVISO_INICIO_PASADO}</p>
+                      <p className="text-xs text-warn-700" data-testid="aviso-inicio-pasado">
+                        {amb.solo_personal ? AVISO_INICIO_PASADO_PERSONAL : AVISO_INICIO_PASADO}
+                      </p>
                     )}
                     {(form.horario.length > 0 || amb.horario_propio || cruzaDias(...fechasDe(amb))) && (
                       <div data-testid={`horario-ambulancia-${i}`}>
-                        <label className="label text-xs">Horario por días de esta ambulancia</label>
+                        <label className="label text-xs">
+                          Horario por días de {amb.solo_personal ? 'este grupo' : 'esta ambulancia'}
+                        </label>
                         <div className="flex flex-wrap gap-4 text-sm mb-2">
                           <label className="flex items-center gap-1.5">
                             <input type="radio" checked={!amb.horario_propio}
@@ -507,7 +511,7 @@ export default function TrabajoForm({ trabajo, onSaved, onClose }) {
                           </ul>
                         ) : (
                           <p className="text-xs text-neutral-500">
-                            El trabajo no tiene horario por días en las fechas de esta ambulancia.
+                            El trabajo no tiene horario por días en las fechas de {amb.solo_personal ? 'este grupo' : 'esta ambulancia'}.
                           </p>
                         )}
                       </div>

@@ -2530,6 +2530,19 @@ servicio»).
 - **Informe:** cuenta como servicio (horas, puntualidad del responsable) y
   queda fuera de la flota (`porVehiculo` y `vehiculos_usados` la saltan; un
   NULL contaba como un vehículo usado).
+- **«Fin del evento pegado al cierre» no se marca** (2026-11-08, lo vio la
+  verificación): esa marca supone una vuelta a base entre el fin del evento y
+  «Finalizar»; sin ambulancia, cerrar justo después es lo normal, y el grupo
+  salía en «A revisar» y con sus horas de evento en rojo en el informe
+  (`fin_evento_pegado`, grave). `SQL_REVISAR_FIN_EVENTO` (las dos ramas de
+  «pegado», evento y jornadas) y `marcarFinEventoEnBase` lo saltan. Siguen
+  `sin_fin` (no pulsó «Fin evento/servicio») y `jornada_sola`, que sí valen.
+- **Textos:** donde la ambulancia dice «en base», el grupo no (`Inicio
+  previsto`, `Inicio de la asignación`…), ni «En camino» / «De vuelta a base»
+  (`textoEstadoAmbulancia`: «Iniciada» / «Evento/servicio terminado»), y el
+  aviso de hora pasada es `AVISO_INICIO_PASADO_PERSONAL`. **El coordinador va
+  siempre en el equipo del grupo** (dicho por el usuario): por eso le sale en
+  «Mis asignaciones» y no hace falta avisarle desde «Mis trabajos».
 - Verificado de punta a punta contra MariaDB (2026-11-07): la migración (el
   MODIFY a NULL conserva la FK), el alta mixta, el coordinador que inicia y
   finaliza, el cron que la activa a su hora y la alarma de «sin iniciar».
@@ -3260,7 +3273,7 @@ Si el cambio da para más de un par de párrafos, va en su propio fichero de
 Al final de cada tarea, repasar las secciones afectadas y la fecha de
 «última revisión».
 
-Última revisión: **2026-11-07** (asignaciones de solo personal sin ambulancia, v43: §4, §5, §6.1 y §8). Antes, **2026-10-12** (revisión de errores acumulados: §7 con el estado real de los flags en PRO, §9 CSP obligatoria y backups instalados, §2.2 sin el `GET /push/estado`, §10 planes que quedan, §3.1 y §8 Vite 7 para build y tests; antes, ese mismo día, facturas de mantenimiento §2.8 y mantenimiento por km §2.9). Antes, **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
+Última revisión: **2026-11-08** (solo personal: sin la marca de «pegado» y textos sin base, §6.1). Antes, **2026-11-07** (asignaciones de solo personal sin ambulancia, v43: §4, §5, §6.1 y §8). Antes, **2026-10-12** (revisión de errores acumulados: §7 con el estado real de los flags en PRO, §9 CSP obligatoria y backups instalados, §2.2 sin el `GET /push/estado`, §10 planes que quedan, §3.1 y §8 Vite 7 para build y tests; antes, ese mismo día, facturas de mantenimiento §2.8 y mantenimiento por km §2.9). Antes, **2026-10-11** (Informes: «Por técnico» arriba, detalle de cada técnico con lo que no cuadra y PDF, y cada servicio se abre encima del informe: §2.2, §2.4, §2.7, §3.2, §3.3, §8). Antes, **2026-10-10** (listado de trabajos ordenado por fecha con las fechas destacadas, y «Añadir otro trabajo» tras un alta: §3.2, §3.3, §8). Antes, **2026-10-04** («Por técnico»: carga de trabajo en pestañas con total de horas: §2.4, §2.7; antes, 2026-09-27: fuera los km del informe mensual: §2.7; antes, informes para administración: §2.1, §2.2, §2.4, §2.7 nueva, §3.2, §3.3, §4, §5 —estaba en v26 y ya iba por v27—, §7 y §8).
 
 Antes, **2026-09-24** (Trabajos multi-vehículo, v25: §1, §2.1,
 §2.2, §2.3, §3.2–3.4, §4, §5, §6.2 nueva, §7 y §8 — ciclo de vida por

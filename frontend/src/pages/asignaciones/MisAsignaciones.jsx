@@ -52,13 +52,13 @@ export default function MisAsignaciones() {
     <div className="space-y-4 animate-fade-in">
       <div>
         <h1 className="text-[19px] font-semibold text-neutral-900">Mis asignaciones</h1>
-        <p className="text-neutral-500 text-[13px] mt-0.5">Vehículos que llevas o con los que vas</p>
+        <p className="text-neutral-500 text-[13px] mt-0.5">Ambulancias y servicios de personal en los que vas</p>
       </div>
 
       {loading ? <PageLoading /> : asignaciones.length === 0 ? (
         <div className="empty">
           <p className="empty-title">No tienes asignaciones activas</p>
-          <p className="empty-hint">Aquí aparecerán los vehículos que te asignen</p>
+          <p className="empty-hint">Aquí aparecerán las ambulancias y los servicios que te asignen</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -117,7 +117,10 @@ export default function MisAsignaciones() {
 
                     <div className="kv-row">
                       <span>
-                        <span className="kv-k">{a.inicio_real_at ? 'Inicio en base' : 'Inicio previsto en base'}</span>
+                        {/* Solo personal (v43): sin ambulancia no hay base */}
+                        <span className="kv-k">{a.solo_personal
+                          ? (a.inicio_real_at ? 'Inicio' : 'Inicio previsto')
+                          : (a.inicio_real_at ? 'Inicio en base' : 'Inicio previsto en base')}</span>
                         <span className="kv-v data whitespace-nowrap">
                           {formatDateTime(a.inicio_real_at || a.fecha_inicio)}
                         </span>
@@ -135,7 +138,7 @@ export default function MisAsignaciones() {
                         </span>
                       )}
                       <span>
-                        <span className="kv-k">Fin previsto en base</span>
+                        <span className="kv-k">{a.solo_personal ? 'Fin previsto' : 'Fin previsto en base'}</span>
                         <span className="kv-v data whitespace-nowrap">{formatDateTime(a.fecha_fin)}</span>
                       </span>
                       {a.km_inicio != null && (

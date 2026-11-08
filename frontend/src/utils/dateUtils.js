@@ -225,6 +225,10 @@ export function inicioYaPasado(localStr, ahora = new Date()) {
 export const AVISO_INICIO_PASADO =
   'Esta hora de inicio ya ha pasado: al guardar, la ambulancia se activará sola en un minuto. ' +
   'Si el servicio es otro día, corrige la fecha.';
+// Lo mismo para un grupo de solo personal (v43), que no lleva ambulancia
+export const AVISO_INICIO_PASADO_PERSONAL =
+  'Esta hora de inicio ya ha pasado: al guardar, el grupo se activará solo en un minuto. ' +
+  'Si el servicio es otro día, corrige la fecha.';
 
 /** ¿Todavía es pronto para iniciar la asignación? */
 export function esProntoParaIniciar(fechaInicio, ahora = new Date()) {

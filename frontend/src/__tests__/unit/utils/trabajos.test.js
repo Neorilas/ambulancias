@@ -238,6 +238,10 @@ describe('utils/trabajos', () => {
       ['en jornada', { num_jornadas: 3, jornadas_hechas: 1, en_jornada: true }, /^En jornada · 1 de 3 hechas$/],
       ['entre jornadas', { num_jornadas: 3, jornadas_hechas: 1 }, /^Jornadas: 1 de 3 hechas$/],
       ['finalizada', { estado: 'finalizada' }, /^Finalizada$/],
+      // Solo personal (v43): ni «en camino» ni «de vuelta a base»
+      ['solo personal iniciada', { solo_personal: true, progreso_fotos: undefined }, /^Iniciada$/],
+      ['solo personal tras el evento', { solo_personal: true, llegada_servicio_at: 'x', fin_servicio_at: 'y' },
+        /^Evento\/servicio terminado$/],
     ])('textoEstadoAmbulancia %s', (_n, extra, esperado) => {
       expect(textoEstadoAmbulancia({ ...base, ...extra })).toMatch(esperado);
     });

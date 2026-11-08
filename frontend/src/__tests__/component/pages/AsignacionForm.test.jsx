@@ -143,6 +143,14 @@ describe('AsignacionForm · solo personal (v43)', () => {
     expect(screen.getByRole('button', { name: 'Añadir personal' })).toBeInTheDocument();
   });
 
+  it('el aviso de hora pasada habla del grupo, no de la ambulancia', () => {
+    const { container } = montar({ trabajo: { id: 40, nombre: 'Maratón' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Solo personal, sin ambulancia/ }));
+    const [inicio] = container.querySelectorAll('input[type="datetime-local"]');
+    fireEvent.change(inicio, { target: { value: '2020-01-01T10:00' } });
+    expect(screen.getByTestId('aviso-inicio-pasado')).toHaveTextContent('el grupo se activará solo');
+  });
+
   it('una asignación suelta (sin trabajo) no ofrece la casilla', () => {
     montar({});
     expect(screen.queryByTestId('check-solo-personal')).not.toBeInTheDocument();

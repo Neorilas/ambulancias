@@ -116,6 +116,9 @@ function marcarFotosInicioTarde(asig, evidencias) {
  */
 function marcarFinEventoEnBase(asig) {
   if (asig.estado !== 'finalizada' || !asig.finalizado_at) return null;
+  // Solo personal (v43): no hay vuelta a base entre el fin del evento y el
+  // cierre, así que «pegado» no dice nada (sí lo que se cerró solo o faltó)
+  const sinBase = !!asig.solo_personal;
   const cierre = instanteUtc(asig.finalizado_at).getTime();
   // Con jornadas por día (v39) no hay fin del evento que echar de menos: se
   // revisa la jornada que se cerró sola (olvido del «Fin de jornada») y el
@@ -125,7 +128,7 @@ function marcarFinEventoEnBase(asig) {
       return { motivo: 'jornada_sola', umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
     }
     const fines = asig.jornadas.filter(j => j.fin_real_at).map(j => instanteUtc(j.fin_real_at).getTime());
-    if (!fines.length) return null;
+    if (!fines.length || sinBase) return null;
     const diffJ = cierre - Math.max(...fines);
     if (diffJ > FIN_EVENTO_EN_BASE_MINUTOS * 60000) return null;
     return { motivo: 'pegado', minutos: Math.max(0, Math.floor(diffJ / 60000)), umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
@@ -135,6 +138,7 @@ function marcarFinEventoEnBase(asig) {
     if (referencia < instanteUtc(FIN_EVENTO_EXIGIDO_DESDE).getTime()) return null;
     return { motivo: 'sin_fin', umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
   }
+  if (sinBase) return null;
   const diffMs = cierre - instanteUtc(asig.fin_servicio_at).getTime();
   if (diffMs > FIN_EVENTO_EN_BASE_MINUTOS * 60000) return null;
   return { motivo: 'pegado', minutos: Math.max(0, Math.floor(diffMs / 60000)), umbral_min: FIN_EVENTO_EN_BASE_MINUTOS };
@@ -184,12 +188,16 @@ const SQL_REVISAR_FIN_EVENTO = `
          WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj WHERE rj.asignacion_id = al.id) THEN CASE
            WHEN EXISTS (SELECT 1 FROM asignacion_jornadas rj
                          WHERE rj.asignacion_id = al.id AND rj.cierre_auto = 1) THEN 'jornada_sola'
-           WHEN al.finalizado_at <= (SELECT MAX(rj.fin_real_at) FROM asignacion_jornadas rj
+           WHEN al.solo_personal = 0
+            AND al.finalizado_at <= (SELECT MAX(rj.fin_real_at) FROM asignacion_jornadas rj
                                       WHERE rj.asignacion_id = al.id) + INTERVAL ? MINUTE THEN 'pegado'
          END
          WHEN al.fin_servicio_at IS NULL
           AND COALESCE(al.inicio_real_at, al.finalizado_at) >= ? THEN 'sin_fin'
-         WHEN al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE THEN 'pegado'
+         -- Solo personal (v43): sin ambulancia no hay vuelta a base, y cerrar
+         -- justo tras el evento es lo normal: no es «pegado»
+         WHEN al.solo_personal = 0
+          AND al.finalizado_at <= al.fin_servicio_at + INTERVAL ? MINUTE THEN 'pegado'
        END
   END`;
 const paramsRevisarFinEvento = (userId) =>

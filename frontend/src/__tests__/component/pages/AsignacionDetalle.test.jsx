@@ -827,6 +827,10 @@ describe('AsignacionDetalle — solo personal (v43)', () => {
     expect(screen.queryByText('Fotos al recibir el vehículo')).not.toBeInTheDocument();
     expect(screen.queryByText('INCIDENCIAS')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Finalizar asignación' })).toBeInTheDocument();
+    // Sin ambulancia no hay base: ni «previsto en base» ni «en base»
+    expect(screen.queryByText(/en base/)).not.toBeInTheDocument();
+    expect(screen.getByText('Inicio previsto')).toBeInTheDocument();
+    expect(await etiquetaDato('Inicio de la asignación')).toBeInTheDocument();
   });
 
   it('el equipo lo ve explicado, sin botones', async () => {

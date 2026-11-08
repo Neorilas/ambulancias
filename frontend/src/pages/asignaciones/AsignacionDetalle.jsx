@@ -406,7 +406,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
       // pantalla ya no vale, se recarga en vez de pedírselo al técnico (y el
       // aviso lo dice así, no «recarga la ficha»)
       if (err.response?.status === 409) {
-        notify.warning('El horario de esta ambulancia ha cambiado: la ficha se ha actualizado. Revisa la jornada y vuelve a pulsar.');
+        notify.warning(`El horario de ${asig?.solo_personal ? 'este grupo' : 'esta ambulancia'} ha cambiado: la ficha se ha actualizado. Revisa la jornada y vuelve a pulsar.`);
         load();
       } else {
         notify.error(err.response?.data?.message || 'No se pudo iniciar la jornada');
@@ -428,7 +428,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
       if (err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) setForzarMotivoJornada(true);
       if (err.response?.status === 409) {
         notify.warning(`${err.response?.data?.message?.includes('se cerró sola') ? 'Esta jornada se cerró sola al iniciar la siguiente'
-          : 'El horario de esta ambulancia ha cambiado'}: la ficha se ha actualizado.`);
+          : `El horario de ${asig?.solo_personal ? 'este grupo' : 'esta ambulancia'} ha cambiado`}: la ficha se ha actualizado.`);
         load();
       } else {
         notify.error(err.response?.data?.message || 'No se pudo terminar la jornada');
@@ -632,8 +632,10 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                   <p className="font-semibold text-primary-800 text-sm">¿Has llegado al evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
                     Púlsalo al llegar al lugar donde se interviene: se guarda la hora real a la
-                    que empieza el servicio en el sitio. No es el inicio de la asignación, que
-                    ya se marcó en base con las fotos.
+                    que empieza el servicio en el sitio.
+                    {sinAmbulancia
+                      ? ' Si ya estás allí, púlsalo ahora.'
+                      : ' No es el inicio de la asignación, que ya se marcó en base con las fotos.'}
                   </p>
                 </div>
                 <button
@@ -652,9 +654,14 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 <div>
                   <p className="font-semibold text-primary-800 text-sm">¿Has terminado en el evento/servicio?</p>
                   <p className="text-xs text-primary-800 mt-0.5">
-                    Púlsalo al abandonar el lugar donde se interviene, antes de volver a base.
-                    No es el fin de la asignación: esa se cierra después, en base, con las
-                    fotos de fin.
+                    {sinAmbulancia ? (
+                      <>Púlsalo al terminar en el lugar donde se interviene. Después, «Finalizar
+                      asignación» cierra el servicio con el material utilizado.</>
+                    ) : (
+                      <>Púlsalo al abandonar el lugar donde se interviene, antes de volver a base.
+                      No es el fin de la asignación: esa se cierra después, en base, con las
+                      fotos de fin.</>
+                    )}
                   </p>
                 </div>
                 {finAnticipado && (
@@ -716,7 +723,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                   <p className="font-semibold text-primary-800 text-sm">Jornada en curso · {textoJornada(jornadaAhora.abierta)}</p>
                   <p className="text-xs text-primary-800 mt-0.5">
                     Iniciada a las {formatHora(jornadaAhora.abierta.inicio_real_at)}. Púlsalo al terminar la
-                    jornada en el sitio{jornadaAhora.siguiente ? '' : ', antes de volver a base'}.
+                    jornada en el sitio{jornadaAhora.siguiente || sinAmbulancia ? '' : ', antes de volver a base'}.
                   </p>
                 </div>
                 {motivoJornadaPedido && (
@@ -832,11 +839,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 </div>
               )}
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Inicio previsto en base</p>
+                <p className="text-neutral-400 text-xs mb-0.5">{sinAmbulancia ? 'Inicio previsto' : 'Inicio previsto en base'}</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_inicio)}</p>
               </div>
               <div>
-                <p className="text-neutral-400 text-xs mb-0.5">Fin previsto en base</p>
+                <p className="text-neutral-400 text-xs mb-0.5">{sinAmbulancia ? 'Fin previsto' : 'Fin previsto en base'}</p>
                 <p className="text-neutral-900">{formatDateTime(asig.fecha_fin)}</p>
               </div>
               {/* Las dos horas reales van en pareja, debajo de las previstas, para
@@ -845,11 +852,11 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
               {(asig.inicio_real_at || asig.finalizado_at) && (
                 <>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Inicio en base</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">{sinAmbulancia ? 'Inicio de la asignación' : 'Inicio en base'}</p>
                     <p className="text-neutral-900">{asig.inicio_real_at ? formatDateTime(asig.inicio_real_at) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-neutral-400 text-xs mb-0.5">Fin en base</p>
+                    <p className="text-neutral-400 text-xs mb-0.5">{sinAmbulancia ? 'Fin de la asignación' : 'Fin en base'}</p>
                     <p className="text-neutral-900">{asig.finalizado_at ? formatDateTime(asig.finalizado_at) : '—'}</p>
                   </div>
                   {/* Hora a la que se llegó al punto del servicio: el trabajo
@@ -1257,7 +1264,9 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
         title="Quedan jornadas por fichar"
         message={(jornadasPendientes.length === 1 ? 'Queda 1 jornada' : `Quedan ${jornadasPendientes.length} jornadas`) + ' sin fichar'
           + (jornadasPendientes[0] ? ` (la próxima: ${textoJornada(jornadasPendientes[0])})` : '')
-          + '. «Finalizar asignación» es para el último día, al volver a base con las fotos de fin: después ya no se'
+          + (sinAmbulancia
+            ? '. «Finalizar asignación» es para el último día, al terminar: después ya no se'
+            : '. «Finalizar asignación» es para el último día, al volver a base con las fotos de fin: después ya no se')
           + ' podrán fichar. Para terminar el día de hoy, usa «Fin de jornada».'}
         confirmText="Finalizar igualmente"
         cancelText="No, volver"

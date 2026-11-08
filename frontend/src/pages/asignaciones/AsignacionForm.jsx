@@ -7,7 +7,9 @@ import { trabajosService } from '../../services/trabajos.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { usersService } from '../../services/users.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
-import { toInputDatetime, toUtcIso, inicioYaPasado, AVISO_INICIO_PASADO } from '../../utils/dateUtils.js';
+import {
+  toInputDatetime, toUtcIso, inicioYaPasado, AVISO_INICIO_PASADO, AVISO_INICIO_PASADO_PERSONAL,
+} from '../../utils/dateUtils.js';
 import { asociadosDeTrabajo } from '../../utils/trabajos.js';
 import {
   cruzaDias, horarioDesdeApi, horarioDentro, horarioAPayload, errorHorario, etiquetaDia, textoTramos,
@@ -171,6 +173,8 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
   };
 
   const soloPersonal = form.solo_personal;
+  // Cómo se nombra en los textos: un grupo de solo personal (v43) no es una ambulancia
+  const estaUnidad = soloPersonal ? 'este grupo' : 'esta ambulancia';
   const setSoloPersonal = e => {
     const marcado = e.target.checked;
     setForm(f => ({ ...f, solo_personal: marcado, vehicle_id: marcado ? '' : f.vehicle_id,
@@ -221,7 +225,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
       notify.success(isEdit ? 'Asignación actualizada' : 'Asignación creada');
       // Estaba activa sin que nadie empezara y se le ha puesto una hora
       // futura: el backend la devuelve sola a programada (2026-10-16)
-      if (guardada?.vuelta_a_programada) notify.info('La ambulancia vuelve a estar programada', 8000);
+      if (guardada?.vuelta_a_programada) {
+        notify.info(soloPersonal ? 'El grupo vuelve a estar programado' : 'La ambulancia vuelve a estar programada', 8000);
+      }
       // Solape de fechas con otra asignación: se avisa, no se bloquea.
       const aviso = textoSolapes(guardada?.solapes);
       if (aviso) notify.warning(aviso, 10000);
@@ -230,7 +236,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
       if (avisoVeh) notify.warning(avisoVeh, 10000);
       // D4: las horas de la ambulancia pueden salirse de las del trabajo
       if (guardada?.fuera_del_trabajo) {
-        notify.warning('Aviso: las horas de esta ambulancia se salen de las del trabajo', 10000);
+        notify.warning(`Aviso: las horas de ${estaUnidad} se salen de las del trabajo`, 10000);
       }
       onSaved();
     } catch (err) {
@@ -376,7 +382,9 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             />
             {errors.fecha_inicio && <p className="field-error">{errors.fecha_inicio}</p>}
             {avisoInicioPasado && (
-              <p className="text-xs text-warn-700 mt-1" data-testid="aviso-inicio-pasado">{AVISO_INICIO_PASADO}</p>
+              <p className="text-xs text-warn-700 mt-1" data-testid="aviso-inicio-pasado">
+                {soloPersonal ? AVISO_INICIO_PASADO_PERSONAL : AVISO_INICIO_PASADO}
+              </p>
             )}
           </div>
           <div>
@@ -402,7 +410,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
               </label>
               <label className="flex items-center gap-1.5">
                 <input type="radio" checked={form.horario_propio} onChange={() => setHorarioPropio(true)} />
-                Horario propio de esta ambulancia
+                Horario propio de {estaUnidad}
               </label>
             </div>
             {form.horario_propio ? (
@@ -412,7 +420,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
                     data-testid="copiar-del-trabajo">
                     <span className="flex-1 text-neutral-600">
                       El trabajo tiene horario {faltanDelTrabajo.map(d => `el ${etiquetaDia(d.dia)} (${textoTramos(d.tramos)})`).join(', ')},
-                      que esta ambulancia no lleva.
+                      que {estaUnidad} no lleva.
                     </span>
                     <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={copiarDelTrabajo}>
                       {faltanDelTrabajo.length === 1 ? 'Copiar ese día' : `Copiar esos ${faltanDelTrabajo.length} días`}
@@ -440,7 +448,7 @@ export default function AsignacionForm({ asignacion, trabajo = null, onSaved, on
             {fueraDeSusFechas.length > 0 && (
               <p className="text-xs text-neutral-500 mt-2" data-testid="horario-fuera-de-fechas">
                 El trabajo también tiene horario {fueraDeSusFechas.map(d => `el ${etiquetaDia(d.dia)}`).join(', ')},
-                fuera de las fechas de esta ambulancia. Si también va {fueraDeSusFechas.length === 1 ? 'ese día' : 'esos días'}, amplía su fecha de
+                fuera de las fechas de {estaUnidad}. Si también va {fueraDeSusFechas.length === 1 ? 'ese día' : 'esos días'}, amplía su fecha de
                 {' '}{fueraDeSusFechas.some(d => d.dia < (form.fecha_inicio || '').slice(0, 10)) ? 'inicio o de fin' : 'fin'}.
               </p>
             )}

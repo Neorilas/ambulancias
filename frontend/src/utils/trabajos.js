@@ -317,9 +317,10 @@ export function textoEstadoAmbulancia(a) {
         // «hechas», como la barra de pasos: las dos cuentan lo mismo
         return j.enCurso ? `En jornada · ${j.hechas} de ${j.total} hechas` : `Jornadas: ${j.hechas} de ${j.total} hechas`;
       }
-      if (a.fin_servicio_at) return 'De vuelta a base';
+      // Solo personal (v43): ni vuelta a base ni desplazamiento en ambulancia
+      if (a.fin_servicio_at) return a.solo_personal ? 'Evento/servicio terminado' : 'De vuelta a base';
       if (a.llegada_servicio_at) return 'En el evento/servicio';
-      return 'En camino';
+      return a.solo_personal ? 'Iniciada' : 'En camino';
   }
 }
 
