@@ -89,6 +89,12 @@ const ACTION_LABEL = {
   download_backup:     'Descargó un backup de la BD',
   create_factura:      'Subió una factura',
   delete_factura:      'Eliminó una factura',
+  // Almacén de material (v44)
+  create_material_producto: 'Añadió un producto al almacén',
+  update_material_producto: 'Cambió un producto del almacén',
+  update_material_lote:     'Corrigió la caducidad de un lote',
+  material_movimiento:      'Apuntó un movimiento del almacén',
+  recuento_material:        'Apuntó un recuento del almacén',
   // La hace el buzón de facturas@ (user_info «sistema (buzón de facturas)»).
   import_factura:      'Llegó una factura por correo',
 };

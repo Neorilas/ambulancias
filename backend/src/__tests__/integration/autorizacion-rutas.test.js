@@ -136,6 +136,14 @@ const ACCESO = {
   'DELETE /facturas/:id':              ['oculta'],
   'GET /facturas/buzon':               ['oculta'],
   'POST /facturas/buzon/revisar':      ['oculta'],
+  'GET /almacen/productos':            ['oculta'],
+  'POST /almacen/productos':           ['oculta'],
+  'GET /almacen/productos/:id':        ['oculta'],
+  'PUT /almacen/productos/:id':        ['oculta'],
+  'PUT /almacen/lotes/:id':            ['oculta'],
+  'POST /almacen/lotes/:id/recuento':  ['oculta'],
+  'GET /almacen/movimientos':          ['oculta'],
+  'POST /almacen/movimientos':         ['oculta'],
 };
 
 // Rol mínimo de las rutas `denegada` que no son de gestión (gestor o más).

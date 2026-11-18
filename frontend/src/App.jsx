@@ -29,6 +29,8 @@ import { PageLoading }          from './components/common/LoadingSpinner.jsx';
 // (vite.config.js, globIgnores): su código solo lo descarga quien la abre, que
 // solo puede ser administración. El resto ni la tiene en el móvil.
 const Facturas = lazy(() => import('./pages/facturas/Facturas.jsx'));
+// El almacén, igual: solo administración, su propio fichero y fuera del precache.
+const Almacen = lazy(() => import('./pages/almacen/Almacen.jsx'));
 
 /**
  * La portada: «Trabajos» para administración y «Mis trabajos» (o, con el flag
@@ -208,6 +210,18 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_facturas">
                     <Suspense fallback={<PageLoading />}><Facturas /></Suspense>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Almacén de material. Como Facturas: solo admin y superadmin, y
+                  OCULTO para el resto, gestor incluido (decisión del usuario,
+                  2026-11-18). El backend da 404 (almacen.routes.js). */}
+              <Route
+                path="/almacen"
+                element={
+                  <ProtectedRoute allowedRoles={[ROLES.ADMINISTRADOR, ROLES.SUPERADMIN]} requiredFeature="menu_almacen">
+                    <Suspense fallback={<PageLoading />}><Almacen /></Suspense>
                   </ProtectedRoute>
                 }
               />

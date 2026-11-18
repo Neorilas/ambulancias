@@ -23,6 +23,7 @@ const pushRoutes         = require('./push.routes');
 const flotaRoutes        = require('./flota.routes');
 const informesRoutes     = require('./informes.routes');
 const facturasRoutes     = require('./facturas.routes');
+const almacenRoutes      = require('./almacen.routes');
 
 const router = express.Router();
 
@@ -69,9 +70,11 @@ router.use('/push',         pushRoutes);
 router.use('/flota',        flotaRoutes);
 router.use('/informes',     informesRoutes);
 router.use('/facturas',     facturasRoutes);
+router.use('/almacen',      almacenRoutes);
 
-// Ruta raíz de la API - info básica. Es pública: /facturas no se lista, es
-// una sección oculta para quien no es administración (facturas.routes.js).
+// Ruta raíz de la API - info básica. Es pública: /facturas y /almacen no se
+// listan, son secciones ocultas para quien no es administración
+// (facturas.routes.js, almacen.routes.js).
 router.get('/', (_req, res) => {
   res.json({
     name:    'Ambulancias API',

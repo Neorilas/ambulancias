@@ -76,6 +76,7 @@ export default function Sidebar({ isOpen, onClose }) {
             { to: '/alertas',  label: 'Alertas',    show: isFeatureEnabled('menu_alertas') && (isAdmin() || isSuperAdmin()) },
             { to: '/informes', label: 'Informes',   show: isFeatureEnabled('menu_informes') && (isAdmin() || isSuperAdmin()) },
             { to: '/facturas', label: 'Facturas',   show: isFeatureEnabled('menu_facturas') && (isAdmin() || isSuperAdmin()) },
+            { to: '/almacen',  label: 'Almacén',    show: isFeatureEnabled('menu_almacen') && (isAdmin() || isSuperAdmin()) },
             { to: '/admin',    label: 'Superadmin', show: isSuperAdmin() },
           ],
         },

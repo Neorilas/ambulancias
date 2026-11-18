@@ -38,7 +38,7 @@ describe('v43: ningún INNER JOIN de una asignación con su vehículo', () => {
   // y que no lleve LEFT delante
   const INNER = /(?<!LEFT\s)JOIN\s+vehicles\s+v\s+ON\s+(?:v\.id\s*=\s*(?:al|a)\.vehicle_id|(?:al|a)\.vehicle_id\s*=\s*v\.id)/g;
 
-  it.each(ficheros.map(f => [path.relative(RAIZ, f), f]))('%s', (rel, fichero) => {
+  it.each(ficheros.map(f => [path.relative(RAIZ, f).split(path.sep).join('/'), f]))('%s', (rel, fichero) => {
     const encontrados = (fs.readFileSync(fichero, 'utf8').match(INNER) || []).length;
     expect(encontrados).toBe(PERMITIDOS[rel] || 0);
   });

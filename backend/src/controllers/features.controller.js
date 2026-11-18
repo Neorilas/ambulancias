@@ -43,7 +43,7 @@ async function toggleFeature(req, res, next) {
 
 // Flags de secciones que el resto de la plantilla no debe saber que existen:
 // solo se le dan a administradores y superadmin (ver routes/facturas.routes.js).
-const FLAGS_OCULTOS = ['menu_facturas'];
+const FLAGS_OCULTOS = ['menu_facturas', 'menu_almacen'];
 const veFlagsOcultos = (user) => (user?.roles || []).some(r => r === ROLES.ADMINISTRADOR || r === ROLES.SUPERADMIN);
 
 async function getActiveFeatures(req, res, next) {
