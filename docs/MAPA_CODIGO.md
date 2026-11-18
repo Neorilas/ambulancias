@@ -937,10 +937,16 @@ Lo que tiene la hoja (visto el 2026-11-18) y cómo se trata:
 - El destino de «Retirada UVI» («UVI-03», «UVI-7») se casa con el alias o la
   matrícula de la flota, quitando guiones y ceros (`claveAmbulancia`); si no
   casa, se guarda el texto en `destino` y sale en el informe. En local no casa
-  ninguno (la flota del seed es otra).
+  ninguno (la flota del seed es otra). **También casa con ambulancias
+  borradas**, pero solo si ninguna activa casa: en PRO hay ambulancias dadas de
+  baja y recreadas con el mismo alias, y alguna (la SVB) solo existe borrada; sus
+  salidas siguen siendo suyas. Se quita el `__del_N` que el borrado añade a la
+  matrícula.
 - El usuario es un email de Google: se enlaza con el usuario de la app que
-  tenga ese email; si no, el email queda en `usuario_origen` y la pantalla lo
-  enseña con «del AppSheet».
+  tenga ese email (activo antes que borrado, sin el `__del_N`, y en Gmail sin
+  contar los puntos, `claveEmail`: el AppSheet y la app pueden tener el mismo
+  buzón escrito con y sin punto); si no, el email queda en `usuario_origen` y la
+  pantalla lo enseña con «del AppSheet».
 - Las fechas de la hoja son hora española → UTC con `instanteEnEspana`.
 - Ensayado con la hoja real en local (2026-11-18): repetirlo no duplica nada.
 

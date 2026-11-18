@@ -56,8 +56,9 @@ async function main() {
     const [tablas] = await conn.query("SHOW TABLES LIKE 'material_movimientos'");
     if (!tablas.length) throw new Error('No existe material_movimientos: arranca antes el backend para que aplique la migración v44');
 
-    const [ambulancias] = await conn.query('SELECT id, alias, matricula FROM vehicles WHERE deleted_at IS NULL');
-    const [usuarios] = await conn.query('SELECT id, email FROM users WHERE deleted_at IS NULL');
+    // También las borradas: el servicio casa primero con las activas.
+    const [ambulancias] = await conn.query('SELECT id, alias, matricula, deleted_at IS NOT NULL AS borrado FROM vehicles');
+    const [usuarios] = await conn.query('SELECT id, email, deleted_at IS NOT NULL AS borrado FROM users');
     const datos = preparar(csv, { ambulancias, usuarios });
 
     await conn.beginTransaction();

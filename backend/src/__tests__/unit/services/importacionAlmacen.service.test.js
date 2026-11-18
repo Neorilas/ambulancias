@@ -157,6 +157,32 @@ describe('importacionAlmacen.service', () => {
       }
     });
 
+    it('casa con ambulancias y usuarios borrados solo si ningún activo casa, sin el «__del_N»', () => {
+      const s = imp.preparar({ productos: PRODUCTOS, stock: STOCK, movimientos: MOVS }, {
+        ambulancias: [
+          { id: 1, alias: 'UVI-07', matricula: '9999ZZZ__del_1', borrado: 1 },
+          { id: 2, alias: 'UVI-03', matricula: '1111AAA__del_2', borrado: 1 },
+          { id: 3, alias: 'UVI 3', matricula: '1234ABC', borrado: 0 },
+        ],
+        usuarios: [
+          { id: 5, email: 'o.t.r.o@example.com', borrado: 0 },
+          { id: 6, email: 'jefe@empresa.es__del_6', borrado: 1 },
+        ],
+      });
+      const porCodigo = Object.fromEntries(s.movimientos.map(m => [m.codigo, m]));
+      expect(porCodigo.m2.vehicle_id).toBe(3);   // la activa gana a la borrada
+      expect(porCodigo.m3.vehicle_id).toBe(1);   // solo hay borrada
+      expect(porCodigo.m1.user_id).toBe(6);
+      expect(porCodigo.m2.user_id).toBeNull();   // los puntos solo no cuentan en Gmail
+    });
+
+    it('claveEmail quita los puntos de Gmail y nada más', () => {
+      expect(imp.claveEmail(' Ana.B@Gmail.com ')).toBe('anab@gmail.com');
+      expect(imp.claveEmail('ana.b@googlemail.com')).toBe('anab@gmail.com');
+      expect(imp.claveEmail('ana.b@empresa.es')).toBe('ana.b@empresa.es');
+      expect(imp.claveEmail(null)).toBe('');
+    });
+
     it('sin contexto no casa nada pero no falla', () => {
       const s = imp.preparar({ productos: PRODUCTOS, stock: STOCK, movimientos: MOVS });
       expect(s.movimientos.find(m => m.codigo === 'm1').user_id).toBeNull();

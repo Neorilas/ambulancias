@@ -105,6 +105,13 @@ function claveAmbulancia(v) {
   return String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/([A-Z])0+(\d)/g, '$1$2');
 }
 
+/** Email en minúsculas; en Gmail los puntos no cuentan («ana.b@gmail.com» = «anab@gmail.com»). */
+function claveEmail(v) {
+  const e = String(v ?? '').trim().toLowerCase();
+  const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(e);
+  return m ? `${m[1].replace(/\./g, '')}@gmail.com` : e;
+}
+
 const TIPOS = {
   entrada:          { tipo: 'entrada',           signo: 1 },
   'retirada uvi':   { tipo: 'salida_ambulancia', signo: -1 },
@@ -177,14 +184,23 @@ function preparar(csv, { ambulancias = [], usuarios = [] } = {}) {
     avisos.lotesReconstruidos.push(lote);
   }
 
+  // Activas primero; las borradas solo si ninguna activa casa (en PRO la SVB-01
+  // ya está dada de baja y sus salidas siguen siendo suyas). Al borrar, la
+  // matrícula y el email se renombran con «__del_N»: se quita para casar.
+  const sinBorrado = v => String(v ?? '').replace(/__del_\d+$/, '');
+  const activosPrimero = lista => [...lista].sort((a, b) => Number(!!a.borrado) - Number(!!b.borrado));
   const porClave = new Map();
-  for (const a of ambulancias) {
-    for (const v of [a.alias, a.matricula]) {
+  for (const a of activosPrimero(ambulancias)) {
+    for (const v of [a.alias, sinBorrado(a.matricula)]) {
       const k = claveAmbulancia(v);
       if (k && !porClave.has(k)) porClave.set(k, a.id);
     }
   }
-  const porEmail = new Map(usuarios.filter(u => u.email).map(u => [u.email.toLowerCase(), u.id]));
+  const porEmail = new Map();
+  for (const u of activosPrimero(usuarios)) {
+    const k = claveEmail(sinBorrado(u.email));
+    if (k && !porEmail.has(k)) porEmail.set(k, u.id);
+  }
 
   const movimientos = [];
   const codigosMov = new Set();
@@ -220,7 +236,7 @@ function preparar(csv, { ambulancias = [], usuarios = [] } = {}) {
       destino = otros && !/^[.…\s]+$/.test(otros) ? otros : 'Sin especificar';
     }
     const email = col(f, 'Usuario').toLowerCase();
-    const userId = porEmail.get(email) ?? null;
+    const userId = porEmail.get(claveEmail(email)) ?? null;
     if (email && !userId) avisos.sinUsuario[email] = (avisos.sinUsuario[email] || 0) + 1;
 
     codigosMov.add(codigo);
@@ -314,4 +330,4 @@ async function escribir(conn, { productos, lotes, movimientos }, ahora = new Dat
   };
 }
 
-module.exports = { parseCsv, tabla, caducidadDeHoja, instanteDeHoja, claveAmbulancia, preparar, escribir };
+module.exports = { parseCsv, tabla, caducidadDeHoja, instanteDeHoja, claveAmbulancia, claveEmail, preparar, escribir };
