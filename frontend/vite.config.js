@@ -100,7 +100,7 @@ export default defineConfig(({ mode }) => {
           // las facturas de mantenimiento). Lo mismo el PDF de
           // Informes (chunks `pdf-*`, ~800 kB con lo que jsPDF carga por su
           // cuenta): solo lo usa quien lo descarga.
-          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js', '**/SubirFactura-*.js', '**/pdf-*.js', '**/pdfInformeTecnico-*.js'],
+          globIgnores:  ['**/deteccion-*.js', '**/Facturas-*.js', '**/Almacen-*.js', '**/SubirFactura-*.js', '**/pdf-*.js', '**/pdfInformeTecnico-*.js'],
         },
         devOptions: {
           enabled: true,   // habilitar SW en desarrollo para testing

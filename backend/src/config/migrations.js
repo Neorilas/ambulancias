@@ -1483,6 +1483,90 @@ const MIGRATIONS = [
       }
     },
   },
+
+  {
+    name: 'v44_almacen',
+    description: 'Almacén de material: productos, lotes con caducidad y movimientos + flag menu_almacen',
+    async run() {
+      // Sustituye al AppSheet «AmbulanciaDB» (MAPA_CODIGO.md §2.10). Como
+      // allí, el stock NO se guarda: es la suma de los movimientos de cada
+      // lote. Así cada cifra se explica sola y no hay un contador que pueda
+      // descuadrarse con su historial.
+      //
+      // `codigo_origen` es el id del AppSheet: el script de importación lo
+      // usa para poder repetirse sin duplicar (el día del cambio se vuelve a
+      // lanzar con lo último). NULL en lo que se da de alta en la app.
+      await query(`CREATE TABLE IF NOT EXISTS material_productos (
+        id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        nombre        VARCHAR(150) NOT NULL,
+        presentacion  VARCHAR(30)  NOT NULL DEFAULT 'Unidad' COMMENT 'Unidad, Caja, Ampolla… (texto libre)',
+        tipo          ENUM('producto','medicacion') NOT NULL DEFAULT 'producto',
+        stock_minimo  INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0 = sin mínimo',
+        activo        TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '0 = ya no se usa; se conserva por su historial',
+        codigo_origen VARCHAR(40)  NULL DEFAULT NULL COMMENT 'IDProducto del AppSheet',
+        created_at    DATETIME     NOT NULL COMMENT 'UTC',
+        updated_at    DATETIME     NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_material_producto_origen (codigo_origen),
+        INDEX idx_material_producto_nombre (nombre)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Un lote = un producto con una caducidad. Sin caducidad (guantes,
+      // papel) es NULL: el AppSheet lo apuntaba como 01/06/2099.
+      await query(`CREATE TABLE IF NOT EXISTS material_lotes (
+        id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        producto_id   INT UNSIGNED NOT NULL,
+        caducidad     DATE         NULL DEFAULT NULL COMMENT 'NULL = no caduca',
+        codigo_origen VARCHAR(40)  NULL DEFAULT NULL COMMENT 'IDStock del AppSheet',
+        created_at    DATETIME     NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_material_lote_origen (codigo_origen),
+        INDEX idx_material_lote_producto (producto_id, caducidad),
+        CONSTRAINT fk_material_lote_producto FOREIGN KEY (producto_id)
+          REFERENCES material_productos (id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // `cantidad` va con signo: + entra en el almacén, − sale. Un recuento
+      // (ajuste) puede ir en los dos sentidos. Las salidas a una ambulancia
+      // llevan vehicle_id; a cualquier otro sitio, el texto en `destino`.
+      // `destino` guarda también el destino original del AppSheet cuando no
+      // casa con ninguna ambulancia («UVI-7»), para no perder el dato.
+      await query(`CREATE TABLE IF NOT EXISTS material_movimientos (
+        id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        lote_id        INT UNSIGNED NOT NULL,
+        tipo           ENUM('entrada','salida_ambulancia','salida_otros','descarte','ajuste') NOT NULL,
+        cantidad       INT          NOT NULL COMMENT 'Con signo: + entra, - sale',
+        vehicle_id     INT UNSIGNED NULL DEFAULT NULL,
+        destino        VARCHAR(150) NULL DEFAULT NULL,
+        notas          VARCHAR(255) NULL DEFAULT NULL,
+        user_id        INT UNSIGNED NULL DEFAULT NULL,
+        usuario_origen VARCHAR(150) NULL DEFAULT NULL COMMENT 'Quién lo hizo en el AppSheet, si no casa con un usuario',
+        fecha          DATETIME     NOT NULL COMMENT 'UTC',
+        codigo_origen  VARCHAR(40)  NULL DEFAULT NULL COMMENT 'Movimiento del AppSheet',
+        created_at     DATETIME     NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_material_mov_origen (codigo_origen),
+        INDEX idx_material_mov_lote (lote_id),
+        INDEX idx_material_mov_fecha (fecha),
+        INDEX idx_material_mov_vehiculo (vehicle_id),
+        CONSTRAINT fk_material_mov_lote FOREIGN KEY (lote_id)
+          REFERENCES material_lotes (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_material_mov_vehiculo FOREIGN KEY (vehicle_id)
+          REFERENCES vehicles (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_material_mov_usuario FOREIGN KEY (user_id)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      // Solo administración, y oculto para el resto como Facturas
+      // (FLAGS_OCULTOS de features.controller).
+      await query(`INSERT IGNORE INTO app_features
+                     (feature_key, label, description, category, enabled, display_order)
+                   VALUES
+                     ('menu_almacen', 'Almacén',
+                      'Inventario del almacén de material: stock, caducidades y movimientos (solo administradores)',
+                      'menu', 1, 97)`);
+    },
+  },
 ];
 
 // ============================================================
