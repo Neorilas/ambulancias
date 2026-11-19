@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 vi.mock('../../../services/almacen.service.js', () => ({
   almacenService: {
     productos: vi.fn(), producto: vi.fn(), crearProducto: vi.fn(), guardarProducto: vi.fn(),
-    movimiento: vi.fn(), recuento: vi.fn(), corregirCaducidad: vi.fn(), movimientos: vi.fn(),
+    movimiento: vi.fn(), recuento: vi.fn(), recuentoProducto: vi.fn(), corregirCaducidad: vi.fn(), movimientos: vi.fn(),
   },
 }));
 vi.mock('../../../services/vehicles.service.js', () => ({
@@ -166,13 +166,63 @@ describe('Almacén', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ver también los vacíos (1)' }));
     expect(screen.getByText('01/01/2025')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Recuento' })[0]);
+    // [0] es el del producto entero, arriba; [1] el del primer lote
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recuento' })[1]);
     const modal = (await screen.findByText('Recuento del lote')).closest('div.relative');
     fireEvent.change(within(modal).getByLabelText(/Contadas/), { target: { value: '6' } });
     expect(within(modal).getByText('-2')).toBeInTheDocument();
     fireEvent.click(within(modal).getByRole('button', { name: 'Apuntar recuento' }));
     await waitFor(() => expect(almacenService.recuento).toHaveBeenCalledWith(10, 6, ''));
     expect(await screen.findByText('Recuento apuntado')).toBeInTheDocument();
+  });
+
+  it('el recuento del producto cuenta varios lotes de una vez y usa el lote vacío si la caducidad coincide', async () => {
+    almacenService.recuentoProducto.mockResolvedValue({
+      producto: { ...PRODUCTOS[0], stock: 13 }, ajustes: [], message: 'Recuento apuntado: 2 lotes ajustados',
+    });
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Guedel 3' }));
+    await screen.findByText('Lotes');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recuento' })[0]);
+    const modal = (await screen.findByText('Recuento del producto')).closest('div.relative');
+
+    fireEvent.click(within(modal).getByRole('button', { name: 'Apuntar recuento' }));
+    expect(await within(modal).findByRole('alert')).toHaveTextContent('Pon lo contado de al menos un lote');
+
+    fireEvent.change(within(modal).getByLabelText('Contadas del lote 31/10/2030'), { target: { value: '5' } });
+    expect(within(modal).getByText('-3')).toBeInTheDocument();
+    fireEvent.change(within(modal).getByLabelText('Contadas del lote No caduca'), { target: { value: '4' } });
+    expect(within(modal).getByText('cuadra')).toBeInTheDocument();
+
+    // una caducidad «nueva» que ya tiene lote vacío se cuenta en ese lote
+    fireEvent.click(within(modal).getByRole('button', { name: /Otra caducidad/ }));
+    fireEvent.change(within(modal).getByLabelText('Caducidad de la fila nueva'), { target: { value: '2025-01-01' } });
+    fireEvent.change(within(modal).getByLabelText('Contadas de la fila nueva'), { target: { value: '2' } });
+    fireEvent.click(within(modal).getByRole('button', { name: /Otra caducidad/ }));
+    fireEvent.change(within(modal).getAllByLabelText('Caducidad de la fila nueva')[1], { target: { value: '2032-05-31' } });
+    fireEvent.change(within(modal).getAllByLabelText('Contadas de la fila nueva')[1], { target: { value: '2' } });
+
+    fireEvent.click(within(modal).getByRole('button', { name: 'Apuntar recuento' }));
+    await waitFor(() => expect(almacenService.recuentoProducto).toHaveBeenCalledWith(1, {
+      lotes: [{ lote_id: 10, stock_real: 5 }, { lote_id: 11, stock_real: 4 }, { lote_id: 12, stock_real: 2 }],
+      nuevos: [{ caducidad: '2032-05-31', stock_real: 2 }],
+      notas: '',
+    }));
+    expect(await screen.findByText('Recuento apuntado: 2 lotes ajustados')).toBeInTheDocument();
+  });
+
+  it('el recuento del producto no deja una fila nueva con la caducidad de un lote con existencias', async () => {
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Guedel 3' }));
+    await screen.findByText('Lotes');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recuento' })[0]);
+    const modal = (await screen.findByText('Recuento del producto')).closest('div.relative');
+    fireEvent.click(within(modal).getByRole('button', { name: /Otra caducidad/ }));
+    fireEvent.change(within(modal).getByLabelText('Caducidad de la fila nueva'), { target: { value: '2030-10-31' } });
+    fireEvent.change(within(modal).getByLabelText('Contadas de la fila nueva'), { target: { value: '1' } });
+    fireEvent.click(within(modal).getByRole('button', { name: 'Apuntar recuento' }));
+    expect(await within(modal).findByRole('alert')).toHaveTextContent('cuéntalo en su fila');
+    expect(almacenService.recuentoProducto).not.toHaveBeenCalled();
   });
 
   it('da de alta un producto', async () => {

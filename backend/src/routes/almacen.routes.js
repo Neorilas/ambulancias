@@ -26,6 +26,7 @@ router.get('/productos', ctrl.listProductos);
 router.post('/productos', ctrl.createProducto);
 router.get('/productos/:id', ctrl.getProducto);
 router.put('/productos/:id', ctrl.updateProducto);
+router.post('/productos/:id/recuento', ctrl.recuentoProducto);
 router.put('/lotes/:id', ctrl.updateLote);
 router.post('/lotes/:id/recuento', ctrl.recuentoLote);
 router.get('/movimientos', ctrl.listMovimientos);

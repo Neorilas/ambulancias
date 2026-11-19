@@ -260,6 +260,96 @@ describe('almacen.controller', () => {
     });
   });
 
+  describe('recuentoProducto', () => {
+    const PROD = [{ id: 5, nombre: 'Benerva', activo: 1 }];
+    const LOTES = { 3: { id: 3, producto_id: 5, caducidad: '2030-03-02', nombre: 'Benerva', activo: 1 },
+                    4: { id: 4, producto_id: 5, caducidad: '2031-01-31', nombre: 'Benerva', activo: 1 },
+                    9: { id: 9, producto_id: 8, caducidad: null, nombre: 'Otro', activo: 1 } };
+    const STOCKS = { 3: -7, 4: 15, 9: 1 };
+    const base = (extra = []) => conexion([
+      ['FROM material_productos WHERE id = ? FOR UPDATE', PROD],
+      ['WHERE l.id = ? FOR UPDATE', p => (LOTES[p[0]] ? [LOTES[p[0]]] : [])],
+      ['SUM(cantidad)', p => [{ stock: String(STOCKS[p[0]]) }]],
+      ...extra,
+      ['GROUP BY p.id', [PRODUCTO]],
+    ]);
+    const pedir = body => llamar(ctrl.recuentoProducto, mockReq({ user: ADMIN, params: { id: '5' }, body }));
+
+    it('ajusta cada lote contado por su diferencia y deja fuera el que cuadra', async () => {
+      const { ejecutadas } = base([['INSERT INTO material_movimientos', { insertId: 70 }]]);
+      const { res } = await pedir({ lotes: [{ lote_id: 3, stock_real: 0 }, { lote_id: 4, stock_real: '15' }], notas: 'Inventario' });
+      expect(res.statusCode).toBe(200);
+      const inserts = ejecutadas.filter(e => e.sql.includes('INSERT INTO material_movimientos'));
+      expect(inserts).toHaveLength(1);
+      expect(inserts[0].params.slice(0, 3)).toEqual([3, 7, 'Inventario']);
+      expect(res._json.message).toBe('Recuento apuntado: 1 lote ajustado');
+      expect(res._json.data.producto.id).toBe(5);
+      expect(logAudit).toHaveBeenCalledTimes(1);
+      expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'recuento_material_producto',
+        details: { producto: 'Benerva', lotes: [expect.objectContaining({ lote_id: 3, antes: -7, contado: 0, diferencia: 7 })] },
+      }));
+    });
+
+    it('si todo cuadra no apunta ni audita nada', async () => {
+      const { ejecutadas } = base();
+      const { res } = await pedir({ lotes: [{ lote_id: 4, stock_real: 15 }] });
+      expect(res._json.message).toMatch(/cuadra/);
+      expect(ejecutadas.some(e => e.sql.includes('INSERT'))).toBe(false);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('un lote nuevo crea el lote con un ajuste por lo contado', async () => {
+      const { ejecutadas } = base([
+        ['SELECT id FROM material_lotes WHERE producto_id', []],
+        ['INSERT INTO material_lotes', { insertId: 12 }],
+        ['INSERT INTO material_movimientos', { insertId: 71 }],
+      ]);
+      const { res } = await pedir({ nuevos: [{ caducidad: '2032-05-31', stock_real: 4 }] });
+      expect(res.statusCode).toBe(200);
+      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO material_lotes')).params.slice(0, 2)).toEqual([5, '2032-05-31']);
+      expect(ejecutadas.find(e => e.sql.includes('INSERT INTO material_movimientos')).params.slice(0, 2)).toEqual([12, 4]);
+    });
+
+    it('409 si la caducidad nueva ya tiene lote, o si un lote es de otro producto', async () => {
+      base([['SELECT id FROM material_lotes WHERE producto_id', [{ id: 3 }]]]);
+      expect((await pedir({ nuevos: [{ caducidad: '2030-03-02', stock_real: 1 }] })).res.statusCode).toBe(409);
+      base();
+      const { res } = await pedir({ lotes: [{ lote_id: 9, stock_real: 0 }] });
+      expect(res.statusCode).toBe(409);
+      expect(logAudit).not.toHaveBeenCalled();
+    });
+
+    it('404 si el producto no existe', async () => {
+      conexion([]);
+      expect((await pedir({ lotes: [{ lote_id: 3, stock_real: 0 }] })).res.statusCode).toBe(404);
+    });
+
+    it('400 sin nada contado, con números malos, lotes repetidos o nuevos con 0', async () => {
+      for (const body of [
+        {}, { lotes: [] }, { lotes: [{ lote_id: 3, stock_real: -1 }] }, { lotes: [{ lote_id: 'x', stock_real: 1 }] },
+        { lotes: [{ lote_id: 3, stock_real: 1 }, { lote_id: 3, stock_real: 2 }] },
+        { nuevos: [{ caducidad: '2030-01-01', stock_real: 0 }] }, { nuevos: [{ caducidad: '31/01/2030', stock_real: 1 }] },
+        { nuevos: [{ caducidad: '', stock_real: 1 }, { caducidad: null, stock_real: 2 }] },
+        { lotes: [{ lote_id: 3, stock_real: 1 }], notas: 'x'.repeat(256) },
+      ]) {
+        expect((await pedir(body)).res.statusCode).toBe(400);
+      }
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('400 al añadir un lote a un producto retirado', async () => {
+      conexion([['FOR UPDATE', [{ ...PROD[0], activo: 0 }]]]);
+      expect((await pedir({ nuevos: [{ caducidad: '', stock_real: 1 }] })).res.statusCode).toBe(400);
+    });
+
+    it('un fallo de BD va a next', async () => {
+      transaction.mockRejectedValueOnce(new Error('caída'));
+      const { next } = await pedir({ lotes: [{ lote_id: 3, stock_real: 1 }] });
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
   describe('recuentoLote', () => {
     const LOTE = [{ id: 3, producto_id: 5, caducidad: '2026-06-02', nombre: 'Suero', activo: 1 }];
 

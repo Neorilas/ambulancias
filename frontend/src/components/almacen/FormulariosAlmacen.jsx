@@ -332,6 +332,144 @@ export function RecuentoForm({ isOpen, onClose, producto, lote, onHecho }) {
   );
 }
 
+/**
+ * Recuento de un producto entero: una casilla por lote con lo contado. En
+ * blanco = no contado (no se toca). «Otra caducidad» es para unidades cuyo
+ * lote no está en la app; si esa fecha ya tiene un lote vacío, se cuenta en
+ * ese lote en vez de crear otro.
+ */
+export function RecuentoProductoForm({ isOpen, onClose, producto, onHecho }) {
+  const [contado, setContado] = useState({});
+  const [nuevos, setNuevos] = useState([]);
+  const [notas, setNotas] = useState('');
+  const [verVacios, setVerVacios] = useState(false);
+  const { enviando, fallo, setFallo, enviar } = useEnvio(onHecho);
+  const lotes = producto?.lotes || [];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setContado({}); setNuevos([]); setNotas(''); setVerVacios(false); setFallo('');
+  }, [isOpen, setFallo]);
+
+  const numero = t => (/^\d{1,6}$/.test(String(t ?? '').trim()) ? Number(t) : null);
+  const vacios = lotes.filter(l => l.stock === 0).length;
+  const visibles = verVacios ? lotes : lotes.filter(l => l.stock !== 0 || contado[l.id] !== undefined);
+  const cambiarNuevo = (i, campo, v) => setNuevos(ns => ns.map((n, j) => (j === i ? { ...n, [campo]: v } : n)));
+
+  const submit = (e) => {
+    e.preventDefault();
+    const cuentas = {};
+    for (const l of lotes) {
+      const t = contado[l.id];
+      if (t === undefined || String(t).trim() === '') continue;
+      if (numero(t) === null) return setFallo(`Lo contado del lote ${l.caducidad ? formatFechaSola(l.caducidad) : 'sin caducidad'} tiene que ser un número, 0 o más`);
+      cuentas[l.id] = numero(t);
+    }
+    const lotesNuevos = [];
+    for (const n of nuevos) {
+      if (!n.caducidad && !n.noCaduca && String(n.cantidad ?? '').trim() === '') continue;
+      const cant = numero(n.cantidad);
+      if (!n.noCaduca && !n.caducidad) return setFallo('Pon la caducidad de la fila nueva, o marca «No caduca»');
+      if (!cant) return setFallo('Una fila nueva tiene que tener 1 unidad o más');
+      const caducidad = n.noCaduca ? null : n.caducidad;
+      const existe = lotes.find(l => (l.caducidad || null) === caducidad);
+      if (existe) {
+        if (existe.stock !== 0 || cuentas[existe.id] !== undefined) {
+          return setFallo(`Ya hay un lote ${caducidad ? `que caduca el ${formatFechaSola(caducidad)}` : 'sin caducidad'}: cuéntalo en su fila`);
+        }
+        cuentas[existe.id] = cant;
+        continue;
+      }
+      if (lotesNuevos.some(x => x.caducidad === caducidad)) return setFallo('Hay dos filas nuevas con la misma caducidad');
+      lotesNuevos.push({ caducidad: caducidad || '', stock_real: cant });
+    }
+    const contados = Object.entries(cuentas).map(([id, n]) => ({ lote_id: Number(id), stock_real: n }));
+    if (!contados.length && !lotesNuevos.length) return setFallo('Pon lo contado de al menos un lote');
+    return enviar(() => almacenService.recuentoProducto(producto.id, { lotes: contados, nuevos: lotesNuevos, notas }));
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={enviando ? () => {} : onClose} title="Recuento del producto" size="lg"
+      footer={<Pie onClose={onClose} enviando={enviando} texto="Apuntar recuento" form="form-recuento-producto" />}>
+      <form id="form-recuento-producto" onSubmit={submit} className="space-y-4" noValidate>
+        <p className="text-sm text-neutral-700">
+          <span className="font-semibold">{producto?.nombre}</span>
+          <span className="block text-neutral-500">
+            Cuenta lo que hay de cada caducidad. Si un lote está en negativo, cuenta todos: casi siempre es que se sacó de otro lote.
+            Lo que dejes en blanco no se toca.
+          </span>
+        </p>
+        <div className="card p-0 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 text-neutral-600 text-xs uppercase">
+              <tr>
+                <th className="px-3 py-2 text-left">Caducidad</th>
+                <th className="px-3 py-2 text-right">En la app</th>
+                <th className="px-3 py-2 text-left">Contadas</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {visibles.map(l => {
+                const n = numero(contado[l.id]);
+                const dif = n === null ? null : n - l.stock;
+                const nombre = l.caducidad ? formatFechaSola(l.caducidad) : 'No caduca';
+                return (
+                  <tr key={l.id}>
+                    <td className="px-3 py-2 font-mono">{nombre}</td>
+                    <td className={`px-3 py-2 text-right font-mono ${l.stock < 0 ? 'text-bad-600 font-semibold' : ''}`}>{l.stock}</td>
+                    <td className="px-3 py-2">
+                      <input className="input w-20 py-1" inputMode="numeric" aria-label={`Contadas del lote ${nombre}`}
+                        value={contado[l.id] ?? ''} onChange={e => setContado(c => ({ ...c, [l.id]: e.target.value }))} />
+                      {dif !== null && (
+                        <span className={`ml-2 text-xs font-mono ${dif === 0 ? 'text-neutral-400' : 'text-neutral-700'}`}>
+                          {dif === 0 ? 'cuadra' : dif > 0 ? `+${dif}` : dif}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {nuevos.map((n, i) => (
+                <tr key={`nuevo-${i}`}>
+                  <td className="px-3 py-2" colSpan={2}>
+                    <input type="date" className="input w-40 py-1" aria-label="Caducidad de la fila nueva" value={n.caducidad || ''}
+                      disabled={n.noCaduca} onChange={e => cambiarNuevo(i, 'caducidad', e.target.value)} />
+                    <label className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+                      <input type="checkbox" checked={!!n.noCaduca} onChange={e => cambiarNuevo(i, 'noCaduca', e.target.checked)} /> No caduca
+                    </label>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input className="input w-20 py-1" inputMode="numeric" aria-label="Contadas de la fila nueva"
+                      value={n.cantidad || ''} onChange={e => cambiarNuevo(i, 'cantidad', e.target.value)} />
+                    <button type="button" className="ml-2 text-xs text-neutral-500 hover:underline"
+                      onClick={() => setNuevos(ns => ns.filter((_, j) => j !== i))}>Quitar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <button type="button" className="text-primary-700 hover:underline" onClick={() => setNuevos(ns => [...ns, {}])}>
+            + Otra caducidad que no está en la lista
+          </button>
+          {vacios > 0 && (
+            <button type="button" className="text-primary-700 hover:underline" onClick={() => setVerVacios(v => !v)}>
+              {verVacios ? 'Ocultar los vacíos' : `Ver también los vacíos (${vacios})`}
+            </button>
+          )}
+        </div>
+        <div>
+          <label className="label" htmlFor="recuento-producto-notas">Notas</label>
+          <input id="recuento-producto-notas" className="input" maxLength={255} value={notas} placeholder="Recuento"
+            onChange={e => setNotas(e.target.value)} />
+        </div>
+        <Fallo texto={fallo} />
+      </form>
+    </Modal>
+  );
+}
+
 export function CaducidadForm({ isOpen, onClose, producto, lote, onHecho }) {
   const [caducidad, setCaducidad] = useState('');
   const [noCaduca, setNoCaduca] = useState(false);

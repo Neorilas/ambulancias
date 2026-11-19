@@ -43,6 +43,11 @@ export const almacenService = {
     return pedir(api.post(`/almacen/lotes/${loteId}/recuento`, { stock_real: stockReal, notas }), 'No se pudo apuntar el recuento')
       .then(d => ({ ...d.data, message: d.message }));
   },
+  /** Recuento de todos los lotes de un producto: { producto, ajustes, message }. */
+  recuentoProducto(productoId, { lotes, nuevos, notas }) {
+    return pedir(api.post(`/almacen/productos/${productoId}/recuento`, { lotes, nuevos, notas }), 'No se pudo apuntar el recuento')
+      .then(d => ({ ...d.data, message: d.message }));
+  },
   corregirCaducidad(loteId, caducidad) {
     return pedir(api.put(`/almacen/lotes/${loteId}`, { caducidad }), 'No se pudo corregir la caducidad').then(d => d.data);
   },

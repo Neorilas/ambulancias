@@ -28,7 +28,7 @@ import { useNotification } from '../../context/NotificationContext.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import {
-  ProductoForm, EntradaForm, SalidaForm, RecuentoForm, CaducidadForm,
+  ProductoForm, EntradaForm, SalidaForm, RecuentoForm, RecuentoProductoForm, CaducidadForm,
 } from '../../components/almacen/FormulariosAlmacen.jsx';
 import { useBuscadorEnUrl, useEstadoEnUrl, usePanelEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import { formatDateTime, formatFechaSola } from '../../utils/dateUtils.js';
@@ -138,6 +138,7 @@ function FichaProducto({ id, hoy, onCerrar, onAccion, version }) {
             <div className="flex gap-2 sm:ml-auto">
               <button className="btn-secondary py-1.5 text-sm" onClick={() => onAccion('editar', producto)}>Editar</button>
               {producto.activo && <button className="btn-secondary py-1.5 text-sm" onClick={() => onAccion('entrada', producto)}>Entrada</button>}
+              <button className="btn-secondary py-1.5 text-sm" onClick={() => onAccion('recuentoProducto', producto)}>Recuento</button>
               <button className="btn-primary py-1.5 text-sm" onClick={() => onAccion('salida', producto)} disabled={producto.stock <= 0}>Salida</button>
             </div>
           </div>
@@ -188,7 +189,7 @@ function FichaProducto({ id, hoy, onCerrar, onAccion, version }) {
             )}
             {producto.lotes_negativos > 0 && (
               <p className="mt-2 text-xs text-warn-700">
-                Un lote en negativo viene del AppSheet (salieron más de las que se apuntaron al entrar). Cuenta lo que hay y apúntalo con «Recuento».
+                Un lote en negativo viene del AppSheet (salieron más de las que se apuntaron al entrar). Pulsa «Recuento» arriba y cuenta todos sus lotes: casi siempre se sacó de otro lote, que estará inflado.
               </p>
             )}
           </section>
@@ -305,7 +306,7 @@ export default function Almacen() {
 
   /** Abre un popup. La salida necesita los lotes: se piden antes si no vienen. */
   const accion = async (tipo, producto, lote = null) => {
-    if (tipo === 'salida') {
+    if (tipo === 'salida' || tipo === 'recuentoProducto') {
       try {
         const completo = producto.lotes ? producto : await almacenService.producto(producto.id);
         setPopup({ tipo, producto: completo, lote, lotes: completo.lotes });
@@ -457,6 +458,8 @@ export default function Almacen() {
       <SalidaForm isOpen={popup?.tipo === 'salida'} producto={popup?.producto} lotes={popup?.lotes} loteInicial={popup?.lote?.id}
         ambulancias={ambulancias} hoy={hoy} onClose={() => setPopup(null)} onHecho={hecho('Salida apuntada')} />
       <RecuentoForm isOpen={popup?.tipo === 'recuento'} producto={popup?.producto} lote={popup?.lote} onClose={() => setPopup(null)}
+        onHecho={hecho(r => r?.message || 'Recuento apuntado')} />
+      <RecuentoProductoForm isOpen={popup?.tipo === 'recuentoProducto'} producto={popup?.producto} onClose={() => setPopup(null)}
         onHecho={hecho(r => r?.message || 'Recuento apuntado')} />
       <CaducidadForm isOpen={popup?.tipo === 'caducidad'} producto={popup?.producto} lote={popup?.lote} onClose={() => setPopup(null)}
         onHecho={hecho('Caducidad corregida')} />

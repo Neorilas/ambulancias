@@ -84,7 +84,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/admin` | `admin.routes.js` | `admin.controller.js` | GET `/stats` · GET `/audit` · GET `/audit/users` · GET `/errors` (`?origen=servidor|cliente`, devuelve `stack_trace`) · POST `/impersonar/:id` (§6.3) · GET `/backups` y POST `/backups/:nombre/descarga` (`backups.controller.js`: dumps de la BD, `docs/BACKUPS.md` §9; la descarga pide la contraseña con `backupLimiter`, 5 fallos cada 15 min (los aciertos no cuentan), y avisa por push a todos los superadmin) (solo superadmin) |
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET con `?endpoint=` se retiró el 2026-10-12: el endpoint en la query acababa en el log de peticiones, y en PRO no se usaba desde el 22-sep) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
-| `/almacen` | `almacen.routes.js` | `almacen.controller.js` | GET/POST `/productos` · GET/PUT `/productos/:id` · PUT `/lotes/:id` (corregir caducidad) · POST `/lotes/:id/recuento` · GET/POST `/movimientos`. **Solo administrador y superadmin, y oculto para el resto (gestor incluido): 404 como una ruta inexistente** (`ocultarSalvoRoles`), como Facturas. §2.10 |
+| `/almacen` | `almacen.routes.js` | `almacen.controller.js` | GET/POST `/productos` · GET/PUT `/productos/:id` · PUT `/lotes/:id` (corregir caducidad) · POST `/lotes/:id/recuento` · POST `/productos/:id/recuento` (todos los lotes de una vez) · GET/POST `/movimientos`. **Solo administrador y superadmin, y oculto para el resto (gestor incluido): 404 como una ruta inexistente** (`ocultarSalvoRoles`), como Facturas. §2.10 |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP: <directiva> ha bloqueado …`; la CSP es obligatoria desde 2026-10-12, §9), sin BD, URLs sin query, cada violación una vez por hora |
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
@@ -895,6 +895,17 @@ ajuste). Porqués y trampas:
   salidas que entradas): la pantalla los marca (⚠ y filtro «Descuadrados») y
   se arreglan con un **recuento**, que cuenta la estantería y apunta un
   `ajuste` por la diferencia. Nada se borra ni se edita: corregir es apuntar.
+- **Recuento del producto entero** (`POST /productos/:id/recuento`, botón
+  «Recuento» de la cabecera de la ficha, `RecuentoProductoForm`): una casilla
+  por lote, todo en una transacción. Existe porque un negativo casi nunca es
+  «faltan»: en el AppSheet se sacó de un lote apuntando otro, y el otro está
+  inflado; cuadrar solo el rojo deja el otro mal. Casilla en blanco = no
+  contado, **no** 0 (no se toca). «Otra caducidad» crea el lote con un ajuste;
+  si esa fecha ya tiene lote, el backend da 409 («cuéntalo en su fila») y el
+  formulario, antes, la convierte en la cuenta del lote si está vacío (los
+  vacíos van plegados y si no, no habría forma de contarlos). Bloquea el
+  producto (`FOR UPDATE`) por los lotes nuevos; un lote de otro producto da 409.
+  Una sola fila de auditoría `recuento_material_producto` con el detalle.
 - **Las ambulancias aún no tienen inventario** (usuario, 2026-11-18): una
   salida a una ambulancia solo dice a cuál fue (`vehicle_id`). Cuando lo
   tengan, esa salida pasará a ser un traslado almacén → ambulancia y el
@@ -909,7 +920,8 @@ ajuste). Porqués y trampas:
 - `codigo_origen` (UNIQUE) en las tres tablas es el id del AppSheet; NULL en lo
   dado de alta en la app.
 - Auditoría: `create_material_producto`, `update_material_producto`,
-  `update_material_lote`, `material_movimiento`, `recuento_material` (en
+  `update_material_lote`, `material_movimiento`, `recuento_material`,
+  `recuento_material_producto` (en
   `ACTION_LABEL` de `AdminPanel`).
 - «Caduca pronto» = 60 días (`CADUCA_PRONTO_DIAS`, solo en el frontend). Los
   avisos por push y en Alertas son la fase 2, sin hacer.
