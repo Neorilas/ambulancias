@@ -95,6 +95,7 @@ const ACTION_LABEL = {
   update_material_lote:     'Corrigió la caducidad de un lote',
   material_movimiento:      'Apuntó un movimiento del almacén',
   recuento_material:        'Apuntó un recuento del almacén',
+  recuento_material_producto: 'Apuntó el recuento de un producto del almacén',
   // La hace el buzón de facturas@ (user_info «sistema (buzón de facturas)»).
   import_factura:      'Llegó una factura por correo',
 };

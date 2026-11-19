@@ -142,6 +142,7 @@ const ACCESO = {
   'PUT /almacen/productos/:id':        ['oculta'],
   'PUT /almacen/lotes/:id':            ['oculta'],
   'POST /almacen/lotes/:id/recuento':  ['oculta'],
+  'POST /almacen/productos/:id/recuento': ['oculta'],
   'GET /almacen/movimientos':          ['oculta'],
   'POST /almacen/movimientos':         ['oculta'],
 };

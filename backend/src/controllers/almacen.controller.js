@@ -369,6 +369,108 @@ async function recuentoLote(req, res, next) {
   }
 }
 
+/**
+ * POST /almacen/productos/:id/recuento — el recuento de un producto entero, de
+ * una vez: { lotes: [{ lote_id, stock_real }], nuevos: [{ caducidad, stock_real }], notas? }.
+ *
+ * Existe porque un lote en negativo casi nunca es «faltan»: es que en el
+ * AppSheet se sacaron unidades apuntando el lote equivocado, y el otro lote
+ * está inflado. Cuadrar solo el rojo deja el otro mal; hay que contar todos.
+ * - `lotes`: los contados. Los que no vienen no se tocan (no contado ≠ 0).
+ * - `nuevos`: unidades con una caducidad que no está en la app; crea el lote
+ *   con un ajuste. Si esa caducidad ya tiene lote, se cuenta en su fila (409).
+ * Todo en una transacción: o se apunta el recuento entero o nada.
+ */
+async function recuentoProducto(req, res, next) {
+  try {
+    const id = idOpcional(req.params.id);
+    if (!id) return notFound(res, 'Producto');
+    const notas = texto(req.body?.notas);
+    if (notas && notas.length > MAX.notas) return error(res, `Las notas no pueden pasar de ${MAX.notas} caracteres`, 400);
+
+    const crudosLotes = Array.isArray(req.body?.lotes) ? req.body.lotes : [];
+    const crudosNuevos = Array.isArray(req.body?.nuevos) ? req.body.nuevos : [];
+    if (!crudosLotes.length && !crudosNuevos.length) return error(res, 'No has contado ningún lote', 400);
+    if (crudosLotes.length + crudosNuevos.length > 200) return error(res, 'Demasiados lotes en un recuento', 400);
+
+    const contados = [];
+    const vistos = new Set();
+    for (const l of crudosLotes) {
+      const loteId = idOpcional(l?.lote_id);
+      const real = entero(l?.stock_real, 0, MAX_CANTIDAD);
+      if (!loteId || Number.isNaN(real)) return error(res, 'Lo contado tiene que ser un número entero, 0 o más', 400);
+      if (vistos.has(loteId)) return error(res, 'Un lote viene dos veces en el recuento', 400);
+      vistos.add(loteId);
+      contados.push({ loteId, real });
+    }
+    const nuevos = [];
+    const fechas = new Set();
+    for (const n of crudosNuevos) {
+      const caducidad = caducidadValida(n?.caducidad);
+      const real = entero(n?.stock_real, 1, MAX_CANTIDAD);
+      if (caducidad === undefined) return error(res, 'Caducidad no válida en un lote nuevo', 400);
+      if (Number.isNaN(real)) return error(res, 'Un lote nuevo tiene que tener 1 unidad o más', 400);
+      const clave = caducidad || 'sin';
+      if (fechas.has(clave)) return error(res, 'Hay dos lotes nuevos con la misma caducidad', 400);
+      fechas.add(clave);
+      nuevos.push({ caducidad, real });
+    }
+
+    const resultado = await transaction(async (conn) => {
+      const [prods] = await conn.query('SELECT id, nombre, activo FROM material_productos WHERE id = ? FOR UPDATE', [id]);
+      const producto = prods[0];
+      if (!producto) return { noExiste: true };
+      if (nuevos.length && !producto.activo) return { fallo: 'El producto está retirado: no se le pueden añadir lotes' };
+
+      const t = ahora();
+      const nota = notas || 'Recuento';
+      const detalle = [];
+      for (const c of contados) {
+        const lote = await bloquearLote(conn, c.loteId);
+        if (!lote || lote.producto_id !== id) return { fallo: 'Algún lote no es de este producto: recarga y vuelve a contar', estado: 409 };
+        const diferencia = c.real - lote.stock;
+        if (diferencia === 0) continue;
+        await conn.query(
+          `INSERT INTO material_movimientos (lote_id, tipo, cantidad, notas, user_id, fecha, created_at)
+           VALUES (?, 'ajuste', ?, ?, ?, ?, ?)`,
+          [c.loteId, diferencia, nota, req.user.id, t, t]
+        );
+        detalle.push({ lote_id: c.loteId, caducidad: lote.caducidad, antes: lote.stock, contado: c.real, diferencia });
+      }
+      for (const n of nuevos) {
+        const [iguales] = await conn.query(
+          `SELECT id FROM material_lotes WHERE producto_id = ? AND ${n.caducidad ? 'caducidad = ?' : 'caducidad IS NULL'} LIMIT 1`,
+          n.caducidad ? [id, n.caducidad] : [id]
+        );
+        if (iguales.length) {
+          return { fallo: `Ya hay un lote ${n.caducidad ? `que caduca el ${n.caducidad.split('-').reverse().join('/')}` : 'sin caducidad'}: cuéntalo en su fila`, estado: 409 };
+        }
+        const [l] = await conn.query('INSERT INTO material_lotes (producto_id, caducidad, created_at) VALUES (?, ?, ?)', [id, n.caducidad, t]);
+        await conn.query(
+          `INSERT INTO material_movimientos (lote_id, tipo, cantidad, notas, user_id, fecha, created_at)
+           VALUES (?, 'ajuste', ?, ?, ?, ?, ?)`,
+          [l.insertId, n.real, nota, req.user.id, t, t]
+        );
+        detalle.push({ lote_id: l.insertId, caducidad: n.caducidad, antes: 0, contado: n.real, diferencia: n.real, nuevo: true });
+      }
+      return { producto, detalle, final: await leerProducto(id, conn) };
+    });
+    if (resultado.noExiste) return notFound(res, 'Producto');
+    if (resultado.fallo) return error(res, resultado.fallo, resultado.estado || 400);
+
+    const { producto, detalle, final } = resultado;
+    if (detalle.length) {
+      await auditar(req, 'recuento_material_producto', 'material_producto', id, { producto: producto.nombre, lotes: detalle });
+    }
+    const mensaje = detalle.length === 0
+      ? 'El recuento cuadra: no se ha apuntado nada'
+      : `Recuento apuntado: ${detalle.length} ${detalle.length === 1 ? 'lote ajustado' : 'lotes ajustados'}`;
+    return success(res, { producto: final, ajustes: detalle }, mensaje);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── Movimientos ───────────────────────────────────────────────────────────────
 
 /** Ambulancia viva, o null. */
@@ -565,6 +667,7 @@ module.exports = {
   updateProducto,
   updateLote,
   recuentoLote,
+  recuentoProducto,
   createMovimiento,
   listMovimientos,
   // para los tests
