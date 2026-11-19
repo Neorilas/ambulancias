@@ -30,6 +30,17 @@ const TIPOS_PRODUCTO = ['producto', 'medicacion'];
 // Lo que se da de alta desde la pantalla. `ajuste` solo nace del recuento.
 const TIPOS_SALIDA = ['salida_ambulancia', 'salida_otros', 'descarte'];
 const TIPOS_MOVIMIENTO = ['entrada', ...TIPOS_SALIDA, 'ajuste'];
+// Filtro de destino de las salidas en GET /movimientos. «Enfermería» no es un
+// tipo: es una `salida_otros` cuyo destino escrito a mano la nombra
+// («Botiquín enfermería»…). La colación (utf8mb4_unicode_ci) ya no distingue
+// mayúsculas ni tildes, y «enfermer» casa con enfermería y enfermero/a.
+const DESTINOS_SALIDA = ['ambulancia', 'enfermeria', 'otros'];
+const ES_ENFERMERIA = "COALESCE(m.destino, '') LIKE '%enfermer%'";
+
+/** Escapa los comodines de LIKE (\ % _) para buscar el texto tal cual. */
+function escaparLike(t) {
+  return t.replace(/[\\%_]/g, c => `\\${c}`);
+}
 
 /** Texto recortado y sin espacios dobles, o null si viene vacío. */
 function texto(v) {
@@ -606,7 +617,12 @@ async function createMovimiento(req, res, next) {
 
 /**
  * GET /almacen/movimientos — el historial, el más reciente primero, de 50 en
- * 50. Filtros: producto_id, vehicle_id, tipo.
+ * 50. Filtros:
+ *  - producto_id, vehicle_id
+ *  - tipo: entrada | salida (las dos salidas) | descarte | ajuste, o un tipo
+ *    exacto (salida_ambulancia, salida_otros: enlaces viejos)
+ *  - destino (solo salidas): ambulancia | enfermeria | otros; vehicle_id solo
+ *    con ambulancia, y buscar (texto en el destino) solo con otros.
  */
 async function listMovimientos(req, res, next) {
   try {
@@ -619,12 +635,25 @@ async function listMovimientos(req, res, next) {
     const vehiculo = idOpcional(q.vehicle_id);
     if (Number.isNaN(producto) || Number.isNaN(vehiculo)) return error(res, 'Filtro no válido', 400);
     if (producto) { where.push('l.producto_id = ?'); params.push(producto); }
-    if (vehiculo) { where.push('m.vehicle_id = ?'); params.push(vehiculo); }
     const tipo = texto(Array.isArray(q.tipo) ? q.tipo[0] : q.tipo);
-    if (tipo) {
-      if (!TIPOS_MOVIMIENTO.includes(tipo)) return error(res, 'Tipo no válido', 400);
-      where.push('m.tipo = ?'); params.push(tipo);
-    }
+    const destino = texto(Array.isArray(q.destino) ? q.destino[0] : q.destino);
+    const buscar = texto(Array.isArray(q.buscar) ? q.buscar[0] : q.buscar);
+    if (tipo && tipo !== 'salida' && !TIPOS_MOVIMIENTO.includes(tipo)) return error(res, 'Tipo no válido', 400);
+    if (destino && !DESTINOS_SALIDA.includes(destino)) return error(res, 'Destino no válido', 400);
+    // El destino es de las salidas: con otro tipo no hay nada que casar.
+    if (destino && tipo && tipo !== 'salida') return error(res, 'El destino solo vale para las salidas', 400);
+    if (buscar && destino !== 'otros') return error(res, 'Solo se busca texto en «A otro sitio»', 400);
+    if (buscar && buscar.length > MAX.destino) return error(res, `La búsqueda no puede pasar de ${MAX.destino} caracteres`, 400);
+    if (vehiculo && destino && destino !== 'ambulancia') return error(res, 'La ambulancia solo vale con «A ambulancia»', 400);
+
+    if (destino === 'ambulancia') where.push("m.tipo = 'salida_ambulancia'");
+    else if (destino === 'enfermeria') where.push(`m.tipo = 'salida_otros' AND ${ES_ENFERMERIA}`);
+    else if (destino === 'otros') where.push(`m.tipo = 'salida_otros' AND NOT (${ES_ENFERMERIA})`);
+    else if (tipo === 'salida') where.push(`m.tipo IN ('salida_ambulancia', 'salida_otros')`);
+    else if (tipo) { where.push('m.tipo = ?'); params.push(tipo); }
+    if (vehiculo) { where.push('m.vehicle_id = ?'); params.push(vehiculo); }
+    // Sin cláusula ESCAPE: la de MySQL por defecto ya es «\».
+    if (buscar) { where.push('m.destino LIKE ?'); params.push(`%${escaparLike(buscar)}%`); }
     const condicion = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const [[{ total }]] = await query(

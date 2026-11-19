@@ -20,6 +20,49 @@ export const TIPO_MOVIMIENTO = {
   ajuste:            { label: 'Recuento',        clase: 'badge-yellow' },
 };
 
+// Filtros de la vista Movimientos. «Salida» junta las dos salidas (no el
+// descarte) y abre el filtro de destino. «A enfermería» no es un tipo: es una
+// salida a otro sitio cuyo destino nombra la enfermería (lo decide el backend).
+export const FILTROS_TIPO_MOVIMIENTO = [
+  { key: '',         label: 'Todos' },
+  { key: 'entrada',  label: 'Entrada' },
+  { key: 'salida',   label: 'Salida' },
+  { key: 'descarte', label: 'Descarte' },
+  { key: 'ajuste',   label: 'Recuento' },
+];
+export const FILTROS_DESTINO_SALIDA = [
+  { key: '',           label: 'Todas' },
+  { key: 'ambulancia', label: 'A ambulancia' },
+  { key: 'enfermeria', label: 'A enfermería' },
+  { key: 'otros',      label: 'A otro sitio' },
+];
+
+/**
+ * Lo que vale de los filtros de la URL: cada uno solo cuenta si el de arriba
+ * lo permite (destino con Salida, ambulancia con «A ambulancia», texto con
+ * «A otro sitio»), así una URL a medio cambiar no pide algo que el backend
+ * rechaza. Los enlaces viejos con `tipo=salida_ambulancia|salida_otros` se
+ * traducen al filtro nuevo.
+ */
+export function filtroMovimientos({ tipo = '', destino = '', ambulancia = '', buscar = '' } = {}) {
+  if (tipo === 'salida_ambulancia') { tipo = 'salida'; destino = destino || 'ambulancia'; }
+  if (tipo === 'salida_otros') { tipo = 'salida'; destino = destino || 'otros'; }
+  if (!FILTROS_TIPO_MOVIMIENTO.some(f => f.key === tipo)) tipo = '';
+  if (tipo !== 'salida' || !FILTROS_DESTINO_SALIDA.some(f => f.key === destino)) destino = '';
+  return {
+    tipo,
+    destino,
+    ambulancia: destino === 'ambulancia' ? ambulancia : '',
+    buscar: destino === 'otros' ? buscar.trim() : '',
+  };
+}
+
+/** Los parámetros de `almacenService.movimientos` para ese filtro. */
+export function paramsMovimientos(url) {
+  const f = filtroMovimientos(url);
+  return { tipo: f.tipo, destino: f.destino, vehicle_id: f.ambulancia, buscar: f.buscar };
+}
+
 // Las presentaciones que ya usaba el AppSheet, para sugerirlas al dar de alta.
 export const PRESENTACIONES = ['Unidad', 'Caja', 'Bote', 'Ampolla', 'Pastillas', 'Bolsa', 'Kit', 'Frasco'];
 
