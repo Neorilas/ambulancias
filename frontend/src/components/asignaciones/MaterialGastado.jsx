@@ -130,7 +130,7 @@ export default function MaterialGastado({ valor, onChange, catalogo }) {
                 {sinCatalogo ? 'Material utilizado' : 'Lo que no está en la lista'}
               </label>
               <textarea
-                id="material-libre" className="input resize-none" rows={3}
+                id="material-libre" className="input resize-none" rows={3} maxLength={2000}
                 placeholder="Ej.: 1 manta térmica"
                 value={valor.libre} onChange={e => set({ libre: e.target.value })}
               />
