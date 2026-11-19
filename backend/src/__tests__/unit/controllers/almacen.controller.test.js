@@ -544,9 +544,9 @@ describe('almacen.controller', () => {
       expect(res._json.pagination).toMatchObject({ total: 120, page: 2, limit: 50 });
       expect(res._json.data[0].importado).toBe(true);
       const [sql, params] = query.mock.calls[1];
-      expect(sql).toContain('WHERE l.producto_id = ? AND m.vehicle_id = ? AND m.tipo = ?');
+      expect(sql).toContain('WHERE l.producto_id = ? AND m.tipo = ? AND m.vehicle_id = ?');
       expect(sql).toContain('ORDER BY m.fecha DESC, m.id DESC');
-      expect(params).toEqual([5, 2, 'salida_ambulancia', 50, 50]);
+      expect(params).toEqual([5, 'salida_ambulancia', 2, 50, 50]);
     });
 
     it('sin filtros no lleva WHERE', async () => {
@@ -558,6 +558,66 @@ describe('almacen.controller', () => {
     it('400 con filtros que no valen', async () => {
       expect((await llamar(ctrl.listMovimientos, mockReq({ user: ADMIN, query: { producto_id: 'x' } }))).res.statusCode).toBe(400);
       expect((await llamar(ctrl.listMovimientos, mockReq({ user: ADMIN, query: { tipo: 'robo' } }))).res.statusCode).toBe(400);
+    });
+
+    /** Lanza la consulta y devuelve el SQL de la lista y sus parámetros. */
+    async function sqlDe(q) {
+      query.mockResolvedValueOnce([[{ total: 0 }]]).mockResolvedValueOnce([[]]);
+      const { res } = await llamar(ctrl.listMovimientos, mockReq({ user: ADMIN, query: q }));
+      expect(res.statusCode).toBe(200);
+      const [sql, params] = query.mock.calls[1];
+      return { sql, params };
+    }
+
+    it('«salida» son las dos salidas, sin descartes ni recuentos', async () => {
+      const { sql, params } = await sqlDe({ tipo: 'salida' });
+      expect(sql).toContain("WHERE m.tipo IN ('salida_ambulancia', 'salida_otros')");
+      expect(params).toEqual([50, 0]);
+    });
+
+    it('«ajuste» es el recuento', async () => {
+      const { sql, params } = await sqlDe({ tipo: 'ajuste' });
+      expect(sql).toContain('WHERE m.tipo = ?');
+      expect(params).toEqual(['ajuste', 50, 0]);
+    });
+
+    it('a ambulancia, todas o una concreta', async () => {
+      let r = await sqlDe({ tipo: 'salida', destino: 'ambulancia' });
+      expect(r.sql).toContain("WHERE m.tipo = 'salida_ambulancia'");
+      expect(r.params).toEqual([50, 0]);
+      query.mockReset();
+      r = await sqlDe({ tipo: 'salida', destino: 'ambulancia', vehicle_id: '7' });
+      expect(r.sql).toContain("WHERE m.tipo = 'salida_ambulancia' AND m.vehicle_id = ?");
+      expect(r.params).toEqual([7, 50, 0]);
+    });
+
+    it('a enfermería: salida a otro sitio cuyo destino la nombra', async () => {
+      const { sql, params } = await sqlDe({ tipo: 'salida', destino: 'enfermeria' });
+      expect(sql).toContain("m.tipo = 'salida_otros' AND COALESCE(m.destino, '') LIKE '%enfermer%'");
+      expect(params).toEqual([50, 0]);
+    });
+
+    it('a otro sitio excluye enfermería y busca el texto con parámetro y comodines escapados', async () => {
+      const { sql, params } = await sqlDe({ tipo: 'salida', destino: 'otros', buscar: '  50%_ob\\ra ' });
+      expect(sql).toContain("m.tipo = 'salida_otros' AND NOT (COALESCE(m.destino, '') LIKE '%enfermer%') AND m.destino LIKE ?");
+      expect(sql).not.toContain('ob');
+      expect(params).toEqual(['%50\\%\\_ob\\\\ra%', 50, 0]);
+    });
+
+    it('el destino sin tipo vale (implica salida)', async () => {
+      const { sql } = await sqlDe({ destino: 'otros' });
+      expect(sql).toContain("m.tipo = 'salida_otros'");
+    });
+
+    it('400 con combinaciones de destino que no casan', async () => {
+      const probar = async (q) => (await llamar(ctrl.listMovimientos, mockReq({ user: ADMIN, query: q }))).res.statusCode;
+      expect(await probar({ destino: 'luna' })).toBe(400);
+      expect(await probar({ tipo: 'entrada', destino: 'ambulancia' })).toBe(400);
+      expect(await probar({ tipo: 'salida', destino: 'ambulancia', buscar: 'uvi' })).toBe(400);
+      expect(await probar({ tipo: 'salida', buscar: 'obra' })).toBe(400);
+      expect(await probar({ tipo: 'salida', destino: 'enfermeria', vehicle_id: '7' })).toBe(400);
+      expect(await probar({ tipo: 'salida', destino: 'otros', buscar: 'x'.repeat(151) })).toBe(400);
+      expect(query).not.toHaveBeenCalled();
     });
 
     it('un fallo de BD va a next', async () => {

@@ -253,7 +253,43 @@ describe('Almacén', () => {
     expect(await screen.findByText('UVI-03')).toBeInTheDocument();
     expect(screen.getByText('−2')).toBeInTheDocument();
     expect(screen.getByText('del AppSheet')).toBeInTheDocument();
+    // El destino y la ambulancia no salen hasta elegir Salida → A ambulancia
+    expect(screen.queryByRole('group', { name: 'Destino de la salida' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ambulancia')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Salida' }));
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({ tipo: 'salida', destino: '' })));
+    fireEvent.click(screen.getByRole('button', { name: 'A ambulancia' }));
     fireEvent.change(await screen.findByLabelText('Ambulancia'), { target: { value: '7' } });
-    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({ vehicle_id: '7', page: 1 })));
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({
+      tipo: 'salida', destino: 'ambulancia', vehicle_id: '7', page: 1,
+    })));
+    // Cambiar de tipo borra el destino y la ambulancia
+    fireEvent.click(screen.getByRole('button', { name: 'Recuento' }));
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({
+      tipo: 'ajuste', destino: '', vehicle_id: '',
+    })));
+    expect(screen.queryByLabelText('Ambulancia')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recuento' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Movimientos: «A enfermería» sin más, «A otro sitio» con texto libre', async () => {
+    montar('/almacen?vista=movimientos&tipo=salida');
+    fireEvent.click(await screen.findByRole('button', { name: 'A enfermería' }));
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({ destino: 'enfermeria', buscar: '' })));
+    expect(screen.queryByLabelText('Buscar destino')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'A otro sitio' }));
+    fireEvent.change(await screen.findByLabelText('Buscar destino'), { target: { value: 'obra' } });
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({
+      tipo: 'salida', destino: 'otros', buscar: 'obra', page: 1,
+    })));
+  });
+
+  it('Movimientos: un enlace viejo con el tipo exacto abre el filtro nuevo', async () => {
+    montar('/almacen?vista=movimientos&tipo=salida_ambulancia&ambulancia=7');
+    await waitFor(() => expect(almacenService.movimientos).toHaveBeenLastCalledWith(expect.objectContaining({
+      tipo: 'salida', destino: 'ambulancia', vehicle_id: '7',
+    })));
+    expect(await screen.findByLabelText('Ambulancia')).toHaveValue('7');
+    expect(screen.getByRole('button', { name: 'A ambulancia' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

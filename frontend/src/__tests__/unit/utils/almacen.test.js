@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CADUCA_PRONTO_DIAS, bajoMinimo, cantidadConSigno, claseCaducidad, destinoMovimiento, diasHasta,
-  estadoCaducidad, filtrarProductos, hoyEnEspana, normalizar, resumenAvisos, textoCaducidad,
+  estadoCaducidad, filtrarProductos, filtroMovimientos, hoyEnEspana, paramsMovimientos, normalizar, resumenAvisos, textoCaducidad,
 } from '../../../utils/almacen.js';
 
 const HOY = '2026-11-18';
@@ -93,5 +93,30 @@ describe('utils/almacen', () => {
     expect(cantidadConSigno(10)).toBe('+10');
     expect(cantidadConSigno(-3)).toBe('−3');
     expect(cantidadConSigno(0)).toBe('0');
+  });
+
+  it('filtroMovimientos solo deja los filtros que cuelgan de lo elegido', () => {
+    expect(filtroMovimientos({})).toEqual({ tipo: '', destino: '', ambulancia: '', buscar: '' });
+    // destino sin Salida, ambulancia sin «A ambulancia», texto sin «A otro sitio»: fuera
+    expect(filtroMovimientos({ tipo: 'entrada', destino: 'otros', ambulancia: '7', buscar: 'obra' }))
+      .toEqual({ tipo: 'entrada', destino: '', ambulancia: '', buscar: '' });
+    expect(filtroMovimientos({ tipo: 'salida', destino: 'enfermeria', ambulancia: '7', buscar: 'x' }))
+      .toEqual({ tipo: 'salida', destino: 'enfermeria', ambulancia: '', buscar: '' });
+    expect(filtroMovimientos({ tipo: 'salida', destino: 'ambulancia', ambulancia: '7' }).ambulancia).toBe('7');
+    expect(filtroMovimientos({ tipo: 'salida', destino: 'otros', buscar: '  obra ' }).buscar).toBe('obra');
+    // valores que no existen
+    expect(filtroMovimientos({ tipo: 'robo' }).tipo).toBe('');
+    expect(filtroMovimientos({ tipo: 'salida', destino: 'luna' }).destino).toBe('');
+  });
+
+  it('filtroMovimientos traduce los enlaces viejos con el tipo exacto', () => {
+    expect(filtroMovimientos({ tipo: 'salida_ambulancia', ambulancia: '7' }))
+      .toEqual({ tipo: 'salida', destino: 'ambulancia', ambulancia: '7', buscar: '' });
+    expect(filtroMovimientos({ tipo: 'salida_otros' })).toMatchObject({ tipo: 'salida', destino: 'otros' });
+  });
+
+  it('paramsMovimientos pasa la ambulancia como vehicle_id', () => {
+    expect(paramsMovimientos({ tipo: 'salida', destino: 'ambulancia', ambulancia: '7' }))
+      .toEqual({ tipo: 'salida', destino: 'ambulancia', vehicle_id: '7', buscar: '' });
   });
 });

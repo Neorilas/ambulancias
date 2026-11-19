@@ -949,6 +949,36 @@ ajuste). Porqués y trampas:
     en el bundle de todos y el almacén es un chunk aparte (`globIgnores`).
   - Si el catálogo no carga (sin red) o está vacío, el texto libre aparece
     abierto con un aviso: el técnico siempre puede cerrar.
+- **Filtros de la vista Movimientos (2026-11-19).** Chips de tipo: Todos,
+  Entrada, Salida, Descarte, Recuento (= `ajuste`). Con «Salida» aparece una
+  segunda fila: Todas, A ambulancia (+ desplegable de ambulancia), A enfermería
+  y A otro sitio (+ caja de texto). En la URL: `tipo`, `destino`, `ambulancia`,
+  `buscar` (`useEstadoEnUrl`; la caja con `useBuscadorEnUrl`, 400 ms). Lo
+  traduce `filtroMovimientos`/`paramsMovimientos` de `utils/almacen.js`.
+  Backend `GET /almacen/movimientos?tipo=salida&destino=ambulancia|enfermeria|otros&vehicle_id=&buscar=`.
+  Porqués y trampas:
+  - **«Salida» son `salida_ambulancia` + `salida_otros`, no el descarte**: el
+    descarte tiene su chip.
+  - **Enfermería no es un tipo ni una columna**: es una `salida_otros` cuyo
+    `destino` (texto libre) contiene «enfermer» (`ES_ENFERMERIA` en el
+    controlador; la colación `utf8mb4_unicode_ci` ya ignora mayúsculas y
+    tildes). Lo que hay en los datos del AppSheet es «Botiquin enfermeria».
+    Por lo mismo, «A otro sitio» es `salida_otros` **sin** las de enfermería:
+    las dos opciones no se solapan y suman todas las salidas a otro sitio. Si
+    algún día hay un destino «enfermería» de verdad en el formulario de
+    salida, este LIKE se sustituye por él.
+  - Las salidas a ambulancia importadas cuyo destino no casó con la flota
+    tienen `vehicle_id` NULL: salen en «A ambulancia · Todas», no en una
+    ambulancia concreta.
+  - `buscar` va con `?` y con `\ % _` escapados (`escaparLike`): «50%» busca
+    «50%», no «50 y lo que sea».
+  - El backend da 400 con combinaciones que no casan (destino con otro tipo,
+    `vehicle_id` sin «A ambulancia», `buscar` sin «A otro sitio»); el
+    frontend nunca las manda porque `filtroMovimientos` descarta lo que no
+    cuelga de lo elegido, y cambiar un chip borra los de debajo.
+  - Enlaces viejos con `tipo=salida_ambulancia|salida_otros` siguen valiendo
+    (el backend acepta los tipos exactos y el frontend los traduce al filtro
+    nuevo).
 - Corregir una caducidad mal apuntada: `PUT /lotes/:id`; 409 si ya hay otro
   lote del producto con esa fecha (serían dos iguales).
 - Un producto que ya no se usa se **retira** (`activo = 0`): deja de salir y

@@ -7,7 +7,8 @@
  *     caducidad más próxima. Desde cada fila se apunta una entrada o una
  *     salida; el nombre abre la ficha con sus lotes (recuento, corregir
  *     caducidad) y sus últimos movimientos.
- *   - Movimientos: el historial, filtrable por tipo y ambulancia.
+ *   - Movimientos: el historial, filtrable por tipo y, en las salidas, por
+ *     destino (ambulancia, enfermería u otro sitio con texto).
  *
  * Solo admin y superadmin, y oculta para el resto como Facturas: lo decide el
  * backend por rol (routes/almacen.routes.js); el flag `menu_almacen` solo la
@@ -33,8 +34,8 @@ import {
 import { useBuscadorEnUrl, useEstadoEnUrl, usePanelEnUrl, paginaDeUrl } from '../../hooks/useNavegacion.js';
 import { formatDateTime, formatFechaSola } from '../../utils/dateUtils.js';
 import {
-  FILTROS_ESTADO, TIPOS_PRODUCTO, TIPO_MOVIMIENTO, bajoMinimo, cantidadConSigno, claseCaducidad,
-  destinoMovimiento, estadoCaducidad, filtrarProductos, hoyEnEspana, resumenAvisos, textoCaducidad,
+  FILTROS_ESTADO, TIPOS_PRODUCTO, TIPO_MOVIMIENTO, FILTROS_TIPO_MOVIMIENTO, FILTROS_DESTINO_SALIDA, bajoMinimo, cantidadConSigno, claseCaducidad,
+  destinoMovimiento, estadoCaducidad, filtrarProductos, filtroMovimientos, paramsMovimientos, hoyEnEspana, resumenAvisos, textoCaducidad,
 } from '../../utils/almacen.js';
 
 const VISTAS = [
@@ -205,40 +206,65 @@ function FichaProducto({ id, hoy, onCerrar, onAccion, version }) {
 }
 
 /** La vista Movimientos: historial paginado con filtros en la URL. */
+function Chips({ opciones, valor, onCambiar, etiqueta }) {
+  return (
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label={etiqueta}>
+      {opciones.map(o => {
+        const activo = valor === o.key;
+        return (
+          <button key={o.key || 'todos'} type="button" onClick={() => onCambiar(o.key)} aria-pressed={activo}
+            className={`px-3 py-1 rounded-full border ${activo ? 'bg-primary-600 text-white border-primary-600' : 'border-neutral-200 text-neutral-700 hover:bg-neutral-50'}`}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function VistaMovimientos({ ambulancias, version }) {
-  const [url, cambiar] = useEstadoEnUrl({ tipo: '', ambulancia: '', pagina: '1' });
+  const [url, cambiar] = useEstadoEnUrl({ tipo: '', destino: '', ambulancia: '', buscar: '', pagina: '1' });
   const pagina = paginaDeUrl(url.pagina);
+  const f = filtroMovimientos(url);
+  const [texto, setTexto] = useBuscadorEnUrl(url.buscar, (buscar) => cambiar({ buscar, pagina: '1' }));
   const [datos, setDatos] = useState(null);
   const [fallo, setFallo] = useState('');
 
   useEffect(() => {
     let vivo = true;
     setFallo('');
-    almacenService.movimientos({ tipo: url.tipo, vehicle_id: url.ambulancia, page: pagina, limit: POR_PAGINA })
+    almacenService.movimientos({ ...paramsMovimientos(f), page: pagina, limit: POR_PAGINA })
       .then(d => vivo && setDatos(d))
       .catch(err => vivo && setFallo(err.message));
     return () => { vivo = false; };
-  }, [url.tipo, url.ambulancia, pagina, version]);
+  }, [f.tipo, f.destino, f.ambulancia, f.buscar, pagina, version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cambiar un filtro borra los que cuelgan de él (y vuelve a la página 1).
+  const elegirTipo = (tipo) => cambiar({ tipo, destino: '', ambulancia: '', buscar: '', pagina: '1' });
+  const elegirDestino = (destino) => cambiar({ tipo: 'salida', destino, ambulancia: '', buscar: '', pagina: '1' });
 
   const p = datos?.pagination;
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-2 text-neutral-600">
-          Tipo
-          <select className="input py-1.5 text-sm w-auto" value={url.tipo} onChange={e => cambiar({ tipo: e.target.value, pagina: '1' })}>
-            <option value="">Todos</option>
-            {Object.entries(TIPO_MOVIMIENTO).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-neutral-600">
-          Ambulancia
-          <select className="input py-1.5 text-sm w-auto" value={url.ambulancia} onChange={e => cambiar({ ambulancia: e.target.value, pagina: '1' })}>
-            <option value="">Todas</option>
-            {ambulancias.map(a => <option key={a.id} value={a.id}>{nombreAmbulancia(a)}</option>)}
-          </select>
-        </label>
-        {p && <span className="text-neutral-500 sm:ml-auto">{p.total} {p.total === 1 ? 'movimiento' : 'movimientos'}</span>}
+      <div className="flex flex-col gap-2 text-sm">
+        <Chips etiqueta="Tipo de movimiento" opciones={FILTROS_TIPO_MOVIMIENTO} valor={f.tipo} onCambiar={elegirTipo} />
+        {f.tipo === 'salida' && (
+          <div className="flex flex-wrap items-center gap-2 pl-3 border-l-2 border-primary-200">
+            <Chips etiqueta="Destino de la salida" opciones={FILTROS_DESTINO_SALIDA} valor={f.destino} onCambiar={elegirDestino} />
+            {f.destino === 'ambulancia' && (
+              <select className="input py-1.5 text-sm w-full sm:w-auto" value={f.ambulancia} aria-label="Ambulancia"
+                onChange={e => cambiar({ ambulancia: e.target.value, pagina: '1' })}>
+                <option value="">Todas las ambulancias</option>
+                {ambulancias.map(a => <option key={a.id} value={a.id}>{nombreAmbulancia(a)}</option>)}
+              </select>
+            )}
+            {f.destino === 'otros' && (
+              <input type="search" className="input py-1.5 text-sm w-full sm:w-64" maxLength={150} placeholder="Buscar destino…"
+                value={texto} onChange={e => setTexto(e.target.value)} aria-label="Buscar destino" />
+            )}
+          </div>
+        )}
+        {p && <span className="text-neutral-500">{p.total} {p.total === 1 ? 'movimiento' : 'movimientos'}</span>}
       </div>
       {fallo ? (
         <div className="card text-sm text-bad-600">{fallo}</div>
