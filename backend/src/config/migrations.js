@@ -1594,6 +1594,48 @@ const MIGRATIONS = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+
+  {
+    name: 'v46_inventario_ambulancia',
+    description: 'Inventario de cada ambulancia: lo que lleva dentro (producto del almacén o texto libre)',
+    async run() {
+      // MAPA_CODIGO.md §2.10 «Inventario de las ambulancias». Arranca vacía:
+      // NO se rellena con las salidas a ambulancia que ya hay ni con las del
+      // AppSheet (decisión del usuario, 2026-11-19).
+      //
+      // Aquí la cantidad SÍ se guarda (no es una suma de movimientos como en
+      // el almacén): de momento lo único que la mueve, además de lo que
+      // escribe un administrador a mano, es una salida del almacén a esa
+      // ambulancia, que suma en la misma transacción. Cada cambio queda en
+      // audit_logs.
+      //
+      // Una línea = un producto del catálogo (producto_id, y `nombre` NULL)
+      // o un texto libre (producto_id NULL y `nombre`), con su caducidad
+      // (NULL = no caduca). No hay UNIQUE porque con caducidad NULL MySQL no
+      // lo haría cumplir: lo garantiza el código bloqueando el vehículo.
+      await query(`CREATE TABLE IF NOT EXISTS vehiculo_inventario (
+        id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        vehicle_id  INT UNSIGNED NOT NULL,
+        producto_id INT UNSIGNED NULL DEFAULT NULL COMMENT 'Del catálogo del almacén; NULL = texto libre',
+        nombre      VARCHAR(150) NULL DEFAULT NULL COMMENT 'Solo si no es del catálogo',
+        caducidad   DATE         NULL DEFAULT NULL COMMENT 'NULL = no caduca',
+        cantidad    INT UNSIGNED NOT NULL DEFAULT 0,
+        notas       VARCHAR(255) NULL DEFAULT NULL,
+        created_by  INT UNSIGNED NULL DEFAULT NULL,
+        created_at  DATETIME     NOT NULL COMMENT 'UTC',
+        updated_at  DATETIME     NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        INDEX idx_veh_inv_vehiculo (vehicle_id, producto_id, caducidad),
+        INDEX idx_veh_inv_producto (producto_id),
+        CONSTRAINT fk_veh_inv_vehiculo FOREIGN KEY (vehicle_id)
+          REFERENCES vehicles (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_veh_inv_producto FOREIGN KEY (producto_id)
+          REFERENCES material_productos (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_veh_inv_usuario FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 // ============================================================

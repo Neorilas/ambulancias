@@ -37,6 +37,9 @@ import { TIPO_REVISION_LABELS as TIPO_REV_LABELS, fmtEuros, fmtTamano, nombreDes
 // descarga quien lo abre (administración): va fuera del precache de la PWA
 // (vite.config.js, globIgnores). MAPA_CODIGO.md §2.8.
 const SubirFactura = lazy(() => import('../../components/facturas/SubirFactura.jsx'));
+// Inventario de la ambulancia (v46): solo gestión, en su propio chunk fuera
+// del precache (globIgnores de vite.config.js), como SubirFactura.
+const InventarioAmbulancia = lazy(() => import('../../components/inventario/InventarioAmbulancia.jsx'));
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
@@ -1408,12 +1411,18 @@ const TABS = [
   { key: 'fotos',       label: 'Fotos' },
   { key: 'incidencias', label: 'Incidencias' },
   { key: 'revisiones',  label: 'Revisiones' },
+  // Solo admin, gestor y superadmin (el backend da 404 al resto)
+  { key: 'inventario',  label: 'Inventario', soloGestion: true },
 ];
 
-/** Pestaña con la que se abre la ficha: `?tab=` manda si es una que existe. */
-export function tabInicial(pathname, search = '') {
+/**
+ * Pestaña con la que se abre la ficha: `?tab=` manda si es una que existe y
+ * que quien mira puede ver (`veInventario`: un enlace con ?tab=inventario
+ * abre el resumen a un técnico, no una pestaña vacía).
+ */
+export function tabInicial(pathname, search = '', veInventario = false) {
   const pedida = new URLSearchParams(search).get('tab');
-  if (TABS.some(t => t.key === pedida)) return pedida;
+  if (TABS.some(t => t.key === pedida && (!t.soloGestion || veInventario))) return pedida;
   return pathname.endsWith('/historial') ? 'fotos' : 'resumen';
 }
 
@@ -1497,7 +1506,7 @@ export default function VehicleHistory() {
   const { id } = useParams();
   const { pathname, search } = useLocation();
   const [params, setParams] = useSearchParams();
-  const { canManageVehicles, isSuperAdmin, isAdmin } = useAuth();
+  const { canManageVehicles, isSuperAdmin, isAdmin, isGestor } = useAuth();
   const { isFeatureEnabled } = useFeatures();
   // «← Volver» es la pantalla de donde se vino (el listado, Informes, Alertas,
   // el mapa…), no siempre el listado; sin pantalla anterior, el listado
@@ -1507,7 +1516,10 @@ export default function VehicleHistory() {
   // ?tab=<clave> abre esa pestaña (el aviso de incidencias del listado). La
   // pestaña vive en la URL (con `replace`): al volver de un trabajo abierto
   // desde el historial se vuelve al historial, no al resumen.
-  const tab = tabInicial(pathname, search);
+  // Inventario de la ambulancia: lo ven admin, gestor y superadmin; lo
+  // cambian admin y superadmin (inventario.routes.js, §2.10)
+  const veInventario = isAdmin() || isSuperAdmin() || isGestor();
+  const tab = tabInicial(pathname, search, veInventario);
   const setTab = (t) => {
     const siguiente = new URLSearchParams(params);
     if (t === tabInicial(pathname)) siguiente.delete('tab');
@@ -1675,7 +1687,7 @@ export default function VehicleHistory() {
 
       {/* Tabs */}
       <div className="tabs">
-        {TABS.map(t => (
+        {TABS.filter(t => !t.soloGestion || veInventario).map(t => (
           <button
             key={t.key}
             onClick={() => ir({ tab: t.key })}
@@ -1739,6 +1751,12 @@ export default function VehicleHistory() {
 
           enlaceFacturas={isFeatureEnabled('menu_facturas')}
         />
+      )}
+
+      {tab === 'inventario' && veInventario && (
+        <Suspense fallback={<PageLoading />}>
+          <InventarioAmbulancia vehicleId={id} puedeEditar={isAdmin() || isSuperAdmin()} />
+        </Suspense>
       )}
 
       {/* Aviso de cambios sin guardar. Cerrarlo (Escape o la ×) es seguir editando. */}

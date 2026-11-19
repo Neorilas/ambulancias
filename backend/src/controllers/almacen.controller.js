@@ -11,9 +11,11 @@
  * bastante dentro de una transacción con el lote bloqueado (FOR UPDATE), para
  * que dos salidas a la vez no dejen el lote en negativo.
  *
- * Las ambulancias todavía no tienen inventario propio (decisión del usuario,
- * 2026-11-18): una salida a una ambulancia solo dice a cuál fue. Cuando lo
- * tengan, esa misma salida pasará a ser un traslado almacén → ambulancia.
+ * Una salida a una ambulancia es un traslado almacén → ambulancia (v46,
+ * 2026-11-19): resta del lote y suma en el inventario de esa ambulancia
+ * (services/inventarioAmbulancia.service.js), las dos cosas en la misma
+ * transacción. Es lo ÚNICO del almacén que mueve el inventario de una
+ * ambulancia.
  */
 
 'use strict';
@@ -22,6 +24,7 @@ const { query, transaction } = require('../config/database');
 const { success, created, error, notFound, paginated } = require('../utils/response.utils');
 const { ahora } = require('../utils/fecha.utils');
 const { logAudit } = require('./admin.controller');
+const { bloquearAmbulancia, sumarAlInventario } = require('../services/inventarioAmbulancia.service');
 
 const MAX = { nombre: 150, presentacion: 30, destino: 150, notas: 255 };
 const MAX_CANTIDAD = 100000;
@@ -484,20 +487,13 @@ async function recuentoProducto(req, res, next) {
 
 // ── Movimientos ───────────────────────────────────────────────────────────────
 
-/** Ambulancia viva, o null. */
-async function ambulancia(conn, id) {
-  const [filas] = await conn.query(
-    'SELECT id, alias, matricula FROM vehicles WHERE id = ? AND deleted_at IS NULL',
-    [id]
-  );
-  return filas[0] || null;
-}
-
 /**
  * POST /almacen/movimientos
  *  - entrada:            { producto_id, caducidad (vacía = no caduca), cantidad, notas? }
  *                        Reutiliza el lote del producto con esa caducidad o lo crea.
  *  - salida_ambulancia:  { lote_id, cantidad, vehicle_id, notas? }
+ *                        Además suma lo que sale al inventario de esa
+ *                        ambulancia (misma transacción, v46).
  *  - salida_otros:       { lote_id, cantidad, destino, notas? }
  *  - descarte:           { lote_id, cantidad, notas? } (caducado, roto…)
  * Una salida nunca deja el lote en negativo: 409 con lo que queda.
@@ -583,7 +579,8 @@ async function createMovimiento(req, res, next) {
       }
       let vehiculo = null;
       if (vehiculoId) {
-        vehiculo = await ambulancia(conn, vehiculoId);
+        // Bloqueada: es el candado de su inventario (inventarioAmbulancia.service)
+        vehiculo = await bloquearAmbulancia(conn, vehiculoId);
         if (!vehiculo) return { status: 422, mensaje: 'Esa ambulancia no existe o está dada de baja' };
       }
       const [r] = await conn.query(
@@ -591,7 +588,17 @@ async function createMovimiento(req, res, next) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [loteId, tipo, -cantidad, vehiculoId, destino, notas, req.user.id, t, t]
       );
-      return { id: r.insertId, loteId, producto: lote.nombre, productoId: lote.producto_id, caducidad: lote.caducidad, vehiculo };
+      // Traslado almacén → ambulancia: lo que sale entra en su inventario,
+      // con la caducidad del lote. Las notas de la salida no se copian: son
+      // del movimiento («reposición del lunes»), no de lo que hay dentro.
+      let inventario = null;
+      if (vehiculo) {
+        inventario = await sumarAlInventario(conn, {
+          vehicleId: vehiculo.id, productoId: lote.producto_id, caducidad: lote.caducidad,
+          cantidad, userId: req.user.id, t,
+        });
+      }
+      return { id: r.insertId, loteId, producto: lote.nombre, productoId: lote.producto_id, caducidad: lote.caducidad, vehiculo, inventario };
     });
 
     if (resultado.status) return error(res, resultado.mensaje, resultado.status);
@@ -603,6 +610,7 @@ async function createMovimiento(req, res, next) {
       caducidad: tipo === 'entrada' ? caducidad : resultado.caducidad,
       cantidad,
       ...(resultado.vehiculo && { vehiculo: resultado.vehiculo.alias || resultado.vehiculo.matricula }),
+      ...(resultado.inventario && { inventario_id: resultado.inventario.id, en_ambulancia: resultado.inventario.cantidad }),
       ...(destino && { destino }),
     });
     return created(res, {
@@ -699,7 +707,12 @@ module.exports = {
   recuentoProducto,
   createMovimiento,
   listMovimientos,
-  // para los tests
+  // compartidos con inventario.controller (y los tests)
   caducidadValida,
   entero,
+  texto,
+  idOpcional,
+  auditar,
+  MAX,
+  MAX_CANTIDAD,
 };

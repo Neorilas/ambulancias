@@ -96,6 +96,10 @@ const ACTION_LABEL = {
   material_movimiento:      'Apuntó un movimiento del almacén',
   recuento_material:        'Apuntó un recuento del almacén',
   recuento_material_producto: 'Apuntó el recuento de un producto del almacén',
+  // Inventario de las ambulancias (v46)
+  create_inventario_ambulancia: 'Añadió algo al inventario de una ambulancia',
+  update_inventario_ambulancia: 'Cambió el inventario de una ambulancia',
+  delete_inventario_ambulancia: 'Quitó algo del inventario de una ambulancia',
   // La hace el buzón de facturas@ (user_info «sistema (buzón de facturas)»).
   import_factura:      'Llegó una factura por correo',
 };

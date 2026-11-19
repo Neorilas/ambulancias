@@ -9,14 +9,16 @@
  *     caducidad) y sus últimos movimientos.
  *   - Movimientos: el historial, filtrable por tipo y, en las salidas, por
  *     destino (ambulancia, enfermería u otro sitio con texto).
+ *   - Ambulancias: elegir una y ver (y cambiar) su inventario (v46). Es el
+ *     mismo componente que la pestaña «Inventario» de la ficha del vehículo.
  *
  * Solo admin y superadmin, y oculta para el resto como Facturas: lo decide el
  * backend por rol (routes/almacen.routes.js); el flag `menu_almacen` solo la
  * pone en el menú. Va en su propio chunk (lazy en App.jsx) fuera del precache
  * de la PWA.
  *
- * Las ambulancias todavía no tienen inventario propio (2026-11-18): una salida
- * a una ambulancia solo dice a cuál fue.
+ * Una salida a una ambulancia resta del almacén y suma en el inventario de
+ * esa ambulancia, en la misma transacción (backend, v46).
  *
  * Vista, filtros y la ficha abierta van en la URL (`useEstadoEnUrl`,
  * `usePanelEnUrl`): «atrás» cierra la ficha y no se pierden los filtros.
@@ -26,6 +28,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { almacenService } from '../../services/almacen.service.js';
 import { vehiclesService } from '../../services/vehicles.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
+import { inventarioService } from '../../services/inventario.service.js';
+import InventarioAmbulancia from '../../components/inventario/InventarioAmbulancia.jsx';
 import { PageLoading } from '../../components/common/LoadingSpinner.jsx';
 import Modal from '../../components/common/Modal.jsx';
 import {
@@ -41,6 +45,7 @@ import {
 const VISTAS = [
   { key: 'stock',       label: 'Stock' },
   { key: 'movimientos', label: 'Movimientos' },
+  { key: 'ambulancias', label: 'Ambulancias' },
 ];
 const POR_PAGINA = 50;
 
@@ -285,6 +290,70 @@ function VistaMovimientos({ ambulancias, version }) {
   );
 }
 
+/**
+ * La vista Ambulancias: elegir una y ver su inventario. La elegida va en la
+ * URL como `inv` (no `ambulancia`: ese es el filtro de Movimientos y los dos
+ * conviven en la misma URL).
+ */
+function VistaAmbulancias({ hoy }) {
+  const [url, cambiar] = useEstadoEnUrl({ inv: '' });
+  const [lista, setLista] = useState(null);
+  const [fallo, setFallo] = useState('');
+
+  const cargar = useCallback(() => {
+    setFallo('');
+    inventarioService.ambulancias()
+      .then(l => setLista(l.slice().sort((a, b) => nombreAmbulancia(a).localeCompare(nombreAmbulancia(b), 'es', { numeric: true }))))
+      .catch(err => setFallo(err.message));
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  if (fallo) {
+    return (
+      <div className="card text-sm">
+        <p className="text-bad-600">{fallo}</p>
+        <button className="btn-secondary mt-3 py-1.5 text-sm" onClick={cargar}>Reintentar</button>
+      </div>
+    );
+  }
+  if (!lista) return <PageLoading />;
+  const elegida = lista.find(a => String(a.id) === url.inv);
+
+  return (
+    <div className="space-y-4">
+      <select className="input py-1.5 text-sm w-full sm:w-80" value={elegida ? url.inv : ''} aria-label="Ambulancia"
+        onChange={e => cambiar({ inv: e.target.value })}>
+        <option value="">Elige una ambulancia…</option>
+        {lista.map(a => <option key={a.id} value={a.id}>{nombreAmbulancia(a)}</option>)}
+      </select>
+      {elegida ? (
+        <InventarioAmbulancia key={elegida.id} vehicleId={elegida.id} puedeEditar />
+      ) : lista.length === 0 ? (
+        <div className="card text-sm text-neutral-500">No hay ambulancias dadas de alta</div>
+      ) : (
+        <ul className="card p-0 divide-y divide-neutral-100" aria-label="Ambulancias">
+          {lista.map(a => (
+            <li key={a.id}>
+              <button className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-neutral-50"
+                onClick={() => cambiar({ inv: String(a.id) })}>
+                <span className="flex-1 min-w-0 font-medium text-primary-700">{nombreAmbulancia(a)}</span>
+                <span className="text-neutral-500 whitespace-nowrap">
+                  {a.lineas ? `${a.lineas} ${a.lineas === 1 ? 'elemento' : 'elementos'}` : 'Vacío'}
+                </span>
+                {a.proxima_caducidad && estadoCaducidad(a.proxima_caducidad, hoy) !== 'ok' && (
+                  <span className={`text-xs whitespace-nowrap ${claseCaducidad(a.proxima_caducidad, hoy)}`}>
+                    {textoCaducidad(a.proxima_caducidad, hoy)}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function Almacen() {
   const { notify } = useNotification();
   const hoy = hoyEnEspana();
@@ -293,7 +362,7 @@ export default function Almacen() {
   const [falloCarga, setFalloCarga] = useState('');
   const [ambulancias, setAmbulancias] = useState([]);
   const [url, cambiar] = useEstadoEnUrl({ vista: 'stock', q: '', tipo: '', estado: '', retirados: '' });
-  const vista = url.vista === 'movimientos' ? 'movimientos' : 'stock';
+  const vista = VISTAS.some(v => v.key === url.vista) ? url.vista : 'stock';
   const [texto, setTexto] = useBuscadorEnUrl(url.q, (q) => cambiar({ q }));
   // La ficha abierta va en la URL con push: «atrás» la cierra
   const [abierto, abrirFicha, cerrarFicha] = usePanelEnUrl('producto');
@@ -377,7 +446,7 @@ export default function Almacen() {
         ))}
       </div>
 
-      {vista === 'movimientos' ? <VistaMovimientos ambulancias={ambulancias} version={version} /> : loading ? <PageLoading /> : falloCarga ? (
+      {vista === 'ambulancias' ? <VistaAmbulancias hoy={hoy} /> : vista === 'movimientos' ? <VistaMovimientos ambulancias={ambulancias} version={version} /> : loading ? <PageLoading /> : falloCarga ? (
         <div className="card text-sm">
           <p className="text-bad-600">{falloCarga}</p>
           <button className="btn-secondary mt-3 py-1.5 text-sm" onClick={cargar}>Reintentar</button>

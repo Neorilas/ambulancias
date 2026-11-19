@@ -12,6 +12,14 @@ vi.mock('../../../services/vehicles.service.js', () => ({
   vehiclesService: { list: vi.fn() },
 }));
 
+vi.mock('../../../services/inventario.service.js', () => ({
+  inventarioService: { ambulancias: vi.fn(), deAmbulancia: vi.fn(), anadir: vi.fn(), guardar: vi.fn(), quitar: vi.fn() },
+}));
+vi.mock('../../../services/asignaciones.service.js', () => ({
+  asignacionesService: { catalogoMaterial: vi.fn().mockResolvedValue([]) },
+}));
+
+import { inventarioService } from '../../../services/inventario.service.js';
 import { almacenService } from '../../../services/almacen.service.js';
 import { vehiclesService } from '../../../services/vehicles.service.js';
 import { NotificationProvider, useNotification } from '../../../context/NotificationContext.jsx';
@@ -291,5 +299,48 @@ describe('Almacén', () => {
     })));
     expect(await screen.findByLabelText('Ambulancia')).toHaveValue('7');
     expect(screen.getByRole('button', { name: 'A ambulancia' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  describe('vista Ambulancias (inventario de cada una)', () => {
+    beforeEach(() => {
+      inventarioService.ambulancias.mockResolvedValue([
+        { id: 9, alias: 'UVI-10', matricula: '9999ZZZ', lineas: 0, unidades: 0, proxima_caducidad: null },
+        { id: 7, alias: 'UVI-3', matricula: '1234ABC', lineas: 2, unidades: 6, proxima_caducidad: '2020-01-01' },
+      ]);
+      inventarioService.deAmbulancia.mockResolvedValue({
+        vehiculo: { id: 7 },
+        lineas: [{ id: 1, producto_id: 5, nombre: 'Tubo de Mayo', presentacion: 'Unidad', caducidad: null, cantidad: 4, notas: null, del_almacen: true }],
+      });
+    });
+
+    it('lista las ambulancias por nombre (numérico) con su resumen y abre el inventario de la elegida', async () => {
+      montar('/almacen?vista=ambulancias');
+      const lista = await screen.findByRole('list', { name: 'Ambulancias' });
+      const filas = within(lista).getAllByRole('button');
+      expect(filas.map(b => b.textContent)).toEqual([
+        expect.stringMatching(/^UVI-3 · 1234ABC2 elementoscaducado hace/),
+        expect.stringMatching(/^UVI-10 · 9999ZZZVacío/),
+      ]);
+      fireEvent.click(filas[0]);
+      expect(await screen.findByText('Tubo de Mayo')).toBeInTheDocument();
+      expect(inventarioService.deAmbulancia).toHaveBeenCalledWith(7);
+      // El administrador puede añadir desde aquí
+      expect(screen.getByRole('button', { name: 'Añadir' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Ambulancia')).toHaveValue('7');
+    });
+
+    it('la elegida va en la URL (?inv=), aparte del filtro de Movimientos', async () => {
+      montar('/almacen?vista=ambulancias&inv=7&ambulancia=9');
+      expect(await screen.findByText('Tubo de Mayo')).toBeInTheDocument();
+      expect(inventarioService.deAmbulancia).toHaveBeenCalledWith(7);
+    });
+
+    it('si no cargan las ambulancias lo dice, con «Reintentar»', async () => {
+      inventarioService.ambulancias.mockRejectedValueOnce(new Error('No se pudieron cargar las ambulancias'));
+      montar('/almacen?vista=ambulancias');
+      expect(await screen.findByText('No se pudieron cargar las ambulancias')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+      expect(await screen.findByRole('list', { name: 'Ambulancias' })).toBeInTheDocument();
+    });
   });
 });

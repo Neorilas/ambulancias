@@ -265,6 +265,7 @@ export function SalidaForm({ isOpen, onClose, producto, lotes = [], loteInicial,
                   <option key={a.id} value={a.id}>{a.alias ? `${a.alias} · ${a.matricula}` : a.matricula}</option>
                 ))}
               </select>
+              <p className="hint">Se suma al inventario de esa ambulancia</p>
             </div>
           )}
           {tipo === 'salida_otros' && (

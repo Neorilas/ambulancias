@@ -453,23 +453,78 @@ describe('almacen.controller', () => {
   describe('createMovimiento: salidas', () => {
     const LOTE = [{ id: 4, producto_id: 5, caducidad: '2028-10-31', nombre: 'Guedel 3', activo: 1 }];
 
-    it('a una ambulancia: resta y guarda el vehículo', async () => {
+    it('a una ambulancia: resta del lote y lo suma a su inventario, en la misma transacción', async () => {
       const { ejecutadas } = conexion([
+        ['FROM vehicles', [{ id: 2, alias: 'UVI-03', matricula: '1234ABC' }]],
         ['FOR UPDATE', LOTE],
         ['SUM(cantidad)', [{ stock: '10' }]],
-        ['FROM vehicles', [{ id: 2, alias: 'UVI-03', matricula: '1234ABC' }]],
         ['INSERT INTO material_movimientos', { insertId: 92 }],
+        ['INSERT INTO vehiculo_inventario', { insertId: 31 }],
       ]);
       query.mockResolvedValueOnce([[PRODUCTO]]);
       const { res } = await llamar(ctrl.createMovimiento, mockReq({
-        user: ADMIN, body: { tipo: 'salida_ambulancia', lote_id: 4, cantidad: 3, vehicle_id: '2' },
+        user: ADMIN, body: { tipo: 'salida_ambulancia', lote_id: 4, cantidad: 3, vehicle_id: '2', notas: 'reposición' },
       }));
       expect(res.statusCode).toBe(201);
+      expect(transaction).toHaveBeenCalledTimes(1);
       const insert = ejecutadas.find(e => e.sql.includes('INSERT INTO material_movimientos'));
       expect(insert.params.slice(0, 5)).toEqual([4, 'salida_ambulancia', -3, 2, null]);
+      // La ambulancia, bloqueada: es el candado de su inventario
+      expect(ejecutadas.find(e => e.sql.includes('FROM vehicles')).sql).toContain('FOR UPDATE');
+      // Entra con el producto y la caducidad del lote; las notas de la salida no se copian
+      const alta = ejecutadas.find(e => e.sql.includes('INSERT INTO vehiculo_inventario'));
+      expect(alta.params.slice(0, 7)).toEqual([2, 5, null, '2028-10-31', 3, null, ADMIN.id]);
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
-        details: expect.objectContaining({ tipo: 'salida_ambulancia', vehiculo: 'UVI-03', cantidad: 3 }),
+        details: expect.objectContaining({
+          tipo: 'salida_ambulancia', vehiculo: 'UVI-03', cantidad: 3, inventario_id: 31, en_ambulancia: 3,
+        }),
       }));
+    });
+
+    it('a una ambulancia que ya lleva ese producto con esa caducidad: suma a la misma línea', async () => {
+      const { ejecutadas } = conexion([
+        ['FROM vehicles', [{ id: 2, alias: 'UVI-03', matricula: '1234ABC' }]],
+        ['FOR UPDATE', LOTE],
+        ['SUM(cantidad)', [{ stock: '10' }]],
+        ['INSERT INTO material_movimientos', { insertId: 92 }],
+        ['FROM vehiculo_inventario', [{ id: 31, cantidad: 4 }]],
+      ]);
+      query.mockResolvedValueOnce([[PRODUCTO]]);
+      await llamar(ctrl.createMovimiento, mockReq({
+        user: ADMIN, body: { tipo: 'salida_ambulancia', lote_id: 4, cantidad: 3, vehicle_id: 2 },
+      }));
+      const busca = ejecutadas.find(e => e.sql.includes('FROM vehiculo_inventario'));
+      expect(busca.sql).toContain('producto_id = ?');
+      expect(busca.sql).toContain('caducidad = ?');
+      expect(busca.params).toEqual([2, 5, '2028-10-31']);
+      const suma = ejecutadas.find(e => e.sql.includes('UPDATE vehiculo_inventario'));
+      expect(suma.sql).toContain('cantidad = cantidad + ?');
+      expect(suma.params[0]).toBe(3);
+      expect(ejecutadas.some(e => e.sql.includes('INSERT INTO vehiculo_inventario'))).toBe(false);
+      expect(logAudit.mock.calls[0][0].details).toMatchObject({ inventario_id: 31, en_ambulancia: 7 });
+    });
+
+    it.each(['salida_otros', 'descarte'])('%s no toca el inventario de ninguna ambulancia', async (tipo) => {
+      const { ejecutadas } = conexion([
+        ['FOR UPDATE', LOTE], ['SUM(cantidad)', [{ stock: 5 }]], ['INSERT INTO material_movimientos', { insertId: 93 }],
+      ]);
+      query.mockResolvedValueOnce([[PRODUCTO]]);
+      await llamar(ctrl.createMovimiento, mockReq({
+        user: ADMIN, body: { tipo, lote_id: 4, cantidad: 1, destino: 'Botiquín enfermería', vehicle_id: 2 },
+      }));
+      expect(ejecutadas.some(e => /vehiculo_inventario|FROM vehicles/.test(e.sql))).toBe(false);
+    });
+
+    it('si la salida no cabe (409) tampoco entra nada en la ambulancia', async () => {
+      const { ejecutadas } = conexion([
+        ['FROM vehicles', [{ id: 2, alias: 'UVI-03', matricula: '1234ABC' }]],
+        ['FOR UPDATE', LOTE], ['SUM(cantidad)', [{ stock: '1' }]],
+      ]);
+      const { res } = await llamar(ctrl.createMovimiento, mockReq({
+        user: ADMIN, body: { tipo: 'salida_ambulancia', lote_id: 4, cantidad: 3, vehicle_id: 2 },
+      }));
+      expect(res.statusCode).toBe(409);
+      expect(ejecutadas.some(e => e.sql.includes('vehiculo_inventario'))).toBe(false);
     });
 
     it('nunca deja el lote en negativo', async () => {
@@ -500,7 +555,7 @@ describe('almacen.controller', () => {
     });
 
     it('422 si la ambulancia no existe o está de baja; 404 sin lote', async () => {
-      conexion([['FOR UPDATE', LOTE], ['SUM(cantidad)', [{ stock: 5 }]]]);
+      conexion([['FROM vehicles', []], ['FOR UPDATE', LOTE], ['SUM(cantidad)', [{ stock: 5 }]]]);
       expect((await llamar(ctrl.createMovimiento, mockReq({
         user: ADMIN, body: { tipo: 'salida_ambulancia', lote_id: 4, cantidad: 1, vehicle_id: 99 },
       }))).res.statusCode).toBe(422);

@@ -21,6 +21,9 @@
  *   oculta      — solo administrador y superadmin, y para el resto NO EXISTE:
  *                 el mismo 404 que una ruta inventada, ni siquiera un 403
  *                 (facturas, 2026-10-04). Se prueba también con el gestor.
+ *   oculta_gestion — como `oculta`, pero el gestor SÍ entra (inventario de
+ *                 las ambulancias, 2026-11-19). Si además está en NIVEL como
+ *                 `administrador`, el gestor la ve pero recibe 403 al usarla.
  *
  * Una ruta nueva sin clasificar hace fallar el test: obliga a decidir quién
  * puede usarla ANTES de que llegue a producción.
@@ -146,6 +149,11 @@ const ACCESO = {
   'POST /almacen/productos/:id/recuento': ['oculta'],
   'GET /almacen/movimientos':          ['oculta'],
   'POST /almacen/movimientos':         ['oculta'],
+  'GET /inventario/ambulancias':       ['oculta_gestion'],
+  'GET /inventario/ambulancias/:id':   ['oculta_gestion'],
+  'POST /inventario/ambulancias/:id/lineas': ['oculta_gestion'],
+  'PUT /inventario/lineas/:id':        ['oculta_gestion'],
+  'DELETE /inventario/lineas/:id':     ['oculta_gestion'],
 };
 
 // Rol mínimo de las rutas `denegada` que no son de gestión (gestor o más).
@@ -169,6 +177,10 @@ const NIVEL = {
   'GET /informes/tecnico/:userId':         'administrador',
   'GET /flota/ubicaciones':                'administrador',   // y con menu_flota encendido
   'GET /flota/recorrido/:asignacionId':    'administrador',   // ídem: es el mismo dato
+  // El gestor ve el inventario de las ambulancias pero no lo cambia
+  'POST /inventario/ambulancias/:id/lineas': 'administrador',
+  'PUT /inventario/lineas/:id':              'administrador',
+  'DELETE /inventario/lineas/:id':           'administrador',
 };
 const nivelDe = (ruta) => NIVEL[ruta] || 'gestion';
 
@@ -252,8 +264,8 @@ describe('autorización de todas las rutas', () => {
     expect({ sinClasificar, sobran }).toEqual({ sinClasificar: [], sobran: [] });
   });
 
-  it('NIVEL solo nombra rutas denegadas que existen', () => {
-    const malas = Object.keys(NIVEL).filter((r) => ACCESO[r]?.[0] !== 'denegada');
+  it('NIVEL solo nombra rutas denegadas (u ocultas salvo a gestión) que existen', () => {
+    const malas = Object.keys(NIVEL).filter((r) => !['denegada', 'oculta_gestion'].includes(ACCESO[r]?.[0]));
     expect(malas).toEqual([]);
   });
 
@@ -292,6 +304,46 @@ describe('autorización de todas las rutas', () => {
       expect([401, 403]).not.toContain(res.status);
       expect(res.body.message || '').not.toMatch(/^Ruta no encontrada/);
     });
+  });
+
+  // ── Ocultas salvo a gestión: el gestor entra, el resto no la ve ───
+  const ocultasGestion = RUTAS.filter((r) => ACCESO[r]?.[0] === 'oculta_gestion');
+
+  it('hay rutas ocultas salvo a gestión', () => {
+    expect(ocultasGestion.length).toBeGreaterThan(0);
+  });
+
+  describe.each([['sin rol', ''], ['técnico sin permisos', 'tecnico']])('ocultas salvo a gestión para %s', (_n, roles) => {
+    beforeEach(() => { rolesActuales = roles; permisosActuales = []; flotaEncendida = false; bdVacia(); });
+    it.each(ocultasGestion)('%s → el mismo 404 que una ruta que no existe', async (ruta) => {
+      const [metodo, patron] = ruta.split(' ');
+      const res = await llamar(ruta);
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({
+        success: false,
+        message: `Ruta no encontrada: ${metodo} /api/v1${patron.replace(/:[a-zA-Z]+/g, '1')}`,
+      });
+    });
+  });
+
+  describe.each([
+    ['gestor', 'gestor', ['gestion']],
+    ['administrador', 'administrador', ['gestion', 'administrador']],
+    ['superadmin', 'superadmin', ['gestion', 'administrador']],
+  ])('ocultas salvo a gestión para %s', (_n, roles, niveles) => {
+    beforeEach(() => { rolesActuales = roles; permisosActuales = PERMISOS_GESTION; flotaEncendida = false; bdVacia(); });
+    const entran = ocultasGestion.filter((r) => niveles.includes(nivelDe(r)));
+    const no     = ocultasGestion.filter((r) => !niveles.includes(nivelDe(r)));
+    it.each(entran)('%s → entra', async (ruta) => {
+      const res = await llamar(ruta);
+      expect([401, 403]).not.toContain(res.status);
+      expect(res.body.message || '').not.toMatch(/^Ruta no encontrada/);
+    });
+    if (no.length) {
+      it.each(no)('%s → 403 (la ve, no la cambia)', async (ruta) => {
+        expect((await llamar(ruta)).status).toBe(403);
+      });
+    }
   });
 
   describe.each([['sin rol', ''], ['técnico sin permisos', 'tecnico']])('%s', (_nombre, roles) => {

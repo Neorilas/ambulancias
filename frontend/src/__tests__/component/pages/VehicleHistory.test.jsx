@@ -32,6 +32,12 @@ vi.mock('../../../services/facturas.service.js', () => ({
   facturasService: { list: vi.fn().mockResolvedValue([]), leer: vi.fn(), subir: vi.fn(), descargar: vi.fn() },
 }));
 
+// Inventario de la ambulancia (v46): pestaña solo de gestión, cargada con lazy()
+vi.mock('../../../services/inventario.service.js', () => ({
+  inventarioService: { deAmbulancia: vi.fn(), anadir: vi.fn(), guardar: vi.fn(), quitar: vi.fn() },
+}));
+
+import { inventarioService } from '../../../services/inventario.service.js';
 import { vehiclesService } from '../../../services/vehicles.service.js';
 import { facturasService } from '../../../services/facturas.service.js';
 import { featuresService } from '../../../services/features.service.js';
@@ -887,5 +893,52 @@ describe('VehicleHistory · mantenimiento por km', () => {
     await user.selectOptions(screen.getByDisplayValue('Mantenimiento'), 'itv');
 
     expect(screen.queryByPlaceholderText('Ej: 15.300')).not.toBeInTheDocument();
+  });
+});
+
+describe('VehicleHistory · inventario de la ambulancia', () => {
+  const sesion = (roles) => {
+    localStorage.setItem(PREFIJO + 'accessToken', 'tok');
+    localStorage.setItem(PREFIJO + 'user', JSON.stringify({ id: 3, username: 'x', roles, permissions: ['manage_vehicles'] }));
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vehiclesService.getHistory.mockResolvedValue({ vehicle: VEHICULO, trabajos: [] });
+    vehiclesService.get.mockResolvedValue(VEHICULO);
+    vehiclesService.listIncidencias.mockResolvedValue([]);
+    vehiclesService.listRevisiones.mockResolvedValue([]);
+    inventarioService.deAmbulancia.mockResolvedValue({
+      vehiculo: { id: 7 },
+      lineas: [{ id: 1, producto_id: 5, nombre: 'Guedel 3', presentacion: 'Unidad', caducidad: null, cantidad: 4, notas: null, del_almacen: true }],
+    });
+  });
+
+  it('un administrador abre la pestaña y puede añadir', async () => {
+    sesion(['administrador']);
+    const user = userEvent.setup();
+    montar();
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    await user.click(screen.getByRole('button', { name: 'Inventario' }));
+    expect(await screen.findByText('Guedel 3')).toBeInTheDocument();
+    expect(inventarioService.deAmbulancia).toHaveBeenCalledWith('7');
+    expect(screen.getByRole('button', { name: 'Añadir' })).toBeInTheDocument();
+    expect(screen.getByTestId('donde')).toHaveTextContent('/vehiculos/7?tab=inventario');
+  });
+
+  it('un gestor la ve, pero solo para mirar', async () => {
+    sesion(['gestor']);
+    montar(['/vehiculos/7?tab=inventario']);
+    expect(await screen.findByText('Guedel 3')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Añadir' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar Guedel 3' })).not.toBeInTheDocument();
+  });
+
+  it('quien no es gestión no tiene la pestaña, ni con ?tab=inventario', async () => {
+    sesion(['tecnico']);
+    montar(['/vehiculos/7?tab=inventario']);
+    await screen.findByRole('heading', { name: 'Ambulancia 3' });
+    expect(screen.queryByRole('button', { name: 'Inventario' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resumen' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inventarioService.deAmbulancia).not.toHaveBeenCalled();
   });
 });

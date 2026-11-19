@@ -50,7 +50,7 @@ equipo de 0..N personas que ve la ficha. Listo pero oculto tras los flags
 
 `server.js` → helmet/cors/compress/morgan/json → `/uploads` estático →
 `routes/index.js` (aplica `apiLimiter`, monta `/auth /users /vehicles /trabajos
-/asignaciones /admin /features /push /flota /informes /facturas /almacen`) → `routes/*.routes.js` (middleware por ruta) →
+/asignaciones /admin /features /push /flota /informes /facturas /almacen /inventario`) → `routes/*.routes.js` (middleware por ruta) →
 `controllers/*.controller.js` → `config/database.js` (`query`) → MySQL.
 Errores: `middleware/error.middleware.js` (5xx van a `error_logs`, origen
 `servidor`). Lo que ve la app y no llega a Express lo manda ella misma a
@@ -85,6 +85,7 @@ tablas de abajo listan la ruta **sin** ese prefijo.
 | `/features` | `features.routes.js` | `features.controller.js` | GET `/active` (todos) · GET `/` y PUT `/:key` (superadmin) |
 | `/push` | `push.routes.js` | `push.controller.js` | GET `/vapid-public-key` · POST `/estado` (el GET con `?endpoint=` se retiró el 2026-10-12: el endpoint en la query acababa en el log de peticiones, y en PRO no se usaba desde el 22-sep) · POST/DELETE `/subscribe` · POST `/test`. Cualquier autenticado (hasta 2026-09-25 exigía `MANAGE_TRABAJOS`); cada endpoint solo toca las suscripciones del propio usuario. **Todo `/push` da 403 impersonando** (§6.3) |
 | `/almacen` | `almacen.routes.js` | `almacen.controller.js` | GET/POST `/productos` · GET/PUT `/productos/:id` · PUT `/lotes/:id` (corregir caducidad) · POST `/lotes/:id/recuento` · POST `/productos/:id/recuento` (todos los lotes de una vez) · GET/POST `/movimientos`. **Solo administrador y superadmin, y oculto para el resto (gestor incluido): 404 como una ruta inexistente** (`ocultarSalvoRoles`), como Facturas. §2.10 |
+| `/inventario` | `inventario.routes.js` | `inventario.controller.js` | GET `/ambulancias` (resumen de cada una) · GET `/ambulancias/:id` · POST `/ambulancias/:id/lineas` · PUT/DELETE `/lineas/:id`. **Lo ven admin, gestor y superadmin; el resto, 404** (`ocultarSalvoRoles` con el gestor dentro). Escribir: solo admin y superadmin (`requireRole`, 403 al gestor). Aparte de `/almacen` a propósito: el gestor no ve stock ni movimientos. §2.10 «Inventario de las ambulancias» |
 | `/csp-report` | `index.js` (directo) | `csp.controller.js` | POST público: informes de la CSP del frontend (`report-uri` del `.htaccess`). Solo log (`CSP: <directiva> ha bloqueado …`; la CSP es obligatoria desde 2026-10-12, §9), sin BD, URLs sin query, cada violación una vez por hora |
 | `/errores-cliente` | `index.js` (directo) | `erroresCliente.controller.js` | POST con sesión (`authenticate` + `erroresClienteLimiter`, 4/min por usuario, cuerpo ≤ 256 KB → 413, medido sobre el cuerpo **ya parseado** (`topeErroresCliente`): mirar `content-length` se esquivaba con `Transfer-Encoding: chunked`; un `express.json` en la ruta no valdría, el global de 10 MB ya ha parseado). **Tope diario: `TOPE_DIARIO` = 200 filas por usuario en 24 h**, contadas en `error_logs`; lo que pasa se descarta con 202 (un 429/503 haría que la app reintentase sin fin). Sin él, una cuenta metía ~1,3 GB al día y la tabla entra entera en cada backup. Stack recortado a 4000: lote de hasta 20 errores de la app → `error_logs` con `origen = 'cliente'`, el usuario, el user-agent y `ocurrido_at` (reloj del móvil, solo si cae en los últimos 7 días). URL sin query también en el servidor. Lo inválido se descarta (202); si había algo válido y la BD no guardó nada, **503** para que la app conserve la cola |
 | `/flota` | `flota.routes.js` | `flota.controller.js` | GET `/ubicaciones` (mapa de flota). **Superadmin siempre; administradores solo con el flag `menu_flota`** (§2.6) |
@@ -906,11 +907,61 @@ ajuste). Porqués y trampas:
   vacíos van plegados y si no, no habría forma de contarlos). Bloquea el
   producto (`FOR UPDATE`) por los lotes nuevos; un lote de otro producto da 409.
   Una sola fila de auditoría `recuento_material_producto` con el detalle.
-- **Las ambulancias aún no tienen inventario** (usuario, 2026-11-18): una
-  salida a una ambulancia solo dice a cuál fue (`vehicle_id`). Cuando lo
-  tengan, esa salida pasará a ser un traslado almacén → ambulancia y el
-  consumo en servicio restará de la ambulancia (lo que sustituiría al texto
-  libre `material_usado` del cierre, §8).
+- **Inventario de las ambulancias (v46, 2026-11-19).** Lo que lleva dentro
+  cada ambulancia, en `vehiculo_inventario`. Entradas: pestaña «Inventario»
+  de la ficha del vehículo (`VehicleHistory`, `tab=inventario`) y vista
+  «Ambulancias» del almacén (`?vista=ambulancias&inv=<id>`); las dos montan
+  `components/inventario/InventarioAmbulancia.jsx` (lógica en
+  `utils/inventario.js`, servicio `services/inventario.service.js`) ←
+  `/inventario` (`inventario.controller.js`) + lo compartido con el almacén en
+  `services/inventarioAmbulancia.service.js`. Porqués y trampas:
+  - **Quién** (usuario: «administradores y gestores»): lo ven admin, gestor y
+    superadmin; el resto, 404 (no existe). Lo cambian solo admin y
+    superadmin: «los administradores pueden crear elementos»; el gestor
+    mira (403 si lo intenta por la API; en pantalla no hay botones,
+    `puedeEditar`). **El almacén sigue siendo solo de administración**: por
+    eso es un router aparte (`/inventario`) y no cuelga de `/almacen`, y el
+    gestor entra solo por la ficha del vehículo, no desde el almacén (que no
+    ve). Roles no excluyentes: la pestaña sale con cualquiera de los tres
+    (`veInventario`), y `?tab=inventario` a quien no la ve abre el Resumen
+    (`tabInicial(…, veInventario)`).
+  - **Arranca vacía** (usuario): la migración no lee las salidas a ambulancia
+    que ya había ni las del AppSheet. Lo que hay es lo apuntado desde v46.
+  - **Una línea** = un producto del catálogo (`producto_id`, nombre y
+    presentación salen del catálogo con `COALESCE(p.nombre, i.nombre)`, así
+    un cambio de nombre llega solo) **o un texto libre** (`producto_id` NULL
+    y `nombre`), con su caducidad (NULL = no caduca), cantidad y notas. En
+    el alta, el nombre se autocompleta con `GET /asignaciones/catalogo-material`
+    (el mismo del cierre: abierto, sin stock) y `buscarProductos`; escribir el
+    nombre exacto de un producto sin pinchar la sugerencia cuenta como ese
+    producto (`productoExacto`), para no crear un texto libre gemelo.
+  - **Aquí la cantidad SÍ se guarda** (no es suma de movimientos como el
+    almacén): de momento solo la mueven el admin a mano y el traslado desde
+    el almacén, y cada cambio queda en `audit_logs`
+    (`create_/update_/delete_inventario_ambulancia`, en `ACTION_LABEL`). Si
+    algún día la mueve el consumo en servicio, valorar pasarla a movimientos.
+  - **Lo mismo con la misma caducidad se suma** a la línea que ya hay (alta
+    a mano o traslado); con otra caducidad es otra línea (por eso una salida
+    de un lote sin caducidad no se funde con la misma cosa apuntada con
+    fecha). **No hay UNIQUE**: con caducidad NULL MySQL no lo haría cumplir;
+    lo garantiza `bloquearAmbulancia` (`SELECT … FROM vehicles … FOR
+    UPDATE`), el candado de todo lo que escribe en el inventario de esa
+    ambulancia. Editar la caducidad a una que ya tiene otra línea igual da
+    409. Cantidad 0 deja la línea («hay que reponer»); quitarla es DELETE.
+  - **Traslado almacén → ambulancia**: `createMovimiento` con
+    `salida_ambulancia` resta del lote (el −cantidad de siempre) **y** llama a
+    `sumarAlInventario` con el producto y la caducidad del lote, en la misma
+    transacción; si la salida da 409 no entra nada. Orden de bloqueo: lote y
+    luego ambulancia. Las notas de la salida no se copian (son del
+    movimiento). La auditoría del movimiento lleva `inventario_id` y
+    `en_ambulancia`.
+  - **DE MOMENTO, nada más mueve el inventario** (usuario, 2026-11-19): ni el
+    material gastado al cerrar (`asignacion_material` sigue sin restar de
+    ningún sitio), ni devoluciones, ni descartes ni salidas a otro sitio. Un
+    alta a mano **no** resta del almacén (es apuntar lo que ya hay dentro).
+  - `InventarioAmbulancia` va con `lazy()` en la ficha y en su propio chunk
+    (`InventarioAmbulancia-*.js` en `globIgnores`), que se lleva también
+    `utils/almacen.js`: nada de eso entra en el bundle de todos.
 - **Consumo en el cierre de la asignación (v45, 2026-11-19).** El paso
   «Material utilizado» de `FinalizacionAsignacion` es
   `components/asignaciones/MaterialGastado.jsx` (lógica en
@@ -1657,7 +1708,7 @@ trabajo_usuarios, vehicle_images` + eventos de limpieza (las vistas
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `asignaciones_libres.solo_personal` + `vehicle_id` NULL (v43, asignación de solo personal sin ambulancia, §6.1), `material_productos` + `material_lotes` + `material_movimientos` (v44, almacén de material, §2.10), `asignacion_material` (v45, productos gastados al cerrar una asignación, §2.10), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `asignaciones_libres.solo_personal` + `vehicle_id` NULL (v43, asignación de solo personal sin ambulancia, §6.1), `material_productos` + `material_lotes` + `material_movimientos` (v44, almacén de material, §2.10), `asignacion_material` (v45, productos gastados al cerrar una asignación, §2.10), `vehiculo_inventario` (v46, lo que lleva cada ambulancia, §2.10), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1677,6 +1728,7 @@ vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_c
 vehicles 1─N vehicle_revisiones
 material_productos 1─N material_lotes 1─N material_movimientos (cantidad con signo; vehicle_id = salida a esa ambulancia, v44)
 asignaciones_libres 1─N asignacion_material N─1 material_productos (gastado al cerrar; no toca el stock, v45)
+vehicles 1─N vehiculo_inventario N─0..1 material_productos (lo que lleva la ambulancia; sin producto = texto libre, v46)
 vehicles 1─N facturas (vehicle_id, v36: de mantenimiento; NULL = de proveedor) ─N:1 vehicle_revisiones (revision_id, opcional)
 users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
 trabajos N:M vehicles (trabajo_vehiculos: estado, inicio_real_at, finalizado_at, km, motivo)
@@ -3248,7 +3300,7 @@ solo actúa en el navegador no es un control de acceso.
 | Alertas de caducidad | `vehicles.controller.listAlertasVehiculos` + `utils/vehicleAlerts.js` → `AlertsPage`, `VehicleExpirationAlerts`. Una alerta que no sea por fecha (como el mantenimiento por km, §2.9) necesita su umbral en `withThresholds`, su color en `thresholdStyle` y sus textos en `tituloAlerta`/`venceAlerta`/`margenAlerta` |
 | El mantenimiento por km (intervalo, aviso, qué lo mueve) | `MANTENIMIENTO_INTERVALO_KM`/`MANTENIMIENTO_AVISO_KM` en backend `config/constants.js` **y** su espejo en `frontend/utils/constants.js` → `utils/mantenimiento.utils.js` → `vehicles.controller` (`createVehicle`, `updateVehicle`, `createRevision`/`updateRevision` con `aplicarProximoMantenimiento`, `listAlertasVehiculos`). **Un UPDATE nuevo que escriba `kilometros_actuales` tiene que llevar `SQL_FIJAR_PROXIMO_MANTENIMIENTO` detrás del km**, o un vehículo sin referencia se queda sin aviso. Frontend: `TabRevisiones` y Resumen de `VehicleHistory`, `VehicleForm`. §2.9 |
 
-| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta`). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10. **Si es `denegada` y no es para gestor o más, va también en `NIVEL`** (`administrador` o `superadmin`): el test prueba que el escalón de abajo recibe 403 y que el que debe entrar no, y que un token de «Ver como» no abre nada de superadmin |
+| Permisos de un endpoint | `routes/*.routes.js` (middleware) + tabla `role_permissions` + `ownership.middleware` si depende de asignación + **clasificarlo en `ACCESO` de `backend/src/__tests__/integration/autorizacion-rutas.test.js`** (`denegada` / `propia` / `controlador` / `abierta` / `oculta` / `oculta_gestion`: oculta salvo para gestión, que entra; con `NIVEL` `administrador` el gestor la ve y recibe 403 al escribir). Una ruta nueva sin clasificar tumba los tests, y con ellos el deploy del backend. `propia` exige que TODAS sus consultas lleven el id del usuario: es el test que habría pillado SEC-10. **Si es `denegada` y no es para gestor o más, va también en `NIVEL`** (`administrador` o `superadmin`): el test prueba que el escalón de abajo recibe 403 y que el que debe entrar no, y que un token de «Ver como» no abre nada de superadmin |
 | Un rol nuevo **de campo** (sale de servicio con la ambulancia) | Migración que lo da de alta + `ROLES` en `backend/config/constants.js` **y** `frontend/utils/constants.js` + `tieneRolDeCampo` (`roles.middleware.js`) + `isOperacional` (`AuthContext.jsx`) + `ROL_LABELS` y color en `RolBadge`. Crearlo solo desde `/usuarios` deja un rol que el código no reconoce: 403 al subir la evidencia de su propia asignación (§6) |
 | Quién puede gestionar el gestor | `motivoGestor` en `users.controller`: «por debajo de su rol» = sin rol de mando **ni rol con algún permiso**, y vale tanto para los roles que se le dan como para los que **ya tiene** el usuario (hasta 2026-10-04 los actuales solo se miraban «de mando», SEC-20). Un rol propio al que se le den permisos deja a sus usuarios fuera del alcance del gestor |
 | Menú / nueva pantalla | `App.jsx` (ruta + `requiredFeature`) + `Sidebar.jsx` + feature en `migrations.js` |
@@ -3261,6 +3313,7 @@ solo actúa en el navegador no es un control de acceso.
 | El informe mensual (qué se mide, umbral, quién lo ve; con jornadas, `jornadasPorAsignacion`/`analizarJornadas` y `tramosEvento`) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. El detalle de un técnico: `avisosServicio`/`detalleTecnico` del servicio (códigos y cortes) → `TEXTO_AVISO` de `utils/informes.js` (lo que dicen, igual en pantalla y PDF) → `DetalleTecnico.jsx` y `utils/pdfInformeTecnico.js`; una ruta nueva va también en `ACCESO`/`NIVEL` de `autorizacion-rutas.test.js`. §2.7 |
 | Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `globIgnores` en `vite.config.js` (las tres cosas: está oculta, no solo prohibida) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → lo que se lee del PDF en el paso 1: `services/lectorFacturas.service.js` (`datosDelTexto`, `ALIAS`; usa `importeValido`/`fechaValida` del controlador) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | El almacén (quién lo ve, cómo se calcula el stock, la importación) | `routes/almacen.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `Almacen-*.js` en `globIgnores` de `vite.config.js` + rutas `oculta` en `autorizacion-rutas.test.js` → `controllers/almacen.controller.js` (`STOCK_LOTES`/`COLUMNAS_PRODUCTO`: el stock es la suma de movimientos; `bloquearLote` para las salidas y el recuento) → `services/almacen.service.js` → `pages/almacen/Almacen.jsx` + `components/almacen/FormulariosAlmacen.jsx` + `utils/almacen.js` (avisos, filtros, `CADUCA_PRONTO_DIAS`). Importación: `services/importacionAlmacen.service.js` + `scripts/importar-almacen.js`. Acciones en `ACTION_LABEL` de `AdminPanel` (§2.10) |
+| El inventario de las ambulancias (quién, qué lo mueve) | `routes/inventario.routes.js` (`ocultarSalvoRoles` con gestor + `requireRole` admin para escribir) + rutas `oculta_gestion` y `NIVEL` en `autorizacion-rutas.test.js` → `controllers/inventario.controller.js` → `services/inventarioAmbulancia.service.js` (`bloquearAmbulancia`, `lineaIgual`, `sumarAlInventario`; lo usa también `almacen.controller.createMovimiento` en `salida_ambulancia`) → `services/inventario.service.js` → `components/inventario/InventarioAmbulancia.jsx` + `utils/inventario.js` ← pestaña de `VehicleHistory` (`veInventario`, `tabInicial`) y `VistaAmbulancias` de `Almacen.jsx`. Un camino nuevo que mueva el inventario (consumo, devolución) va por `sumarAlInventario`/`bloquearAmbulancia` en la transacción de lo que lo origina (§2.10 «Inventario de las ambulancias») |
 | El material gastado al cerrar una asignación | `components/asignaciones/MaterialGastado.jsx` + `utils/materialGastado.js` (buscador, `textoMaterial` del resumen) → `asignacionesService.finalizar` (`material_usado` + `material_items`) y `catalogoMaterial` → `finalizarAsignacion` + `catalogoMaterial` de `asignaciones.controller` → `services/materialGastado.service.js` (validación, texto montado en el servidor) → tabla `asignacion_material` (v45). El formato del texto está en los dos lados. No toca `material_movimientos` (§2.10 «Consumo en el cierre») |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar. Desde v33 excluye las cerradas de un trabajo **sin cerrar** (se quedaría pendiente de cierre para siempre, sin ambulancias que cerrar), y `purgarUna` se lleva el trabajo cerrado o borrado con su última ambulancia (`DELETE … NOT EXISTS`, tras borrar la asignación). El informe mensual no cambia: cuenta por asignación y las de un trabajo entran solas (`docs/BACKUPS.md` §8) |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una, y si tienen trabajo se sincroniza el padre (con su propio `catch`: un fallo ahí no deja sin activar al resto). Los trabajos solo arrancan por reloj si no tienen asignaciones (modelo v25). En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
