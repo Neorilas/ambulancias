@@ -911,6 +911,44 @@ ajuste). Porqués y trampas:
   tengan, esa salida pasará a ser un traslado almacén → ambulancia y el
   consumo en servicio restará de la ambulancia (lo que sustituiría al texto
   libre `material_usado` del cierre, §8).
+- **Consumo en el cierre de la asignación (v45, 2026-11-19).** El paso
+  «Material utilizado» de `FinalizacionAsignacion` es
+  `components/asignaciones/MaterialGastado.jsx` (lógica en
+  `utils/materialGastado.js`): «¿Has gastado material?» No / Sí; con «Sí», un
+  buscador sobre el catálogo (sin tildes, desde 2 letras, **como mucho 5
+  resultados**, sin los ya elegidos), lo elegido como fichas con −/+ (con 1,
+  el botón de la izquierda es «×» y la quita) y «No lo encuentro» abre el
+  texto libre. Pensado para el móvil (petición del usuario: «que la pantalla
+  no sea muy engorrosa»): nada de desplegables con 200 productos. Porqués y
+  trampas:
+  - **No resta stock del almacén** (usuario, 2026-11-19: «de momento no, pero
+    a futuro seguramente sí»). Ese material ya salió del almacén al cargar la
+    ambulancia; restarlo otra vez lo contaría dos veces. Se apunta en
+    `asignacion_material` (asignación + producto + cantidad). Cuando las
+    ambulancias tengan inventario, el consumo restará **de la dotación de la
+    ambulancia** a partir de esta tabla, no del almacén.
+  - **El texto `material_usado` se sigue guardando**, montado en el backend
+    (`services/materialGastado.service.js`, `textoMaterial`): una línea
+    «2 × Guantes M (Caja)» por producto (la presentación «Unidad» no se
+    pone) y debajo lo escrito a mano. Así la ficha de la asignación, el
+    historial del vehículo y la auditoría lo enseñan sin tocarlos (usuario:
+    «igual que hoy»). Los nombres los pone el servidor, no el cliente. El
+    frontend replica el formato solo para el resumen de «Confirmar»
+    (`utils/materialGastado.js`); si se cambia uno, cambiar el otro.
+  - «No» manda «Sin gasto de material» como texto, sin productos. Una app
+    vieja (PWA en caché) que solo manda texto sigue funcionando.
+  - Los productos van tras el UPDATE con `estado` en el WHERE, en la misma
+    transacción: un doble «Finalizar» no los apunta dos veces. Un producto
+    repetido se suma; uno que no existe da 400 antes de cerrar nada; uno
+    retirado mientras se cerraba se acepta (estaba en la lista).
+  - **Permisos:** el catálogo sale por `GET /asignaciones/catalogo-material`,
+    abierto a cualquier sesión a propósito: solo id, nombre y presentación de
+    los activos, **sin stock, lotes ni movimientos** (`abierta` en
+    `autorizacion-rutas.test.js`). Todo `/almacen` sigue oculto. Por lo mismo,
+    `utils/materialGastado.js` **no importa nada de `utils/almacen.js`**: va
+    en el bundle de todos y el almacén es un chunk aparte (`globIgnores`).
+  - Si el catálogo no carga (sin red) o está vacío, el texto libre aparece
+    abierto con un aviso: el técnico siempre puede cerrar.
 - Corregir una caducidad mal apuntada: `PUT /lotes/:id`; 409 si ya hay otro
   lote del producto con esa fecha (serían dos iguales).
 - Un producto que ya no se usa se **retira** (`activo = 0`): deja de salir y
@@ -1174,7 +1212,7 @@ prueba `__tests__/component/components/Sidebar.test.jsx`.
 | Página / componente | Servicio (`frontend/src/services/`) | Backend |
 |---|---|---|
 | `MisAsignaciones`, `AsignacionList`, `AsignacionDetalle`, `AsignacionForm` | `asignaciones.service` (+ `vehicles`, `users` para selectores) | `/asignaciones` |
-| `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia` | `/asignaciones/:id/{activar,finalizar,evidencias}` |
+| `InicioAsignacion`, `FinalizacionAsignacion` (fotos con `CameraCapture`; material con `MaterialGastado`) | `asignaciones.service` → `activar`, `finalizar`, `uploadEvidencia`, `catalogoMaterial` | `/asignaciones/:id/{activar,finalizar,evidencias}`, `/asignaciones/catalogo-material` |
 | `AsignacionDetalle` → «Inicio evento/servicio» | `asignaciones.service.registrarLlegada` | `POST /asignaciones/:id/llegada` |
 | `AsignacionDetalle` → «Fin evento/servicio» | `asignaciones.service.registrarFinServicio` | `POST /asignaciones/:id/fin-servicio` |
 | `AsignacionDetalle` → registrar incidencia | `asignaciones.service.crearIncidencia` | `POST /asignaciones/:id/incidencias` |
@@ -1589,7 +1627,7 @@ trabajo_usuarios, vehicle_images` + eventos de limpieza (las vistas
 `asignaciones_libres.aviso_sin_iniciar_at` (v18 + v19),
 `asignaciones_libres.material_usado` (v21), `asignacion_usuarios` (v23),
 `trabajos.descripcion/ubicacion` + ciclo de vida en `trabajo_vehiculos` +
-`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `asignaciones_libres.solo_personal` + `vehicle_id` NULL (v43, asignación de solo personal sin ambulancia, §6.1), `material_productos` + `material_lotes` + `material_movimientos` (v44, almacén de material, §2.10), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
+`trabajo_vehiculo_responsables` (v25), `asignaciones_libres.llegada_servicio_at` (v26), `asignaciones_libres.fin_servicio_at` (v29), `error_logs.origen/user_agent/ocurrido_at` (v30), `vehicles.asignaciones_purgadas` (v27, contador de la retención), `informe_mensual` (v28, informe de un mes archivado antes de purgarlo, §2.7), `impersonaciones` (v31, sesiones de «Ver como» para poder revocarlas, §6.3), `facturas` (v32, con el PDF dentro, §2.8), `facturas.vehicle_id/revision_id` (v36, facturas de mantenimiento, §2.8), `asignaciones_libres.trabajo_id` + `trabajos.coordinador_user_id/cerrado_at/cerrado_por` + estado `pendiente_cierre` (v33, el trabajo padre), `trabajos.ubicacion_url` (v34, enlace de Google Maps, §6.2), `trabajo_coordinadores` (v35, varios coordinadores, §6.2), `vehicles.km_proximo_mantenimiento` + `vehicle_revisiones.km/km_proximo` (v37, mantenimiento por km, §2.9), `vehicles.aviso_mantenimiento_km` (v38, candado del push de mantenimiento, §2.9), `trabajo_jornadas` + `asignacion_jornadas` + `asignaciones_libres.horario_propio` (v39, jornadas por día, §6.1), estado `previsto` de `trabajos` (v41, trabajo a semanas vista sin ambulancia ni coordinador, §6.2), `trabajos.evento_inicio/evento_fin` (v42, horas del evento dentro del trabajo, §6.2), `asignaciones_libres.solo_personal` + `vehicle_id` NULL (v43, asignación de solo personal sin ambulancia, §6.1), `material_productos` + `material_lotes` + `material_movimientos` (v44, almacén de material, §2.10), `asignacion_material` (v45, productos gastados al cerrar una asignación, §2.10), `schema_migrations` (control). Filas, no tablas: rol `superadmin` (v3),
 permisos y su reparto (v4), flags (v9, v20), rol `tes_conductor` (v22),
 email liberado en usuarios ya borrados (v24).
 
@@ -1608,6 +1646,7 @@ vehicles 1─N vehicle_images (asignacion_id | trabajo_id, tipo_imagen, momento 
 vehicles 1─N vehicle_incidencias (trabajo_id?, reported_by) 1─N incidencia_comentarios
 vehicles 1─N vehicle_revisiones
 material_productos 1─N material_lotes 1─N material_movimientos (cantidad con signo; vehicle_id = salida a esa ambulancia, v44)
+asignaciones_libres 1─N asignacion_material N─1 material_productos (gastado al cerrar; no toca el stock, v45)
 vehicles 1─N facturas (vehicle_id, v36: de mantenimiento; NULL = de proveedor) ─N:1 vehicle_revisiones (revision_id, opcional)
 users    1─N push_subscriptions (una por navegador; endpoint único, ON DELETE CASCADE)
 trabajos N:M vehicles (trabajo_vehiculos: estado, inicio_real_at, finalizado_at, km, motivo)
@@ -1718,7 +1757,7 @@ los usuarios que ya estaban borrados antes del fix.
 3. Test en `backend/src/__tests__/unit/config/migrations.test.js`.
 4. Probar desde cero con `/verifica` (BD local vacía).
 
-Última migración: **v44_almacen**. (En alguna BD local puede
+Última migración: **v45_asignacion_material**. (En alguna BD local puede
 aparecer un `v23_vehiculo_cartrack_id`: es de un trabajo descartado, está muerto
 y no existe en el código.)
 
@@ -3192,6 +3231,7 @@ solo actúa en el navegador no es un control de acceso.
 | El informe mensual (qué se mide, umbral, quién lo ve; con jornadas, `jornadasPorAsignacion`/`analizarJornadas` y `tramosEvento`) | `INICIO_TARDIO_MINUTOS` en backend `config/constants.js` → `services/informes.service.js` (`analizarServicio`, `calcularInforme`; si cambia la forma del JSON, subir `VERSION_INFORME`) → `controllers/informes.controller.js` → `routes/informes.routes.js` (rol) → `frontend/utils/informes.js` (`METRICAS`: denominador de cada tasa y si bajar es mejor) → `pages/informes/Informes.jsx`. El detalle de un técnico: `avisosServicio`/`detalleTecnico` del servicio (códigos y cortes) → `TEXTO_AVISO` de `utils/informes.js` (lo que dicen, igual en pantalla y PDF) → `DetalleTecnico.jsx` y `utils/pdfInformeTecnico.js`; una ruta nueva va también en `ACCESO`/`NIVEL` de `autorizacion-rutas.test.js`. §2.7 |
 | Las facturas (quién las ve, qué se acepta, cómo llegan) | `routes/facturas.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `globIgnores` en `vite.config.js` (las tres cosas: está oculta, no solo prohibida) → `controllers/facturas.controller.js` (validación, `esPdf`, `COLUMNAS` sin el PDF, `nombreDescarga`) → lo que se lee del PDF en el paso 1: `services/lectorFacturas.service.js` (`datosDelTexto`, `ALIAS`; usa `importeValido`/`fechaValida` del controlador) → `facturas.service.js` → `pages/facturas/Facturas.jsx` (que repite `nombreDescarga` y la regla del importe). Acciones `create_factura`/`delete_factura` en `ACTION_LABEL` de `AdminPanel`. Lo que llega por correo: `services/buzonFacturas.service.js` (`datosDeFactura`, `FACTURAS_REMITENTES`) + variables `FACTURAS_*` en `docker-compose.yml` **y** el `.env` del servidor + cron en `server.js`; `import_factura` en `ACTION_LABEL` (§2.8) |
 | El almacén (quién lo ve, cómo se calcula el stock, la importación) | `routes/almacen.routes.js` (`ocultarSalvoRoles`) + `FLAGS_OCULTOS` de `features.controller` + `lazy()` en `App.jsx` y `Almacen-*.js` en `globIgnores` de `vite.config.js` + rutas `oculta` en `autorizacion-rutas.test.js` → `controllers/almacen.controller.js` (`STOCK_LOTES`/`COLUMNAS_PRODUCTO`: el stock es la suma de movimientos; `bloquearLote` para las salidas y el recuento) → `services/almacen.service.js` → `pages/almacen/Almacen.jsx` + `components/almacen/FormulariosAlmacen.jsx` + `utils/almacen.js` (avisos, filtros, `CADUCA_PRONTO_DIAS`). Importación: `services/importacionAlmacen.service.js` + `scripts/importar-almacen.js`. Acciones en `ACTION_LABEL` de `AdminPanel` (§2.10) |
+| El material gastado al cerrar una asignación | `components/asignaciones/MaterialGastado.jsx` + `utils/materialGastado.js` (buscador, `textoMaterial` del resumen) → `asignacionesService.finalizar` (`material_usado` + `material_items`) y `catalogoMaterial` → `finalizarAsignacion` + `catalogoMaterial` de `asignaciones.controller` → `services/materialGastado.service.js` (validación, texto montado en el servidor) → tabla `asignacion_material` (v45). El formato del texto está en los dos lados. No toca `material_movimientos` (§2.10 «Consumo en el cierre») |
 | Qué se purga en la retención | `CONDICION_PURGA` de `retencion.service.js`: la usan a la vez la búsqueda de candidatas y la de meses a archivar. Tocar una y no la otra deja meses purgados sin archivar. Desde v33 excluye las cerradas de un trabajo **sin cerrar** (se quedaría pendiente de cierre para siempre, sin ambulancias que cerrar), y `purgarUna` se lleva el trabajo cerrado o borrado con su última ambulancia (`DELETE … NOT EXISTS`, tras borrar la asignación). El informe mensual no cambia: cuenta por asignación y las de un trabajo entran solas (`docs/BACKUPS.md` §8) |
 | Cron de activación | `server.js` (`autoActivar`). Las asignaciones se activan **una a una** para poder avisar de cada una, y si tienen trabajo se sincroniza el padre (con su propio `catch`: un fallo ahí no deja sin activar al resto). Los trabajos solo arrancan por reloj si no tienen asignaciones (modelo v25). En el mismo tick, después de activar, corre `vigilancia.revisarAsignacionesSinIniciar()` — ese orden es a propósito: son las mismas filas, y así el aviso mira el estado ya actualizado y no el del minuto anterior |
 | Cuándo una foto de inicio cuenta como «subida tarde» | `FOTOS_INICIO_TARDE_MINUTOS` en backend `config/constants.js` (sin espejo en el frontend: le llega `umbral_min`). Lógica en `asignaciones.controller` (`marcarFotosInicioTarde` para la ficha **y** la subconsulta de `listAsignaciones`, con el mismo corte) → `AsignacionDetalle` (aviso + marca por miniatura) y `AsignacionList` (badge), solo para gestión. §6.1 |

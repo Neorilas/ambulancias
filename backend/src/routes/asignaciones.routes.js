@@ -31,6 +31,11 @@ router.get('/alarmas',
   ctrl.listAlarmas
 );
 
+// GET /asignaciones/catalogo-material  (cualquier sesión) — id, nombre y
+// presentación de los productos activos del almacén, para el buscador de
+// «Material utilizado» del cierre (v45). Nada de stock. Antes de `/:id`.
+router.get('/catalogo-material', ctrl.catalogoMaterial);
+
 // GET /asignaciones/:id
 router.get('/:id',
   [param('id').isInt({ min: 1 })],
@@ -164,6 +169,9 @@ router.post('/:id/finalizar',
     // controlador, para poder devolver el mensaje que explica qué escribir
     // cuando no se ha gastado material.
     body('material_usado').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+    // Productos del almacén gastados (v45): el detalle lo valida el
+    // controlador (materialGastado.normalizarItems).
+    body('material_items').optional({ nullable: true }).isArray({ max: 50 }),
   ],
   handleValidation,
   ctrl.finalizarAsignacion

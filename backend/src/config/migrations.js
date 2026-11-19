@@ -1567,6 +1567,33 @@ const MIGRATIONS = [
                       'menu', 1, 97)`);
     },
   },
+
+  {
+    name: 'v45_asignacion_material',
+    description: 'Material del almacén gastado al cerrar una asignación (producto + cantidad)',
+    async run() {
+      // Lo que el técnico elige del catálogo del almacén al cerrar
+      // (MAPA_CODIGO.md §2.10 «Consumo en el cierre»). El texto
+      // `material_usado` se sigue guardando (montado con estos nombres + lo
+      // escrito a mano). NO resta stock del almacén: el material ya salió al
+      // cargar la ambulancia. Cuando las ambulancias tengan inventario, esto
+      // es lo que restará de su dotación.
+      await query(`CREATE TABLE IF NOT EXISTS asignacion_material (
+        id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        asignacion_id INT UNSIGNED NOT NULL,
+        producto_id   INT UNSIGNED NOT NULL,
+        cantidad      INT UNSIGNED NOT NULL,
+        created_at    DATETIME     NOT NULL COMMENT 'UTC',
+        PRIMARY KEY (id),
+        INDEX idx_asig_material_asignacion (asignacion_id),
+        INDEX idx_asig_material_producto (producto_id),
+        CONSTRAINT fk_asig_material_asignacion FOREIGN KEY (asignacion_id)
+          REFERENCES asignaciones_libres (id) ON DELETE CASCADE,
+        CONSTRAINT fk_asig_material_producto FOREIGN KEY (producto_id)
+          REFERENCES material_productos (id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    },
+  },
 ];
 
 // ============================================================
