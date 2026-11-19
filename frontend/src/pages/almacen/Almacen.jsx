@@ -240,8 +240,9 @@ function VistaMovimientos({ ambulancias, version }) {
   }, [f.tipo, f.destino, f.ambulancia, f.buscar, pagina, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cambiar un filtro borra los que cuelgan de él (y vuelve a la página 1).
-  const elegirTipo = (tipo) => cambiar({ tipo, destino: '', ambulancia: '', buscar: '', pagina: '1' });
-  const elegirDestino = (destino) => cambiar({ tipo: 'salida', destino, ambulancia: '', buscar: '', pagina: '1' });
+  // setTexto(''): un texto aún sin escribir en la URL (debounce) no se cuela tras el chip.
+  const elegirTipo = (tipo) => { setTexto(''); cambiar({ tipo, destino: '', ambulancia: '', buscar: '', pagina: '1' }); };
+  const elegirDestino = (destino) => { setTexto(''); cambiar({ tipo: 'salida', destino, ambulancia: '', buscar: '', pagina: '1' }); };
 
   const p = datos?.pagination;
   return (

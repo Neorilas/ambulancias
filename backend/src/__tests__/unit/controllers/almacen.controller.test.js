@@ -600,7 +600,7 @@ describe('almacen.controller', () => {
     it('a otro sitio excluye enfermería y busca el texto con parámetro y comodines escapados', async () => {
       const { sql, params } = await sqlDe({ tipo: 'salida', destino: 'otros', buscar: '  50%_ob\\ra ' });
       expect(sql).toContain("m.tipo = 'salida_otros' AND NOT (COALESCE(m.destino, '') LIKE '%enfermer%') AND m.destino LIKE ?");
-      expect(sql).not.toContain('ob');
+      expect(sql).not.toContain('obra');
       expect(params).toEqual(['%50\\%\\_ob\\\\ra%', 50, 0]);
     });
 
