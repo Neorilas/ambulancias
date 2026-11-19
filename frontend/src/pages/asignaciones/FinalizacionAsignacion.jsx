@@ -6,6 +6,8 @@ import { formatDateTime } from '../../utils/dateUtils.js';
 import { parseKm } from '../../utils/kmUtils.js';
 import { errorMotivo } from '../../utils/motivo.js';
 import { finEventoPrevisto } from '../../utils/trabajos.js';
+import MaterialGastado from '../../components/asignaciones/MaterialGastado.jsx';
+import { MATERIAL_VACIO, materialCompleto, textoMaterial, cuerpoMaterial } from '../../utils/materialGastado.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
 import {
   IMAGEN_TIPOS_FIN,
@@ -17,7 +19,8 @@ import {
  * Wizard de CIERRE de servicio — coherente con el de inicio.
  *
  * Secciones (SECCIONES, extensible igual que en InicioAsignacion):
- *   1. material — material gastado en el servicio (obligatorio)
+ *   1. material — material gastado en el servicio (obligatorio): «No», o
+ *                 productos del almacén con cantidad y/o texto libre (v45)
  *   2. exterior — 4 caras del vehículo (orden libre)
  *   3. km       — foto del cuadro + kilómetros finales
  *   4. motivo   — solo si es anticipada y no hay motivo guardado
@@ -48,7 +51,18 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   const [motivo, setMotivo] = useState('');
   // Aviso del motivo: solo tras intentar seguir, nunca mientras se escribe.
   const [avisoMotivo, setAvisoMotivo] = useState(null);
-  const [material, setMaterial] = useState('');
+  // Material gastado (v45): ver MaterialGastado.jsx. El catálogo se pide al
+  // abrir, para que al tocar «Sí» ya esté.
+  const [material, setMaterial] = useState(MATERIAL_VACIO);
+  const [catalogo, setCatalogo] = useState({ estado: 'cargando', productos: [] });
+  useEffect(() => {
+    let vivo = true;
+    asignacionesService.catalogoMaterial()
+      .then(productos => { if (vivo) setCatalogo({ estado: 'ok', productos: productos || [] }); })
+      .catch(() => { if (vivo) setCatalogo({ estado: 'error', productos: [] }); });
+    return () => { vivo = false; };
+  }, []);
+  const materialListo = materialCompleto(material);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
   // Fotos ya subidas, guardadas por File. Si el cierre falla a mitad (red mala,
@@ -148,7 +162,7 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       await asignacionesService.finalizar(asignacion.id, {
         km_fin:     sinAmbulancia ? null : parseKm(kmFin),
         motivo_fin: pideMotivo ? motivo.trim() : null,
-        material_usado: material.trim(),
+        ...cuerpoMaterial(material),
       });
       notify.success('Asignación finalizada correctamente');
       onDone?.();
@@ -350,34 +364,17 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   }
 
   // ── Sección: material utilizado ─────────────────────────────
-  // Obligatoria siempre. El texto libre es a propósito: el material de una
-  // ambulancia no cabe en una lista cerrada, y lo que se busca es que quede
-  // por escrito qué se gastó en ESTE servicio. Por eso se pide también cuando
-  // no se gastó nada — «Sin gasto de material» dice que se revisó; un campo en
-  // blanco no dice nada.
+  // Obligatoria siempre, también cuando no se gastó nada: «No» guarda «Sin
+  // gasto de material», que dice que se revisó; un campo en blanco no dice
+  // nada. Con «Sí», productos del almacén y, si alguno no está, texto libre.
   if (seccion.tipo === 'material') {
     return (
       <div className="space-y-6">
         <Header />
-        <div className="card bg-primary-50 border border-primary-200">
-          <p className="text-sm text-primary-800">
-            Anota el material que has utilizado durante el servicio.
-            <strong className="block mt-1">
-              Si no has utilizado nada, escribe «Sin gasto de material».
-            </strong>
-          </p>
-        </div>
-        <div>
-          <label className="label">Material utilizado <span className="text-bad-500">*</span></label>
-          <textarea
-            className="input resize-none" rows={5}
-            placeholder="Ej.: 2 mascarillas, 1 vía periférica, 500 ml suero fisiológico — o «Sin gasto de material»"
-            value={material} onChange={e => setMaterial(e.target.value)}
-          />
-        </div>
+        <MaterialGastado valor={material} onChange={setMaterial} catalogo={catalogo} />
         <div className="flex gap-3">
           <BotonVolver />
-          <button onClick={() => setStep(step + 1)} disabled={!material.trim()} className="btn-primary flex-1">Siguiente →</button>
+          <button onClick={() => setStep(step + 1)} disabled={!materialListo} className="btn-primary flex-1">Siguiente →</button>
         </div>
       </div>
     );
@@ -417,12 +414,12 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         )}
         <div>
           <span className="text-neutral-500 block mb-1">Material utilizado</span>
-          <p className="text-neutral-700 whitespace-pre-line">{material.trim() || '—'}</p>
+          <p className="text-neutral-700 whitespace-pre-line" data-testid="resumen-material">{textoMaterial(material) || '—'}</p>
         </div>
       </div>
       <div className="flex gap-3">
         <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={uploading}>← Atrás</button>
-        <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading || !material.trim()}>
+        <button onClick={handleFinalizar} className="btn-primary flex-1" disabled={uploading || !materialListo}>
           {uploading ? 'Enviando…' : 'Finalizar asignación'}
         </button>
       </div>

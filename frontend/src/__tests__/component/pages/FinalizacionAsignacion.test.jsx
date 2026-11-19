@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../../services/asignaciones.service.js', () => ({
-  asignacionesService: { uploadEvidencia: vi.fn(), finalizar: vi.fn() },
+  asignacionesService: { uploadEvidencia: vi.fn(), finalizar: vi.fn(), catalogoMaterial: vi.fn(() => Promise.resolve([])) },
 }));
 
 // La cámara real usa getUserMedia; aquí basta con un botón que complete de
@@ -59,14 +59,14 @@ describe('FinalizacionAsignacion — orden de pasos', () => {
     const siguiente = screen.getByRole('button', { name: /Siguiente/ });
     expect(siguiente).toBeDisabled();
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Sin gasto de material' } });
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
     fireEvent.click(siguiente);
 
     expect(screen.getByRole('heading', { name: 'Estado exterior' })).toBeInTheDocument();
     // Desde las fotos se vuelve al material, no se sale
     fireEvent.click(screen.getByRole('button', { name: /Atrás/ }));
     expect(screen.getByRole('heading', { name: 'Material utilizado' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox')).toHaveValue('Sin gasto de material');
+    expect(screen.getByRole('button', { name: 'No' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -106,7 +106,7 @@ describe('FinalizacionAsignacion — motivo de fin anticipado', () => {
 // Avanza desde el paso 0 (material) hasta dejar el wizard en el paso de
 // kilometraje, con las 4 fotos exteriores ya completadas por la cámara mock.
 function irAPasoKm() {
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Sin gasto de material' } });
+  fireEvent.click(screen.getByRole('button', { name: 'No' }));
   fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Cámara guiada' }));
   fireEvent.click(screen.getByRole('button', { name: 'completar cámara' }));
@@ -256,7 +256,7 @@ describe('FinalizacionAsignacion — solo personal (v43)', () => {
     );
 
     expect(screen.getByText(/Paso 1 de 2 — Solo personal/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Sin gasto de material' } });
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
     expect(screen.getByTestId('cierre-solo-personal')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
@@ -264,5 +264,81 @@ describe('FinalizacionAsignacion — solo personal (v43)', () => {
     await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalledWith(5, expect.objectContaining({
       km_fin: null, material_usado: 'Sin gasto de material' })));
     expect(asignacionesService.uploadEvidencia).not.toHaveBeenCalled();
+  });
+});
+
+// ── v45: material del almacén ───────────────────────────────
+describe('FinalizacionAsignacion — material del almacén (v45)', () => {
+  const CATALOGO = [
+    { id: 1, nombre: 'Mascarilla FFP2', presentacion: 'Unidad' },
+    { id: 2, nombre: 'Mascarilla laríngea 4', presentacion: 'Unidad' },
+    { id: 3, nombre: 'Guantes nitrilo M', presentacion: 'Caja' },
+  ];
+  const SOLO_PERSONAL = {
+    ...ASIGNACION, solo_personal: true, vehiculo_alias: null, km_inicio: null, motivo_fin: 'x',
+    progreso: { inicio: { completo: true, completado: 0, total: 0 } },
+  };
+  const pintar = () => render(
+    <NotificationProvider>
+      <FinalizacionAsignacion asignacion={SOLO_PERSONAL} onDone={() => {}} onCancel={() => {}} />
+    </NotificationProvider>
+  );
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asignacionesService.catalogoMaterial.mockResolvedValue(CATALOGO);
+    asignacionesService.finalizar.mockResolvedValue({});
+  });
+
+  it('busca sin tildes, elige con cantidad y manda los productos con el texto libre', async () => {
+    pintar();
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    const siguiente = screen.getByRole('button', { name: /Siguiente/ });
+    expect(siguiente).toBeDisabled();   // «Sí» sin nada no vale
+
+    const buscador = screen.getByLabelText('Busca el producto');
+    fireEvent.change(buscador, { target: { value: 'laringea' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Mascarilla laríngea 4/ }));
+    expect(buscador).toHaveValue('');
+
+    fireEvent.change(buscador, { target: { value: 'guan' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guantes nitrilo M/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Uno más de Guantes nitrilo M' }));
+    expect(screen.getByLabelText('Cantidad de Guantes nitrilo M')).toHaveTextContent('2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'No lo encuentro' }));
+    fireEvent.change(screen.getByLabelText('Lo que no está en la lista'), { target: { value: '1 manta térmica' } });
+
+    fireEvent.click(siguiente);
+    expect(screen.getByTestId('resumen-material').textContent)
+      .toBe('1 × Mascarilla laríngea 4\n2 × Guantes nitrilo M (Caja)\n1 manta térmica');
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+
+    await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalledWith(5, expect.objectContaining({
+      material_usado: '1 manta térmica',
+      material_items: [{ producto_id: 2, cantidad: 1 }, { producto_id: 3, cantidad: 2 }],
+    })));
+  });
+
+  it('con cantidad 1, el botón de la izquierda quita la ficha', async () => {
+    pintar();
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    fireEvent.change(screen.getByLabelText('Busca el producto'), { target: { value: 'ffp2' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Mascarilla FFP2/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar Mascarilla FFP2' }));
+    expect(screen.queryByLabelText('Cantidad de Mascarilla FFP2')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Siguiente/ })).toBeDisabled();
+  });
+
+  it('si la lista del almacén no carga, se escribe a mano', async () => {
+    asignacionesService.catalogoMaterial.mockRejectedValue(new Error('sin red'));
+    pintar();
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    expect(await screen.findByText(/No se ha podido cargar la lista del almacén/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Busca el producto')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Material utilizado'), { target: { value: '2 vendas' } });
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+    await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalledWith(5, expect.objectContaining({
+      material_usado: '2 vendas', material_items: [] })));
   });
 });

@@ -24,6 +24,7 @@ const vigilancia                 = require('../services/vigilancia.service');
 const estadoTrabajo              = require('../services/estadoTrabajo.service');
 const coordinadores              = require('../services/coordinadores.service');
 const jornadasSrv                = require('../services/jornadas.service');
+const materialGastado            = require('../services/materialGastado.service');
 
 // ============================================================
 // Helper: progreso de evidencias (inicio y fin) de una asignación
@@ -1881,7 +1882,24 @@ async function finalizarAsignacion(req, res, next) {
     // vacío no distingue «no gastó nada» de «no lo rellenó», y ese es
     // justamente el dato: por eso el mensaje dice qué escribir cuando no hubo
     // gasto en vez de limitarse a decir que falta.
-    const material = typeof material_usado === 'string' ? material_usado.trim() : '';
+    //
+    // Desde v45 lo gastado puede venir además como productos del almacén
+    // (`material_items`); entonces el texto es opcional y `material_usado`
+    // se monta con los nombres del catálogo + lo escrito a mano
+    // (materialGastado.service). Una app vieja que solo manda texto sigue
+    // funcionando igual.
+    const libre = typeof material_usado === 'string' ? material_usado.trim() : '';
+    const normalizados = materialGastado.normalizarItems(req.body.material_items);
+    if (normalizados.error) return error(res, normalizados.error, 400);
+    const materialItems = normalizados.items;
+    let material = libre;
+    if (materialItems.length) {
+      const productos = await materialGastado.cargarProductos(materialItems.map(i => i.producto_id));
+      if (materialItems.some(i => !productos.has(i.producto_id))) {
+        return error(res, 'Alguno de los productos elegidos ya no existe en el almacén: vuelve a elegirlo', 400);
+      }
+      material = materialGastado.textoMaterial(materialItems, productos, libre);
+    }
     if (!material) {
       return error(
         res,
@@ -1963,6 +1981,17 @@ async function finalizarAsignacion(req, res, next) {
           throw new FichajeRechazado(400, 'La asignación ya no se puede finalizar: se acaba de finalizar o cancelar');
         }
 
+        // Los productos del almacén gastados (v45). Va tras el UPDATE con
+        // `estado` en el WHERE: un doble «Finalizar» no los apunta dos
+        // veces. No toca el stock del almacén (materialGastado.service).
+        for (const it of materialItems) {
+          await conn.execute(
+            `INSERT INTO asignacion_material (asignacion_id, producto_id, cantidad, created_at)
+             VALUES (?, ?, ?, ?)`,
+            [asig.id, it.producto_id, it.cantidad, ahora()]
+          );
+        }
+
         // Solo si el técnico ha anotado los km: aquí son opcionales (en trabajos
         // son obligatorios), y sin lectura del cuentakilómetros no hay nada que
         // propagar. La validación de arriba ya rechaza un km_fin por debajo del
@@ -2013,7 +2042,8 @@ async function finalizarAsignacion(req, res, next) {
       userInfo: req.user.username,
       action:   'finalize_asignacion',
       entityType: 'asignacion', entityId: asig.id,
-      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: pideMotivo ? motivo : undefined, material_usado: material },
+      details:  { vehiculo: asig.matricula, km_fin: km_fin ?? null, anticipada: esAnticipada, motivo_fin: pideMotivo ? motivo : undefined, material_usado: material,
+        material_items: materialItems.length ? materialItems : undefined },
       ip: req.ip,
     });
     const updated = await getAsignacionCompleta(asig.id);
@@ -2221,7 +2251,23 @@ async function crearIncidenciaDesdeAsignacion(req, res, next) {
   }
 }
 
+// ============================================================
+// GET /asignaciones/catalogo-material
+// ============================================================
+// El buscador de «Material utilizado» del cierre (v45). Para cualquier
+// sesión, a propósito: solo id, nombre y presentación de los productos
+// activos, sin stock, lotes ni movimientos. El almacén en sí sigue oculto
+// salvo para administración (almacen.routes, MAPA_CODIGO.md §2.10).
+async function catalogoMaterial(req, res, next) {
+  try {
+    return success(res, await materialGastado.catalogo());
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  catalogoMaterial,
   listAsignaciones,
   listAlarmas,
   getAsignacion,

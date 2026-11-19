@@ -28,7 +28,7 @@ jest.mock('../../../services/avisosAsignacion.service', () => ({
 
 const {
   listAsignaciones, listAlarmas, getAsignacion, createAsignacion, updateAsignacion,
-  deleteAsignacion, activarAsignacion, registrarLlegada, registrarFinServicio, finalizarAsignacion, uploadEvidencia,
+  catalogoMaterial, deleteAsignacion, activarAsignacion, registrarLlegada, registrarFinServicio, finalizarAsignacion, uploadEvidencia,
   crearIncidenciaDesdeAsignacion, rolEnAsignacion, esCoordinador, leerMiembros,
 } = require('../../../controllers/asignaciones.controller');
 const avisos = require('../../../services/avisosAsignacion.service');
@@ -96,6 +96,21 @@ describe('asignaciones.controller', () => {
   });
 
   // ── listAsignaciones ───────────────────────────────────
+  // v45: el buscador del cierre. Sin stock: solo id, nombre y presentación.
+  describe('catalogoMaterial', () => {
+    it('devuelve los productos activos sin stock ni lotes', async () => {
+      query.mockResolvedValueOnce([[{ id: 3, nombre: 'Mascarilla FFP2', presentacion: 'Unidad' }]]);
+      const res = mockRes();
+      await catalogoMaterial(mockReq({ user: { id: 2, roles: ['tecnico'] } }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res._json.data).toEqual([{ id: 3, nombre: 'Mascarilla FFP2', presentacion: 'Unidad' }]);
+      const [sql] = query.mock.calls[0];
+      expect(sql).toMatch(/SELECT id, nombre, presentacion FROM material_productos WHERE activo = 1/);
+      expect(sql).not.toMatch(/stock|lote|movimiento/i);
+    });
+  });
+
   describe('listAlarmas', () => {
     it('devuelve las alarmas sin incluir las del propio usuario', async () => {
       query.mockResolvedValueOnce([[{ id: 5, vehiculo_alias: 'AMB-1' }]]);
@@ -1502,6 +1517,86 @@ describe('asignaciones.controller', () => {
       const res = mockRes();
       await finalizarAsignacion(req, res, mockNext());
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    // v45: productos del almacén elegidos en el cierre. Se apuntan enlazados
+    // a la asignación y el texto de siempre se monta con sus nombres.
+    it('apunta los productos del almacén y monta material_usado con sus nombres', async () => {
+      mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+      query.mockResolvedValueOnce([[
+        { id: 3, nombre: 'Mascarilla FFP2', presentacion: 'Unidad' },
+        { id: 8, nombre: 'Guantes M', presentacion: 'Caja' },
+      ]]);                                               // cargarProductos
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]); // UPDATE asignación
+      query.mockResolvedValueOnce([]);                    // INSERT producto 3
+      query.mockResolvedValueOnce([]);                    // INSERT producto 8
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' },
+        body: {
+          material_usado: ' 1 manta térmica ',
+          material_items: [{ producto_id: 3, cantidad: 1 }, { producto_id: 8, cantidad: 1 }, { producto_id: 3, cantidad: 1 }],
+        },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
+      expect(upd[1][2]).toBe('2 × Mascarilla FFP2\n1 × Guantes M (Caja)\n1 manta térmica');
+      const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO asignacion_material'));
+      expect(inserts.map(([, p]) => [p[0], p[1], p[2]])).toEqual([[1, 3, 2], [1, 8, 1]]);
+      // No toca el stock del almacén
+      expect(query.mock.calls.some(([sql]) => sql.includes('material_movimientos'))).toBe(false);
+    });
+
+    it('con productos elegidos el texto a mano es opcional', async () => {
+      mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+      query.mockResolvedValueOnce([[{ id: 3, nombre: 'Suero 500 ml', presentacion: '' }]]);
+      query.mockResolvedValueOnce([progresoCompletoRows()]);
+      query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+      query.mockResolvedValueOnce([]);
+      mockAsignacionCompleta({ estado: 'finalizada' });
+
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { material_items: [{ producto_id: 3, cantidad: 4 }] },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const upd = query.mock.calls.find(([sql]) => sql.includes('UPDATE asignaciones_libres SET'));
+      expect(upd[1][2]).toBe('4 × Suero 500 ml');
+    });
+
+    it('400 si un producto elegido no existe, sin cerrar nada', async () => {
+      mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+      query.mockResolvedValueOnce([[]]);   // cargarProductos: no está
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { material_items: [{ producto_id: 99, cantidad: 1 }] },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res._json.message).toMatch(/ya no existe en el almacén/);
+      expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE asignaciones_libres SET'))).toBe(false);
+    });
+
+    it.each([
+      [[{ producto_id: 3, cantidad: 0 }]],
+      [[{ producto_id: 'x', cantidad: 1 }]],
+      ['no es lista'],
+    ])('400 con material_items mal formado: %j', async (items) => {
+      mockAsignacionCompleta({ estado: 'activa', fecha_fin: new Date(Date.now() - 3600000) });
+      const res = mockRes();
+      await finalizarAsignacion(mockReq({
+        params: { id: '1' }, body: { material_usado: 'algo', material_items: items },
+        user: { id: 2, roles: ['tecnico'], permissions: [] },
+      }), res, mockNext());
+      expect(res.status).toHaveBeenCalledWith(400);
     });
 
     // El kilometraje de la flota solo avanza por aquí: el producto se usa por

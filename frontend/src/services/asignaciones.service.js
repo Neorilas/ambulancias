@@ -9,6 +9,10 @@ export const asignacionesService = {
   alarmas() {
     return api.get('/asignaciones/alarmas').then(r => r.data.data);
   },
+  /** Productos activos del almacén (id, nombre, presentación) para el cierre (v45). */
+  catalogoMaterial() {
+    return api.get('/asignaciones/catalogo-material').then(r => r.data.data);
+  },
   get(id) {
     return api.get(`/asignaciones/${id}`).then(r => r.data.data);
   },

@@ -53,6 +53,7 @@ const ACCESO = {
   'POST /push/subscribe':        ['abierta', 'da de alta el dispositivo propio'],
   'DELETE /push/subscribe':      ['abierta', 'solo borra si es suya'],
   'POST /push/test':             ['abierta', 'aviso a uno mismo'],
+  'GET /asignaciones/catalogo-material': ['abierta', 'buscador del cierre: id, nombre y presentación de los productos activos, sin stock (v45)'],
   'POST /errores-cliente':       ['abierta', 'con sesión: errores que vio la app, atribuidos a quien los manda'],
 
   // ── Listados filtrados por usuario ──────────────────────────
