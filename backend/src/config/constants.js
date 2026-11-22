@@ -70,6 +70,13 @@ module.exports = {
   AVISO_SIN_INICIAR_MINUTOS: Number(process.env.AVISO_SIN_INICIAR_MINUTOS) > 0
     ? Number(process.env.AVISO_SIN_INICIAR_MINUTOS)
     : 30,
+  // Minutos desde que finalizó la última ambulancia de un trabajo que sigue
+  // pendiente de cierre antes de recordárselo a sus coordinadores (una vez por
+  // cierre de la última ambulancia; vigilancia.revisarTrabajosSinCerrar, v47).
+  // Muchos cerraban su ambulancia y olvidaban volver a cerrar el trabajo.
+  AVISO_CIERRE_TRABAJO_MINUTOS: Number(process.env.AVISO_CIERRE_TRABAJO_MINUTOS) > 0
+    ? Number(process.env.AVISO_CIERRE_TRABAJO_MINUTOS)
+    : 30,
   // Cuánto antes de la hora prevista se puede pulsar «Inicio de la asignación».
   // Un servicio de las 8:00 se puede iniciar desde las 7:30, no antes: la hora
   // real que sella el botón es la evidencia de cuándo empezó el servicio.

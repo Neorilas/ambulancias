@@ -25,7 +25,8 @@ const logger     = require('../utils/logger.utils');
 const { ahora }  = require('../utils/fecha.utils');
 const avisos     = require('./avisosAsignacion.service');
 const push       = require('./push.service');
-const { AVISO_SIN_INICIAR_MINUTOS, MANTENIMIENTO_PUSH_KM } = require('../config/constants');
+const { idsCoordinadores } = require('./coordinadores.service');
+const { AVISO_SIN_INICIAR_MINUTOS, MANTENIMIENTO_PUSH_KM, AVISO_CIERRE_TRABAJO_MINUTOS } = require('../config/constants');
 
 /**
  * Asignaciones cuya hora prevista pasó hace más del margen y que siguen sin
@@ -350,11 +351,73 @@ async function revisarMantenimientoKm() {
   return resumen;
 }
 
+/**
+ * Trabajos pendientes de cierre que nadie ha cerrado (2026-11-22). Pedido del
+ * usuario: muchos finalizaban su ambulancia, cerraban la app y el trabajo se
+ * quedaba abierto. Al quedar pendiente ya sale «listo para cerrar»; esto lo
+ * recuerda UNA vez a sus coordinadores (o a gestión, sin coordinador) cuando
+ * la última ambulancia finalizó hace más de AVISO_CIERRE_TRABAJO_MINUTOS.
+ *
+ * El candado es `trabajos.aviso_cierre_olvidado_at` (v47) comparado con el
+ * último `finalizado_at`: si el trabajo se reabre con otra ambulancia y vuelve
+ * a quedar pendiente, la marca es anterior a ese cierre y el aviso se rearma
+ * solo. Reclamado con UPDATE condicional por lo mismo que arriba (el cron pasa
+ * cada minuto, y en el hueco alguien puede cerrar el trabajo).
+ *
+ * Nunca lanza.
+ */
+async function revisarTrabajosSinCerrar() {
+  const minutos = AVISO_CIERRE_TRABAJO_MINUTOS;
+  const resumen = { candidatos: 0, avisados: 0 };
+
+  try {
+    const limite = new Date(ahora().getTime() - minutos * 60 * 1000);
+    const [candidatos] = await query(
+      `SELECT t.id, t.nombre, t.coordinador_user_id, MAX(al.finalizado_at) AS ultima_fin
+         FROM trabajos t
+         JOIN asignaciones_libres al
+           ON al.trabajo_id = t.id AND al.deleted_at IS NULL AND al.estado = 'finalizada'
+        WHERE t.estado = 'pendiente_cierre'
+        GROUP BY t.id, t.nombre, t.coordinador_user_id, t.aviso_cierre_olvidado_at
+       HAVING MAX(al.finalizado_at) <= ?
+          AND (t.aviso_cierre_olvidado_at IS NULL OR t.aviso_cierre_olvidado_at < MAX(al.finalizado_at))`,
+      [limite]
+    );
+    resumen.candidatos = candidatos.length;
+
+    for (const t of candidatos) {
+      const [res] = await query(
+        `UPDATE trabajos SET aviso_cierre_olvidado_at = ?
+          WHERE id = ?
+            AND estado = 'pendiente_cierre'
+            AND (aviso_cierre_olvidado_at IS NULL OR aviso_cierre_olvidado_at < ?)`,
+        [ahora(), t.id, t.ultima_fin]
+      );
+      if (res.affectedRows === 0) continue;   // ya avisado, o cerrado en el hueco
+
+      resumen.avisados++;
+      avisos.avisarTrabajoSinCerrar(
+        { ...t, coordinadores_ids: await idsCoordinadores(t.id) },
+        { minutos }
+      );
+    }
+
+    if (resumen.avisados > 0) {
+      logger.info(`Recordado el cierre de ${resumen.avisados} trabajo(s) pendiente(s) desde hace más de ${minutos} min`);
+    }
+  } catch (err) {
+    logger.error(`Error vigilando trabajos sin cerrar: ${err.message}`);
+  }
+
+  return resumen;
+}
+
 module.exports = {
   revisarAsignacionesSinIniciar,
   revisarJornadasSinIniciar,
   listarAlarmasSinIniciar,
   revisarMantenimientoKm,
+  revisarTrabajosSinCerrar,
   // Expuestos para los tests
   avisoMantenimiento,
   formatKm,

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { asignacionesService } from '../../services/asignaciones.service.js';
+import { trabajosService } from '../../services/trabajos.service.js';
 import { useNotification } from '../../context/NotificationContext.jsx';
 import CameraCapture from '../../components/camera/CameraCapture.jsx';
 import { formatDateTime } from '../../utils/dateUtils.js';
@@ -14,6 +15,21 @@ import {
   IMAGEN_TIPOS_FIN_EXTERIOR,
   IMAGEN_TIPO_CUENTAKILOMETROS,
 } from '../../utils/constants.js';
+
+/**
+ * El trabajo de la asignación, solo si está pendiente de cierre y este usuario
+ * puede cerrarlo. Un fallo al leerlo no importa: la asignación ya está cerrada
+ * y se sale como siempre.
+ */
+async function trabajoQuePuedoCerrar(trabajoId) {
+  if (!trabajoId) return null;
+  try {
+    const t = await trabajosService.get(trabajoId);
+    return t?.estado === 'pendiente_cierre' && t.puede_cerrar ? t : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Wizard de CIERRE de servicio — coherente con el de inicio.
@@ -33,6 +49,12 @@ import {
  * El material va primero, antes de las fotos de fin: decisión de negocio.
  *
  * Al confirmar sube las fotos de fin (momento='fin') y llama a /finalizar.
+ *
+ * Si era la última ambulancia del trabajo y quien finaliza puede cerrarlo
+ * (coordinador o gestión: `puede_cerrar` de la API), en vez de salir enseña
+ * «Cerrar trabajo» ahí mismo (2026-11-22): muchos cerraban su ambulancia y no
+ * volvían al trabajo a cerrarlo. Si sale sin cerrarlo, el cron se lo recuerda
+ * (`vigilancia.revisarTrabajosSinCerrar`).
  *
  * Props: asignacion (con progreso.inicio), onDone(), onCancel()
  */
@@ -69,6 +91,9 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
   // 429) el reintento manda sólo las que faltan; y si el técnico repite una
   // foto, el File es otro y vuelve a subirse.
   const [subidas,   setSubidas]   = useState({});
+  // Tras finalizar: el trabajo que queda por cerrar (ver arriba)
+  const [porCerrar, setPorCerrar] = useState(null);
+  const [cerrando,  setCerrando]  = useState(false);
 
   // Cámara
   const [showCamera, setShowCamera] = useState(false);
@@ -165,6 +190,8 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
         ...cuerpoMaterial(material),
       });
       notify.success('Asignación finalizada correctamente');
+      const trabajo = await trabajoQuePuedoCerrar(asignacion.trabajo_id);
+      if (trabajo) { setPorCerrar(trabajo); return; }
       onDone?.();
     } catch (err) {
       if (!pideMotivo && err.response?.data?.errors?.some(e => e.field === 'motivo_fin')) {
@@ -183,6 +210,45 @@ export default function FinalizacionAsignacion({ asignacion, onDone, onCancel })
       setUploading(false);
     }
   };
+
+  const cerrarTrabajo = async () => {
+    setCerrando(true);
+    try {
+      await trabajosService.cerrar(porCerrar.id);
+      notify.success('Trabajo cerrado');
+      onDone?.();
+    } catch (err) {
+      notify.error(err.response?.data?.message || 'No se pudo cerrar el trabajo');
+    } finally {
+      setCerrando(false);
+    }
+  };
+
+  // ── Asignación cerrada: queda el trabajo ────────────────────
+  if (porCerrar) {
+    return (
+      <div className="space-y-6" data-testid="cerrar-trabajo-tras-fin">
+        <div className="card bg-ok-50 border border-ok-200">
+          <p className="font-medium text-ok-700">Asignación finalizada</p>
+        </div>
+        <div className="card bg-warn-50 border-warn-200 border-2 space-y-3">
+          <p className="font-semibold text-warn-700">
+            Todas las ambulancias de «{porCerrar.nombre}» han terminado
+          </p>
+          <p className="text-sm text-warn-700">
+            Falta cerrar el trabajo. Mientras no se cierre sigue abierto en la portada de
+            quienes han ido. Al cerrarlo ya no se puede modificar.
+          </p>
+          <button onClick={cerrarTrabajo} disabled={cerrando} className="btn-primary w-full">
+            {cerrando ? 'Cerrando…' : 'Cerrar trabajo'}
+          </button>
+        </div>
+        <button onClick={() => onDone?.()} disabled={cerrando} className="btn-secondary w-full">
+          Ahora no
+        </button>
+      </div>
+    );
+  }
 
   // ── Cámara a pantalla completa ──────────────────────────────
   if (showCamera) {

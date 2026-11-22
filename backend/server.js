@@ -259,6 +259,14 @@ async function startServer() {
     } catch (err) {
       logger.error('Error en vigilancia del mantenimiento por km:', err.message);
     }
+
+    // Cuarta: trabajos pendientes de cierre que nadie cierra (recordatorio a
+    // sus coordinadores, una vez). Mismo try/catch por lo mismo.
+    try {
+      await vigilancia.revisarTrabajosSinCerrar();
+    } catch (err) {
+      logger.error('Error en vigilancia de trabajos sin cerrar:', err.message);
+    }
   };
   autoActivar();                       // ejecutar al arrancar para no esperar al 1er tick
   setInterval(autoActivar, 60 * 1000); // y luego cada minuto

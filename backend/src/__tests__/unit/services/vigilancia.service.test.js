@@ -15,6 +15,10 @@
 jest.mock('../../../services/avisosAsignacion.service', () => ({
   avisarAsignacionSinIniciar: jest.fn(),
   avisarJornadaSinIniciar:    jest.fn(),
+  avisarTrabajoSinCerrar:     jest.fn(),
+}));
+jest.mock('../../../services/coordinadores.service', () => ({
+  idsCoordinadores: jest.fn().mockResolvedValue([5, 6]),
 }));
 jest.mock('../../../services/push.service', () => ({
   notificarAdministracion: jest.fn(),
@@ -23,7 +27,7 @@ jest.mock('../../../services/push.service', () => ({
 const { query } = require('../../../config/database');
 const avisos    = require('../../../services/avisosAsignacion.service');
 const push      = require('../../../services/push.service');
-const { AVISO_SIN_INICIAR_MINUTOS } = require('../../../config/constants');
+const { AVISO_SIN_INICIAR_MINUTOS, AVISO_CIERRE_TRABAJO_MINUTOS } = require('../../../config/constants');
 const vigilancia = require('../../../services/vigilancia.service');
 
 const CANDIDATA = {
@@ -297,5 +301,52 @@ describe('vigilancia.service · mantenimiento a 500 km (revisarMantenimientoKm)'
     expect(vigilancia.formatKm(480)).toBe('480');
     expect(vigilancia.formatKm(1234567)).toBe('1.234.567');
     expect(vigilancia.formatKm(null)).toBe('0');
+  });
+});
+
+describe('vigilancia.service · trabajos sin cerrar (revisarTrabajosSinCerrar)', () => {
+  const ULTIMA_FIN = new Date('2026-11-22T10:00:00Z');
+  const TRABAJO = { id: 40, nombre: 'Maratón', coordinador_user_id: 5, ultima_fin: ULTIMA_FIN };
+
+  beforeEach(() => {
+    query.mockReset();
+    avisos.avisarTrabajoSinCerrar.mockReset();
+  });
+
+  it('recuerda a sus coordinadores el trabajo pendiente de cierre pasado el margen', async () => {
+    query.mockResolvedValueOnce([[TRABAJO]]);
+    query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const resumen = await vigilancia.revisarTrabajosSinCerrar();
+
+    expect(resumen).toEqual({ candidatos: 1, avisados: 1 });
+    expect(avisos.avisarTrabajoSinCerrar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 40, coordinadores_ids: [5, 6] }),
+      { minutos: AVISO_CIERRE_TRABAJO_MINUTOS }
+    );
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("t.estado = 'pendiente_cierre'");
+    expect(sql).toContain('aviso_cierre_olvidado_at < MAX(al.finalizado_at)');
+    expect(params[0]).toBeInstanceOf(Date);
+  });
+
+  it('el candado va en el UPDATE, contra el último cierre visto: no avisa dos veces ni de uno ya cerrado', async () => {
+    query.mockResolvedValueOnce([[TRABAJO]]);
+    query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    const resumen = await vigilancia.revisarTrabajosSinCerrar();
+
+    expect(resumen).toEqual({ candidatos: 1, avisados: 0 });
+    expect(avisos.avisarTrabajoSinCerrar).not.toHaveBeenCalled();
+    const [sql, params] = query.mock.calls[1];
+    expect(sql).toContain("estado = 'pendiente_cierre'");
+    expect(sql).toContain('aviso_cierre_olvidado_at < ?');
+    expect(params[1]).toBe(40);
+    expect(params[2]).toBe(ULTIMA_FIN);
+  });
+
+  it('nunca lanza si falla la BD', async () => {
+    query.mockRejectedValueOnce(new Error('caída'));
+    await expect(vigilancia.revisarTrabajosSinCerrar()).resolves.toEqual({ candidatos: 0, avisados: 0 });
   });
 });

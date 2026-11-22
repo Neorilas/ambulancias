@@ -361,6 +361,33 @@ describe('avisosAsignacion.service', () => {
     });
   });
 
+  // 2026-11-22: recordatorio del cron si nadie cierra el trabajo
+  describe('avisarTrabajoSinCerrar', () => {
+    beforeEach(() => {
+      push.notificarUsuarios.mockReset();
+      push.notificarUsuarios.mockResolvedValue({ enviados: 1 });
+      push.notificarAdmins.mockReset();
+      push.notificarAdmins.mockResolvedValue({ enviados: 1 });
+    });
+
+    it('a sus coordinadores, con el mismo tag que «listo para cerrar» para sustituirlo', async () => {
+      await avisos.avisarTrabajoSinCerrar({ id: 40, nombre: 'Maratón', coordinadores_ids: [5, 6] }, { minutos: 30 });
+      expect(push.notificarAdmins).not.toHaveBeenCalled();
+      expect(push.notificarUsuarios).toHaveBeenCalledWith([5, 6], expect.objectContaining({
+        url: '/trabajos/40', tag: 'trab-40-pendiente-cierre',
+      }));
+      const aviso = push.notificarUsuarios.mock.calls[0][1];
+      expect(aviso.titulo).toBe('Maratón · sigue sin cerrar');
+      expect(aviso.cuerpo).toContain('30 min');
+    });
+
+    it('sin coordinadores, a gestión', async () => {
+      await avisos.avisarTrabajoSinCerrar({ id: 41, nombre: 'Viejo', coordinadores_ids: [] }, { minutos: 30 });
+      expect(push.notificarUsuarios).not.toHaveBeenCalled();
+      expect(push.notificarAdmins).toHaveBeenCalledWith(expect.objectContaining({ url: '/trabajos/41' }));
+    });
+  });
+
   // 2026-10-10: la gente asignada al trabajo, vaya o no en una ambulancia
   describe('avisarEquipoTrabajo', () => {
     beforeEach(() => {
