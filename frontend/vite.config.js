@@ -33,11 +33,17 @@ function htaccessConBase(base, apiUrl) {
   let apiOrigin = '';
   try { apiOrigin = new URL(apiUrl).origin; } catch { /* relativa: mismo origen */ }
   const apiBase = (apiUrl || '/api/v1').replace(/\/+$/, '');
+  // La carpeta de salida real: producción se construye dos veces (dist/ para
+  // vapss.net/app/ y dist-app/ para app.vapss.net, con --outDir).
+  let outDir = resolve(process.cwd(), 'dist');
   return {
     name: 'htaccess-con-base',
     apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      const destino = resolve(process.cwd(), 'dist', '.htaccess');
+      const destino = resolve(outDir, '.htaccess');
       if (!existsSync(destino)) {
         this.error('No se ha generado dist/.htaccess (¿sigue en public/?)');
       }

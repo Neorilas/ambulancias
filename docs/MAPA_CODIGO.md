@@ -19,7 +19,7 @@ código: corrige el mapa.
 
 ```
 frontend (React+Vite PWA)  ──axios──>  backend (Express)  ──mysql2──>  MySQL 8
- vapss.net/app/                         api.vapss.net                   contenedor Docker
+ vapss.net/app/ y app.vapss.net         api.vapss.net                   contenedor Docker
  pages → services → api.js              routes → middleware → controllers → query()
 ```
 
@@ -3299,6 +3299,31 @@ despliega** — hasta 2026-09-26 el backend llegaba a producción sin pasar un
 test en CI) y `deploy-frontend.yml` (job `build`: tests + los mismos dos
 controles + build; job `publicar`:
 subida por FTPS al hosting de `vapss.net/app[-pre]/`).
+
+**Dos direcciones de la app (desde 2026-11-22, mientras conviven):** en
+`master` el frontend se construye dos veces y se publica en `vapss.net/app/`
+(`dist/`, `.env.production`) y en `https://app.vapss.net/` (`dist-app/`,
+`frontend/.env.production-app`: misma API, `VITE_BASE_PATH=/`). Es el mismo
+código; lo único que cambia es la base, y la app ya era agnóstica a ella
+(`BASE_URL` en router, logos y modelo; el `sw.js` deduce su carpeta de su
+propia URL; las rutas de los avisos push son de la SPA y cada SW les antepone
+la suya, así que el backend manda el mismo aviso a las dos). El plugin
+`htaccess-con-base` escribe en la `outDir` real (antes tenía `dist/` fijo).
+La subida al subdominio va **después** de la de `/app/` y necesita el secret
+`FTP_REMOTE_DIR_APP` (carpeta del subdominio en la home del FTP); sin él se
+salta con un aviso, y si no contiene `app.vapss.net` o coincide con
+`FTP_REMOTE_DIR`, para en rojo (publicar en la raíz pisaría el WordPress).
+La API necesita los dos orígenes en `CORS_ORIGIN` del `.env` del servidor
+(`https://vapss.net,https://app.vapss.net`; `server.js` ya lo parte por comas).
+**Trampa:** para el navegador son dos webs distintas: sesión, PWA instalada,
+`localStorage` y suscripciones push **no pasan** de una a otra. Cada técnico
+tiene que entrar, instalar y activar los avisos otra vez en `app.vapss.net`
+(una suscripción por origen; mientras conviven, un móvil con las dos recibe
+el aviso dos veces). Pendiente para cerrar la migración: versión puente en
+`/app/` que mande al subdominio y dé de baja su SW (un 301 en el `.htaccess`
+no basta: el SW viejo sirve `index.html` de su caché sin preguntar), y luego
+quitar el build doble. Probar el build del subdominio en local:
+`npx vite preview --mode production-app --outDir dist-app` tras construirlo.
 **El backend corre en `node:22-alpine` (`backend/Dockerfile`), el mismo Node
 mayor que la CI.** Era `node:20-alpine` hasta 2026-10-22: Node 20 dejó de
 recibir parches el 30-abr-2026 y el aviso de seguridad de octubre (Brotli con

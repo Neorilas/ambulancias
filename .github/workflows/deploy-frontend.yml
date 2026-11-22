@@ -2,6 +2,9 @@ name: Deploy Frontend
 
 # develop → https://vapss.net/app-pre/   (automático)
 # master  → https://vapss.net/app/       (automático, sin aprobación)
+#         + https://app.vapss.net/       (el mismo código, en la raíz de su
+#           subdominio; mientras las dos direcciones conviven. Se salta con un
+#           aviso si falta el secret FTP_REMOTE_DIR_APP)
 #
 # Las dos PWA viven en el mismo hosting y se distinguen por la carpeta. La
 # configuración de cada una está en frontend/.env.pre y frontend/.env.production
@@ -107,25 +110,38 @@ jobs:
         working-directory: frontend
         run: npm run build -- --mode ${{ needs.destino.outputs.modo }}
 
+      # Producción se construye otra vez para app.vapss.net: misma API, base '/'
+      # (frontend/.env.production-app). Va a dist-app/ para no pisar dist/.
+      - name: Build (app.vapss.net)
+        if: needs.destino.outputs.entorno == 'produccion'
+        working-directory: frontend
+        run: npm run build -- --mode production-app --outDir dist-app
+
       # El .htaccess lleva dentro la ruta base y sin él se rompen el fallback de
       # la SPA y el alcance del service worker. Vite lo copia de public/ y
-      # gen-htaccess.js le sustituye la ruta; si algo de eso falla, mejor no
-      # subir nada.
+      # el plugin htaccess-con-base le sustituye la ruta; si algo de eso falla,
+      # mejor no subir nada.
       - name: Comprobar el build
         working-directory: frontend
         run: |
-          test -f dist/.htaccess || { echo "Falta dist/.htaccess"; exit 1; }
-          test -f dist/sw.js     || { echo "Falta dist/sw.js"; exit 1; }
-          if grep -q "__BASE_PATH__" dist/.htaccess; then
-            echo "El .htaccess conserva marcadores sin sustituir"; exit 1
+          for d in dist dist-app; do
+            [ -d "$d" ] || continue
+            test -f $d/.htaccess || { echo "Falta $d/.htaccess"; exit 1; }
+            test -f $d/sw.js     || { echo "Falta $d/sw.js"; exit 1; }
+            if grep -q "__BASE_PATH__" $d/.htaccess; then
+              echo "El .htaccess de $d conserva marcadores sin sustituir"; exit 1
+            fi
+            # El atajo «Saltar fotos (local)» solo puede existir con `npm run dev`
+            # (§3.6 del mapa). Si su texto aparece en un build, no se publica.
+            if grep -rq "FOTO DE PRUEBA\|Saltar fotos" $d; then
+              echo "El build $d contiene el atajo de fotos de local"; exit 1
+            fi
+            echo "--- $d/.htaccess (RewriteBase) ---"
+            grep -E "RewriteBase|Service-Worker-Allowed" $d/.htaccess
+          done
+          if [ -d dist-app ] && ! grep -q "RewriteBase /$" dist-app/.htaccess; then
+            echo "dist-app no está construido para la raíz del subdominio"; exit 1
           fi
-          # El atajo «Saltar fotos (local)» solo puede existir con `npm run dev`
-          # (§3.6 del mapa). Si su texto aparece en un build, no se publica.
-          if grep -rq "FOTO DE PRUEBA\|Saltar fotos" dist; then
-            echo "El build contiene el atajo de fotos de local"; exit 1
-          fi
-          echo "--- dist/.htaccess (RewriteBase) ---"
-          grep -E "RewriteBase|Service-Worker-Allowed" dist/.htaccess
 
       - name: Guardar el build
         uses: actions/upload-artifact@v4
@@ -136,6 +152,16 @@ jobs:
           # dotfiles desde la v4.4, y el build llegaría al hosting sin la ruta
           # base, que es justo lo que comprueba el paso de arriba.
           include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Guardar el build de app.vapss.net
+        if: needs.destino.outputs.entorno == 'produccion'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-app
+          path: frontend/dist-app/
+          include-hidden-files: true   # el .htaccess; ver arriba
           if-no-files-found: error
           retention-days: 5
 
@@ -252,3 +278,50 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node publicar-ftp.mjs
+
+      # ── app.vapss.net: el mismo código en la raíz de su subdominio ────────
+      # Convive con vapss.net/app/ mientras los técnicos reinstalan la app.
+      # Va DESPUÉS de /app/: si esto falla, la dirección de siempre ya está al
+      # día y el rojo avisa de que el subdominio se ha quedado atrás.
+      - name: Recuperar el build de app.vapss.net
+        if: needs.destino.outputs.entorno == 'produccion'
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-app
+          path: dist-app
+
+      # FTP_REMOTE_DIR_APP: carpeta del subdominio en la home del FTP (la que
+      # da Plesk al crearlo). Sin el secret, se salta con un aviso. Con él, tiene
+      # que nombrar el subdominio y no ser la carpeta de /app/: publicar esto
+      # en la raíz de vapss.net pisaría el index.html del WordPress.
+      - name: Comprobar destino de app.vapss.net
+        id: destino_app
+        if: needs.destino.outputs.entorno == 'produccion'
+        env:
+          REMOTE_DIR_APP: ${{ secrets.FTP_REMOTE_DIR_APP }}
+          REMOTE_DIR:     ${{ secrets.FTP_REMOTE_DIR }}
+        run: |
+          test -f dist-app/.htaccess || { echo "El artefacto de app.vapss.net llegó sin .htaccess"; exit 1; }
+          if [ -z "$REMOTE_DIR_APP" ]; then
+            echo "::notice title=app.vapss.net sin publicar::Falta el secret FTP_REMOTE_DIR_APP; vapss.net/app/ sí se ha publicado."
+            echo "publicar=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! echo "$REMOTE_DIR_APP" | grep -q "app\.vapss\.net"; then
+            echo "FTP_REMOTE_DIR_APP no nombra la carpeta de app.vapss.net."; exit 1
+          fi
+          if [ "${REMOTE_DIR_APP%/}" = "${REMOTE_DIR%/}" ]; then
+            echo "FTP_REMOTE_DIR_APP es la misma carpeta que /app/."; exit 1
+          fi
+          echo "publicar=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar app.vapss.net por FTPS
+        if: steps.destino_app.outputs.publicar == 'true'
+        env:
+          FTP_HOST:       ${{ secrets.FTP_HOST }}
+          FTP_USER:       ${{ secrets.FTP_USER }}
+          FTP_PASSWORD:   ${{ secrets.FTP_PASSWORD }}
+          FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR_APP }}
+          FTP_TLS_NOMBRE: servicio-online.net
+          DIST: ${{ github.workspace }}/dist-app
+        working-directory: repo/frontend/scripts/publicador
+        run: node publicar-ftp.mjs
