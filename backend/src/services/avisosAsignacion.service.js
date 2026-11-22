@@ -373,6 +373,31 @@ function avisarTrabajoPendienteCierre(trabajo) {
 }
 
 /**
+ * Recordatorio (2026-11-22): el trabajo lleva `minutos` pendiente de cierre y
+ * nadie lo ha cerrado. Muchos técnicos-coordinadores finalizaban su ambulancia
+ * y no volvían al trabajo para cerrarlo. Mismos destinatarios y MISMO tag que
+ * `avisarTrabajoPendienteCierre`: sustituye a aquel en el teléfono en vez de
+ * apilarse. Lo saca el cron (`vigilancia.revisarTrabajosSinCerrar`).
+ */
+function avisarTrabajoSinCerrar(trabajo, { minutos } = {}) {
+  try {
+    const aviso = {
+      titulo: `${trabajo.nombre} · sigue sin cerrar`,
+      cuerpo: `Todas las ambulancias terminaron hace más de ${minutos} min y el trabajo sigue abierto. Ciérralo.`,
+      url:    `/trabajos/${trabajo.id}`,
+      tag:    `trab-${trabajo.id}-pendiente-cierre`,
+    };
+    const ids = (trabajo.coordinadores_ids || []).map(Number);
+    return disparar(ids.length
+      ? push.notificarUsuarios(ids, aviso)
+      : push.notificarAdmins(aviso));
+  } catch (err) {
+    logger.error(`Recordatorio de trabajo sin cerrar no enviado: ${err?.message || err}`);
+    return Promise.resolve(null);
+  }
+}
+
+/**
  * Te han puesto en el equipo de un trabajo (2026-10-10): la gente asignada al
  * trabajo, vaya o no todavía en una ambulancia. A quien ENTRA, menos a quien
  * lo hace; quien además va en una ambulancia ya recibe el «nuevo servicio» y
@@ -440,6 +465,7 @@ module.exports = {
   avisarJornadaSinIniciar,
   avisarAsignacionFinalizada,
   avisarTrabajoPendienteCierre,
+  avisarTrabajoSinCerrar,
   etiquetaVehiculo,
   etiquetaResponsable,
   urlAsignacion,

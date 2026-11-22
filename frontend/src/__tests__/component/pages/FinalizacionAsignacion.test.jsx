@@ -5,6 +5,10 @@ vi.mock('../../../services/asignaciones.service.js', () => ({
   asignacionesService: { uploadEvidencia: vi.fn(), finalizar: vi.fn(), catalogoMaterial: vi.fn(() => Promise.resolve([])) },
 }));
 
+vi.mock('../../../services/trabajos.service.js', () => ({
+  trabajosService: { get: vi.fn(), cerrar: vi.fn() },
+}));
+
 // La cámara real usa getUserMedia; aquí basta con un botón que complete de
 // golpe todos los tipos que le pidan, sin pasar por vídeo de verdad.
 vi.mock('../../../components/camera/CameraCapture.jsx', () => ({
@@ -18,6 +22,7 @@ vi.mock('../../../components/camera/CameraCapture.jsx', () => ({
 import { NotificationProvider, useNotification } from '../../../context/NotificationContext.jsx';
 import FinalizacionAsignacion    from '../../../pages/asignaciones/FinalizacionAsignacion.jsx';
 import { asignacionesService }  from '../../../services/asignaciones.service.js';
+import { trabajosService }      from '../../../services/trabajos.service.js';
 
 const ASIGNACION = {
   id: 5, vehiculo_alias: 'Ambulancia 3', km_inicio: 1000,
@@ -340,5 +345,99 @@ describe('FinalizacionAsignacion — material del almacén (v45)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
     await waitFor(() => expect(asignacionesService.finalizar).toHaveBeenCalledWith(5, expect.objectContaining({
       material_usado: '2 vendas', material_items: [] })));
+  });
+});
+
+// ── 2026-11-22: cerrar el trabajo ahí mismo ─────────────────
+describe('FinalizacionAsignacion — cerrar el trabajo tras la última ambulancia', () => {
+  const EN_TRABAJO = {
+    ...ASIGNACION, trabajo_id: 40, solo_personal: true, vehiculo_alias: null, km_inicio: null, motivo_fin: 'x',
+    progreso: { inicio: { completo: true, completado: 0, total: 0 } },
+  };
+  const finalizarHastaElFinal = (onDone) => {
+    render(
+      <NotificationProvider>
+        <FinalizacionAsignacion asignacion={EN_TRABAJO} onDone={onDone} onCancel={() => {}} />
+        <Avisos />
+      </NotificationProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asignacionesService.finalizar.mockResolvedValue({});
+  });
+
+  it('si queda pendiente de cierre y puede cerrarlo, ofrece «Cerrar trabajo» y lo cierra', async () => {
+    trabajosService.get.mockResolvedValue({ id: 40, nombre: 'Maratón', estado: 'pendiente_cierre', puede_cerrar: true });
+    trabajosService.cerrar.mockResolvedValue({ id: 40, estado: 'finalizado' });
+    const onDone = vi.fn();
+    finalizarHastaElFinal(onDone);
+
+    expect(await screen.findByTestId('cerrar-trabajo-tras-fin')).toBeInTheDocument();
+    expect(screen.getByText(/«Maratón» han terminado/)).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar trabajo' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(trabajosService.cerrar).toHaveBeenCalledWith(40);
+    expect(screen.getByText('Trabajo cerrado')).toBeInTheDocument();
+  });
+
+  it('«Ahora no» sale sin cerrarlo', async () => {
+    trabajosService.get.mockResolvedValue({ id: 40, nombre: 'Maratón', estado: 'pendiente_cierre', puede_cerrar: true });
+    const onDone = vi.fn();
+    finalizarHastaElFinal(onDone);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ahora no' }));
+    expect(onDone).toHaveBeenCalled();
+    expect(trabajosService.cerrar).not.toHaveBeenCalled();
+  });
+
+  it('si el cierre falla, avisa y se queda en la pantalla', async () => {
+    trabajosService.get.mockResolvedValue({ id: 40, nombre: 'Maratón', estado: 'pendiente_cierre', puede_cerrar: true });
+    trabajosService.cerrar.mockRejectedValue({ response: { data: { message: 'Hay una ambulancia sin finalizar' } } });
+    const onDone = vi.fn();
+    finalizarHastaElFinal(onDone);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar trabajo' }));
+    expect(await screen.findByText('Hay una ambulancia sin finalizar')).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByTestId('cerrar-trabajo-tras-fin')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['quedan ambulancias abiertas', { estado: 'activo', puede_cerrar: false }],
+    ['no puede cerrarlo (no es coordinador)', { estado: 'pendiente_cierre', puede_cerrar: false }],
+  ])('si %s, sale como siempre', async (_, trabajo) => {
+    trabajosService.get.mockResolvedValue({ id: 40, nombre: 'Maratón', ...trabajo });
+    const onDone = vi.fn();
+    finalizarHastaElFinal(onDone);
+
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(screen.queryByTestId('cerrar-trabajo-tras-fin')).not.toBeInTheDocument();
+  });
+
+  it('si no se puede leer el trabajo, sale como siempre: la asignación ya está cerrada', async () => {
+    trabajosService.get.mockRejectedValue(new Error('sin red'));
+    const onDone = vi.fn();
+    finalizarHastaElFinal(onDone);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it('sin trabajo no lo consulta', async () => {
+    const onDone = vi.fn();
+    render(
+      <NotificationProvider>
+        <FinalizacionAsignacion asignacion={{ ...EN_TRABAJO, trabajo_id: null }} onDone={onDone} onCancel={() => {}} />
+      </NotificationProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar asignación' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(trabajosService.get).not.toHaveBeenCalled();
   });
 });

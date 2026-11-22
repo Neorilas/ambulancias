@@ -1636,6 +1636,29 @@ const MIGRATIONS = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     },
   },
+
+  {
+    name: 'v47_aviso_cierre_trabajo',
+    description: 'Candado del recordatorio de trabajo pendiente de cierre sin cerrar',
+    async run() {
+      // Instante del último recordatorio «sigue sin cerrar» (vigilancia.service,
+      // MAPA_CODIGO.md §6.2). Se compara con el último `finalizado_at` de sus
+      // ambulancias: si el trabajo vuelve a abrirse (ambulancia nueva) y a
+      // quedar pendiente, el aviso se rearma solo, sin limpiar la marca.
+      const nueva = await ensureColumn('trabajos', 'aviso_cierre_olvidado_at',
+        `ALTER TABLE trabajos
+           ADD COLUMN aviso_cierre_olvidado_at DATETIME NULL DEFAULT NULL
+             COMMENT 'UTC. Último recordatorio de trabajo sin cerrar'
+             AFTER cerrado_por`);
+      // Los que ya estaban pendientes al desplegar no reciben de golpe un
+      // recordatorio cada uno: esos ya los marca «Sin cerrar» en /trabajos.
+      if (nueva) {
+        // El instante lo pone Node (contrato de fechas), nunca MySQL.
+        await query(`UPDATE trabajos SET aviso_cierre_olvidado_at = ?
+                      WHERE estado = 'pendiente_cierre'`, [new Date()]);
+      }
+    },
+  },
 ];
 
 // ============================================================
