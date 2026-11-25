@@ -1,0 +1,72 @@
+# Caddy propio del contenedor `ambulancia-web` (Hetzner, /root/ambulancia-web):
+# sirve el build de la PWA para https://app.vapss.net (frontend/dist-app).
+# Delante está el Caddy COMÚN del Hetzner (/root/caddy), que pone el
+# certificado y comprime; este solo sirve ficheros por la red proxy-net.
+#
+# Es la traducción de frontend/public/.htaccess (lo que usa vapss.net/app/ en
+# Hostalia). Las cabeceras tienen que ser LAS MISMAS: el workflow
+# deploy-frontend.yml compara la CSP de aquí con la del .htaccess construido y
+# para en rojo si no coinciden. Un origen nuevo en la CSP se añade en los dos
+# sitios. El porqué de cada directiva está en el .htaccess.
+#
+# El build vive en /srv/actual, que es un enlace a releases/<sha>: el deploy
+# cambia el enlace de golpe y nunca se sirve un build a medias.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv/actual
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
+		Strict-Transport-Security "max-age=15552000"
+		X-Robots-Tag "noindex, nofollow"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://api.vapss.net https://*.tile.openstreetmap.org; connect-src 'self' https://api.vapss.net; media-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri https://api.vapss.net/api/v1/csp-report"
+		-Server
+	}
+
+	# ── Caché ───────────────────────────────────────────────────────────────
+	# `header` corre ANTES que el fallback de la SPA (try_files), así que aquí
+	# se mira la ruta pedida, no el fichero que acaba saliendo. Por eso:
+	#   - la caché larga exige que el fichero EXISTA: un chunk viejo que ya no
+	#     está caería en index.html, y un index.html «immutable» un año dejaría
+	#     el móvil clavado (en Apache no pasa porque FilesMatch mira el fichero
+	#     final);
+	#   - sw.js va fuera de la caché larga a propósito (es lo que dispara la
+	#     actualización de la PWA);
+	#   - todo lo que no existe (rutas de la SPA → index.html), la raíz, el
+	#     index, el manifiesto y sw.js, sin caché.
+	@inmutable {
+		path *.js *.css *.png *.jpg *.jpeg *.svg *.woff2 *.ico
+		not path /sw.js
+		file
+	}
+	header @inmutable Cache-Control "public, max-age=31536000, immutable"
+
+	@sin_cache {
+		not file
+	}
+	header @sin_cache Cache-Control "no-cache, no-store, must-revalidate"
+	header /sw.js Cache-Control "no-cache, no-store, must-revalidate"
+	header / Cache-Control "no-cache, no-store, must-revalidate"
+	header /index.html Cache-Control "no-cache, no-store, must-revalidate"
+	header /manifest.webmanifest Cache-Control "no-cache, no-store, must-revalidate"
+	header /sw.js Service-Worker-Allowed "/"
+
+	# Sin /etc/mime.types en la imagen alpine, Go no conoce .webmanifest.
+	@manifiesto path *.webmanifest
+	header @manifiesto Content-Type "application/manifest+json"
+
+	# SPA: lo que no es un fichero existente sale como index.html.
+	try_files {path} /index.html
+
+	file_server {
+		# El .htaccess viaja en el build (es para Hostalia); aquí no se enseña.
+		hide .htaccess
+	}
+}

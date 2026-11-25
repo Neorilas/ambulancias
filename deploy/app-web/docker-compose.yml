@@ -1,0 +1,30 @@
+# PWA de ambulancia en https://app.vapss.net, en el Hetzner compartido
+# (/root/ambulancia-web). Lo sube y lo arranca .github/workflows/deploy-frontend.yml.
+#
+# Es solo un servidor de ficheros: el Caddy COMÚN (/root/caddy) tiene el 80 y el
+# 443, saca el certificado y le pasa las peticiones por proxy-net
+# (`reverse_proxy ambulancia-web:8080`). Por eso aquí no hay `ports:` (chocaría
+# con el 80 y además un `ports:` de Docker se salta UFW).
+#
+# Carpeta aparte de /root/ambulancia a propósito: el deploy del backend borra y
+# repone backend/, database/ y docker-compose.yml de allí.
+services:
+  web:
+    image: caddy:2-alpine
+    container_name: ambulancia-web
+    volumes:
+      # Se monta la CARPETA y no el fichero: así un Caddyfile nuevo se ve
+      # aunque el deploy lo reemplace con otro inodo.
+      - ./conf:/etc/caddy:ro
+      # sitio/actual → sitio/releases/<sha>. Se monta sitio/ entero para que el
+      # cambio del enlace se vea sin recrear el contenedor.
+      - ./sitio:/srv:ro
+    expose:
+      - "8080"
+    networks: [proxy-net]
+    mem_limit: 64m
+    restart: unless-stopped
+
+networks:
+  proxy-net:
+    external: true
