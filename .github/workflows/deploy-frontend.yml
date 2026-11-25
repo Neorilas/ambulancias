@@ -370,8 +370,11 @@ jobs:
 
             # El build, en su carpeta, y el enlace `actual` cambiado de golpe
             # (mv -T es atómico): nunca se sirve un build a medias.
-            rm -rf "sitio/releases/$SHA"
-            mv .release/dist-app "sitio/releases/$SHA"
+            # Relanzar el run del commit que ya se sirve: se reutiliza su carpeta
+            # (es el mismo build); borrarla dejaría `actual` colgando.
+            if [ ! -d "sitio/releases/$SHA" ]; then
+              mv .release/dist-app "sitio/releases/$SHA"
+            fi
             # tar conserva la fecha del build; la limpieza de abajo ordena por
             # fecha y no debe borrar el que se sirve (p. ej. al relanzar uno viejo).
             touch "sitio/releases/$SHA"
