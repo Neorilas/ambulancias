@@ -4,6 +4,9 @@
 #   __API_ORIGIN__  → origen de VITE_API_URL    (https://api.vapss.net)
 #   __API_URL__     → VITE_API_URL               (…/api/v1)
 # Asi el mismo fichero sirve para produccion y PRE.
+# app.vapss.net NO usa este fichero: lo sirve un Caddy en el Hetzner con
+# deploy/app-web/Caddyfile. Un cambio de cabeceras se hace en LOS DOS (la CI
+# compara las cabeceras de seguridad y para si no coinciden).
 Options -MultiViews
 RewriteEngine On
 RewriteBase __BASE_PATH__

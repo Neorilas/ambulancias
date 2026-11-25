@@ -3308,7 +3308,8 @@ solo actúa en el navegador no es un control de acceso.
 | La navegación hacia atrás (que «‹» y el atrás del navegador vuelvan a donde se estaba, como se estaba) | `hooks/useNavegacion.js`. **Regla:** lo que una pantalla tiene que conservar al ir a una ficha y volver (página, filtros, búsqueda, pestaña, vista, mes, día, lo elegido) va en la URL con `useEstadoEnUrl`, no en `useState`, que se pierde al desmontar; y se escribe con `replace`, para que mirar páginas y filtros no deje rastro y «atrás» salga de la pantalla. Los «‹ Volver» usan `useVolver(alternativa)`: `navigate(-1)` si hay una pantalla de la app detrás y, si no (aviso push en ventana nueva, enlace, marcador), la alternativa — ahí `navigate(-1)` no hacía nada o sacaba de la app. Lo usan `TrabajoList` (+ `CalendarioTrab`, controlado), `VehicleList`, `VehicleHistory`, `AsignacionList`, `AlertsPage`, `Informes`, `MapaFlota`, `TrabajoDetail` y `TrabajoV25`; `MisTrabajos` lo hace a mano (es anterior al hook). Revisión de todas las pantallas el 2026-10-11, a raíz de que el calendario de `/trabajos` volvía a «Lista». **Trampas:** (1) `cambiar` parte de la URL **del momento** (`navigator.location` del historial del router, vía `UNSAFE_NavigationContext`), no de los `params` del render: el router 7 aplica cada navegación en una transición y, hasta el 2026-10-17, un segundo `cambiar` antes del siguiente render se construía sobre la URL vieja y pisaba el primero — en `/trabajos`, quitar «Tiempos que no cuadran» y pulsar «Calendario» enseguida dejaba `?revisar=fin_evento&vista=calendario` y el filtro volvía (lo cazó la prueba funcional de ese día). La forma funcional `setParams(prev => …)` **no** lo arregla: el router la evalúa con los `params` de su propio render, no encola como `setState`. Con un router de datos (`RouterProvider`), cuyo navegador no expone `location`, se vuelve a la URL del render y la trampa reaparece. Aun así, lo que cambia junto (un filtro y la página 1) va en un solo `cambiar`: es una navegación en vez de dos. (2) Volver a la página 1 al cambiar un filtro va en ese mismo `cambiar`, **nunca** en un efecto sobre el filtro: el efecto también salta al montar y al volver se perdía la página (así estaba `VehicleList`). (3) Las dependencias de `useCallback`/`useEffect` son los valores sueltos (`url.estado`), no un objeto armado en cada render, o la carga entra en bucle. (4) «Hay pantalla detrás» mira `history.state.idx` del router y no la `key`: un `replace` en la primera entrada cambia la key y sigue sin haber nada detrás. (5) Lo que llega de la URL se valida (`paginaDeUrl`, `esDiaValido`, el patrón del mes): es texto que cualquiera puede escribir. (5 bis) **Un campo de texto nunca se ata a la URL directamente** (`value={url.q}` + `cambiar` en `onChange`): el router 7 aplica cada cambio de ubicación en una transición, el `value` llega un render tarde y React devuelve el campo al texto viejo entre medias — salta el cursor, se pierden teclas en un móvil lento, se lía el autocompletado del teclado. Los buscadores (`VehicleList`, `TrabajoList`, `MapaFlota`) usan `useBuscadorEnUrl`: texto en local, a la URL ya reposado (400 ms) y con la vuelta a la página 1 en esa escritura; si la URL cambia por fuera (atrás), el campo la sigue. Lo encontró la revisión del 2026-10-11 antes de subir. Los `<select>` y botones sí van directos: no hay cursor que perder. **Paneles encima de la pantalla** (`usePanelEnUrl`): el detalle de una asignación (`?ver=<id>` en `TrabajoDetail` y `MisAsignaciones`, `?id=<id>` en `AsignacionList`) y sus revisiones de inicio y fin (`?paso=inicio|fin`, dentro de `AsignacionDetalle`) se abren con un parámetro puesto con **push** y marcado en el estado de la navegación (`state.panel`): el atrás del móvil quita el parámetro y cierra solo la capa de arriba (cámara → revisión → detalle → trabajo), en vez de sacar de la pantalla entera como hasta 2026-10-11. Su botón de cerrar deshace esa entrada (`navigate(-1)`) si la puso la app, o quita el parámetro con `replace` si llegó de fuera (los enlaces `?id=` de `rutaAsignacion`), y la recarga de lo de debajo va en `alCerrar`, que corre se cierre como se cierre. Trampas: (6) `cerrar` mira la URL del momento (un ref), no la del render en que se creó: una subida larga puede acabar con el paso ya cerrado por «atrás», y con la del render viejo haría un `navigate(-1)` de más y cerraría también el detalle. Por lo mismo, un segundo `cerrar` antes de que se aplique el primero (`cerrando`) o con el dueño ya desmontado (`montado`) no hace nada. (7) `?paso=` va con `soloDesdeLaApp`: un enlace o una URL pegada no abre una revisión a medias. (8) `CameraCapture` sigue con su propio `pushState` (sin `idx` del router) y convive porque el router ve la vuelta a la entrada de debajo como un POP a la misma URL; un panel nuevo encima de la cámara tendría que respetar ese orden |
 | La versión de Vite o Vitest | `frontend/package.json` (`vite`, `vite-plugin-pwa`, `@vitejs/plugin-react`, `vitest`, `@vitest/coverage-v8` y el `overrides` de `vite`) → lock con `npx npm@10.9.8` → `npm ls vite` tiene que dar UNA versión → tests con cobertura + build + cargar el detector desde el build (§3.1) |
 | El service worker | `frontend/src/sw.js` + `vite.config.js` (`injectManifest`) + `utils/swAvisos.js` + el bloque `FilesMatch` de `public/.htaccess` (gana el ÚLTIMO que encaja). Las reglas de caché en ejecución solo existen en el build (`CACHE_EN_EJECUCION`, §3.1): pruébalas con `vite preview` en un Chrome real, el navegador integrado no deja hacer fetch al SW |
-| Un origen externo nuevo en el frontend (API, CDN, fuentes, teselas) | La CSP de `frontend/public/.htaccess` (§9). **Es obligatoria desde 2026-10-12**: sin añadirlo ahí no carga, y el bloqueo sale en el log del backend como «CSP: … ha bloqueado» |
+| Un origen externo nuevo en el frontend (API, CDN, fuentes, teselas) | La CSP de `frontend/public/.htaccess` **y** la de `deploy/app-web/Caddyfile` (`app.vapss.net`; la CI para si no coinciden) (§9). **Es obligatoria desde 2026-10-12**: sin añadirlo ahí no carga, y el bloqueo sale en el log del backend como «CSP: … ha bloqueado» |
+| Cabeceras o caché de la PWA (`.htaccess`) | Lo mismo en `deploy/app-web/Caddyfile`, que sirve `app.vapss.net` desde el Hetzner (§9, «Dos direcciones»). Probarlo en local con `docker run caddy:2-alpine` montando `deploy/app-web` y `dist-app` |
 
 ## 9. Entornos y despliegue
 
@@ -3320,7 +3321,8 @@ docker-compose.yml`, sube por SSH a Hetzner, `docker compose`, comprueba
 despliega** — hasta 2026-09-26 el backend llegaba a producción sin pasar un
 test en CI) y `deploy-frontend.yml` (job `build`: tests + los mismos dos
 controles + build; job `publicar`:
-subida por FTPS al hosting de `vapss.net/app[-pre]/`).
+subida por FTPS al hosting de `vapss.net/app[-pre]/` y, en `master`, scp al
+Hetzner del build de `app.vapss.net`; ver el párrafo siguiente).
 
 **Dos direcciones de la app (desde 2026-11-22, mientras conviven):** en
 `master` el frontend se construye dos veces y se publica en `vapss.net/app/`
@@ -3331,10 +3333,39 @@ código; lo único que cambia es la base, y la app ya era agnóstica a ella
 propia URL; las rutas de los avisos push son de la SPA y cada SW les antepone
 la suya, así que el backend manda el mismo aviso a las dos). El plugin
 `htaccess-con-base` escribe en la `outDir` real (antes tenía `dist/` fijo).
-La subida al subdominio va **después** de la de `/app/` y necesita el secret
-`FTP_REMOTE_DIR_APP` (carpeta del subdominio en la home del FTP); sin él se
-salta con un aviso, y si no contiene `app.vapss.net` o coincide con
-`FTP_REMOTE_DIR`, para en rojo (publicar en la raíz pisaría el WordPress).
+**`app.vapss.net` no está en Hostalia sino en el Hetzner (desde 2026-11-25).**
+Hostalia no da certificado para subdominios (su Plesk no tiene Let's Encrypt
+y el SSL incluido cubre solo `vapss.net` y `www`), así que el A del subdominio
+apunta al Hetzner y el **Caddy común** saca y renueva el certificado
+(`app.vapss.net { encode zstd gzip; reverse_proxy ambulancia-web:8080 }`).
+Los ficheros los sirve el contenedor **`ambulancia-web`** (`caddy:2-alpine`,
+64 MB, solo red `proxy-net`, sin `ports:`), definido en `deploy/app-web/`
+(`docker-compose.yml` + `Caddyfile`) y montado en `/root/ambulancia-web`
+(carpeta aparte: el deploy del backend borra y repone lo suyo en
+`/root/ambulancia`). Por qué un contenedor y no un `file_server` dentro del
+Caddy común: las reglas de la app (cabeceras, caché, SPA) quedan versionadas
+en este repo, el deploy no toca el Caddyfile común ni recarga el proxy de
+todos, y montar una carpeta en el Caddy común obligaría a recrearlo (tumba
+todos los sitios). Es el patrón de taller-estrella y dulces-navidad.
+El deploy (`deploy-frontend.yml`, job `publicar`, **después** de la subida
+FTPS de `/app/`) empaqueta `dist-app/` + `deploy/app-web/`, lo sube por scp
+como el backend, valida el Caddyfile con `caddy validate`, deja el build en
+`sitio/releases/<sha>` y cambia el enlace `sitio/actual` de golpe (`mv -T`):
+nunca se sirve un build a medias. Guarda el actual y los 2 anteriores; volver
+atrás es apuntar `sitio/actual` a otro. Si el Caddyfile cambia, recrea el
+contenedor (corta solo `app.vapss.net` un segundo); si no, el build nuevo se
+ve por el enlace sin tocar nada. Al final compara el `index.html` servido con
+el del release. **Trampa de cabeceras:** `deploy/app-web/Caddyfile` es una
+traducción a mano de `frontend/public/.htaccess`; el paso «Mismas cabeceras en
+app.vapss.net que en /app/» del job `build` compara las 7 cabeceras de
+seguridad (CSP incluida) y para en rojo si difieren: un origen nuevo se
+añade **en los dos**. Diferencias que no se ven en el `.htaccess`: en Caddy
+`header` corre **antes** del fallback de la SPA, así que la caché larga exige
+que el fichero exista (un chunk viejo que cae en `index.html` no puede salir
+«immutable»), y `.webmanifest` lleva su `Content-Type` a mano (la imagen
+alpine no trae `/etc/mime.types`). El `.htaccess` viaja en el build pero está
+oculto (`hide`). El secret `FTP_REMOTE_DIR_APP` ya no se usa (la carpeta
+`app.vapss.net` de Hostalia se quedó con el build del 2026-11-22).
 La API necesita los dos orígenes en `CORS_ORIGIN` del `.env` del servidor
 (`https://vapss.net,https://app.vapss.net`; `server.js` ya lo parte por comas).
 **Trampa:** para el navegador son dos webs distintas: sesión, PWA instalada,
