@@ -3,8 +3,8 @@ name: Deploy Frontend
 # develop → https://vapss.net/app-pre/   (automático)
 # master  → https://vapss.net/app/       (automático, sin aprobación)
 #         + https://app.vapss.net/       (el mismo código, en la raíz de su
-#           subdominio; mientras las dos direcciones conviven. Se salta con un
-#           aviso si falta el secret FTP_REMOTE_DIR_APP)
+#           subdominio, mientras las dos direcciones conviven. Este NO va al
+#           hosting: se sube al Hetzner por SSH, ver deploy/app-web/)
 #
 # Las dos PWA viven en el mismo hosting y se distinguen por la carpeta. La
 # configuración de cada una está en frontend/.env.pre y frontend/.env.production
@@ -27,6 +27,7 @@ on:
       - 'frontend/**'
       - 'scripts/dependencias-obsoletas.mjs'
       - '.github/workflows/deploy-frontend.yml'
+      - 'deploy/app-web/**'
   workflow_dispatch:
 
 concurrency:
@@ -143,6 +144,24 @@ jobs:
             echo "dist-app no está construido para la raíz del subdominio"; exit 1
           fi
 
+      # app.vapss.net no lo sirve Apache sino un Caddy (deploy/app-web/Caddyfile),
+      # con las cabeceras de seguridad copiadas a mano del .htaccess. Si alguien
+      # cambia la CSP en un sitio y no en el otro, las dos direcciones dejarían
+      # de cargar lo mismo: se comparan aquí, cabecera a cabecera.
+      - name: Mismas cabeceras en app.vapss.net que en /app/
+        if: needs.destino.outputs.entorno == 'produccion'
+        run: |
+          sed -nE 's/^[[:space:]]*Header always set ([^ ]+) "(.*)"$/\1: \2/p' frontend/dist-app/.htaccess | sort > htaccess.txt
+          # Solo el bloque `header { … }` general del Caddyfile.
+          sed -n '/^\theader {/,/^\t}/p' deploy/app-web/Caddyfile \
+            | sed -nE 's/^[[:space:]]+([A-Za-z-]+) "(.*)"$/\1: \2/p' | sort > caddy.txt
+          test -s htaccess.txt || { echo "No se han leído cabeceras del .htaccess"; exit 1; }
+          if ! diff htaccess.txt caddy.txt; then
+            echo "Las cabeceras de deploy/app-web/Caddyfile no son las del .htaccess (arriba, < .htaccess, > Caddyfile)."
+            exit 1
+          fi
+          echo "$(wc -l < caddy.txt) cabeceras iguales"
+
       - name: Guardar el build
         uses: actions/upload-artifact@v4
         with:
@@ -250,7 +269,10 @@ jobs:
       - name: Traer el script de publicación
         uses: actions/checkout@v4
         with:
-          sparse-checkout: frontend/scripts/publicador
+          # deploy/app-web: el Caddyfile y el compose de app.vapss.net.
+          sparse-checkout: |
+            frontend/scripts/publicador
+            deploy/app-web
           sparse-checkout-cone-mode: false
           path: repo
 
@@ -283,6 +305,12 @@ jobs:
       # Convive con vapss.net/app/ mientras los técnicos reinstalan la app.
       # Va DESPUÉS de /app/: si esto falla, la dirección de siempre ya está al
       # día y el rojo avisa de que el subdominio se ha quedado atrás.
+      #
+      # NO va a Hostalia: su Plesk no tiene Let's Encrypt y el SSL incluido no
+      # cubre subdominios. Se sirve desde el Hetzner (/root/ambulancia-web),
+      # con un contenedor caddy:2-alpine que solo sirve ficheros detrás del
+      # Caddy común, que pone el certificado. Detalle en deploy/app-web/ y en
+      # docs/MAPA_CODIGO.md → «Dos direcciones de la app».
       - name: Recuperar el build de app.vapss.net
         if: needs.destino.outputs.entorno == 'produccion'
         uses: actions/download-artifact@v4
@@ -290,38 +318,93 @@ jobs:
           name: dist-app
           path: dist-app
 
-      # FTP_REMOTE_DIR_APP: carpeta del subdominio en la home del FTP (la que
-      # da Plesk al crearlo). Sin el secret, se salta con un aviso. Con él, tiene
-      # que nombrar el subdominio y no ser la carpeta de /app/: publicar esto
-      # en la raíz de vapss.net pisaría el index.html del WordPress.
-      - name: Comprobar destino de app.vapss.net
-        id: destino_app
+      - name: Empaquetar app.vapss.net
         if: needs.destino.outputs.entorno == 'produccion'
-        env:
-          REMOTE_DIR_APP: ${{ secrets.FTP_REMOTE_DIR_APP }}
-          REMOTE_DIR:     ${{ secrets.FTP_REMOTE_DIR }}
         run: |
-          test -f dist-app/.htaccess || { echo "El artefacto de app.vapss.net llegó sin .htaccess"; exit 1; }
-          if [ -z "$REMOTE_DIR_APP" ]; then
-            echo "::notice title=app.vapss.net sin publicar::Falta el secret FTP_REMOTE_DIR_APP; vapss.net/app/ sí se ha publicado."
-            echo "publicar=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if ! echo "$REMOTE_DIR_APP" | grep -q "app\.vapss\.net"; then
-            echo "FTP_REMOTE_DIR_APP no nombra la carpeta de app.vapss.net."; exit 1
-          fi
-          if [ "${REMOTE_DIR_APP%/}" = "${REMOTE_DIR%/}" ]; then
-            echo "FTP_REMOTE_DIR_APP es la misma carpeta que /app/."; exit 1
-          fi
-          echo "publicar=true" >> "$GITHUB_OUTPUT"
+          test -f dist-app/index.html || { echo "El artefacto de app.vapss.net llegó sin index.html"; exit 1; }
+          test -f dist-app/sw.js      || { echo "El artefacto de app.vapss.net llegó sin sw.js"; exit 1; }
+          test -f repo/deploy/app-web/Caddyfile || { echo "Falta deploy/app-web/Caddyfile"; exit 1; }
+          mkdir paquete
+          cp -r dist-app paquete/dist-app
+          cp -r repo/deploy/app-web paquete/app-web
+          tar czf web.tar.gz -C paquete dist-app app-web
 
-      - name: Publicar app.vapss.net por FTPS
-        if: steps.destino_app.outputs.publicar == 'true'
+      - name: Subir app.vapss.net al Hetzner
+        if: needs.destino.outputs.entorno == 'produccion'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.HETZNER_HOST }}
+          username: root
+          key:      ${{ secrets.HETZNER_SSH_KEY }}
+          source:   web.tar.gz
+          target:   /root/ambulancia-web
+
+      - name: Publicar app.vapss.net
+        if: needs.destino.outputs.entorno == 'produccion'
+        uses: appleboy/ssh-action@v1.0.3
         env:
-          FTP_HOST:       ${{ secrets.FTP_HOST }}
-          FTP_USER:       ${{ secrets.FTP_USER }}
-          FTP_PASSWORD:   ${{ secrets.FTP_PASSWORD }}
-          FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR_APP }}
-          FTP_TLS_NOMBRE: servicio-online.net
-          DIST: ${{ github.workspace }}/dist-app
-        working-directory: repo/frontend/scripts/publicador
-        run: node publicar-ftp.mjs
+          SHA: ${{ github.sha }}
+        with:
+          host:     ${{ secrets.HETZNER_HOST }}
+          username: root
+          key:      ${{ secrets.HETZNER_SSH_KEY }}
+          envs: SHA
+          # Nada de `script_stop: true` (rompe los bloques multilínea; ver
+          # deploy-backend.yml). El `set -e` da el corte al primer fallo.
+          script: |
+            set -e
+            D=/root/ambulancia-web
+            cd "$D"
+            mkdir -p conf sitio/releases
+
+            rm -rf .release && mkdir .release
+            tar xzf web.tar.gz -C .release
+            test -f .release/dist-app/index.html
+            test -f .release/dist-app/sw.js
+            test -f .release/app-web/Caddyfile
+            test -f .release/app-web/docker-compose.yml
+
+            # Un Caddyfile roto tumbaría la app: se valida antes de ponerlo.
+            docker run --rm -v "$D/.release/app-web:/etc/caddy:ro" caddy:2-alpine \
+              caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+            # El build, en su carpeta, y el enlace `actual` cambiado de golpe
+            # (mv -T es atómico): nunca se sirve un build a medias.
+            rm -rf "sitio/releases/$SHA"
+            mv .release/dist-app "sitio/releases/$SHA"
+            # tar conserva la fecha del build; la limpieza de abajo ordena por
+            # fecha y no debe borrar el que se sirve (p. ej. al relanzar uno viejo).
+            touch "sitio/releases/$SHA"
+            ln -sfn "releases/$SHA" sitio/actual.nuevo
+            mv -Tf sitio/actual.nuevo sitio/actual
+
+            CAMBIA_CONF=0
+            cmp -s .release/app-web/Caddyfile conf/Caddyfile || CAMBIA_CONF=1
+            cp .release/app-web/Caddyfile conf/Caddyfile
+            cp .release/app-web/docker-compose.yml docker-compose.yml
+            rm -rf .release web.tar.gz
+
+            # Es un contenedor propio (no el Caddy común): recrearlo solo corta
+            # app.vapss.net un segundo. Sin cambio de config, `up -d` no hace nada
+            # si ya corre: el build nuevo se ve por el enlace.
+            if [ "$CAMBIA_CONF" = "1" ]; then
+              docker compose up -d --force-recreate
+            else
+              docker compose up -d
+            fi
+
+            echo "Comprobando lo que sirve..."
+            ESPERADO=$(sha256sum "sitio/releases/$SHA/index.html" | cut -d' ' -f1)
+            for i in $(seq 1 10); do
+              SERVIDO=$(docker exec ambulancia-web wget -qO- http://localhost:8080/ 2>/dev/null | sha256sum | cut -d' ' -f1 || true)
+              if [ "$SERVIDO" = "$ESPERADO" ]; then echo "ambulancia-web sirve $SHA"; break; fi
+              if [ "$i" = "10" ]; then echo "ambulancia-web no sirve el build nuevo"; docker logs --tail 40 ambulancia-web; exit 1; fi
+              sleep 2
+            done
+
+            # Se guardan el build actual y los 2 anteriores (vuelta atrás:
+            # cambiar el enlace sitio/actual a otro de releases/).
+            ls -1t sitio/releases | tail -n +4 | while read -r viejo; do
+              rm -rf "sitio/releases/$viejo"
+            done
+            echo "app.vapss.net publicado"
