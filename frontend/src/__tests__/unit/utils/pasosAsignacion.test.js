@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { pasosAsignacion, estadoVisible, PASOS_ASIGNACION } from '../../../utils/pasosAsignacion.js';
+import { pasosAsignacion, estadoVisible, PASOS_ASIGNACION, faltaSoloCarroceria } from '../../../utils/pasosAsignacion.js';
+
+describe('faltaSoloCarroceria', () => {
+  it('solo cuando lo que falta son caras exteriores', () => {
+    expect(faltaSoloCarroceria({ faltantes: ['frontal', 'lateral_izquierdo', 'trasera', 'lateral_derecho'] })).toBe(true);
+    expect(faltaSoloCarroceria({ faltantes: ['trasera'] })).toBe(true);
+    expect(faltaSoloCarroceria({ faltantes: ['frontal', 'cuentakilometros'] })).toBe(false);
+    expect(faltaSoloCarroceria({ faltantes: [] })).toBe(false);
+    expect(faltaSoloCarroceria({ completo: false })).toBe(false);
+    expect(faltaSoloCarroceria(undefined)).toBe(false);
+  });
+});
 
 const situaciones = (asig) => pasosAsignacion(asig).map(p => p.situacion);
 const fotos = (completo) => ({ inicio: { completo } });
@@ -37,6 +48,12 @@ describe('utils/pasosAsignacion', () => {
     it('vale también con el `progreso_fotos` de la ficha de un trabajo', () => {
       const asig = { estado: 'activa', inicio_real_at: '2026-10-12T08:00:00Z', progreso_fotos: fotos(false) };
       expect(pasosAsignacion(asig)[0].aviso).toBe('Faltan fotos');
+    });
+
+    it('con la mecánica guardada y la carrocería pendiente, el aviso lo dice', () => {
+      const progreso = { inicio: { completo: false, faltantes: ['frontal', 'trasera'] } };
+      const asig = { estado: 'activa', inicio_real_at: '2026-10-12T08:00:00Z', progreso };
+      expect(pasosAsignacion(asig)[0].aviso).toBe('Faltan fotos de la carrocería');
     });
 
     it('sin datos de fotos no se le pone pega al inicio', () => {

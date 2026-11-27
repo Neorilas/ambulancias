@@ -1645,6 +1645,34 @@ mismo `onComplete` que la cámara.
   cancela y reaprovecha la entrada. Mirar `e.state` en `popstate` NO sirve:
   se aterriza en la entrada del router, no en la de la cámara.
 
+### 3.7 Fotos de inicio en dos tandas (2026-11-27, v8.2.0)
+
+Las tres de mecánica (aceite, líquidos, cuentakilómetros) se hacen con la
+ambulancia dentro; para las cuatro de la carrocería hay que sacarla, y entre
+medias el móvil se bloquea. Con las siete en memoria hasta «Finalizar
+revisión», a muchos técnicos se les caía la subida o perdían las fotos (el
+navegador descarta la pestaña, el token caduca). Ahora `InicioAsignacion`:
+
+- En «Revisión mecánica» el botón es **Guardar** (`seccion.guardar`): sube
+  esas tres en el acto y enseña una pausa («Ahora, la carrocería… puedes
+  bloquear el teléfono») con «Más tarde» (cierra el asistente) y «Fotos de la
+  carrocería →».
+- **Al abrir, retoma donde se quedó** (`pasoInicial`): lo que ya está en el
+  servidor (`asignacion.evidencias`, `momento='inicio'`) cuenta como hecho y se
+  pinta con su miniatura; abre por la primera sección de fotos a la que le
+  falte alguna. «Finalizar revisión» solo sube lo que falta.
+- La ficha lo dice con `faltaSoloCarroceria` (`utils/pasosAsignacion.js`):
+  «Faltan las fotos de la carrocería» + «Hacer fotos» en `AsignacionDetalle`,
+  el aviso de la barra de pasos y `textoEstadoAmbulancia` de `utils/trabajos.js`.
+
+**El backend no cambia**: ya aceptaba las fotos de inicio de una en una (una
+por tipo+momento, la segunda reemplaza) y el aviso push «fotos de inicio
+completas» sale solo al llegar a las siete. **Trampa:** la carrocería hecha
+más de `FOTOS_INICIO_TARDE_MINUTOS` (30) después de «Inicio de la asignación»
+sale como «Fotos de inicio subidas tarde» para gestión; eso es correcto (es lo
+que mide), pero con dos tandas es más fácil que pase. Tests:
+`component/pages/InicioAsignacion.test.jsx`.
+
 ## 4. Base de datos
 
 Tablas (dónde se crean): `schema.sql` → `users, roles, user_roles,
@@ -3233,6 +3261,7 @@ solo actúa en el navegador no es un control de acceso.
 | Las facturas (un campo, quién las ve, el popup de subida) | Backend: `facturas.controller` (`COLUMNAS` + `DESDE`, nunca `SELECT *`) y `facturas.routes` (`ocultarSalvoRoles`). Frontend: `components/facturas/SubirFactura.jsx` lo usan **dos sitios**, la pantalla `Facturas` (proveedores) y la ficha del vehículo (`TabRevisiones`, mantenimiento, cargado con `lazy()`); lo compartido en `utils/facturas.js`. Quién las ve en la ficha va por rol (`veFacturas` en `VehicleHistory`), igual que el backend. Un chunk nuevo solo de administración, a `globIgnores` de `vite.config.js` (§2.8) |
 | Un tipo de foto obligatoria | `backend/config/constants.js` **y** `frontend/utils/constants.js`; `CameraCapture`; `asignaciones.controller` (`getProgreso`, `finalizarAsignacion`); posiblemente ENUM `vehicle_images.tipo_imagen` (migración); `PERFIL_POR_TIPO` (`calidadFoto.js`) si necesita otro criterio de luz y `TIPOS_CON_ENCUADRE` (`encuadreVehiculo.js`) si es una vista exterior de la ambulancia |
 | La subida de fotos de evidencia (timeout, reintentos, mensaje sin cobertura) | `utils/subidaFotos.js` → `uploadEvidencia` de `asignaciones.service` → catch de `InicioAsignacion`, `FinalizacionAsignacion`. Antes de reintentar algo nuevo, comprobar que el backend lo trata como idempotente (§3.3) |
+| Qué fotos de inicio van en cada tanda (mecánica con «Guardar», carrocería después) | `IMAGEN_TIPOS_INICIO_MECANICA`/`_EXTERIOR` de `frontend/utils/constants.js` → `SECCIONES` (`guardar`) y `pasoInicial` de `InicioAsignacion` → `faltaSoloCarroceria` (`utils/pasosAsignacion.js`, que usan `AsignacionDetalle` y `textoEstadoAmbulancia`) (§3.7) |
 | Un campo nuevo del trabajo que deba ver quien va en una ambulancia | La ficha (`getTrabajoCompleto`, `SELECT t.*`) lo lleva sola, pero la tarjeta del trabajo dentro de la ambulancia NO: `getAsignacionCompleta` (`t.<campo> AS trabajo_<campo>`) **y** `trabajoAparte` en `asignaciones.controller`. Listados con columnas a mano: `listTrabajos`, `misTrab`, `miCalendario`, `listTrabajosCalendario`. Formulario: `formularioInicial`/`validarTrabajo`/`payloadTrabajo` de `utils/trabajos.js`. Ejemplo: `ubicacion_url` (v34, §6.2) |
 | El atajo de fotos en local | `components/camera/fotosDePrueba.js` + `saltarFotos`/`botonSaltar` en `CameraCapture`. Siempre detrás de `import.meta.env.DEV` y con `import()` dinámico; tras tocarlo, `vite build` y comprobar que «FOTO DE PRUEBA» no está en `dist/assets` (§3.6) |
 | Cuándo avisa la revisión de una foto | `UMBRALES` en `utils/calidadFoto.js` / `UMBRALES_ENCUADRE` en `utils/encuadreVehiculo.js` → pasar `scripts/calibrar-calidad-foto.mjs` antes y después → tests. Texto y botones del aviso: `RevisionFoto` en `CameraCapture`. Nunca convertirlo en bloqueo (§3.5) |

@@ -9,8 +9,21 @@
  * del usuario): se marcan como tales y una asignación cerrada sin ellos los
  * enseña como «no consta», no como pendientes.
  */
-import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS } from './constants.js';
+import { ASIGNACION_ESTADO_COLORS, ASIGNACION_ESTADO_LABELS, IMAGEN_TIPOS_INICIO_EXTERIOR } from './constants.js';
 import { resumenJornadas, accionJornada } from './jornadas.js';
+
+/**
+ * ¿Lo único que falta de las fotos de inicio es la carrocería? Las de inicio
+ * van en dos tandas (2026-11-27): primero aceite, líquidos y cuadro, que se
+ * guardan solas, y después, con la ambulancia ya fuera, las cuatro caras.
+ * Recibe el `progreso.inicio` (o `progreso_fotos.inicio`) del backend.
+ */
+export function faltaSoloCarroceria(progresoInicio) {
+  const faltan = progresoInicio?.faltantes;
+  if (!Array.isArray(faltan) || !faltan.length) return false;
+  const exterior = IMAGEN_TIPOS_INICIO_EXTERIOR.map(t => t.key);
+  return faltan.every(k => exterior.includes(k));
+}
 
 export const PASOS_ASIGNACION = [
   { clave: 'inicio',     titulo: 'Inicio de la asignación', donde: 'En base, con fotos', campo: 'inicio_real_at' },
@@ -72,7 +85,9 @@ export function pasosAsignacion(asig, ahora = new Date()) {
     if (asig.solo_personal && sinFotos[p.clave]) paso.donde = sinFotos[p.clave];
     // Pulsó «Inicio de la asignación» pero le faltan fotos: sigue en este paso
     if (p.clave === 'inicio' && situacion === 'actual' && asig.inicio_real_at) {
-      paso.aviso = 'Faltan fotos';
+      paso.aviso = faltaSoloCarroceria(asig.progreso?.inicio || asig.progreso_fotos?.inicio)
+        ? 'Faltan fotos de la carrocería'
+        : 'Faltan fotos';
     }
     if (p.clave === 'jornadas' && situacion !== 'no_consta') {
       paso.donde = `${jornadas.hechas} de ${jornadas.total}`;
