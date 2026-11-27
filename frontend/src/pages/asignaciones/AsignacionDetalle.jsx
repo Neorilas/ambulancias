@@ -16,7 +16,7 @@ import ComentariosIncidencia from '../../components/common/ComentariosIncidencia
 import EnlaceMaps from '../../components/common/EnlaceMaps.jsx';
 import RecorridoServicio from '../../components/flota/RecorridoServicio.jsx';
 import PasosAsignacion from '../../components/common/PasosAsignacion.jsx';
-import { estadoVisible } from '../../utils/pasosAsignacion.js';
+import { estadoVisible, faltaSoloCarroceria } from '../../utils/pasosAsignacion.js';
 import InicioAsignacion from './InicioAsignacion.jsx';
 import FinalizacionAsignacion from './FinalizacionAsignacion.jsx';
 import AsignacionForm from './AsignacionForm.jsx';
@@ -485,6 +485,8 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
   const finalizada     = asig?.estado === 'finalizada' || asig?.estado === 'cancelada';
   const inicioIncompleto = asig?.progreso?.inicio && !asig.progreso.inicio.completo;
   const puedeInicio      = soyResponsable && !finalizada && inicioIncompleto && !sinAmbulancia;
+  // Mecánica guardada y carrocería pendiente: las fotos de inicio van en dos tandas
+  const soloFaltaCarroceria = faltaSoloCarroceria(asig?.progreso?.inicio);
   // Sin ambulancia no hay fotos: «Inicio» es solo el botón, con la misma
   // media hora de margen que el asistente
   const faltaInicioSinAmbulancia = sinAmbulancia && soyResponsable && !finalizada && !asig?.inicio_real_at;
@@ -606,12 +608,16 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
                     <p className="font-semibold text-warn-700 text-sm">
-                      {asig.inicio_real_at ? 'Faltan fotos de inicio' : 'Inicio de la asignación'}
+                      {!asig.inicio_real_at ? 'Inicio de la asignación'
+                        : soloFaltaCarroceria ? 'Faltan las fotos de la carrocería'
+                        : 'Faltan fotos de inicio'}
                     </p>
                     <p className="text-xs text-warn-700 mt-0.5">
-                      {asig.inicio_real_at
-                        ? 'Antes de poder finalizar, documenta el estado del vehículo al recibirlo'
-                        : 'En base, al recoger la ambulancia: márcalo y documenta su estado con las fotos'}
+                      {!asig.inicio_real_at
+                        ? 'En base, al recoger la ambulancia: márcalo y documenta su estado con las fotos'
+                        : soloFaltaCarroceria
+                          ? 'La revisión mecánica ya está guardada. Con la ambulancia fuera, haz las cuatro caras'
+                          : 'Antes de poder finalizar, documenta el estado del vehículo al recibirlo'}
                       {' '}({asig.progreso?.inicio?.completado || 0}/{asig.progreso?.inicio?.total || 7}).
                     </p>
                   </div>
@@ -619,7 +625,7 @@ export default function AsignacionDetalle({ id, onClose, desdeTrabajo = false })
                     onClick={() => abrirPaso('inicio')}
                     className="btn-primary text-xs whitespace-nowrap"
                   >
-                    {asig.inicio_real_at ? 'Subir ahora' : 'Empezar'}
+                    {!asig.inicio_real_at ? 'Empezar' : soloFaltaCarroceria ? 'Hacer fotos' : 'Subir ahora'}
                   </button>
                 </div>
               </div>

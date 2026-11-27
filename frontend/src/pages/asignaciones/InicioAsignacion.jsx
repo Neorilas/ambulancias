@@ -10,6 +10,7 @@ import {
   IMAGEN_TIPOS_INICIO_EXTERIOR,
 } from '../../utils/constants.js';
 import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from '../../utils/subidaFotos.js';
+import { getImageUrl } from '../../utils/imageUtils.js';
 
 /**
  * Wizard de INICIO de la asignación — revisión del vehículo antes de arrancar.
@@ -20,36 +21,70 @@ import { esFalloDeRed, mensajeFalloSubida, DURACION_AVISO_FALLO_SUBIDA_MS } from
  *
  * Secciones actuales:
  *   1. inicio    — botón "Inicio de la asignación" (registra la hora real / activa)
- *   2. photos    — Revisión mecánica (aceite, líquidos, cuadro)
+ *   2. photos    — Revisión mecánica (aceite, líquidos, cuadro) → «Guardar»
  *   3. photos    — Estado exterior (4 caras, orden libre)
  *   4. incidencias — fotos opcionales + observaciones / "No hay incidencias"
  *
- * Al terminar sube todas las fotos de inicio (momento='inicio'), las fotos de
+ * DOS TANDAS (2026-11-27). Las tres de mecánica se hacen con la ambulancia
+ * dentro; para la carrocería hay que sacarla, y entre medias el móvil se
+ * bloquea. Con todo en memoria hasta el final, a muchos se les caía la subida
+ * o perdían las fotos. Ahora la mecánica se SUBE con «Guardar» y sale una
+ * pausa («saca la ambulancia…»); si se cierra o se recarga, el asistente
+ * vuelve a abrirse por la carrocería: lo que ya está en el servidor
+ * (`asignacion.evidencias`) cuenta como hecho y no se pide otra vez.
+ *
+ * Al terminar sube las fotos de inicio que falten (momento='inicio'), las de
  * incidencia (momento='general') y registra la incidencia si se ha reportado.
  *
- * Props: asignacion, onDone(), onCancel()
+ * Props: asignacion (con `evidencias`), onDone(), onCancel()
  */
 
 // ── Definición de secciones (extensible) ─────────────────────────────────
 const SECCIONES = [
   { id: 'inicio',      tipo: 'inicio',      titulo: 'Inicio de la asignación' },
   { id: 'mecanica',    tipo: 'photos',      titulo: 'Revisión mecánica',
-    subtitulo: 'Aceite, líquidos y cuadro de instrumentos', fotos: IMAGEN_TIPOS_INICIO_MECANICA },
+    subtitulo: 'Aceite, líquidos y cuadro de instrumentos', fotos: IMAGEN_TIPOS_INICIO_MECANICA,
+    guardar: true },
   { id: 'exterior',    tipo: 'photos',      titulo: 'Estado exterior',
     subtitulo: 'Las cuatro caras del vehículo (orden libre)', fotos: IMAGEN_TIPOS_INICIO_EXTERIOR },
   { id: 'incidencias', tipo: 'incidencias', titulo: 'Incidencias' },
 ];
 
+// Las fotos de inicio que ya están en el servidor, por tipo: { tipo: url }
+function fotosInicioEnServidor(asignacion) {
+  const map = {};
+  for (const e of asignacion?.evidencias || []) {
+    if (e.momento === 'inicio' && e.tipo_imagen) map[e.tipo_imagen] = getImageUrl(e.image_url);
+  }
+  return map;
+}
+
+// Por dónde se abre: sin pulsar el inicio, por el botón; pulsado, por la
+// primera sección de fotos a la que le falte alguna (la carrocería, si la
+// mecánica ya se guardó); con todas, por las incidencias.
+function pasoInicial(activado, enServidor) {
+  if (!activado) return 0;
+  const i = SECCIONES.findIndex(s => s.tipo === 'photos' && s.fotos.some(t => !enServidor[t.key]));
+  return i === -1 ? SECCIONES.length - 1 : i;
+}
+
 export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
   const { notify } = useNotification();
 
-  const [step,   setStep]   = useState(0);
+  const activadoAlAbrir = asignacion?.estado === 'activa' && !!asignacion?.inicio_real_at;
+  // Lo que ya estaba subido al abrir. No se actualiza con lo que se sube aquí:
+  // eso lo lleva `subidas`, que guarda el File para saber si se repitió.
+  const [enServidor] = useState(() => fotosInicioEnServidor(asignacion));
+  const [step,   setStep]   = useState(() => pasoInicial(activadoAlAbrir, enServidor));
+  // Pausa entre la mecánica y la carrocería, tras guardar la primera tanda
+  const [pausa,  setPausa]  = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [fotos,  setFotos]  = useState({});          // { tipoKey: File } (inicio)
   const [incFotos,  setIncFotos]  = useState([]);    // File[] (incidencia)
   const [hayInc,    setHayInc]    = useState(false); // ¿reportar incidencia?
   const [observ,    setObserv]    = useState('');
   const [activando, setActivando] = useState(false);
-  const [activado,  setActivado]  = useState(asignacion?.estado === 'activa' && !!asignacion?.inicio_real_at);
+  const [activado,  setActivado]  = useState(activadoAlAbrir);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState({});
   // Fotos que ya están en el servidor. Si el envío se corta a mitad (red mala,
@@ -117,32 +152,67 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
     }
   };
 
+  // Hecha = hecha aquí o ya en el servidor al abrir
+  const fotoHecha = (key) => !!fotos[key] || !!enServidor[key];
+
+  // Sube las fotos de inicio de `tipos` hechas aquí que aún no han llegado.
+  // `cuenta.subidas` se va sumando para el mensaje de error: el estado
+  // `subidas` no se ve actualizado dentro de esta misma ejecución.
+  const subirFotosInicio = async (tipos, cuenta) => {
+    for (const tipo of tipos) {
+      const file = fotos[tipo.key];
+      if (!file) continue;
+      if (subidas.inicio[tipo.key] === file) continue;   // ya está en el servidor
+      setProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('tipo_imagen', tipo.key);
+      fd.append('momento', 'inicio');
+      await asignacionesService.uploadEvidencia(asignacion.id, fd);
+      cuenta.subidas++;
+      setSubidas(s => ({ ...s, inicio: { ...s.inicio, [tipo.key]: file } }));
+      setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
+    }
+  };
+  const cuentaDe = (tipos) => {
+    const conFoto = tipos.filter(t => fotos[t.key]);
+    return {
+      total:   conFoto.length,
+      subidas: conFoto.filter(t => subidas.inicio[t.key] === fotos[t.key]).length,
+    };
+  };
+
+  // ── Primera tanda: «Guardar» la revisión mecánica ───────────
+  const handleGuardar = async () => {
+    const tipos = seccion.fotos;
+    const cuenta = cuentaDe(tipos);
+    // Nada nuevo que subir (vuelve atrás desde la carrocería): se sigue sin pausa
+    if (cuenta.subidas === cuenta.total) { setStep(step + 1); return; }
+    setGuardando(true);
+    try {
+      await subirFotosInicio(tipos, cuenta);
+      setPausa(true);
+    } catch (err) {
+      if (esFalloDeRed(err)) {
+        notify.error(mensajeFalloSubida({ ...cuenta, boton: 'Guardar' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+      } else {
+        notify.error(err.response?.data?.message || err.message || 'No se han podido guardar las fotos');
+      }
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   // ── Envío final ─────────────────────────────────────────────
   const handleSubmit = async () => {
     setUploading(true);
-    // Cuenta local para el mensaje de error: el estado `subidas` no se ve
-    // actualizado dentro de esta misma ejecución.
-    const conFoto = IMAGEN_TIPOS_INICIO.filter(t => fotos[t.key]);
     const incPendientes = hayInc ? incFotos : [];
-    const total = conFoto.length + incPendientes.length;
-    let enServidor = conFoto.filter(t => subidas.inicio[t.key] === fotos[t.key]).length
-                   + incPendientes.filter(f => subidas.incidencia.has(f)).length;
+    const cuenta = cuentaDe(IMAGEN_TIPOS_INICIO);
+    cuenta.total   += incPendientes.length;
+    cuenta.subidas += incPendientes.filter(f => subidas.incidencia.has(f)).length;
     try {
-      // 1. Fotos de inicio
-      for (const tipo of IMAGEN_TIPOS_INICIO) {
-        const file = fotos[tipo.key];
-        if (!file) continue;
-        if (subidas.inicio[tipo.key] === file) continue;   // ya está en el servidor
-        setProgress(p => ({ ...p, [tipo.key]: 'Subiendo…' }));
-        const fd = new FormData();
-        fd.append('image', file);
-        fd.append('tipo_imagen', tipo.key);
-        fd.append('momento', 'inicio');
-        await asignacionesService.uploadEvidencia(asignacion.id, fd);
-        enServidor++;
-        setSubidas(s => ({ ...s, inicio: { ...s.inicio, [tipo.key]: file } }));
-        setProgress(p => ({ ...p, [tipo.key]: 'Subida' }));
-      }
+      // 1. Fotos de inicio (las que falten: la mecánica ya suele estar guardada)
+      await subirFotosInicio(IMAGEN_TIPOS_INICIO, cuenta);
 
       // 2. Fotos de incidencia (opcionales, no bloquean)
       if (hayInc) {
@@ -153,7 +223,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
           fd.append('tipo_imagen', 'danos');
           fd.append('momento', 'general');
           await asignacionesService.uploadEvidencia(asignacion.id, fd);
-          enServidor++;
+          cuenta.subidas++;
           setSubidas(s => ({ ...s, incidencia: new Set(s.incidencia).add(file) }));
         }
         // 3. Registrar la incidencia (queda en el historial del vehículo)
@@ -165,7 +235,7 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       onDone?.();
     } catch (err) {
       if (esFalloDeRed(err)) {
-        notify.error(mensajeFalloSubida({ subidas: enServidor, total, boton: 'Finalizar revisión' }), DURACION_AVISO_FALLO_SUBIDA_MS);
+        notify.error(mensajeFalloSubida({ ...cuenta, boton: 'Finalizar revisión' }), DURACION_AVISO_FALLO_SUBIDA_MS);
       } else {
         notify.error(err.response?.data?.message || err.message || 'Error al guardar la revisión');
       }
@@ -210,6 +280,38 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
       </div>
     </div>
   );
+
+  // ── Pausa tras guardar la mecánica ──────────────────────────
+  // Lo normal aquí es bloquear el móvil y sacar la ambulancia: al desbloquear
+  // se encuentra esta pantalla pidiendo la carrocería. Si el navegador la ha
+  // descartado mientras tanto, la ficha dice «Faltan las fotos de la
+  // carrocería» y el asistente se abre directamente por ahí.
+  if (pausa) {
+    return (
+      <div className="space-y-6" data-testid="pausa-carroceria">
+        <Stepper />
+        <div className="card bg-ok-50 border border-ok-200">
+          <p className="font-semibold text-ok-600 text-sm">Revisión mecánica guardada</p>
+          <p className="text-sm text-neutral-600 mt-1">
+            Las fotos del aceite, los líquidos y el cuentakilómetros ya están subidas.
+          </p>
+        </div>
+        <div className="card bg-primary-50 border border-primary-200 space-y-1">
+          <p className="font-semibold text-primary-800">Ahora, la carrocería</p>
+          <p className="text-sm text-primary-800">
+            Saca la ambulancia y haz las fotos de las cuatro caras. Puedes bloquear el
+            teléfono mientras tanto: al volver te las pedirá aquí.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onDone} className="btn-secondary flex-1">Más tarde</button>
+          <button onClick={() => { setPausa(false); setStep(step + 1); }} className="btn-primary flex-1">
+            Fotos de la carrocería →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Sección: Inicio de la asignación ─────────────────────────────
   if (seccion.tipo === 'inicio') {
@@ -270,8 +372,12 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
   // ── Sección: fotos (mecánica / exterior) ────────────────────
   if (seccion.tipo === 'photos') {
     const tipos = seccion.fotos;
-    const done  = tipos.filter(t => fotos[t.key]).length;
+    const done  = tipos.filter(t => fotoHecha(t.key)).length;
     const completa = done === tipos.length;
+    const ocupado  = guardando;
+    // Hechas aquí y aún sin subir; si no hay ninguna (ya guardadas antes), no
+    // hay nada que «Guardar» y el botón solo avanza
+    const hayNuevas = tipos.some(t => fotos[t.key] && subidas.inicio[t.key] !== fotos[t.key]);
     return (
       <div className="space-y-6">
         <Header />
@@ -284,8 +390,8 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
 
         <div className="grid grid-cols-2 gap-3">
           {tipos.map((tipo, index) => {
-            const file = fotos[tipo.key];
-            const preview = previews[tipo.key];
+            const file = fotoHecha(tipo.key);
+            const preview = previews[tipo.key] || enServidor[tipo.key];
             return (
               <div key={tipo.key} className="space-y-1">
                 <p className="text-xs font-medium text-neutral-600">{tipo.label}</p>
@@ -318,11 +424,24 @@ export default function InicioAsignacion({ asignacion, onDone, onCancel }) {
           })}
         </div>
 
+        {seccion.guardar && (hayNuevas || !completa) && (
+          <p className="text-xs text-neutral-500">
+            Al pulsar <strong>Guardar</strong> se suben estas tres. Las de la carrocería se
+            hacen después, con la ambulancia fuera.
+          </p>
+        )}
+
         <div className="flex gap-3">
-          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1">← Atrás</button>
-          <button onClick={() => setStep(step + 1)} disabled={!completa} className="btn-primary flex-1">
-            Siguiente →
-          </button>
+          <button onClick={() => setStep(step - 1)} className="btn-secondary flex-1" disabled={ocupado}>← Atrás</button>
+          {seccion.guardar ? (
+            <button onClick={handleGuardar} disabled={!completa || ocupado} className="btn-primary flex-1">
+              {guardando ? 'Guardando…' : hayNuevas || !completa ? 'Guardar' : 'Siguiente →'}
+            </button>
+          ) : (
+            <button onClick={() => setStep(step + 1)} disabled={!completa} className="btn-primary flex-1">
+              Siguiente →
+            </button>
+          )}
         </div>
       </div>
     );

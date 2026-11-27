@@ -16,6 +16,7 @@ import { idsElegidos, nombreMiembro } from './miembrosAsignacion.js';
 import { parseKm } from './kmUtils.js';
 import { esEnlaceGoogleMaps } from './mapas.js';
 import { horarioDesdeApi, horarioAPayload, errorHorario, resumenJornadas, cruzaDias } from './jornadas.js';
+import { faltaSoloCarroceria } from './pasosAsignacion.js';
 
 const CERRADOS = [TRABAJO_ESTADOS.FINALIZADO, TRABAJO_ESTADOS.FINALIZADO_ANTICIPADO];
 
@@ -311,7 +312,11 @@ export function textoEstadoAmbulancia(a) {
     case 'programada': return `Programada · empieza ${formatDateTimeShort(a.fecha_inicio)}`;
     default:
       if (!a.inicio_real_at) return 'Sin iniciar';
-      if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) return 'Iniciada · faltan fotos de inicio';
+      if (a.progreso_fotos && !a.progreso_fotos.inicio?.completo) {
+        return faltaSoloCarroceria(a.progreso_fotos.inicio)
+          ? 'Iniciada · faltan fotos de la carrocería'
+          : 'Iniciada · faltan fotos de inicio';
+      }
       if (resumenJornadas(a).total) {
         const j = resumenJornadas(a);
         // «hechas», como la barra de pasos: las dos cuentan lo mismo

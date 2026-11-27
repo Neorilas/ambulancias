@@ -231,6 +231,8 @@ describe('utils/trabajos', () => {
       ['programada', { estado: 'programada' }, /^Programada · empieza/],
       ['activa por el cron', { inicio_real_at: null }, /^Sin iniciar$/],
       ['sin fotos', { progreso_fotos: { inicio: { completo: false } } }, /faltan fotos de inicio/],
+      ['sin la carrocería', { progreso_fotos: { inicio: { completo: false, faltantes: ['frontal', 'trasera'] } } },
+        /faltan fotos de la carrocería$/],
       // En «Mis trabajos» no llega el progreso: no se inventa que faltan
       ['sin progreso', { progreso_fotos: undefined }, /^En camino$/],
       ['en el evento', { llegada_servicio_at: 'x' }, /^En el evento\/servicio$/],
